@@ -1,8 +1,20 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Annotated, Optional
+
 import typer
+
+from verdict.wizard import run_wizard
 
 app = typer.Typer(help="Create a new evaluation spec (interactive wizard)")
 
 
 @app.callback(invoke_without_command=True)
-def new_cmd() -> None:
-    pass
+def new_cmd(
+    name: Annotated[Optional[str], typer.Argument(help="Eval name (used as default filename)")] = None,
+    skill: Annotated[Optional[str], typer.Option("--skill", help="Pre-populate skill path")] = None,
+    backend: Annotated[str, typer.Option("--backend", help="Pre-populate backend")] = "claude",
+    output: Annotated[Optional[Path], typer.Option("--out", help="Output path for .eval.yaml")] = None,
+) -> None:
+    run_wizard(name=name, output=output, skill_path=skill, backend=backend)
