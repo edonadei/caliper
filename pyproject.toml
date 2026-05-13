@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "verdict-eval"
+version = "0.1.0"
+description = "CLI for evaluating Claude Code skills and AI agents"
+requires-python = ">=3.10"
+dependencies = [
+    "typer>=0.15",
+    "rich>=13",
+    "pydantic>=2",
+    "pyyaml>=6",
+    "anthropic>=0.28",
+]
+
+[project.optional-dependencies]
+codex = ["openai>=1.0"]
+dev   = ["pytest", "ruff"]
+
+[project.scripts]
+verdict = "verdict.main:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["verdict"]
