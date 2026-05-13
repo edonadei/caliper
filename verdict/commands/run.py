@@ -81,6 +81,7 @@ def run_cmd(
         workers=workers,
         timeout=timeout,
         baseline=baseline,
+        judge_strategy=judge_strategy,
         on_attempt_done=on_attempt_done,
     )
 

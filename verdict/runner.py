@@ -129,6 +129,7 @@ class TaskRunner:
         workers: int = 4,
         timeout: int = 120,
         baseline: bool = False,
+        judge_strategy: str = "autorater",
         on_attempt_done: Callable[[str, int, bool, bool], None] | None = None,
     ) -> None:
         self._harness = harness
@@ -139,6 +140,7 @@ class TaskRunner:
         self._workers = workers
         self._timeout = timeout
         self._baseline = baseline
+        self._judge_strategy = judge_strategy
         self._on_attempt_done = on_attempt_done
 
         auto_forbidden = [
@@ -197,7 +199,7 @@ class TaskRunner:
                 spec=spec_name(self._spec_path),
                 timestamp=datetime.now(tz=timezone.utc),
                 k=self._k,
-                judge_strategy="autorater",
+                judge_strategy=self._judge_strategy,
                 backend=spec.skill.backend,
                 model=spec.skill.model,
             ),
