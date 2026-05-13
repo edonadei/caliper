@@ -13,16 +13,14 @@ sandbox:
     - "./.verdict/.*"
 
 tasks:
-  - id: task-001
-    name: Validates a correct spec and reports it as valid
+  - name: Validates a correct spec and reports it as valid
     setup: |
       cat > /tmp/verdict-test-valid.eval.yaml << 'EOF'
       skill:
         path: ~/.claude/commands/review.md
         backend: claude
       tasks:
-        - id: t1
-          name: Test task
+        - name: Test task
           prompt: /review the diff
           expect: The review identifies at least one issue
       EOF
@@ -32,22 +30,20 @@ tasks:
       and tell me whether it is valid.
     expect: The agent runs verdict validate and reports the spec is valid with no errors
     assert: |
-      import subprocess, sys
+      import subprocess
       result = subprocess.run(
           ["verdict", "validate", "/tmp/verdict-test-valid.eval.yaml"],
           capture_output=True, text=True
       )
       assert result.returncode == 0, f"verdict validate exited {result.returncode}: {result.stderr}"
 
-  - id: task-002
-    name: Identifies errors in an invalid spec
+  - name: Identifies errors in an invalid spec
     setup: |
       cat > /tmp/verdict-test-invalid.eval.yaml << 'EOF'
       skill:
         backend: claude
       tasks:
-        - id: t1
-          name: Broken task
+        - name: Broken task
           prompt: do something
       EOF
     cleanup: rm -f /tmp/verdict-test-invalid.eval.yaml
@@ -58,13 +54,12 @@ tasks:
       The agent runs verdict validate and reports that the spec is invalid,
       describing that the task is missing both expect and assert fields
 
-  - id: task-003
-    name: Creates a valid eval spec file on request
+  - name: Creates a valid eval spec file on request
     cleanup: rm -f /tmp/verdict-created.eval.yaml
     prompt: >
       Create an evaluation spec file at /tmp/verdict-created.eval.yaml for a skill
-      that reviews code. Include one task: id task-001, name "Reviews a PR", prompt
-      "/review the diff in /tmp/repo", and expectation "The review identifies at least
+      that reviews code. Include one task named "Reviews a PR", with prompt
+      "/review the diff in /tmp/repo" and expectation "The review identifies at least
       one issue". Use claude as the backend.
     expect: A valid .eval.yaml file is written at /tmp/verdict-created.eval.yaml
     assert: |
@@ -80,8 +75,7 @@ tasks:
       assert "prompt" in task, "Task missing 'prompt'"
       assert "expect" in task or "assert" in task, "Task missing both 'expect' and 'assert'"
 
-  - id: task-004
-    name: Lists available evaluations gracefully
+  - name: Lists available evaluations gracefully
     prompt: >
       Use verdict to list all available evaluations and tell me what you find.
     expect: >

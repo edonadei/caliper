@@ -13,15 +13,13 @@ sandbox:
     - "./.verdict/.*"
 
 tasks:
-  - id: task-001
-    name: Detects a null pointer bug
-    setup: echo "setting up task-001"
-    cleanup: echo "cleaning up task-001"
+  - name: Detects a null pointer bug
+    setup: echo "setting up"
+    cleanup: echo "cleaning up"
     prompt: /review the staged changes in /tmp/eval-repo
     expect: The review identifies a null pointer dereference
 
-  - id: task-002
-    name: Creates an output file
+  - name: Creates an output file
     setup: mkdir -p /tmp/eval-work
     cleanup: rm -rf /tmp/eval-work
     prompt: Write hello world to /tmp/eval-work/out.txt

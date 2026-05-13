@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class TaskSpec(BaseModel):
-    id: str
+    id: str = ""
     name: str
     prompt: str
     expect: str | None = None
@@ -20,7 +20,7 @@ class TaskSpec(BaseModel):
     @model_validator(mode="after")
     def require_at_least_one_check(self) -> "TaskSpec":
         if not self.expect and not self.assert_script:
-            raise ValueError(f"Task '{self.id}' must have at least one of: expect, assert")
+            raise ValueError(f"Task '{self.name}' must have at least one of: expect, assert")
         return self
 
 
@@ -52,6 +52,8 @@ def load_spec(path: Path) -> EvalSpec:
     import yaml
 
     raw = yaml.safe_load(path.read_text())
+    for i, task in enumerate(raw.get("tasks", []), 1):
+        task["id"] = f"task-{i:03d}"
     return EvalSpec.model_validate(raw)
 
 
