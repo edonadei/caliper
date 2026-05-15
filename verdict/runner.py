@@ -229,6 +229,10 @@ class TaskRunner:
         tmp_dir = tempfile.mkdtemp(prefix="verdict-")
         try:
             self._run_shell(task.setup)
+            resolved_extra_path = [
+                str((self._spec_path.parent / p).resolve())
+                for p in self._spec.sandbox.extra_path
+            ]
             attempt_result = self._harness.run(
                 task_id=task.id,
                 attempt=attempt,
@@ -237,6 +241,7 @@ class TaskRunner:
                 model=self._spec.skill.model,
                 timeout=self._timeout,
                 isolated_home=tmp_dir,
+                extra_path=resolved_extra_path,
             )
 
             cheat_violations = self._cheat.check(attempt_result.transcript)

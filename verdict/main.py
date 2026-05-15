@@ -2,7 +2,11 @@ import typer
 from rich.console import Console
 from rich import print as rprint
 
-from verdict.commands import run, new, report, list_cmd, validate
+from verdict.commands.run import run_cmd
+from verdict.commands.new import new_cmd
+from verdict.commands.report import report_cmd
+from verdict.commands.list_cmd import list_cmd_fn
+from verdict.commands.validate import validate_cmd
 
 app = typer.Typer(
     name="verdict",
@@ -11,11 +15,11 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-app.add_typer(run.app, name="run")
-app.add_typer(new.app, name="new")
-app.add_typer(report.app, name="report")
-app.add_typer(list_cmd.app, name="list")
-app.add_typer(validate.app, name="validate")
+app.command("run", help="Run an evaluation spec")(run_cmd)
+app.command("new", help="Create a new evaluation spec (interactive wizard)")(new_cmd)
+app.command("report", help="Render saved evaluation results")(report_cmd)
+app.command("list", help="List evaluation specs and past runs")(list_cmd_fn)
+app.command("validate", help="Validate an evaluation spec file")(validate_cmd)
 
 
 def main() -> None:

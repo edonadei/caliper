@@ -10,11 +10,9 @@ from rich.table import Table
 
 from verdict.schema.results import RunResults
 
-app = typer.Typer(help="List evaluation specs and past runs")
 console = Console()
 
 
-@app.callback(invoke_without_command=True)
 def list_cmd_fn(
     spec: Annotated[Optional[str], typer.Argument(help="Spec name to list runs for")] = None,
     directory: Annotated[Path, typer.Option("--dir", help="Directory to search")] = Path("."),

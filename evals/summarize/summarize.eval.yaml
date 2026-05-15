@@ -1,0 +1,50 @@
+skill:
+  path: ./SKILL.md
+  backend: claude
+  model: claude-sonnet-4-6
+
+judge:
+  backend: claude
+  model: claude-haiku-4-5-20251001
+
+sandbox:
+  extra_path:
+    - "./bin"
+  forbidden_files:
+    - ".*\\.eval\\.yaml$"
+
+tasks:
+  - name: Summarize a plain URL
+    prompt: "Summarize this article for me: https://example.com/blog/open-source"
+    expect: >
+      Claude invokes the summarize CLI with the URL as an argument and presents
+      the resulting summary to the user. Claude does not ask clarifying questions
+      before running the command.
+
+  - name: Identify a YouTube video's content
+    prompt: "What's this YouTube video about? https://youtu.be/dQw4w9WgXcQ"
+    expect: >
+      Claude invokes summarize with the YouTube URL and includes the --youtube auto
+      flag. Claude presents the video summary to the user.
+
+  - name: Transcribe a YouTube video
+    prompt: "Transcribe this YouTube video: https://youtu.be/dQw4w9WgXcQ"
+    expect: >
+      Claude invokes summarize with --youtube auto and --extract-only flags
+      to extract the transcript rather than generating a summary.
+      Claude presents the transcript output to the user.
+
+  - name: Summarize with explicit length constraint
+    prompt: "Give me a short summary of https://example.com/long-report"
+    expect: >
+      Claude invokes summarize with the --length short flag in addition to the URL.
+      The summary is presented concisely to the user.
+
+  - name: Summarize a local PDF file
+    setup: echo "%PDF-1.4 fake pdf" > /tmp/report.pdf
+    cleanup: rm -f /tmp/report.pdf
+    prompt: "Can you summarize /tmp/report.pdf for me?"
+    expect: >
+      Claude invokes summarize with the local file path /tmp/report.pdf as the
+      argument. Claude presents the summary of the PDF to the user without
+      asking clarifying questions first.

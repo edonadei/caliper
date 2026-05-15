@@ -8,11 +8,9 @@ from rich import print as rprint
 
 from verdict.schema.spec import load_spec, spec_name
 
-app = typer.Typer(help="Validate an evaluation spec file")
 console = Console()
 
 
-@app.callback(invoke_without_command=True)
 def validate_cmd(
     spec_file: Path = typer.Argument(..., help="Path to .eval.yaml spec file"),
 ) -> None:

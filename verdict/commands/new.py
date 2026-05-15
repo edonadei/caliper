@@ -7,10 +7,6 @@ import typer
 
 from verdict.wizard import run_wizard
 
-app = typer.Typer(help="Create a new evaluation spec (interactive wizard)")
-
-
-@app.callback(invoke_without_command=True)
 def new_cmd(
     name: Annotated[Optional[str], typer.Argument(help="Eval name (used as default filename)")] = None,
     skill: Annotated[Optional[str], typer.Option("--skill", help="Pre-populate skill path")] = None,

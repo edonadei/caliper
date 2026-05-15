@@ -1,0 +1,12 @@
+#!/bin/bash
+# Mock summarize binary for eval purposes
+echo "## Summary"
+echo ""
+echo "**Source:** $1"
+echo ""
+echo "This content discusses key concepts in software development and open-source collaboration."
+echo ""
+echo "**Key points:**"
+echo "- Main theme: innovation through community effort"
+echo "- Notable detail: emphasis on practical implementation"
+echo "- Conclusion: actionable next steps provided"

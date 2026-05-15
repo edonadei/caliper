@@ -38,6 +38,7 @@ class HarnessBackend(ABC):
         model: str | None,
         timeout: int,
         isolated_home: str,
+        extra_path: list[str] | None = None,
     ) -> AttemptResult: ...
 
     @property

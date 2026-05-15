@@ -9,11 +9,9 @@ from rich.console import Console
 from verdict.reporter import print_results, results_to_json
 from verdict.schema.results import RunResults
 
-app = typer.Typer(help="Render saved evaluation results")
 console = Console()
 
 
-@app.callback(invoke_without_command=True)
 def report_cmd(
     spec_or_file: Annotated[str, typer.Argument(help="Spec name or path to results JSON")],
     run: Annotated[Optional[str], typer.Option("--run", help="Specific run timestamp")] = None,

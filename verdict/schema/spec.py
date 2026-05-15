@@ -37,6 +37,7 @@ class JudgeConfig(BaseModel):
 
 class SandboxConfig(BaseModel):
     forbidden_files: list[str] = []
+    extra_path: list[str] = []
 
 
 class EvalSpec(BaseModel):

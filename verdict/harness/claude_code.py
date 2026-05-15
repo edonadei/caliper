@@ -29,6 +29,7 @@ class ClaudeCodeHarness(HarnessBackend):
         model: str | None,
         timeout: int,
         isolated_home: str,
+        extra_path: list[str] | None = None,
     ) -> AttemptResult:
         home = Path(isolated_home)
         commands_dir = home / ".claude" / "commands"
@@ -42,7 +43,7 @@ class ClaudeCodeHarness(HarnessBackend):
             skill_file = commands_dir / f"{skill_name}-vrd-{uid}.md"
             skill_file.write_text(skill_src.read_text())
 
-        env = self._build_env(isolated_home)
+        env = self._build_env(isolated_home, extra_path or [])
         cmd = self._build_cmd(prompt, model or self._model)
 
         start = time.monotonic()
@@ -93,10 +94,13 @@ class ClaudeCodeHarness(HarnessBackend):
             cmd += ["--model", model]
         return cmd
 
-    def _build_env(self, isolated_home: str) -> dict[str, str]:
+    def _build_env(self, isolated_home: str, extra_path: list[str]) -> dict[str, str]:
+        base_path = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
+        if extra_path:
+            base_path = ":".join(extra_path) + ":" + base_path
         env = {
             "HOME": isolated_home,
-            "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+            "PATH": base_path,
         }
         for key in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
             if key in os.environ:

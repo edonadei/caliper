@@ -18,20 +18,18 @@ from verdict.reporter import (
 from verdict.runner import TaskRunner
 from verdict.schema.spec import load_spec, spec_name
 
-app = typer.Typer(help="Run an evaluation spec")
 console = Console()
 
 
-@app.callback(invoke_without_command=True)
 def run_cmd(
-    spec_file: Annotated[Path, typer.Argument(help="Path to .eval.yaml spec file")],
-    k: Annotated[int, typer.Option("--k", help="Attempts per task")] = 3,
-    workers: Annotated[int, typer.Option("--workers", help="Parallel task workers")] = 4,
-    timeout: Annotated[int, typer.Option("--timeout", help="Seconds per attempt")] = 120,
-    baseline: Annotated[bool, typer.Option("--baseline", help="Also run without skill for delta")] = False,
-    judge_strategy: Annotated[str, typer.Option("--judge", help="Judge strategy: autorater | script")] = "autorater",
-    output: Annotated[Optional[Path], typer.Option("--output", help="Save results JSON to path")] = None,
-    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Show per-attempt reasoning")] = False,
+    spec_file: Path = typer.Argument(..., help="Path to .eval.yaml spec file"),
+    k: int = typer.Option(3, "--k", help="Attempts per task"),
+    workers: int = typer.Option(4, "--workers", help="Parallel task workers"),
+    timeout: int = typer.Option(120, "--timeout", help="Seconds per attempt"),
+    baseline: bool = typer.Option(False, "--baseline", help="Also run without skill for delta"),
+    judge_strategy: str = typer.Option("autorater", "--judge", help="Judge strategy: autorater | script"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Save results JSON to path"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show per-attempt reasoning"),
 ) -> None:
     if not spec_file.exists():
         console.print(f"[bold red]Error:[/bold red] File not found: {spec_file}")
