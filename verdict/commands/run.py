@@ -27,7 +27,7 @@ def run_cmd(
     workers: int = typer.Option(4, "--workers", help="Parallel task workers"),
     timeout: int = typer.Option(120, "--timeout", help="Seconds per attempt"),
     baseline: bool = typer.Option(False, "--baseline", help="Also run without skill for delta"),
-    judge_strategy: str = typer.Option("autorater", "--judge", help="Judge strategy: autorater | claude-code | script"),
+    judge_strategy: str = typer.Option("autorater", "--judge", help="Judge strategy: autorater | autorater-sdk | script"),
     output: Optional[Path] = typer.Option(None, "--output", help="Save results JSON to path"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show per-attempt reasoning"),
 ) -> None:

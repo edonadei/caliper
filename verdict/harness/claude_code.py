@@ -35,6 +35,18 @@ class ClaudeCodeHarness(HarnessBackend):
         commands_dir = home / ".claude" / "commands"
         commands_dir.mkdir(parents=True, exist_ok=True)
 
+        # Copy auth files from the real HOME so the CLI finds its credentials.
+        # Without this, the isolated HOME causes claude to fall back to
+        # ANTHROPIC_API_KEY (which may be absent or unfunded).
+        real_home = Path.home()
+        for src, dst in [
+            (real_home / ".claude.json", home / ".claude.json"),
+            (real_home / ".claude" / ".credentials.json", home / ".claude" / ".credentials.json"),
+        ]:
+            if src.exists():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+
         skill_file: Path | None = None
         if skill_path:
             skill_src = Path(skill_path).expanduser()
@@ -89,6 +101,7 @@ class ClaudeCodeHarness(HarnessBackend):
             "-p", prompt,
             "--output-format", "stream-json",
             "--verbose",
+            "--dangerously-skip-permissions",
         ]
         if model:
             cmd += ["--model", model]
@@ -102,9 +115,15 @@ class ClaudeCodeHarness(HarnessBackend):
             "HOME": isolated_home,
             "PATH": base_path,
         }
-        for key in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
-            if key in os.environ:
-                env[key] = os.environ[key]
+        # Only forward ANTHROPIC_API_KEY if the caller explicitly set it AND
+        # credentials.json is absent (i.e. the user is relying on the key, not
+        # the claude OAuth session). Forwarding the key when credentials.json is
+        # present would override stored OAuth auth with a potentially unfunded key.
+        has_credentials = (Path.home() / ".claude" / ".credentials.json").exists()
+        if not has_credentials:
+            for key in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
+                if key in os.environ:
+                    env[key] = os.environ[key]
         return env
 
     def _parse_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:

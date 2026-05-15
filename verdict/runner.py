@@ -233,11 +233,17 @@ class TaskRunner:
                 str((self._spec_path.parent / p).resolve())
                 for p in self._spec.sandbox.extra_path
             ]
+            # Resolve skill path relative to the spec file, not CWD
+            skill_path: str | None = None
+            if with_skill and self._spec.skill.path:
+                skill_path = str(
+                    (self._spec_path.parent / self._spec.skill.path).resolve()
+                )
             attempt_result = self._harness.run(
                 task_id=task.id,
                 attempt=attempt,
                 prompt=task.prompt,
-                skill_path=self._spec.skill.path if with_skill else None,
+                skill_path=skill_path,
                 model=self._spec.skill.model,
                 timeout=self._timeout,
                 isolated_home=tmp_dir,
