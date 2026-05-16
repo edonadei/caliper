@@ -30,6 +30,7 @@ def run_cmd(
     judge_strategy: str = typer.Option("autorater", "--judge", help="Judge strategy: autorater | autorater-sdk | script"),
     output: Optional[Path] = typer.Option(None, "--output", help="Save results JSON to path"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show per-attempt reasoning"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Override the skill model (e.g. claude-sonnet-4-6)"),
 ) -> None:
     if not spec_file.exists():
         console.print(f"[bold red]Error:[/bold red] File not found: {spec_file}")
@@ -40,6 +41,9 @@ def run_cmd(
     except Exception as exc:
         console.print(f"[bold red]Invalid spec:[/bold red] {exc}")
         raise typer.Exit(1)
+
+    if model:
+        spec.skill.model = model
 
     name = spec_name(spec_file)
     print_banner(name, k, spec.skill.backend)

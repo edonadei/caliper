@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -47,6 +48,15 @@ class ClaudeCodeHarness(HarnessBackend):
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dst)
 
+        # On macOS, OAuth credentials may live in the Keychain rather than in
+        # .credentials.json. Seed the isolated home so the subprocess can auth
+        # without a browser login flow.
+        creds_dst = home / ".claude" / ".credentials.json"
+        if sys.platform == "darwin" and not creds_dst.exists():
+            self._seed_credentials_from_keychain(creds_dst)
+
+        has_file_credentials = creds_dst.exists()
+
         skill_file: Path | None = None
         if skill_path:
             skill_src = Path(skill_path).expanduser()
@@ -55,7 +65,7 @@ class ClaudeCodeHarness(HarnessBackend):
             skill_file = commands_dir / f"{skill_name}-vrd-{uid}.md"
             skill_file.write_text(skill_src.read_text())
 
-        env = self._build_env(isolated_home, extra_path or [])
+        env = self._build_env(isolated_home, extra_path or [], has_file_credentials)
         cmd = self._build_cmd(prompt, model or self._model)
 
         start = time.monotonic()
@@ -95,6 +105,20 @@ class ClaudeCodeHarness(HarnessBackend):
             error=proc.stderr.strip() if proc.returncode != 0 and not final_output else None,
         )
 
+    def _seed_credentials_from_keychain(self, dst: Path) -> None:
+        try:
+            result = subprocess.run(
+                ["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_text(result.stdout.strip())
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
     def _build_cmd(self, prompt: str, model: str | None) -> list[str]:
         cmd = [
             "claude",
@@ -107,23 +131,42 @@ class ClaudeCodeHarness(HarnessBackend):
             cmd += ["--model", model]
         return cmd
 
-    def _build_env(self, isolated_home: str, extra_path: list[str]) -> dict[str, str]:
-        base_path = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
+    def _build_env(
+        self, isolated_home: str, extra_path: list[str], has_file_credentials: bool = False
+    ) -> dict[str, str]:
+        base_path = os.environ.get("PATH", "")
+
+        # On macOS, IDE-launched processes often have a stripped PATH that
+        # omits Homebrew prefixes. Prepend them when present so tools installed
+        # via Homebrew (e.g. on Apple Silicon at /opt/homebrew/bin) are found.
+        if sys.platform == "darwin":
+            homebrew_candidates = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"]
+            existing = set(base_path.split(os.pathsep))
+            additions = [p for p in homebrew_candidates if os.path.isdir(p) and p not in existing]
+            if additions:
+                base_path = os.pathsep.join(additions) + os.pathsep + base_path
+
         if extra_path:
-            base_path = ":".join(extra_path) + ":" + base_path
-        env = {
+            base_path = os.pathsep.join(extra_path) + os.pathsep + base_path
+
+        env: dict[str, str] = {
             "HOME": isolated_home,
             "PATH": base_path,
         }
-        # Only forward ANTHROPIC_API_KEY if the caller explicitly set it AND
-        # credentials.json is absent (i.e. the user is relying on the key, not
-        # the claude OAuth session). Forwarding the key when credentials.json is
-        # present would override stored OAuth auth with a potentially unfunded key.
-        has_credentials = (Path.home() / ".claude" / ".credentials.json").exists()
-        if not has_credentials:
+
+        # macOS uses TMPDIR for the per-user secure temp directory; Node.js
+        # (and therefore the claude CLI) reads it to locate scratch space.
+        if sys.platform == "darwin" and "TMPDIR" in os.environ:
+            env["TMPDIR"] = os.environ["TMPDIR"]
+
+        # Only forward API keys when there are no file-based credentials and
+        # no Keychain credentials — avoids overriding valid OAuth auth with a
+        # potentially unfunded key.
+        if not has_file_credentials:
             for key in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
                 if key in os.environ:
                     env[key] = os.environ[key]
+
         return env
 
     def _parse_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:
