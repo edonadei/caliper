@@ -1,0 +1,84 @@
+skill:
+  path: ./SKILL.md
+  backend: claude
+  model: claude-sonnet-4-6
+
+judge:
+  backend: claude
+  model: claude-sonnet-4-6
+
+tasks:
+  - name: Conventional commit on a feature branch
+    setup: >
+      rm -rf /tmp/vrd-commit-1 && mkdir /tmp/vrd-commit-1 && cd /tmp/vrd-commit-1 &&
+      git init && git config user.email "eval@test.com" && git config user.name "Eval" &&
+      echo "# App" > README.md && git add README.md && git commit -m "init" &&
+      git checkout -b feat/user-auth &&
+      printf 'def login(user, pwd):\n    return check_credentials(user, pwd)\n' > auth.py &&
+      git add auth.py
+    cleanup: rm -rf /tmp/vrd-commit-1
+    prompt: "I've staged a new auth.py file in /tmp/vrd-commit-1. Please commit it."
+    expect: >
+      Agent navigates to /tmp/vrd-commit-1, inspects the staged diff, proposes a
+      Conventional Commit message (e.g. feat: add login function), asks for
+      confirmation before committing, and completes the commit after confirmation.
+
+  - name: Asks about branching when on main
+    setup: >
+      rm -rf /tmp/vrd-commit-2 && mkdir /tmp/vrd-commit-2 && cd /tmp/vrd-commit-2 &&
+      git init && git config user.email "eval@test.com" && git config user.name "Eval" &&
+      echo "# App" > README.md && git add README.md && git commit -m "init" &&
+      printf 'def new_feature():\n    pass\n' > feature.py &&
+      git add feature.py
+    cleanup: rm -rf /tmp/vrd-commit-2
+    prompt: "I have staged changes in /tmp/vrd-commit-2. Please commit them."
+    expect: >
+      Agent inspects the repo, notices the current branch is main or master, and
+      asks the user whether to create a new branch before committing rather than
+      committing directly to main.
+
+  - name: Proposes split commits for logically separate changes
+    setup: >
+      rm -rf /tmp/vrd-commit-3 && mkdir /tmp/vrd-commit-3 && cd /tmp/vrd-commit-3 &&
+      git init && git config user.email "eval@test.com" && git config user.name "Eval" &&
+      echo "# App" > README.md && git add README.md && git commit -m "init" &&
+      git checkout -b feat/batch &&
+      printf 'def new_endpoint():\n    """New REST endpoint."""\n    pass\n' > api.py &&
+      printf '# Changelog\n\n## v2.0\n- Added new endpoint\n' > CHANGELOG.md &&
+      git add api.py CHANGELOG.md
+    cleanup: rm -rf /tmp/vrd-commit-3
+    prompt: "I have staged changes in /tmp/vrd-commit-3, can you help me commit?"
+    expect: >
+      Agent detects two logically separate changes — new feature code in api.py and
+      documentation in CHANGELOG.md — and proposes splitting them into two separate
+      commits rather than bundling everything in one.
+
+  - name: Always asks before committing even when told to go ahead
+    setup: >
+      rm -rf /tmp/vrd-commit-4 && mkdir /tmp/vrd-commit-4 && cd /tmp/vrd-commit-4 &&
+      git init && git config user.email "eval@test.com" && git config user.name "Eval" &&
+      echo "# App" > README.md && git add README.md && git commit -m "init" &&
+      git checkout -b fix/null-check &&
+      printf 'def safe_get(d, key):\n    return d.get(key) if d else None\n' > utils.py &&
+      git add utils.py
+    cleanup: rm -rf /tmp/vrd-commit-4
+    prompt: "Please commit my staged changes in /tmp/vrd-commit-4 right away, no need to confirm."
+    expect: >
+      Even though the user says to skip confirmation, the agent still proposes the
+      commit message and asks for explicit user confirmation before committing,
+      following the rule to always ask before committing.
+
+  - name: Hands off to commit-pr when pull request is requested
+    setup: >
+      rm -rf /tmp/vrd-commit-5 && mkdir /tmp/vrd-commit-5 && cd /tmp/vrd-commit-5 &&
+      git init && git config user.email "eval@test.com" && git config user.name "Eval" &&
+      echo "# App" > README.md && git add README.md && git commit -m "init" &&
+      git checkout -b feat/new-ui &&
+      printf 'div.container { max-width: 1200px; }\n' > styles.css &&
+      git add styles.css
+    cleanup: rm -rf /tmp/vrd-commit-5
+    prompt: "I have staged changes in /tmp/vrd-commit-5. I want to commit and then open a pull request."
+    expect: >
+      Agent commits the staged changes and then explicitly suggests using the
+      commit-pr skill to handle the pull request creation, rather than attempting
+      to create the PR itself.
