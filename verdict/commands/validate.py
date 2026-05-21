@@ -4,11 +4,19 @@ import typer
 from pydantic import ValidationError
 from rich.console import Console
 from rich.panel import Panel
-from rich import print as rprint
 
 from verdict.schema.spec import load_spec, spec_name
 
 console = Console()
+
+
+def _supports_unicode() -> bool:
+    encoding = getattr(console.file, "encoding", None) or ""
+    return "utf" in encoding.lower()
+
+
+CHECK = "✓" if _supports_unicode() else "OK"
+ARROW = "→" if _supports_unicode() else "->"
 
 
 def validate_cmd(
@@ -44,7 +52,7 @@ def validate_cmd(
             f"  tasks    [cyan]{n_tasks}[/cyan]\n"
             f"  judge    [cyan]{spec.judge.backend}[/cyan]"
             + (f" / [dim]{spec.judge.model}[/dim]" if spec.judge.model else ""),
-            title="[bold green]✓ Spec is valid[/bold green]",
+            title=f"[bold green]{CHECK} Spec is valid[/bold green]",
             border_style="green",
         )
     )
@@ -53,6 +61,6 @@ def validate_cmd(
 def _format_validation_errors(exc: ValidationError) -> str:
     lines = []
     for err in exc.errors():
-        loc = " → ".join(str(p) for p in err["loc"])
+        loc = f" {ARROW} ".join(str(p) for p in err["loc"])
         lines.append(f"  [dim]{loc}[/dim]  {err['msg']}")
     return "\n".join(lines)

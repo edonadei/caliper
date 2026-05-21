@@ -6,8 +6,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-import anthropic
-
 from verdict.harness.base import ConversationTurn
 from verdict.judge.autorater import _format_transcript
 from verdict.judge.base import Judge, JudgeResult
@@ -98,7 +96,7 @@ class ScriptAssertJudge(Judge):
 
     def __init__(self, config: JudgeConfig) -> None:
         self._config = config
-        self._client = anthropic.Anthropic()
+        self._client = None
 
     def evaluate(
         self,
@@ -155,6 +153,10 @@ class ScriptAssertJudge(Judge):
             transcript=_format_transcript(transcript),
         )
         model = self._config.model or "claude-haiku-4-5-20251001"
+        if self._client is None:
+            import anthropic
+
+            self._client = anthropic.Anthropic()
         response = self._client.messages.create(
             model=model,
             max_tokens=1024,

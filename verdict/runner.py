@@ -1,20 +1,17 @@
 from __future__ import annotations
 
 import hashlib
-import json
-import os
 import re
 import shutil
 import subprocess
 import tempfile
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from verdict.harness.base import AttemptResult, ConversationTurn, HarnessBackend
-from verdict.judge.base import Judge, JudgeResult
+from verdict.harness.base import ConversationTurn, HarnessBackend
+from verdict.judge.base import Judge
 from verdict.schema.results import (
     AggregateScore,
     AttemptRecord,
@@ -249,6 +246,20 @@ class TaskRunner:
                 isolated_home=tmp_dir,
                 extra_path=resolved_extra_path,
             )
+
+            if attempt_result.exit_code != 0:
+                error = attempt_result.error or f"harness exited {attempt_result.exit_code}"
+                if self._on_attempt_done:
+                    self._on_attempt_done(task.id, attempt, False, False)
+                return AttemptRecord(
+                    attempt=attempt,
+                    output=attempt_result.final_output,
+                    duration_seconds=attempt_result.duration_seconds,
+                    passed=False,
+                    cheated=False,
+                    assert_passed=False,
+                    assert_evidence=error,
+                )
 
             cheat_violations = self._cheat.check(attempt_result.transcript)
             if cheat_violations:

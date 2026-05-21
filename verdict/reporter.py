@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import json
-from datetime import datetime
-from typing import Iterator
 
 from rich import box
 from rich.console import Console
@@ -18,17 +15,33 @@ from rich.progress import (
 from rich.table import Table
 from rich.text import Text
 
-from verdict.schema.results import AggregateScore, AttemptRecord, RunResults, TaskResult
+from verdict.schema.results import RunResults, TaskResult
 
 console = Console()
 
-_BANNER = "[bold cyan]⚖  VERDICT[/bold cyan]"
+
+def _supports_unicode() -> bool:
+    encoding = getattr(console.file, "encoding", None) or ""
+    return "utf" in encoding.lower()
+
+
+_UNICODE = _supports_unicode()
+_BANNER = "[bold cyan]VERDICT[/bold cyan]"
+_SEP = "·" if _UNICODE else "-"
+_RULE = "—" if _UNICODE else "-"
+_WARN = "⚠" if _UNICODE else "!"
+_CHECK = "✓" if _UNICODE else "OK"
+_CROSS = "✗" if _UNICODE else "X"
+_UP = "↑" if _UNICODE else "up"
+_DOWN = "↓" if _UNICODE else "down"
+_BAR_FULL = "█" if _UNICODE else "#"
+_BAR_EMPTY = "░" if _UNICODE else "-"
 
 
 def print_banner(spec_name: str, k: int, backend: str) -> None:
     console.print(
         Panel(
-            f"{_BANNER}  ·  [bold]{spec_name}[/bold]  ·  k=[cyan]{k}[/cyan]  ·  [cyan]{backend}[/cyan]",
+            f"{_BANNER}  {_SEP}  [bold]{spec_name}[/bold]  {_SEP}  k=[cyan]{k}[/cyan]  {_SEP}  [cyan]{backend}[/cyan]",
             border_style="cyan",
             padding=(0, 2),
         )
@@ -66,9 +79,9 @@ def update_progress(
     if tid is None:
         return
     if cheated:
-        status = "[bold yellow]⚠ cheat[/bold yellow]"
+        status = f"[bold yellow]{_WARN} cheat[/bold yellow]"
     elif completed == k:
-        status = "[bold green]✓[/bold green]" if passed == k else "[bold red]✗[/bold red]"
+        status = f"[bold green]{_CHECK}[/bold green]" if passed == k else f"[bold red]{_CROSS}[/bold red]"
     else:
         status = f"[dim]{completed}/{k}[/dim]"
     progress.update(tid, total=k, completed=completed, status=status)
@@ -83,9 +96,9 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
 
     console.print()
     console.rule(
-        f"{_BANNER}  —  [bold]{spec}[/bold]  ([cyan]{backend}[/cyan]"
-        + (f" · [dim]{model}[/dim]" if model else "")
-        + f")  —  {ts}",
+        f"{_BANNER}  {_RULE}  [bold]{spec}[/bold]  ([cyan]{backend}[/cyan]"
+        + (f" {_SEP} [dim]{model}[/dim]" if model else "")
+        + f")  {_RULE}  {ts}",
         style="cyan",
     )
     console.print()
@@ -121,13 +134,13 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
 
 def _status_cell(tr: TaskResult, any_cheat: bool) -> Text:
     if any_cheat:
-        return Text("⚠ CHEAT", style="bold yellow")
+        return Text(f"{_WARN} CHEAT", style="bold yellow")
     if tr.successes == tr.pass_at_k * len(tr.attempts) and tr.successes == len(tr.attempts):
         pass
     if tr.pass_at_k >= 0.99:
-        return Text("✓ PASS", style="bold green")
+        return Text(f"{_CHECK} PASS", style="bold green")
     elif tr.successes == 0:
-        return Text("✗ FAIL", style="bold red")
+        return Text(f"{_CROSS} FAIL", style="bold red")
     else:
         return Text("~ PARTIAL", style="bold yellow")
 
@@ -137,7 +150,7 @@ def _print_aggregate(results: RunResults) -> None:
 
     def score_bar(score: float, width: int = 20) -> str:
         filled = round(score * width)
-        return "[green]" + "█" * filled + "[/green][dim]" + "░" * (width - filled) + "[/dim]"
+        return "[green]" + _BAR_FULL * filled + "[/green][dim]" + _BAR_EMPTY * (width - filled) + "[/dim]"
 
     console.print(
         f" [bold]With skill[/bold]    [cyan]{agg.avg_pass_at_k * 100:.1f}%[/cyan]  {score_bar(agg.avg_pass_at_k)}"
@@ -153,7 +166,10 @@ def _print_aggregate(results: RunResults) -> None:
         delta = results.delta.delta
         sign = "+" if delta >= 0 else ""
         color = "green" if delta >= 0 else "red"
-        console.print(f" [bold]Delta[/bold]        [{color}]{sign}{delta * 100:.1f}%[/{color}]  ↑" if delta >= 0 else f" [bold]Delta[/bold]        [{color}]{sign}{delta * 100:.1f}%[/{color}]  ↓")
+        arrow = _UP if delta >= 0 else _DOWN
+        console.print(
+            f" [bold]Delta[/bold]        [{color}]{sign}{delta * 100:.1f}%[/{color}]  {arrow}"
+        )
 
     console.print()
 
@@ -161,7 +177,11 @@ def _print_aggregate(results: RunResults) -> None:
 def _print_task_detail(tr: TaskResult, k: int) -> None:
     lines: list[str] = []
     for attempt in tr.attempts:
-        prefix = "[green]✓[/green]" if attempt.passed else ("[yellow]⚠[/yellow]" if attempt.cheated else "[red]✗[/red]")
+        prefix = (
+            f"[green]{_CHECK}[/green]"
+            if attempt.passed
+            else (f"[yellow]{_WARN}[/yellow]" if attempt.cheated else f"[red]{_CROSS}[/red]")
+        )
         lines.append(f"  Attempt {attempt.attempt}  {prefix}  ({attempt.duration_seconds:.1f}s)")
         if attempt.cheated:
             for ev in attempt.cheat_evidence:

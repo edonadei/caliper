@@ -1,6 +1,4 @@
 import typer
-from rich.console import Console
-from rich import print as rprint
 
 from verdict.commands.run import run_cmd
 from verdict.commands.new import new_cmd
