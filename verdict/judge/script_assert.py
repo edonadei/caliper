@@ -9,6 +9,7 @@ from pathlib import Path
 from verdict.harness.base import ConversationTurn
 from verdict.judge.autorater import _format_transcript
 from verdict.judge.base import Judge, JudgeResult
+from verdict.judge.codex_judge import evaluate_with_codex
 from verdict.schema.spec import JudgeConfig, TaskSpec
 
 _SYSTEM = """\
@@ -152,6 +153,14 @@ class ScriptAssertJudge(Judge):
             expect=task.expect,
             transcript=_format_transcript(transcript),
         )
+        if self._config.backend == "codex":
+            return evaluate_with_codex(
+                expect=task.expect,
+                transcript=transcript,
+                model=self._config.model,
+                cwd=spec_dir,
+            )
+
         model = self._config.model or "claude-haiku-4-5-20251001"
         if self._client is None:
             import anthropic

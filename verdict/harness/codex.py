@@ -110,6 +110,7 @@ class CodexHarness(HarnessBackend):
                 ],
                 input=prompt,
                 capture_output=True,
+                encoding="utf-8",
                 text=True,
                 timeout=timeout,
                 env=env,

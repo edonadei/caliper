@@ -1,0 +1,31 @@
+skill:
+  path: ./SKILL.md
+  backend: codex
+  model: gpt-5.4-mini
+
+judge:
+  backend: codex
+  model: gpt-5.4-mini
+
+sandbox:
+  forbidden_files:
+    - ".*\\.eval\\.yaml$"
+
+tasks:
+  - name: Saves a screenshot to an explicit path
+    cleanup: >
+      powershell -NoProfile -Command "Remove-Item -LiteralPath 'C:\Users\user\AppData\Local\Temp\verdict-screenshot-explicit.png' -Force -ErrorAction SilentlyContinue"
+    prompt: >
+      Take a desktop screenshot and save it exactly at
+      C:\Users\user\AppData\Local\Temp\verdict-screenshot-explicit.png.
+      Report the saved file path when you are done.
+    expect: >
+      The agent follows the screenshot skill and reports that the screenshot
+      was saved at C:\Users\user\AppData\Local\Temp\verdict-screenshot-explicit.png.
+    assert: |
+      from pathlib import Path
+
+      path = Path(r"C:\Users\user\AppData\Local\Temp\verdict-screenshot-explicit.png")
+      assert path.exists(), "Screenshot file was not created"
+      assert path.stat().st_size > 100, "Screenshot file is unexpectedly small"
+      assert path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n", "Screenshot is not a PNG"
