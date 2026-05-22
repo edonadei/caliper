@@ -1,0 +1,88 @@
+skill:
+  path: ./SKILL.md
+  backend: claude
+  model: claude-sonnet-4-6
+
+judge:
+  backend: claude
+  model: claude-sonnet-4-6
+
+tasks:
+  - name: Writes failing test before implementing new function
+    setup: >
+      rm -rf /tmp/vrd-tdd-1 && mkdir /tmp/vrd-tdd-1 && cd /tmp/vrd-tdd-1 &&
+      printf 'def add(a, b):\n    return a + b\n' > calculator.py &&
+      printf 'import unittest\nfrom calculator import add\n\nclass TestCalculator(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(add(2, 3), 5)\n\nif __name__ == "__main__":\n    unittest.main()\n' > test_calculator.py
+    cleanup: rm -rf /tmp/vrd-tdd-1
+    prompt: >
+      In /tmp/vrd-tdd-1 there is a calculator.py with an add function and a test file.
+      Add a multiply(a, b) function using TDD.
+    expect: >
+      Agent adds a failing test for multiply to test_calculator.py before writing any
+      implementation, runs the tests to confirm the new test fails (RED), then
+      implements the minimal multiply function in calculator.py (GREEN), and runs
+      tests again to confirm all pass. No implementation code appears before the
+      failing test is written and verified.
+
+  - name: Reproduces bug with failing test before fixing
+    setup: >
+      rm -rf /tmp/vrd-tdd-2 && mkdir /tmp/vrd-tdd-2 && cd /tmp/vrd-tdd-2 &&
+      printf 'def divide(a, b):\n    return a / b\n' > calculator.py &&
+      printf 'import unittest\nfrom calculator import divide\n\nclass TestDivide(unittest.TestCase):\n    def test_divide_normal(self):\n        self.assertEqual(divide(10, 2), 5)\n\nif __name__ == "__main__":\n    unittest.main()\n' > test_calculator.py
+    cleanup: rm -rf /tmp/vrd-tdd-2
+    prompt: >
+      In /tmp/vrd-tdd-2 the divide function crashes with ZeroDivisionError when b is 0.
+      Fix this so divide(10, 0) raises a ValueError with message "Cannot divide by zero".
+      Use TDD.
+    expect: >
+      Agent writes a failing test for divide(10, 0) raising ValueError before touching
+      the production code, runs it to confirm it fails, then updates calculator.py to
+      raise ValueError on a zero divisor, and verifies all tests pass. The bug fix
+      comes only after the failing test is confirmed, following the TDD rule that bugs
+      must be reproduced in a test before fixing.
+
+  - name: Completes full RED-GREEN-REFACTOR cycle
+    setup: >
+      rm -rf /tmp/vrd-tdd-3 && mkdir /tmp/vrd-tdd-3 && cd /tmp/vrd-tdd-3 &&
+      touch stack.py test_stack.py
+    cleanup: rm -rf /tmp/vrd-tdd-3
+    prompt: >
+      In /tmp/vrd-tdd-3, implement a Stack class with push(item) and pop() methods
+      using TDD. pop() should raise IndexError when the stack is empty.
+    expect: >
+      Agent follows the full RED-GREEN-REFACTOR cycle: writes one failing test at a
+      time (push, then pop, then empty-pop error), verifies each test fails before
+      implementing, writes minimal code to pass each test, and verifies green after
+      each addition. Tests are run and confirmed failing before any production code is
+      written for each new behavior. All tests pass at the end.
+
+  - name: Writes minimal implementation without over-engineering
+    setup: >
+      rm -rf /tmp/vrd-tdd-4 && mkdir /tmp/vrd-tdd-4 && cd /tmp/vrd-tdd-4 &&
+      touch utils.py test_utils.py
+    cleanup: rm -rf /tmp/vrd-tdd-4
+    prompt: >
+      In /tmp/vrd-tdd-4, implement an is_palindrome(s) function in utils.py using TDD.
+      It should return True if the string is a palindrome, False otherwise.
+      Case-insensitive comparison is not required.
+    expect: >
+      Agent writes a minimal failing test first, verifies it fails, then implements
+      is_palindrome with the simplest possible code (e.g. return s == s[::-1]),
+      not over-engineered with optional parameters, logging, or unused abstractions.
+      All tests pass and the implementation is concise and minimal per the GREEN rule.
+
+  - name: Applies TDD to fix in-range return bug
+    setup: >
+      rm -rf /tmp/vrd-tdd-5 && mkdir /tmp/vrd-tdd-5 && cd /tmp/vrd-tdd-5 &&
+      printf 'def clamp(value, min_val, max_val):\n    if value < min_val:\n        return min_val\n    if value > max_val:\n        return max_val\n' > limits.py &&
+      printf 'import unittest\nfrom limits import clamp\n\nclass TestClamp(unittest.TestCase):\n    def test_clamp_below(self):\n        self.assertEqual(clamp(5, 10, 20), 10)\n    def test_clamp_above(self):\n        self.assertEqual(clamp(25, 10, 20), 20)\n\nif __name__ == "__main__":\n    unittest.main()\n' > test_limits.py
+    cleanup: rm -rf /tmp/vrd-tdd-5
+    prompt: >
+      In /tmp/vrd-tdd-5, the clamp function has a bug: it returns None when the value
+      is within range (e.g. clamp(15, 10, 20) should return 15 but returns None).
+      Fix the bug using TDD.
+    expect: >
+      Agent writes a failing test for the in-range case (e.g. assertEqual(clamp(15, 10, 20), 15))
+      before touching limits.py, runs it to confirm it fails, adds the missing
+      return value statement to clamp, and verifies all three tests pass. The TDD
+      discipline holds even when the fix is immediately obvious.

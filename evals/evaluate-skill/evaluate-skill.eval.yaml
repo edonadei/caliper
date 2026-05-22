@@ -1,0 +1,162 @@
+skill:
+  path: ../../skills/evaluate-skill/SKILL.md
+  backend: codex
+
+judge:
+  backend: codex
+
+sandbox:
+  forbidden_files:
+    - ".*\\.eval\\.yaml$"
+    - "./.caliper/.*"
+
+tasks:
+  - name: Validates a Codex-backed spec and reports it as valid
+    setup: |
+      cat > /tmp/caliper-test-valid.eval.yaml << 'EOF'
+      skill:
+        path: ./SKILL.md
+        backend: codex
+      judge:
+        backend: codex
+      tasks:
+        - name: Test arithmetic
+          prompt: What is 2 + 2?
+          expect: The assistant answers 4.
+      EOF
+    cleanup: rm -f /tmp/caliper-test-valid.eval.yaml
+    prompt: >
+      Use caliper to validate the spec file at /tmp/caliper-test-valid.eval.yaml
+      and tell me whether it is valid.
+    expect: >
+      The agent runs caliper validate on /tmp/caliper-test-valid.eval.yaml and
+      reports that the Codex-backed spec is valid with no errors.
+    assert: |
+      import subprocess
+
+      result = subprocess.run(
+          ["caliper", "validate", "/tmp/caliper-test-valid.eval.yaml"],
+          capture_output=True, text=True
+      )
+      assert result.returncode == 0, f"caliper validate exited {result.returncode}: {result.stderr}"
+
+  - name: Identifies errors in an invalid spec without fixing it
+    setup: |
+      cat > /tmp/caliper-test-invalid.eval.yaml << 'EOF'
+      skill:
+        backend: claude-code
+      tasks:
+        - name: Broken task
+          prompt: do something
+      EOF
+    cleanup: rm -f /tmp/caliper-test-invalid.eval.yaml
+    prompt: >
+      Use caliper to validate the spec file at /tmp/caliper-test-invalid.eval.yaml
+      and tell me what errors it contains.
+    expect: >
+      The agent runs caliper validate and reports that the spec is invalid,
+      describing that the task is missing both expect and assert fields. The
+      agent does not edit the invalid spec file.
+
+  - name: Creates a Codex CLI eval spec file on request
+    cleanup: rm -f /tmp/caliper-created.eval.yaml
+    prompt: >
+      Create an evaluation spec file at /tmp/caliper-created.eval.yaml for a
+      Codex CLI skill at ./SKILL.md. Use codex as both the skill backend and
+      judge backend. Include one task named "Answers
+      arithmetic", with prompt "What is 2 + 2?" and expectation "The assistant
+      answers 4." Do not use openai-api unless API billing is requested.
+    expect: >
+      A valid .eval.yaml file is written at /tmp/caliper-created.eval.yaml. It
+      uses codex for both skill.backend and judge.backend and includes the
+      requested task.
+    assert: |
+      import os
+      import yaml
+
+      path = "/tmp/caliper-created.eval.yaml"
+      assert os.path.exists(path), "Spec file was not created"
+      with open(path) as f:
+          spec = yaml.safe_load(f)
+      assert spec["skill"]["backend"] == "codex", "skill backend should be codex"
+      assert spec["skill"]["path"] == "./SKILL.md", "skill path should be ./SKILL.md"
+      assert "model" not in spec["skill"], "skill model should be omitted unless requested"
+      assert spec["judge"]["backend"] == "codex", "judge backend should be codex"
+      assert "model" not in spec["judge"], "judge model should be omitted unless requested"
+      assert len(spec.get("tasks", [])) == 1, "Expected exactly one task"
+      task = spec["tasks"][0]
+      assert task["name"] == "Answers arithmetic", "Unexpected task name"
+      assert task["prompt"] == "What is 2 + 2?", "Unexpected prompt"
+      assert task["expect"] == "The assistant answers 4.", "Unexpected expectation"
+
+  - name: Creates an explicit API-backed eval spec
+    cleanup: rm -f /tmp/caliper-openai-api.eval.yaml
+    prompt: >
+      Create an evaluation spec file at /tmp/caliper-openai-api.eval.yaml for a
+      skill at ./SKILL.md that should run through OpenAI API billing, not the
+      Codex CLI subscription. Use openai-api as both skill.backend and
+      judge.backend, with model gpt-4o-mini. Include one task named "Answers
+      arithmetic", with prompt "What is 2 + 2?" and expectation "The assistant
+      answers 4."
+    expect: >
+      A valid .eval.yaml file is written at /tmp/caliper-openai-api.eval.yaml.
+      It uses openai-api for both skill.backend and judge.backend, showing that
+      API billing is an explicit backend choice rather than a Codex fallback.
+    assert: |
+      import os
+      import yaml
+
+      path = "/tmp/caliper-openai-api.eval.yaml"
+      assert os.path.exists(path), "Spec file was not created"
+      with open(path) as f:
+          spec = yaml.safe_load(f)
+      assert spec["skill"]["backend"] == "openai-api", "skill backend should be openai-api"
+      assert spec["judge"]["backend"] == "openai-api", "judge backend should be openai-api"
+      assert spec["skill"]["model"] == "gpt-4o-mini", "skill model should be set"
+      assert spec["judge"]["model"] == "gpt-4o-mini", "judge model should be set"
+      assert spec["tasks"][0]["name"] == "Answers arithmetic", "Unexpected task name"
+
+  - name: Explains mixed Claude Code and Codex backend support
+    cleanup: rm -f /tmp/caliper-mixed-backend.eval.yaml
+    prompt: >
+      Create an evaluation spec file at /tmp/caliper-mixed-backend.eval.yaml
+      that evaluates a Claude Code skill at ~/.claude/commands/review.md with
+      skill.backend set to claude-code, but judges it with Codex. Include one
+      task named "Reviews staged changes", prompt "/review the staged changes",
+      and expectation "The review reports at least one actionable issue."
+    expect: >
+      The agent creates a valid spec with skill.backend set to claude-code and
+      judge.backend set to codex, showing that Caliper supports independent
+      agent and judge backends.
+    assert: |
+      import os
+      import yaml
+
+      path = "/tmp/caliper-mixed-backend.eval.yaml"
+      assert os.path.exists(path), "Spec file was not created"
+      with open(path) as f:
+          spec = yaml.safe_load(f)
+      assert spec["skill"]["backend"] == "claude-code", "skill backend should be claude-code"
+      assert spec["judge"]["backend"] == "codex", "judge backend should be codex"
+      assert spec["tasks"][0]["name"] == "Reviews staged changes", "Unexpected task name"
+
+  - name: Lists available evaluations gracefully
+    prompt: >
+      Use caliper to list all available evaluations and tell me what you find.
+    expect: >
+      The agent runs caliper list and either shows a table of available evaluations
+      with scores and timestamps, or clearly states that no results have been recorded yet
+
+  - name: Surfaces Claude Code configuration errors clearly
+    prompt: >
+      Run the Claude Code smoke eval at
+      evals/claude-code-smoke/claude-code-smoke.eval.yaml with k=1, one worker,
+      a 60 second timeout, and the script judge. If Claude Code is not logged in
+      or the account lacks access, report the Caliper configuration error
+      clearly instead of describing it as a task failure.
+    expect: >
+      The agent runs caliper run evals/claude-code-smoke/claude-code-smoke.eval.yaml
+      with --k 1 --workers 1 --timeout 60 --judge script. If the run exits with
+      a Claude Code configuration error, the agent reports that configuration
+      problem and the relevant login or access guidance. If Claude Code is
+      configured, the agent reports the eval result normally.

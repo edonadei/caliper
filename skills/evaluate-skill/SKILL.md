@@ -1,11 +1,29 @@
 ---
-description: Run skill evaluations with caliper — evaluate Claude Code skills using automated judging and pass@k scoring
+name: evaluate-skill
+description: Evaluate Claude Code, Codex, or API-backed skills with the caliper CLI using repeatable tasks, automated judging, and pass@k scoring.
 allowed-tools: Bash
 ---
 
-# caliper — skill evaluator
+# Evaluate Skill
 
-Use this skill to evaluate a Claude Code skill using the `caliper` CLI.
+Use this skill to evaluate Claude Code, Codex, or API-backed skills using the `caliper` CLI.
+Caliper runs repeatable task specs against an agent backend, judges the results
+with an LLM and/or deterministic Python assertions, and reports pass@k scores.
+
+Supported backends:
+
+- `claude-code` — runs Claude Code skills as temporary slash commands in an isolated
+  `.claude/commands/` directory.
+- `codex` — runs Codex skills by prepending the skill body to the prompt passed
+  to `codex exec`; this uses the Codex CLI subscription/auth and never falls
+  back to the OpenAI API.
+- `claude-api` — runs through the Anthropic API explicitly.
+- `openai-api` — runs through the OpenAI API explicitly.
+
+The agent backend (`skill.backend`) and judge backend (`judge.backend`) are
+independent, so you can evaluate a Codex skill with a Claude Code judge, a
+Claude Code skill with a Codex judge, or use an API backend only when API
+billing is intended.
 
 ## Commands
 
@@ -20,7 +38,9 @@ caliper run path/to/spec.eval.yaml --verbose             # show per-attempt reas
 ### Create a new evaluation spec (interactive wizard)
 ```bash
 caliper new my-skill-eval
-caliper new --skill ~/.claude/commands/review.md --backend claude
+caliper new --skill ~/.claude/commands/review.md --backend claude-code
+caliper new --skill ./SKILL.md --backend codex
+caliper new --skill ./SKILL.md --backend openai-api
 ```
 
 ### Validate a spec file
@@ -41,12 +61,12 @@ caliper report results.json --format json
 
 ```yaml
 skill:
-  path: ~/.claude/commands/my-skill.md
-  backend: claude          # claude | codex
+  path: ./SKILL.md
+  backend: claude-code     # claude-code | codex | claude-api | openai-api
   model: claude-sonnet-4-6 # optional
 
 judge:
-  backend: claude
+  backend: claude-code
   model: claude-haiku-4-5-20251001  # optional; cheaper is fine for judging
 
 sandbox:
@@ -73,6 +93,30 @@ tasks:
     name: Task with external assertion script
     prompt: Generate a report
     assert: ./assertions/check_report.py
+```
+
+For a Codex-backed eval, use:
+
+```yaml
+skill:
+  path: ./SKILL.md
+  backend: codex
+
+judge:
+  backend: codex
+```
+
+For an API-backed eval, opt in explicitly:
+
+```yaml
+skill:
+  path: ./SKILL.md
+  backend: openai-api
+  model: gpt-4o-mini
+
+judge:
+  backend: openai-api
+  model: gpt-4o-mini
 ```
 
 ## Key concepts

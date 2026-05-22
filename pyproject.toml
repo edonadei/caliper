@@ -16,8 +16,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+openai = ["openai>=1.0"]
 codex = ["openai>=1.0"]
-dev   = ["pytest", "ruff"]
+dev = ["pytest", "ruff"]
 
 [project.scripts]
 caliper = "caliper.main:app"

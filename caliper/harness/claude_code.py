@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -23,7 +24,7 @@ class ClaudeCodeHarness(HarnessBackend):
 
     @property
     def name(self) -> str:
-        return "claude"
+        return "claude-code"
 
     def run(
         self,
@@ -128,6 +129,18 @@ class ClaudeCodeHarness(HarnessBackend):
             return None
 
         lowered = text.lower()
+        if returncode != 0 and self._looks_like_cli_startup_crash(text, lowered):
+            summary = self._summarize_cli_crash(text)
+            return (
+                "Claude Code exited before the eval attempt could run because the "
+                "Claude CLI crashed during startup.\n\n"
+                "The Claude CLI returned:\n"
+                f"  {summary}\n\n"
+                "Fix the local Claude Code CLI or Node.js runtime, then rerun caliper. "
+                "You can confirm the same failure outside caliper with "
+                "`claude --version` or `claude -p 'Reply OK'`."
+            )
+
         if "not logged in" in lowered or "please run /login" in lowered:
             return (
                 "Claude Code is not logged in for the evaluation harness.\n\n"
@@ -169,6 +182,43 @@ class ClaudeCodeHarness(HarnessBackend):
 
         return None
 
+    def _looks_like_cli_startup_crash(self, text: str, lowered: str) -> bool:
+        return (
+            "typeerror:" in lowered
+            or "syntaxerror:" in lowered
+            or "referenceerror:" in lowered
+            or "file:///opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/" in lowered
+            or "node.js v" in lowered
+        ) and "claude-code/cli.js" in lowered
+
+    def _summarize_cli_crash(self, text: str) -> str:
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        error_line = next(
+            (
+                line
+                for line in lines
+                if line.startswith(("TypeError:", "SyntaxError:", "ReferenceError:"))
+            ),
+            None,
+        )
+        node_line = next((line for line in lines if line.startswith("Node.js ")), None)
+        stack_lines = [line for line in lines if "claude-code/cli.js:" in line]
+
+        useful = []
+        if stack_lines:
+            useful.append(stack_lines[0])
+        if error_line:
+            useful.append(error_line)
+        if node_line:
+            useful.append(node_line)
+        useful.extend(line for line in stack_lines[1:4] if line not in useful)
+
+        if useful:
+            return "\n  ".join(useful[:6])
+
+        compact = re.sub(r"\s+", " ", text).strip()
+        return compact[:500]
+
     def _seed_credentials_from_keychain(self, dst: Path) -> None:
         try:
             result = subprocess.run(
@@ -199,19 +249,29 @@ class ClaudeCodeHarness(HarnessBackend):
         self, isolated_home: str, extra_path: list[str], has_file_credentials: bool = False
     ) -> dict[str, str]:
         base_path = os.environ.get("PATH", "")
+        path_prefixes = []
+
+        nvm_node_bin = self._preferred_nvm_node_bin()
+        if nvm_node_bin:
+            path_prefixes.append(nvm_node_bin)
 
         # On macOS, IDE-launched processes often have a stripped PATH that
         # omits Homebrew prefixes. Prepend them when present so tools installed
         # via Homebrew (e.g. on Apple Silicon at /opt/homebrew/bin) are found.
         if sys.platform == "darwin":
             homebrew_candidates = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"]
-            existing = set(base_path.split(os.pathsep))
-            additions = [p for p in homebrew_candidates if os.path.isdir(p) and p not in existing]
-            if additions:
-                base_path = os.pathsep.join(additions) + os.pathsep + base_path
+            path_prefixes.extend(p for p in homebrew_candidates if os.path.isdir(p))
 
         if extra_path:
-            base_path = os.pathsep.join(extra_path) + os.pathsep + base_path
+            path_prefixes = extra_path + path_prefixes
+
+        base_parts = [p for p in base_path.split(os.pathsep) if p]
+        path_prefixes = list(dict.fromkeys(path_prefixes))
+        prefix_set = set(path_prefixes)
+        base_parts = [p for p in base_parts if p not in prefix_set]
+        additions = path_prefixes
+        if additions:
+            base_path = os.pathsep.join(additions + base_parts)
 
         env: dict[str, str] = {
             "HOME": isolated_home,
@@ -232,6 +292,33 @@ class ClaudeCodeHarness(HarnessBackend):
                     env[key] = os.environ[key]
 
         return env
+
+    def _preferred_nvm_node_bin(self) -> str | None:
+        nvm_versions = Path.home() / ".nvm" / "versions" / "node"
+        if not nvm_versions.exists():
+            return None
+
+        candidates: list[tuple[int, int, int, Path]] = []
+        for node in nvm_versions.glob("v*/bin/node"):
+            version = self._parse_node_version(node.parent.parent.name)
+            if version is None:
+                continue
+            major, minor, patch = version
+            # Prefer even-major releases; odd majors are short-lived current
+            # releases and have broken Claude Code startup in practice.
+            if major % 2 == 0:
+                candidates.append((major, minor, patch, node.parent))
+
+        if not candidates:
+            return None
+
+        return str(max(candidates, key=lambda item: item[:3])[3])
+
+    def _parse_node_version(self, version: str) -> tuple[int, int, int] | None:
+        match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", version)
+        if not match:
+            return None
+        return tuple(int(part) for part in match.groups())
 
     def _parse_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:
         transcript: list[ConversationTurn] = []

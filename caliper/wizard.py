@@ -8,7 +8,7 @@ from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.rule import Rule
 
-from caliper.schema.spec import EvalSpec, JudgeConfig, SandboxConfig, SkillConfig, TaskSpec
+from caliper.schema.spec import EvalSpec, JudgeConfig, SandboxConfig, SkillConfig, TaskSpec, normalize_backend
 
 console = Console()
 
@@ -19,7 +19,7 @@ def run_wizard(
     name: str | None = None,
     output: Path | None = None,
     skill_path: str | None = None,
-    backend: str = "claude",
+    backend: str = "claude-code",
 ) -> Path:
     console.print(Panel(_BANNER, border_style="cyan", padding=(0, 2)))
     console.print()
@@ -34,8 +34,8 @@ def run_wizard(
 
     backend_choice = Prompt.ask(
         "  Backend",
-        choices=["claude", "codex"],
-        default=backend,
+        choices=["claude-code", "codex", "claude-api", "openai-api"],
+        default=normalize_backend(backend),
     )
     model = Prompt.ask("  Model override", default="").strip() or None
 
@@ -45,8 +45,8 @@ def run_wizard(
     console.print(Rule("[bold]Step 2 — Judge[/bold]", style="cyan"))
     judge_backend = Prompt.ask(
         "  Judge backend",
-        choices=["claude", "codex"],
-        default="claude",
+        choices=["claude-code", "codex", "claude-api", "openai-api"],
+        default="claude-code",
     )
     judge_model = Prompt.ask("  Judge model override", default="").strip() or None
 

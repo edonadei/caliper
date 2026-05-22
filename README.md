@@ -7,14 +7,14 @@ scoring.
 the result with an LLM and/or deterministic Python assertions, and saves a
 reproducible result file.
 
-It supports both Claude Code and Codex:
+It supports Claude Code, Codex, and explicit API backends:
 
-| Role | Claude Code | Codex |
-|---|---|---|
-| Agent under test | `skill.backend: claude` | `skill.backend: codex` |
-| LLM judge | `judge.backend: claude` | `judge.backend: codex` |
-| Skill injection | Temporary slash command in isolated `.claude/commands/` | Skill body prepended to the Codex prompt |
-| Transcript | Claude `stream-json` tool-call transcript | Final Codex text output |
+| Role | Claude Code CLI | Codex CLI | API backends |
+|---|---|---|---|
+| Agent under test | `skill.backend: claude-code` | `skill.backend: codex` | `skill.backend: claude-api` or `openai-api` |
+| LLM judge | `judge.backend: claude-code` | `judge.backend: codex` | `judge.backend: claude-api` or `openai-api` |
+| Auth/billing | Claude Code subscription/auth | Codex CLI subscription/auth | Provider API key/billing |
+| Transcript | Claude `stream-json` tool-call transcript | Final Codex text output | Final API response text |
 
 ---
 
@@ -27,16 +27,15 @@ pip install -e .
 For local development:
 
 ```bash
-pip install -e ".[dev,codex]"
+pip install -e ".[dev,openai]"
 ```
 
 ### Claude Code setup
 
-Install and authenticate the `claude` CLI. `caliper` uses the CLI by default for
-Claude-backed agents and judges, so OAuth/file credentials from your normal
-Claude Code setup can be reused.
+Install and authenticate the `claude` CLI. `backend: claude-code` uses the CLI,
+so OAuth/file credentials from your normal Claude Code setup can be reused.
 
-If you explicitly use `--judge autorater-sdk`, you also need:
+If you explicitly use `backend: claude-api`, you also need:
 
 ```bash
 export ANTHROPIC_API_KEY=...
@@ -52,14 +51,21 @@ codex login
 codex --version
 ```
 
-`caliper` calls Codex with `codex exec`. If the CLI is not available, the Codex
-agent backend falls back to the OpenAI SDK and requires:
+`backend: codex` calls Codex with `codex exec`. It does not fall back to the
+OpenAI API. If the CLI is unavailable or cannot authenticate, Caliper reports a
+backend configuration error.
+
+When the Codex desktop app is installed, Caliper prefers the app-bundled Codex
+CLI over an older `codex` found on `PATH`. Set `CODEX_CLI_PATH` to force a
+specific CLI binary.
+
+If you explicitly use `backend: openai-api`, you also need:
 
 ```bash
 export OPENAI_API_KEY=...
 ```
 
-The Codex judge uses the Codex CLI.
+The Codex judge also uses the Codex CLI.
 
 ---
 
@@ -72,11 +78,9 @@ Create an eval spec:
 skill:
   path: ./SKILL.md
   backend: codex
-  model: gpt-5.4-mini
 
 judge:
   backend: codex
-  model: gpt-5.4-mini
 
 tasks:
   - name: Produces the expected answer
@@ -115,11 +119,9 @@ Use Codex both for the agent under test and for the natural-language judge:
 skill:
   path: ./SKILL.md
   backend: codex
-  model: gpt-5.4-mini
 
 judge:
   backend: codex
-  model: gpt-5.4-mini
 
 tasks:
   - name: Validates a spec
@@ -138,11 +140,11 @@ Use Claude Code for both the agent under test and the judge:
 ```yaml
 skill:
   path: ~/.claude/commands/review.md
-  backend: claude
+  backend: claude-code
   model: claude-sonnet-4-6
 
 judge:
-  backend: claude
+  backend: claude-code
   model: claude-haiku-4-5-20251001
 
 tasks:
@@ -154,7 +156,7 @@ tasks:
 ### Mix Backends
 
 The agent backend and judge backend are independent. For example, test a Codex
-skill with a Claude judge:
+skill with a Claude Code judge:
 
 ```yaml
 skill:
@@ -162,7 +164,7 @@ skill:
   backend: codex
 
 judge:
-  backend: claude
+  backend: claude-code
 ```
 
 Or test a Claude Code skill with a Codex judge:
@@ -170,11 +172,23 @@ Or test a Claude Code skill with a Codex judge:
 ```yaml
 skill:
   path: ~/.claude/commands/review.md
-  backend: claude
+  backend: claude-code
 
 judge:
   backend: codex
-  model: gpt-5.4-mini
+```
+
+Or opt into API billing explicitly:
+
+```yaml
+skill:
+  path: ./SKILL.md
+  backend: openai-api
+  model: gpt-4o-mini
+
+judge:
+  backend: openai-api
+  model: gpt-4o-mini
 ```
 
 ### Deterministic Assertions
@@ -212,7 +226,10 @@ That eval uses:
 - `skill.backend: codex`
 - `judge.backend: codex`
 - a static PNG assertion to verify the screenshot file was created
-- an `expect` field so the Codex judge also checks the transcript
+
+On macOS, the process running the eval must have Screen Recording permission.
+If direct `screencapture -x /tmp/test.png` fails, this eval will fail until that
+permission is granted.
 
 ---
 
@@ -234,7 +251,7 @@ That eval uses:
 | `--baseline` | off | Also run each task without the skill |
 | `--judge autorater` | `autorater` | LLM judge gives a direct pass/fail |
 | `--judge script` | | Run static assertions and, if `expect` exists, an LLM judge |
-| `--judge autorater-sdk` | | Use the Anthropic SDK judge explicitly |
+| `--judge autorater-sdk` | | Legacy alias for Anthropic SDK judging; prefer `judge.backend: claude-api` |
 | `--workers INT` | `4` | Parallel task workers |
 | `--timeout INT` | `120` | Seconds per attempt |
 | `--model MODEL` | | Override `skill.model` for the agent under test |
@@ -248,12 +265,10 @@ That eval uses:
 ```yaml
 skill:
   path: ./SKILL.md              # optional path to the skill file
-  backend: codex                # claude | codex
-  model: gpt-5.4-mini           # optional model override
+  backend: codex                # claude-code | codex | claude-api | openai-api
 
 judge:
-  backend: codex                # claude | codex
-  model: gpt-5.4-mini           # optional model override
+  backend: codex                # claude-code | codex | claude-api | openai-api
 
 sandbox:
   extra_path:
@@ -293,14 +308,13 @@ transcript satisfies `expect`.
 ```yaml
 judge:
   backend: codex
-  model: gpt-5.4-mini
 ```
 
 or:
 
 ```yaml
 judge:
-  backend: claude
+  backend: claude-code
   model: claude-haiku-4-5-20251001
 ```
 
@@ -309,8 +323,9 @@ judge:
 `--judge script` always runs static `assert:` checks when present.
 
 If the task also has `expect`, it also asks the configured judge backend for an
-LLM verdict. With `judge.backend: codex`, that LLM check is performed by Codex.
-With `judge.backend: claude`, it is performed by Claude/Anthropic.
+LLM verdict. With `judge.backend: codex`, that LLM check is performed by Codex
+CLI. With `judge.backend: claude-code`, it is performed by Claude Code CLI. Use
+`claude-api` or `openai-api` only when API billing is intended.
 
 ### Static Assertions
 
@@ -356,20 +371,20 @@ also runs the same tasks without the skill and reports the delta.
 
 ---
 
-## Install `caliper` as an Agent Skill
+## Install the Skill Evaluator as an Agent Skill
 
 ### Claude Code
 
 Copy the repo skill into your Claude commands:
 
 ```bash
-cp SKILL.md ~/.claude/commands/caliper.md
+cp skills/evaluate-skill/SKILL.md ~/.claude/commands/evaluate-skill.md
 ```
 
 Then use it in Claude Code:
 
 ```text
-/caliper run my-skill.eval.yaml --k 3
+/evaluate-skill run my-skill.eval.yaml --k 3
 ```
 
 ### Codex
@@ -377,8 +392,8 @@ Then use it in Claude Code:
 Install the skill in Codex:
 
 ```bash
-mkdir -p ~/.codex/skills/caliper
-cp SKILL.md ~/.codex/skills/caliper/SKILL.md
+mkdir -p ~/.codex/skills/evaluate-skill
+cp skills/evaluate-skill/SKILL.md ~/.codex/skills/evaluate-skill/SKILL.md
 ```
 
 Make sure `caliper` is on PATH for Codex sessions. If you installed in editable
@@ -388,7 +403,7 @@ a `caliper.cmd` shim in a PATH directory if needed.
 Then ask Codex:
 
 ```text
-Use the caliper skill to validate my-skill.eval.yaml.
+Use the evaluate-skill skill to validate my-skill.eval.yaml.
 ```
 
 ---
@@ -410,7 +425,7 @@ npm install -g @openai/codex
 
 ### `claude` command not found
 
-Install and authenticate Claude Code, or switch the relevant backend to Codex.
+Install and authenticate Claude Code, or switch the relevant backend to `codex`, `claude-api`, or `openai-api`.
 
 ### A task passes only because of `assert:`
 

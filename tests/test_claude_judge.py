@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import subprocess
 
-from verdict.harness.base import ConversationTurn
-from verdict.judge.claude_code_judge import ClaudeCodeJudge
-from verdict.schema.spec import JudgeConfig, TaskSpec
+from caliper.harness.base import ConversationTurn
+from caliper.judge.claude_code_judge import ClaudeCodeJudge
+from caliper.schema.spec import JudgeConfig, TaskSpec
 
 
 def test_claude_code_judge_still_invokes_claude_cli(monkeypatch, tmp_path) -> None:
@@ -19,7 +19,7 @@ def test_claude_code_judge_still_invokes_claude_cli(monkeypatch, tmp_path) -> No
             stderr="",
         )
 
-    monkeypatch.setattr("verdict.judge.claude_code_judge.subprocess.run", fake_run)
+    monkeypatch.setattr("caliper.judge.claude_code_judge.subprocess.run", fake_run)
 
     result = ClaudeCodeJudge(JudgeConfig(backend="claude", model="claude-test")).evaluate(
         task=TaskSpec(

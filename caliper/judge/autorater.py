@@ -92,3 +92,38 @@ class AutoraterJudge(Judge):
             autorater_passed=passed,
             autorater_reasoning=reasoning,
         )
+
+
+def evaluate_with_claude_api(
+    *,
+    expect: str,
+    transcript: list[ConversationTurn],
+    model: str | None,
+    timeout: int = 60,
+) -> tuple[bool, str]:
+    user_msg = _USER_TMPL.format(
+        expect=expect,
+        transcript=_format_transcript(transcript),
+    )
+
+    try:
+        client = anthropic.Anthropic(timeout=timeout)
+        response = client.messages.create(
+            model=model or "claude-haiku-4-5-20251001",
+            max_tokens=512,
+            system=_SYSTEM,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        raw = response.content[0].text.strip()
+    except Exception as exc:
+        return False, f"claude-api judge failed: {exc}"
+
+    try:
+        verdict = json.loads(raw)
+        passed = bool(verdict.get("passed", False))
+        reasoning = str(verdict.get("reasoning", ""))
+    except (json.JSONDecodeError, KeyError):
+        passed = False
+        reasoning = f"Judge returned unparseable response: {raw[:200]}"
+
+    return passed, reasoning

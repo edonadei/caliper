@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from verdict.harness.base import AttemptResult, HarnessBackend
-from verdict.judge.base import Judge, JudgeResult
-from verdict.runner import TaskRunner
-from verdict.schema.spec import EvalSpec, SkillConfig, TaskSpec
+from caliper.harness.base import AttemptResult, HarnessBackend
+from caliper.judge.base import Judge, JudgeResult
+from caliper.runner import TaskRunner
+from caliper.schema.spec import EvalSpec, SkillConfig, TaskSpec
 
 
 class FailingHarness(HarnessBackend):

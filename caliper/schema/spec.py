@@ -3,7 +3,19 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+BackendName = Literal["claude-code", "codex", "claude-api", "openai-api"]
+
+
+def normalize_backend(value: str) -> str:
+    aliases = {
+        "claude": "claude-code",
+        "anthropic": "claude-api",
+        "openai": "openai-api",
+    }
+    return aliases.get(value, value)
 
 
 class TaskSpec(BaseModel):
@@ -26,13 +38,23 @@ class TaskSpec(BaseModel):
 
 class SkillConfig(BaseModel):
     path: str | None = None
-    backend: Literal["claude", "codex"] = "claude"
+    backend: BackendName = "claude-code"
     model: str | None = None
+
+    @field_validator("backend", mode="before")
+    @classmethod
+    def normalize_backend_name(cls, value: str) -> str:
+        return normalize_backend(value)
 
 
 class JudgeConfig(BaseModel):
-    backend: Literal["claude", "codex"] = "claude"
+    backend: BackendName = "claude-code"
     model: str | None = None
+
+    @field_validator("backend", mode="before")
+    @classmethod
+    def normalize_backend_name(cls, value: str) -> str:
+        return normalize_backend(value)
 
 
 class SandboxConfig(BaseModel):

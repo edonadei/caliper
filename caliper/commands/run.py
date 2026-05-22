@@ -29,7 +29,7 @@ def run_cmd(
     workers: int = typer.Option(4, "--workers", help="Parallel task workers"),
     timeout: int = typer.Option(120, "--timeout", help="Seconds per attempt"),
     baseline: bool = typer.Option(False, "--baseline", help="Also run without skill for delta"),
-    judge_strategy: str = typer.Option("autorater", "--judge", help="Judge strategy: autorater | autorater-sdk | script"),
+    judge_strategy: str = typer.Option("autorater", "--judge", help="Judge strategy: autorater | script"),
     output: Optional[Path] = typer.Option(None, "--output", help="Save results JSON to path"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show per-attempt reasoning"),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Override the skill model (e.g. claude-sonnet-4-6)"),
@@ -96,7 +96,7 @@ def run_cmd(
             console.print(
                 Panel(
                     str(exc),
-                    title="[bold red]Claude Code configuration error[/bold red]",
+                    title="[bold red]Backend configuration error[/bold red]",
                     border_style="red",
                 )
             )

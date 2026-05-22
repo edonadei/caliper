@@ -8,8 +8,11 @@ from pathlib import Path
 
 from caliper.harness.base import ConversationTurn
 from caliper.judge.autorater import _format_transcript
+from caliper.judge.claude_code_judge import evaluate_with_claude_code
 from caliper.judge.base import Judge, JudgeResult
 from caliper.judge.codex_judge import evaluate_with_codex
+from caliper.judge.openai_api_judge import evaluate_with_openai_api
+from caliper.schema.spec import normalize_backend
 from caliper.schema.spec import JudgeConfig, TaskSpec
 
 _SYSTEM = """\
@@ -44,7 +47,6 @@ _USER_TMPL = """\
 
 Evaluate the transcript. Respond with JSON.
 """
-
 
 def _run_inline_script(code: str, spec_dir: str) -> tuple[bool, str]:
     with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
@@ -153,26 +155,41 @@ class ScriptAssertJudge(Judge):
             expect=task.expect,
             transcript=_format_transcript(transcript),
         )
-        if self._config.backend == "codex":
-            return evaluate_with_codex(
-                expect=task.expect,
-                transcript=transcript,
-                model=self._config.model,
-                cwd=spec_dir,
-            )
+        match normalize_backend(self._config.backend):
+            case "codex":
+                return evaluate_with_codex(
+                    expect=task.expect,
+                    transcript=transcript,
+                    model=self._config.model,
+                    cwd=spec_dir,
+                )
+            case "claude-code":
+                return evaluate_with_claude_code(
+                    expect=task.expect,
+                    transcript=transcript,
+                    model=self._config.model,
+                )
+            case "openai-api":
+                return evaluate_with_openai_api(
+                    expect=task.expect,
+                    transcript=transcript,
+                    model=self._config.model,
+                )
+            case "claude-api":
+                model = self._config.model or "claude-haiku-4-5-20251001"
+                if self._client is None:
+                    import anthropic
 
-        model = self._config.model or "claude-haiku-4-5-20251001"
-        if self._client is None:
-            import anthropic
-
-            self._client = anthropic.Anthropic()
-        response = self._client.messages.create(
-            model=model,
-            max_tokens=1024,
-            system=_SYSTEM,
-            messages=[{"role": "user", "content": user_msg}],
-        )
-        raw = response.content[0].text.strip()
+                    self._client = anthropic.Anthropic()
+                response = self._client.messages.create(
+                    model=model,
+                    max_tokens=1024,
+                    system=_SYSTEM,
+                    messages=[{"role": "user", "content": user_msg}],
+                )
+                raw = response.content[0].text.strip()
+            case _:
+                return False, f"Unknown judge backend: {self._config.backend!r}"
 
         try:
             verdict = json.loads(raw)
@@ -190,5 +207,4 @@ class ScriptAssertJudge(Judge):
             detail = f"{reasoning} | script: {'ok' if passed else evidence}"
             return passed, detail
 
-        # mode == "verdict"
         return bool(verdict.get("passed", False)), reasoning

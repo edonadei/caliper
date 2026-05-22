@@ -12,6 +12,8 @@ from caliper.judge.autorater import _format_transcript, _SYSTEM, _USER_TMPL
 from caliper.judge.base import Judge, JudgeResult
 from caliper.schema.spec import JudgeConfig, TaskSpec
 
+CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
+
 
 class CodexJudge(Judge):
     """Judge that uses `codex exec` instead of a provider SDK directly."""
@@ -82,7 +84,7 @@ def _run_codex(
     cwd: str,
     timeout: int,
 ) -> tuple[str, str | None]:
-    codex = shutil.which("codex")
+    codex = _codex_command()
     if not codex:
         return "", "codex CLI not found"
 
@@ -130,6 +132,15 @@ def _run_codex(
         detail = _extract_codex_error(proc.stderr) or _extract_codex_error(raw)
         return raw, detail or f"codex judge exited {proc.returncode}"
     return raw, None
+
+
+def _codex_command() -> str | None:
+    configured = os.environ.get("CODEX_CLI_PATH")
+    if configured and Path(configured).exists():
+        return configured
+    if CODEX_APP_CLI.exists():
+        return str(CODEX_APP_CLI)
+    return shutil.which("codex")
 
 
 def _strip_markdown_fence(raw: str) -> str:

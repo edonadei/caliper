@@ -1,10 +1,10 @@
 skill:
   path: ./SKILL.md
-  backend: claude
+  backend: claude-code
   model: claude-sonnet-4-6
 
 judge:
-  backend: claude
+  backend: claude-code
   model: claude-sonnet-4-6
 
 tasks:
