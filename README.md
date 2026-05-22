@@ -1,7 +1,7 @@
-# Caliper
+# Caliper - Agent Skill Evaluation Harness
 
 <p align="center">
-  <img src="assets/logo.png" alt="Caliper logo" width="160">
+  <img src="assets/caliper-banner.png" alt="Caliper banner">
 </p>
 
 Evaluate AI agent skills with repeatable tasks, automated judging, and pass@k
