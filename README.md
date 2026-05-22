@@ -1,9 +1,9 @@
-# verdict
+# caliper
 
 Evaluate AI agent skills with repeatable tasks, automated judging, and pass@k
 scoring.
 
-`verdict` runs a skill against one or more tasks, records each attempt, judges
+`caliper` runs a skill against one or more tasks, records each attempt, judges
 the result with an LLM and/or deterministic Python assertions, and saves a
 reproducible result file.
 
@@ -32,7 +32,7 @@ pip install -e ".[dev,codex]"
 
 ### Claude Code setup
 
-Install and authenticate the `claude` CLI. `verdict` uses the CLI by default for
+Install and authenticate the `claude` CLI. `caliper` uses the CLI by default for
 Claude-backed agents and judges, so OAuth/file credentials from your normal
 Claude Code setup can be reused.
 
@@ -52,7 +52,7 @@ codex login
 codex --version
 ```
 
-`verdict` calls Codex with `codex exec`. If the CLI is not available, the Codex
+`caliper` calls Codex with `codex exec`. If the CLI is not available, the Codex
 agent backend falls back to the OpenAI SDK and requires:
 
 ```bash
@@ -87,20 +87,20 @@ tasks:
 Run it:
 
 ```bash
-verdict run my-skill.eval.yaml --k 3
+caliper run my-skill.eval.yaml --k 3
 ```
 
 Browse results:
 
 ```bash
-verdict list
-verdict report my-skill
+caliper list
+caliper report my-skill
 ```
 
 Validate a spec before running:
 
 ```bash
-verdict validate my-skill.eval.yaml
+caliper validate my-skill.eval.yaml
 ```
 
 ---
@@ -123,12 +123,12 @@ judge:
 
 tasks:
   - name: Validates a spec
-    prompt: "Use verdict to validate ./example.eval.yaml and summarize the result."
-    expect: "The assistant runs verdict validate and reports whether the spec is valid."
+    prompt: "Use caliper to validate ./example.eval.yaml and summarize the result."
+    expect: "The assistant runs caliper validate and reports whether the spec is valid."
 ```
 
 ```bash
-verdict run my-codex-skill.eval.yaml --k 1 --verbose
+caliper run my-codex-skill.eval.yaml --k 1 --verbose
 ```
 
 ### Claude Code Agent, Claude Judge
@@ -203,8 +203,8 @@ When both `expect` and `assert` are present, both must pass.
 The repo includes a Codex-backed screenshot eval:
 
 ```bash
-verdict validate evals/screenshot/screenshot.eval.yaml
-verdict run evals/screenshot/screenshot.eval.yaml --k 1 --judge script --verbose
+caliper validate evals/screenshot/screenshot.eval.yaml
+caliper run evals/screenshot/screenshot.eval.yaml --k 1 --judge script --verbose
 ```
 
 That eval uses:
@@ -220,13 +220,13 @@ That eval uses:
 
 | Command | Description |
 |---|---|
-| `verdict run <spec>` | Run an evaluation spec |
-| `verdict new [name]` | Create a new evaluation spec with the wizard |
-| `verdict validate <spec>` | Validate a spec file |
-| `verdict list [spec]` | List specs and saved runs |
-| `verdict report <spec-or-result>` | Re-render saved results |
+| `caliper run <spec>` | Run an evaluation spec |
+| `caliper new [name]` | Create a new evaluation spec with the wizard |
+| `caliper validate <spec>` | Validate a spec file |
+| `caliper list [spec]` | List specs and saved runs |
+| `caliper report <spec-or-result>` | Re-render saved results |
 
-### `verdict run` Flags
+### `caliper run` Flags
 
 | Flag | Default | Description |
 |---|---|---|
@@ -260,7 +260,7 @@ sandbox:
     - ./bin                     # optional paths prepended to PATH
   forbidden_files:
     - ".*\\.eval\\.yaml$"       # agent cannot read the spec file
-    - "./.verdict/.*"           # agent cannot read saved results
+    - "./.caliper/.*"           # agent cannot read saved results
 
 tasks:
   - name: Short task name
@@ -328,14 +328,14 @@ Static assertions run locally with Python. They are ideal for verifying:
 ## Isolation and Reproducibility
 
 Each attempt runs with a fresh temporary `HOME` directory. For Claude Code,
-`verdict` installs a temporary slash-command skill in that isolated home. For
-Codex, `verdict` injects the skill body directly into the prompt passed to
+`caliper` installs a temporary slash-command skill in that isolated home. For
+Codex, `caliper` injects the skill body directly into the prompt passed to
 `codex exec`.
 
 Results are saved next to the spec:
 
 ```text
-.verdict/results/<spec-name>/<timestamp>.json
+.caliper/results/<spec-name>/<timestamp>.json
 ```
 
 Each result includes a skill snapshot: the skill file content, referenced local
@@ -351,25 +351,25 @@ For each task:
 pass@k = 1 - (1 - successes / k)^k
 ```
 
-The aggregate score is the average task pass@k. With `--baseline`, `verdict`
+The aggregate score is the average task pass@k. With `--baseline`, `caliper`
 also runs the same tasks without the skill and reports the delta.
 
 ---
 
-## Install `verdict` as an Agent Skill
+## Install `caliper` as an Agent Skill
 
 ### Claude Code
 
 Copy the repo skill into your Claude commands:
 
 ```bash
-cp SKILL.md ~/.claude/commands/verdict.md
+cp SKILL.md ~/.claude/commands/caliper.md
 ```
 
 Then use it in Claude Code:
 
 ```text
-/verdict run my-skill.eval.yaml --k 3
+/caliper run my-skill.eval.yaml --k 3
 ```
 
 ### Codex
@@ -377,18 +377,18 @@ Then use it in Claude Code:
 Install the skill in Codex:
 
 ```bash
-mkdir -p ~/.codex/skills/verdict
-cp SKILL.md ~/.codex/skills/verdict/SKILL.md
+mkdir -p ~/.codex/skills/caliper
+cp SKILL.md ~/.codex/skills/caliper/SKILL.md
 ```
 
-Make sure `verdict` is on PATH for Codex sessions. If you installed in editable
+Make sure `caliper` is on PATH for Codex sessions. If you installed in editable
 mode, the generated console script is usually enough. On Windows, you can create
-a `verdict.cmd` shim in a PATH directory if needed.
+a `caliper.cmd` shim in a PATH directory if needed.
 
 Then ask Codex:
 
 ```text
-Use the verdict skill to validate my-skill.eval.yaml.
+Use the caliper skill to validate my-skill.eval.yaml.
 ```
 
 ---

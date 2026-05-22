@@ -1,11 +1,12 @@
 __pycache__/
 *.py[cod]
+.DS_Store
 *.egg-info/
 dist/
 build/
 .venv/
 venv/
-.verdict/
+.caliper/
 *.json
 !examples/*.json
 .env

@@ -6,8 +6,8 @@ from typing import Annotated, Optional
 import typer
 from rich.console import Console
 
-from verdict.reporter import print_results, results_to_json
-from verdict.schema.results import RunResults
+from caliper.reporter import print_results, results_to_json
+from caliper.schema.results import RunResults
 
 console = Console()
 
@@ -42,8 +42,8 @@ def _resolve_path(spec_or_file: str, run: str | None) -> Path | None:
     if p.suffix == ".json" and p.exists():
         return p
 
-    # Spec name → look in .verdict/results/<name>/
-    results_dir = Path(".verdict") / "results" / spec_or_file
+    # Spec name → look in .caliper/results/<name>/
+    results_dir = Path(".caliper") / "results" / spec_or_file
     if not results_dir.exists():
         return None
 

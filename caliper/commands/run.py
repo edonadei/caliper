@@ -5,18 +5,20 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.panel import Panel
 
-from verdict.harness import get_harness
-from verdict.judge import get_judge
-from verdict.reporter import (
+from caliper.harness.base import HarnessConfigurationError
+from caliper.harness import get_harness
+from caliper.judge import get_judge
+from caliper.reporter import (
     make_progress,
     print_banner,
     print_results,
     save_results,
     update_progress,
 )
-from verdict.runner import TaskRunner
-from verdict.schema.spec import load_spec, spec_name
+from caliper.runner import TaskRunner
+from caliper.schema.spec import load_spec, spec_name
 
 console = Console()
 
@@ -88,7 +90,17 @@ def run_cmd(
     )
 
     with progress:
-        results = runner.run()
+        try:
+            results = runner.run()
+        except HarnessConfigurationError as exc:
+            console.print(
+                Panel(
+                    str(exc),
+                    title="[bold red]Claude Code configuration error[/bold red]",
+                    border_style="red",
+                )
+            )
+            raise typer.Exit(2)
 
     saved_path = save_results(results, str(spec_file))
     if output:

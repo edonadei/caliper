@@ -1,5 +1,5 @@
-from verdict.harness.base import AttemptResult, ConversationTurn, HarnessBackend
-from verdict.harness.claude_code import ClaudeCodeHarness
+from caliper.harness.base import AttemptResult, ConversationTurn, HarnessBackend
+from caliper.harness.claude_code import ClaudeCodeHarness
 
 
 def get_harness(backend: str, model: str | None = None) -> HarnessBackend:
@@ -7,7 +7,7 @@ def get_harness(backend: str, model: str | None = None) -> HarnessBackend:
         case "claude":
             return ClaudeCodeHarness(model=model)
         case "codex":
-            from verdict.harness.codex import CodexHarness
+            from caliper.harness.codex import CodexHarness
             return CodexHarness(model=model)
         case _:
             raise ValueError(f"Unknown backend: {backend!r}")

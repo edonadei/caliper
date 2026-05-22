@@ -5,7 +5,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from verdict.harness.base import AttemptResult, ConversationTurn, HarnessBackend
+from caliper.harness.base import AttemptResult, ConversationTurn, HarnessBackend
 
 
 class CodexHarness(HarnessBackend):
@@ -138,7 +138,7 @@ class CodexHarness(HarnessBackend):
         try:
             from openai import OpenAI
         except ImportError:
-            return "", 1, "openai package not installed; run: pip install verdict-eval[codex]"
+            return "", 1, "openai package not installed; run: pip install caliper[codex]"
 
         try:
             client = OpenAI()

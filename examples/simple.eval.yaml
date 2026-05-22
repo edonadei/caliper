@@ -10,7 +10,7 @@ judge:
 sandbox:
   forbidden_files:
     - ".*\\.eval\\.yaml$"
-    - "./.verdict/.*"
+    - "./.caliper/.*"
 
 tasks:
   - name: Detects a null pointer bug

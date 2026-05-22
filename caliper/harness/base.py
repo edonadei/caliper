@@ -4,6 +4,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 
+class HarnessConfigurationError(RuntimeError):
+    """Raised when a harness cannot run because local configuration is invalid."""
+
+
 @dataclass
 class ConversationTurn:
     role: str

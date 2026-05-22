@@ -1,7 +1,7 @@
-from verdict.judge.autorater import AutoraterJudge
-from verdict.judge.base import Judge, JudgeResult
-from verdict.judge.claude_code_judge import ClaudeCodeJudge
-from verdict.judge.codex_judge import CodexJudge
+from caliper.judge.autorater import AutoraterJudge
+from caliper.judge.base import Judge, JudgeResult
+from caliper.judge.claude_code_judge import ClaudeCodeJudge
+from caliper.judge.codex_judge import CodexJudge
 
 
 def get_judge(strategy: str, config) -> Judge:
@@ -15,7 +15,7 @@ def get_judge(strategy: str, config) -> Judge:
             # Explicit opt-in to the SDK-based judge (requires ANTHROPIC_API_KEY).
             return AutoraterJudge(config)
         case "script":
-            from verdict.judge.script_assert import ScriptAssertJudge
+            from caliper.judge.script_assert import ScriptAssertJudge
 
             return ScriptAssertJudge(config)
         case _:

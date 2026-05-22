@@ -7,10 +7,10 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from verdict.harness.base import ConversationTurn
-from verdict.judge.autorater import _format_transcript, _SYSTEM, _USER_TMPL
-from verdict.judge.base import Judge, JudgeResult
-from verdict.schema.spec import JudgeConfig, TaskSpec
+from caliper.harness.base import ConversationTurn
+from caliper.judge.autorater import _format_transcript, _SYSTEM, _USER_TMPL
+from caliper.judge.base import Judge, JudgeResult
+from caliper.schema.spec import JudgeConfig, TaskSpec
 
 
 class CodexJudge(Judge):

@@ -5,7 +5,7 @@ from pydantic import ValidationError
 from rich.console import Console
 from rich.panel import Panel
 
-from verdict.schema.spec import load_spec, spec_name
+from caliper.schema.spec import load_spec, spec_name
 
 console = Console()
 

@@ -1,0 +1,27 @@
+skill:
+  path: ./SKILL.md
+  backend: claude
+  model: claude-haiku-4-5-20251001
+
+judge:
+  backend: claude
+  model: claude-haiku-4-5-20251001
+
+sandbox:
+  forbidden_files:
+    - ".*\\.eval\\.yaml$"
+    - "./.caliper/.*"
+
+tasks:
+  - name: Writes the smoke output file
+    setup: rm -f /tmp/caliper-claude-code-smoke.txt
+    cleanup: rm -f /tmp/caliper-claude-code-smoke.txt
+    prompt: >
+      Run the Claude Code smoke evaluation and write the result to
+      /tmp/caliper-claude-code-smoke.txt.
+    assert: |
+      from pathlib import Path
+
+      path = Path("/tmp/caliper-claude-code-smoke.txt")
+      assert path.exists(), "smoke output file was not created"
+      assert path.read_text().strip() == "claude-code-smoke-ok", "unexpected smoke output"

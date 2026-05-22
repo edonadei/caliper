@@ -5,7 +5,7 @@ from typing import Annotated, Optional
 
 import typer
 
-from verdict.wizard import run_wizard
+from caliper.wizard import run_wizard
 
 def new_cmd(
     name: Annotated[Optional[str], typer.Argument(help="Eval name (used as default filename)")] = None,

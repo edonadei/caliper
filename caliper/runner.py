@@ -10,9 +10,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from verdict.harness.base import ConversationTurn, HarnessBackend
-from verdict.judge.base import Judge
-from verdict.schema.results import (
+from caliper.harness.base import ConversationTurn, HarnessBackend
+from caliper.judge.base import Judge
+from caliper.schema.results import (
     AggregateScore,
     AttemptRecord,
     DeltaReport,
@@ -22,8 +22,8 @@ from verdict.schema.results import (
     SkillSnapshot,
     TaskResult,
 )
-from verdict.schema.spec import EvalSpec, TaskSpec, spec_name
-from verdict.scoring import aggregate_scores, compute_delta, pass_at_k
+from caliper.schema.spec import EvalSpec, TaskSpec, spec_name
+from caliper.scoring import aggregate_scores, compute_delta, pass_at_k
 
 
 class CheatDetector:
@@ -142,7 +142,7 @@ class TaskRunner:
 
         auto_forbidden = [
             re.escape(str(spec_path.resolve())),
-            re.escape(str((spec_path.parent / ".verdict").resolve())),
+            re.escape(str((spec_path.parent / ".caliper").resolve())),
         ]
         all_patterns = list(spec.sandbox.forbidden_files) + auto_forbidden
         self._cheat = CheatDetector(all_patterns)
@@ -150,7 +150,7 @@ class TaskRunner:
 
     def run(self) -> RunResults:
         spec = self._spec
-        skill_snapshot = self._snapshotter.snapshot(spec.skill.path)
+        skill_snapshot = self._snapshotter.snapshot(self._resolve_skill_path())
 
         task_results_with: list[TaskResult] = []
         task_results_without: list[TaskResult] = []
@@ -223,19 +223,14 @@ class TaskRunner:
         )
 
     def _run_attempt(self, task: TaskSpec, attempt: int, *, with_skill: bool) -> AttemptRecord:
-        tmp_dir = tempfile.mkdtemp(prefix="verdict-")
+        tmp_dir = tempfile.mkdtemp(prefix="caliper-")
         try:
             self._run_shell(task.setup)
             resolved_extra_path = [
                 str((self._spec_path.parent / p).resolve())
                 for p in self._spec.sandbox.extra_path
             ]
-            # Resolve skill path relative to the spec file, not CWD
-            skill_path: str | None = None
-            if with_skill and self._spec.skill.path:
-                skill_path = str(
-                    (self._spec_path.parent / self._spec.skill.path).resolve()
-                )
+            skill_path = self._resolve_skill_path() if with_skill else None
             attempt_result = self._harness.run(
                 task_id=task.id,
                 attempt=attempt,
@@ -303,3 +298,11 @@ class TaskRunner:
     def _run_shell(self, cmd: str | None) -> None:
         if cmd:
             subprocess.run(cmd, shell=True, check=False)
+
+    def _resolve_skill_path(self) -> str | None:
+        if not self._spec.skill.path:
+            return None
+        path = Path(self._spec.skill.path).expanduser()
+        if not path.is_absolute():
+            path = self._spec_path.parent / path
+        return str(path.resolve())

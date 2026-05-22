@@ -6,11 +6,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-from verdict.harness.base import ConversationTurn
-from verdict.judge.autorater import _format_transcript
-from verdict.judge.base import Judge, JudgeResult
-from verdict.judge.codex_judge import evaluate_with_codex
-from verdict.schema.spec import JudgeConfig, TaskSpec
+from caliper.harness.base import ConversationTurn
+from caliper.judge.autorater import _format_transcript
+from caliper.judge.base import Judge, JudgeResult
+from caliper.judge.codex_judge import evaluate_with_codex
+from caliper.schema.spec import JudgeConfig, TaskSpec
 
 _SYSTEM = """\
 You are an evaluation judge for an AI assistant. You will be shown a conversation \

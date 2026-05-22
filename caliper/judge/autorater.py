@@ -4,9 +4,9 @@ import json
 
 import anthropic
 
-from verdict.harness.base import ConversationTurn
-from verdict.judge.base import Judge, JudgeResult
-from verdict.schema.spec import JudgeConfig, TaskSpec
+from caliper.harness.base import ConversationTurn
+from caliper.judge.base import Judge, JudgeResult
+from caliper.schema.spec import JudgeConfig, TaskSpec
 
 _SYSTEM = """\
 You are an evaluation judge for an AI assistant. You will be shown a conversation \

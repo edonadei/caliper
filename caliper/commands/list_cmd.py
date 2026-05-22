@@ -8,7 +8,7 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
-from verdict.schema.results import RunResults
+from caliper.schema.results import RunResults
 
 console = Console()
 
@@ -17,17 +17,17 @@ def list_cmd_fn(
     spec: Annotated[Optional[str], typer.Argument(help="Spec name to list runs for")] = None,
     directory: Annotated[Path, typer.Option("--dir", help="Directory to search")] = Path("."),
 ) -> None:
-    verdict_dir = directory / ".verdict" / "results"
+    caliper_dir = directory / ".caliper" / "results"
 
     if spec:
-        _list_runs(verdict_dir / spec, spec)
+        _list_runs(caliper_dir / spec, spec)
     else:
-        _list_specs(verdict_dir)
+        _list_specs(caliper_dir)
 
 
 def _list_specs(results_dir: Path) -> None:
     if not results_dir.exists():
-        console.print("[dim]No evaluation results found. Run [bold]verdict run[/bold] first.[/dim]")
+        console.print("[dim]No evaluation results found. Run [bold]caliper run[/bold] first.[/dim]")
         return
 
     table = Table(box=box.ROUNDED, header_style="bold cyan", expand=False)

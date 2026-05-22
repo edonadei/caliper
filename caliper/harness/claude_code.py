@@ -9,7 +9,12 @@ import time
 import uuid
 from pathlib import Path
 
-from verdict.harness.base import AttemptResult, ConversationTurn, HarnessBackend
+from caliper.harness.base import (
+    AttemptResult,
+    ConversationTurn,
+    HarnessBackend,
+    HarnessConfigurationError,
+)
 
 
 class ClaudeCodeHarness(HarnessBackend):
@@ -94,6 +99,13 @@ class ClaudeCodeHarness(HarnessBackend):
 
         duration = time.monotonic() - start
         transcript, final_output = self._parse_stream(proc.stdout)
+        diagnostic = self._diagnose_configuration_error(
+            proc.returncode,
+            final_output,
+            proc.stderr,
+        )
+        if diagnostic:
+            raise HarnessConfigurationError(diagnostic)
 
         return AttemptResult(
             task_id=task_id,
@@ -104,6 +116,58 @@ class ClaudeCodeHarness(HarnessBackend):
             duration_seconds=duration,
             error=proc.stderr.strip() if proc.returncode != 0 and not final_output else None,
         )
+
+    def _diagnose_configuration_error(
+        self,
+        returncode: int,
+        final_output: str,
+        stderr: str,
+    ) -> str | None:
+        text = "\n".join(part for part in (final_output, stderr) if part).strip()
+        if not text:
+            return None
+
+        lowered = text.lower()
+        if "not logged in" in lowered or "please run /login" in lowered:
+            return (
+                "Claude Code is not logged in for the evaluation harness.\n\n"
+                "caliper runs Claude Code in an isolated HOME so each attempt has no "
+                "session history. The Claude CLI returned:\n"
+                f"  {text}\n\n"
+                "Run Claude Code login for this machine, then retry the eval. If "
+                "`claude -p 'Reply OK'` works in your normal shell but caliper still "
+                "fails, the harness is not finding or copying the credential store "
+                "that your Claude Code install uses."
+            )
+
+        subscription_markers = (
+            "does not have access to claude code",
+            "disabled claude subscription access",
+            "use an anthropic api key instead",
+        )
+        if any(marker in lowered for marker in subscription_markers):
+            return (
+                "Claude Code cannot run with the current account or organization "
+                "configuration.\n\n"
+                "The Claude CLI returned:\n"
+                f"  {text}\n\n"
+                "Your organization may have disabled Claude subscription access for "
+                "Claude Code, or this account may not have Claude Code access. Use an "
+                "Anthropic API key for eval runs, or ask your admin to enable Claude "
+                "Code access for the account, then rerun caliper."
+            )
+
+        if returncode != 0 and "api key" in lowered and "anthropic" in lowered:
+            return (
+                "Claude Code exited before the eval attempt could run because it could "
+                "not resolve Anthropic authentication.\n\n"
+                "The Claude CLI returned:\n"
+                f"  {text}\n\n"
+                "Set `ANTHROPIC_API_KEY` or complete Claude Code login, then rerun "
+                "caliper."
+            )
+
+        return None
 
     def _seed_credentials_from_keychain(self, dst: Path) -> None:
         try:

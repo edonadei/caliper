@@ -15,7 +15,7 @@ from rich.progress import (
 from rich.table import Table
 from rich.text import Text
 
-from verdict.schema.results import RunResults, TaskResult
+from caliper.schema.results import RunResults, TaskResult
 
 console = Console()
 
@@ -26,7 +26,7 @@ def _supports_unicode() -> bool:
 
 
 _UNICODE = _supports_unicode()
-_BANNER = "[bold cyan]VERDICT[/bold cyan]"
+_BANNER = "[bold cyan]CALIPER[/bold cyan]"
 _SEP = "·" if _UNICODE else "-"
 _RULE = "—" if _UNICODE else "-"
 _WARN = "⚠" if _UNICODE else "!"
@@ -208,7 +208,7 @@ def save_results(results: RunResults, spec_path: str) -> str:
     from pathlib import Path
 
     spec_p = Path(spec_path)
-    out_dir = spec_p.parent / ".verdict" / "results" / results.run.spec
+    out_dir = spec_p.parent / ".caliper" / "results" / results.run.spec
     out_dir.mkdir(parents=True, exist_ok=True)
     ts = results.run.timestamp.strftime("%Y-%m-%dT%H-%M-%SZ")
     out_file = out_dir / f"{ts}.json"

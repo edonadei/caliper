@@ -1,40 +1,40 @@
 ---
-description: Run skill evaluations with verdict — evaluate Claude Code skills using automated judging and pass@k scoring
+description: Run skill evaluations with caliper — evaluate Claude Code skills using automated judging and pass@k scoring
 allowed-tools: Bash
 ---
 
-# verdict — skill evaluator
+# caliper — skill evaluator
 
-Use this skill to evaluate a Claude Code skill using the `verdict` CLI.
+Use this skill to evaluate a Claude Code skill using the `caliper` CLI.
 
 ## Commands
 
 ### Run an evaluation
 ```bash
-verdict run path/to/spec.eval.yaml --k 3
-verdict run path/to/spec.eval.yaml --k 3 --baseline      # include no-skill delta
-verdict run path/to/spec.eval.yaml --judge script        # LLM writes assertion scripts
-verdict run path/to/spec.eval.yaml --verbose             # show per-attempt reasoning
+caliper run path/to/spec.eval.yaml --k 3
+caliper run path/to/spec.eval.yaml --k 3 --baseline      # include no-skill delta
+caliper run path/to/spec.eval.yaml --judge script        # LLM writes assertion scripts
+caliper run path/to/spec.eval.yaml --verbose             # show per-attempt reasoning
 ```
 
 ### Create a new evaluation spec (interactive wizard)
 ```bash
-verdict new my-skill-eval
-verdict new --skill ~/.claude/commands/review.md --backend claude
+caliper new my-skill-eval
+caliper new --skill ~/.claude/commands/review.md --backend claude
 ```
 
 ### Validate a spec file
 ```bash
-verdict validate path/to/spec.eval.yaml
+caliper validate path/to/spec.eval.yaml
 ```
 
 ### Browse saved results
 ```bash
-verdict list                        # all specs with latest scores
-verdict list my-skill-eval          # all runs for one spec
-verdict report my-skill-eval        # latest run (table view)
-verdict report my-skill-eval --run 2026-05-12T14-23-01Z  # specific run
-verdict report results.json --format json
+caliper list                        # all specs with latest scores
+caliper list my-skill-eval          # all runs for one spec
+caliper report my-skill-eval        # latest run (table view)
+caliper report my-skill-eval --run 2026-05-12T14-23-01Z  # specific run
+caliper report results.json --format json
 ```
 
 ## Spec format (.eval.yaml)
@@ -86,6 +86,6 @@ tasks:
 
 ## Results storage
 
-Results are saved automatically to `.verdict/results/<spec-name>/<timestamp>.json`
+Results are saved automatically to `.caliper/results/<spec-name>/<timestamp>.json`
 alongside the spec file. Each result includes a full skill snapshot (content + git SHA
 of the skill file and any referenced scripts) for reproducibility.

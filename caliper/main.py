@@ -1,14 +1,14 @@
 import typer
 
-from verdict.commands.run import run_cmd
-from verdict.commands.new import new_cmd
-from verdict.commands.report import report_cmd
-from verdict.commands.list_cmd import list_cmd_fn
-from verdict.commands.validate import validate_cmd
+from caliper.commands.run import run_cmd
+from caliper.commands.new import new_cmd
+from caliper.commands.report import report_cmd
+from caliper.commands.list_cmd import list_cmd_fn
+from caliper.commands.validate import validate_cmd
 
 app = typer.Typer(
-    name="verdict",
-    help="[bold cyan]verdict[/bold cyan] — evaluate AI skills with confidence",
+    name="caliper",
+    help="[bold cyan]caliper[/bold cyan] — evaluate AI skills with confidence",
     rich_markup_mode="rich",
     no_args_is_help=True,
 )
@@ -22,3 +22,7 @@ app.command("validate", help="Validate an evaluation spec file")(validate_cmd)
 
 def main() -> None:
     app()
+
+
+if __name__ == "__main__":
+    main()

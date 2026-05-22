@@ -8,11 +8,11 @@ from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.rule import Rule
 
-from verdict.schema.spec import EvalSpec, JudgeConfig, SandboxConfig, SkillConfig, TaskSpec
+from caliper.schema.spec import EvalSpec, JudgeConfig, SandboxConfig, SkillConfig, TaskSpec
 
 console = Console()
 
-_BANNER = "[bold cyan]⚖  VERDICT[/bold cyan]  ·  New Evaluation Wizard"
+_BANNER = "[bold cyan]⚖  CALIPER[/bold cyan]  ·  New Evaluation Wizard"
 
 
 def run_wizard(
@@ -132,7 +132,7 @@ def run_wizard(
     spec = EvalSpec(
         skill=SkillConfig(path=skill_p, backend=backend_choice, model=model),
         judge=JudgeConfig(backend=judge_backend, model=judge_model),
-        sandbox=SandboxConfig(forbidden_files=[".*\\.eval\\.yaml$", "./.verdict/.*"]),
+        sandbox=SandboxConfig(forbidden_files=[".*\\.eval\\.yaml$", "./.caliper/.*"]),
         tasks=tasks,
     )
 
@@ -141,8 +141,8 @@ def run_wizard(
     console.print(
         Panel(
             f"Spec written to [bold cyan]{output}[/bold cyan]\n"
-            f"Validate with: [dim]verdict validate {output}[/dim]\n"
-            f"Run with:      [dim]verdict run {output}[/dim]",
+            f"Validate with: [dim]caliper validate {output}[/dim]\n"
+            f"Run with:      [dim]caliper run {output}[/dim]",
             title="[bold green]✓ Done[/bold green]",
             border_style="green",
         )

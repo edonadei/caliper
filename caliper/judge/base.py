@@ -3,8 +3,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from verdict.harness.base import ConversationTurn
-from verdict.schema.spec import TaskSpec
+from caliper.harness.base import ConversationTurn
+from caliper.schema.spec import TaskSpec
 
 
 @dataclass

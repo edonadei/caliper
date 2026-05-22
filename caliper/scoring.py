@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from verdict.schema.results import AggregateScore, DeltaReport, TaskScore
+from caliper.schema.results import AggregateScore, DeltaReport, TaskScore
 
 
 def pass_at_k(successes: int, k: int) -> float:
