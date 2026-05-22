@@ -10,6 +10,21 @@ Use this skill to evaluate Claude Code, Codex, or API-backed skills using the `c
 Caliper runs repeatable task specs against an agent backend, judges the results
 with an LLM and/or deterministic Python assertions, and reports pass@k scores.
 
+## Prerequisites
+
+The `caliper` CLI must be installed and available on `PATH`. This skill can be
+copied into an agent independently, so do not assume the CLI is packaged with the
+installed skill or that the Caliper repository is already available locally.
+
+If the `caliper` command is missing, install it from the Caliper CLI repository:
+`https://github.com/edonadei/verdict`.
+
+From the Caliper repository root:
+
+```bash
+pip install -e .
+```
+
 Supported backends:
 
 - `claude-code` — runs Claude Code skills as temporary slash commands in an isolated

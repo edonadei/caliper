@@ -142,7 +142,21 @@ tasks:
 Run it:
 
 ```bash
-caliper run my-skill.eval.yaml --k 3
+caliper run my-skill.eval.yaml --k 3 --baseline
+```
+
+Example output:
+
+```text
+CALIPER  -  my-skill  -  k=3  -  codex
+
+ID      Task                           k (3)   pass@k
+task-1  Produces the expected answer   2/3     96.3%    PARTIAL
+
+With skill    96.3%   ###################-
+No skill      70.4%   ##############------
+Delta         +25.9%  up
+Results saved to .caliper/results/my-skill/2026-05-22T14-23-01Z.json
 ```
 
 Browse results:
