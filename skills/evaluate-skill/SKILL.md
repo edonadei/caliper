@@ -57,6 +57,17 @@ caliper report my-skill-eval --run 2026-05-12T14-23-01Z  # specific run
 caliper report results.json --format json
 ```
 
+## Bundled references
+
+Use `references/evals/` when you need complete examples of real skill evals:
+Claude Code smoke checks, commit workflow evaluation, screenshot verification,
+summarization tool evaluation, and TDD behavior evaluation. Each eval folder is
+self-contained with the fixture `SKILL.md` and its `.eval.yaml`.
+
+Use `references/examples/simple.eval.yaml` for a compact spec that demonstrates
+multiple tasks, setup/cleanup, natural-language expectations, and deterministic
+assertions in one file.
+
 ## Spec format (.eval.yaml)
 
 ```yaml

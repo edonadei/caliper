@@ -217,8 +217,8 @@ When both `expect` and `assert` are present, both must pass.
 The repo includes a Codex-backed screenshot eval:
 
 ```bash
-caliper validate evals/screenshot/screenshot.eval.yaml
-caliper run evals/screenshot/screenshot.eval.yaml --k 1 --judge script --verbose
+caliper validate skills/evaluate-skill/references/evals/screenshot/screenshot.eval.yaml
+caliper run skills/evaluate-skill/references/evals/screenshot/screenshot.eval.yaml --k 1 --judge script --verbose
 ```
 
 That eval uses:

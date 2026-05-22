@@ -150,13 +150,14 @@ tasks:
   - name: Surfaces Claude Code configuration errors clearly
     prompt: >
       Run the Claude Code smoke eval at
-      evals/claude-code-smoke/claude-code-smoke.eval.yaml with k=1, one worker,
-      a 60 second timeout, and the script judge. If Claude Code is not logged in
-      or the account lacks access, report the Caliper configuration error
-      clearly instead of describing it as a task failure.
+      skills/evaluate-skill/references/evals/claude-code-smoke/claude-code-smoke.eval.yaml
+      with k=1, one worker, a 60 second timeout, and the script judge. If Claude
+      Code is not logged in or the account lacks access, report the Caliper
+      configuration error clearly instead of describing it as a task failure.
     expect: >
-      The agent runs caliper run evals/claude-code-smoke/claude-code-smoke.eval.yaml
-      with --k 1 --workers 1 --timeout 60 --judge script. If the run exits with
-      a Claude Code configuration error, the agent reports that configuration
-      problem and the relevant login or access guidance. If Claude Code is
-      configured, the agent reports the eval result normally.
+      The agent runs caliper run
+      skills/evaluate-skill/references/evals/claude-code-smoke/claude-code-smoke.eval.yaml
+      with --k 1 --workers 1 --timeout 60 --judge script. If the run exits with a
+      Claude Code configuration error, the agent reports that configuration problem
+      and the relevant login or access guidance. If Claude Code is configured, the
+      agent reports the eval result normally.
