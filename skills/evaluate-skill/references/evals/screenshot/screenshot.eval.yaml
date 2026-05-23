@@ -17,6 +17,11 @@ tasks:
       Take a desktop screenshot and save it exactly at
       /tmp/caliper-screenshot-explicit.png.
       Report the saved file path when you are done.
+    expect: >
+      The final response reports that the screenshot was saved at exactly
+      /tmp/caliper-screenshot-explicit.png. Fail if it only describes how to
+      take a screenshot, reports a different path, or does not indicate
+      completion. The deterministic assert verifies that the PNG file exists.
     assert: |
       from pathlib import Path
 

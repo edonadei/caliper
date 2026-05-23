@@ -25,6 +25,8 @@ with ordinary unit tests. A good skill is part prompt, part workflow, part tool
 contract. Caliper turns that behavior into versioned eval specs, repeatable
 runs, pass/fail judgments, and saved transcripts.
 
+![Caliper terminal demo](assets/caliper-demo.gif)
+
 ## Highlights
 
 - **Skill-first evaluation** for Claude Code, Codex, Anthropic API, and OpenAI
@@ -60,7 +62,25 @@ model following instructions, using tools, and completing a workflow.
 
 ## Install
 
-From the repository root:
+The fastest way to install Caliper from GitHub is:
+
+```bash
+pipx install git+https://github.com/edonadei/verdict.git
+```
+
+After the first PyPI release, install the same CLI as:
+
+```bash
+pipx install caliper-eval
+```
+
+Both install methods expose the `caliper` command:
+
+```bash
+caliper --help
+```
+
+For local development from the repository root:
 
 ```bash
 pip install -e .
@@ -192,12 +212,29 @@ The repository includes an `evaluate-skill` agent skill. Installing it lets
 Claude Code or Codex help you create eval specs, validate them, run Caliper, and
 summarize results from inside your normal agent workflow.
 
-### Claude Code
-
-Copy the skill into Claude Code commands:
+If you installed the CLI, use the bundled installer:
 
 ```bash
-cp skills/evaluate-skill/SKILL.md ~/.claude/commands/evaluate-skill.md
+caliper install-skill codex
+caliper install-skill claude-code
+```
+
+Preview the destination without writing files:
+
+```bash
+caliper install-skill codex --dry-run
+```
+
+Use `--force` to overwrite an existing installed copy.
+
+### Claude Code
+
+Without the CLI installer, copy the skill into Claude Code commands:
+
+```bash
+mkdir -p ~/.claude/commands
+curl -fsSL https://raw.githubusercontent.com/edonadei/verdict/main/skills/evaluate-skill/SKILL.md \
+  -o ~/.claude/commands/evaluate-skill.md
 ```
 
 Then use it in Claude Code:
@@ -209,11 +246,12 @@ Then use it in Claude Code:
 
 ### Codex
 
-Install the skill in Codex:
+Without the CLI installer, install the skill in Codex:
 
 ```bash
 mkdir -p ~/.codex/skills/evaluate-skill
-cp skills/evaluate-skill/SKILL.md ~/.codex/skills/evaluate-skill/SKILL.md
+curl -fsSL https://raw.githubusercontent.com/edonadei/verdict/main/skills/evaluate-skill/SKILL.md \
+  -o ~/.codex/skills/evaluate-skill/SKILL.md
 ```
 
 Make sure `caliper` is on `PATH` for Codex sessions. If you installed Caliper in

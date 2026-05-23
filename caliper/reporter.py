@@ -48,7 +48,7 @@ def print_banner(spec_name: str, k: int, backend: str) -> None:
     )
 
 
-def make_progress(tasks: list[str]) -> tuple[Progress, dict[str, TaskID]]:
+def make_progress(tasks: list[str], k: int) -> tuple[Progress, dict[str, TaskID]]:
     progress = Progress(
         SpinnerColumn(),
         TextColumn("[bold]{task.description}", justify="right"),
@@ -61,7 +61,7 @@ def make_progress(tasks: list[str]) -> tuple[Progress, dict[str, TaskID]]:
     )
     task_ids: dict[str, TaskID] = {}
     for name in tasks:
-        tid = progress.add_task(name[:30], total=None, status="")
+        tid = progress.add_task(name[:30], total=k, status="")
         task_ids[name] = tid
     return progress, task_ids
 

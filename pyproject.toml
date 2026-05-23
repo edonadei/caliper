@@ -3,10 +3,29 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "caliper"
+name = "caliper-eval"
 version = "0.1.0"
 description = "CLI for evaluating Claude Code skills and AI agents"
+readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    { name = "Emrick Donadei" },
+]
+keywords = ["ai", "agents", "evals", "skills", "codex", "claude"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+]
 dependencies = [
     "typer>=0.15",
     "rich>=13",
@@ -22,6 +41,11 @@ dev = ["pytest", "ruff"]
 
 [project.scripts]
 caliper = "caliper.main:app"
+
+[project.urls]
+Homepage = "https://github.com/edonadei/verdict"
+Repository = "https://github.com/edonadei/verdict"
+Issues = "https://github.com/edonadei/verdict/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["caliper"]

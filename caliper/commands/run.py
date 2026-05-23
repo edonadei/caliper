@@ -54,7 +54,7 @@ def run_cmd(
     judge = get_judge(judge_strategy, spec.judge)
 
     task_names = [t.name for t in spec.tasks]
-    progress, task_ids = make_progress(task_names)
+    progress, task_ids = make_progress(task_names, k)
 
     attempt_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
     pass_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
