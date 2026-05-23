@@ -61,7 +61,7 @@ def make_progress(tasks: list[str], k: int) -> tuple[Progress, dict[str, TaskID]
     )
     task_ids: dict[str, TaskID] = {}
     for name in tasks:
-        tid = progress.add_task(name[:30], total=k, status="")
+        tid = progress.add_task(name, total=k, status="")
         task_ids[name] = tid
     return progress, task_ids
 
