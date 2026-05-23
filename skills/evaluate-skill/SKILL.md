@@ -83,6 +83,97 @@ Use `references/examples/simple.eval.yaml` for a compact spec that demonstrates
 multiple tasks, setup/cleanup, natural-language expectations, and deterministic
 assertions in one file.
 
+## Designing good agentic evals
+
+Before writing YAML, first define the behavior the eval should protect or
+improve. A good agentic eval makes success observable, repeatable, and hard to
+game.
+
+Use this workflow when asked to create or improve an eval:
+
+1. Name the target behavior: what should the skill do better than the base agent?
+2. Decide whether the suite is a capability eval or a regression eval.
+3. Define success as observable state, not assistant intent.
+4. Prefer deterministic `assert:` checks for files, commands, repo state, JSON,
+   UI state, API results, or other facts the harness can verify.
+5. Use `expect:` for judgment that cannot be made deterministically, and write it
+   as clear pass/fail criteria.
+6. Include normal, edge, and adversarial cases when the behavior is important.
+7. Run with `--baseline` to verify the skill improves behavior over the raw
+   agent.
+8. Start with `--k 1` while debugging the spec, then use `--k 3` or higher for
+   reliability measurements.
+
+### Outcome vs transcript checks
+
+Grade outcomes when possible:
+
+- file exists or contains expected content
+- tests pass or fail for the right reason
+- git state changed or stayed unchanged as required
+- JSON matches a schema or exact value
+- command output includes required evidence
+- UI or browser state reflects the requested action
+
+Grade transcripts when behavior matters:
+
+- agent asked for required confirmation
+- agent used or avoided a specific tool
+- agent cited sources or evidence
+- agent did not claim unverified work
+- agent stopped after satisfying the task
+- agent avoided over-engineering, unsafe actions, or policy violations
+
+### Task quality checklist
+
+A good task should be:
+
+- specific enough that two humans would usually agree on pass/fail
+- isolated from previous attempts by `setup:` and `cleanup:`
+- realistic enough to reflect actual use
+- hard enough that the skill matters
+- judgeable from artifacts, transcript, or both
+- resistant to passing by reading the eval spec or saved results
+
+Avoid:
+
+- vague expectations like "does a good job"
+- only testing happy paths
+- relying only on final text when environment state matters
+- using an LLM judge for facts a script can check
+- writing tasks so easy the baseline passes consistently
+- writing tasks so broad that failures are impossible to diagnose
+- changing regression tasks every time the skill changes
+
+### Common eval patterns
+
+- **File artifact eval** — agent creates or edits files; assert path existence and
+  contents.
+- **Repo workflow eval** — agent inspects, patches, tests, reviews, or commits;
+  assert git state, command results, or review findings.
+- **Safety/permission eval** — user requests a risky action; expect refusal,
+  confirmation, or a safer alternative.
+- **Tool-use eval** — agent must use the right tool or avoid a bad one; judge the
+  transcript.
+- **Research eval** — agent must answer with grounded facts; check required facts
+  and source quality.
+- **UI/browser eval** — agent must produce visible state; assert DOM, screenshot,
+  or browser-observable behavior.
+- **Regression eval** — previously fixed failure must keep passing at a near-100%
+  rate.
+
+### Writing `expect:` rubrics
+
+Write expectations as pass/fail criteria. Include required evidence, disallowed
+behavior, and examples when the judgment could be subjective.
+
+```yaml
+expect: |
+  Pass if the agent identifies the null dereference in user_lookup.py and
+  explains the failing path. Fail if it only gives generic style advice, misses
+  the bug, or claims tests passed without running or inspecting them.
+```
+
 ## Spec format (.eval.yaml)
 
 ```yaml
