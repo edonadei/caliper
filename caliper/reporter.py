@@ -5,7 +5,6 @@ from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import (
-    BarColumn,
     Progress,
     SpinnerColumn,
     TaskID,
@@ -13,6 +12,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 from rich.table import Table
+from rich.table import Column
 from rich.text import Text
 
 from caliper.schema.results import RunResults, TaskResult
@@ -51,11 +51,17 @@ def print_banner(spec_name: str, k: int, backend: str) -> None:
 def make_progress(tasks: list[str], k: int) -> tuple[Progress, dict[str, TaskID]]:
     progress = Progress(
         SpinnerColumn(),
-        TextColumn("[bold]{task.description}", justify="right"),
-        BarColumn(bar_width=20),
-        TextColumn("[cyan]{task.completed}/{task.total}"),
+        TextColumn(
+            "[bold]{task.description}",
+            justify="left",
+            table_column=Column(width=40, overflow="ellipsis", no_wrap=True),
+        ),
+        TextColumn(
+            "[cyan]{task.completed}/{task.total}",
+            table_column=Column(width=5, no_wrap=True),
+        ),
         TimeElapsedColumn(),
-        TextColumn("{task.fields[status]}"),
+        TextColumn("{task.fields[status]}", table_column=Column(width=7, no_wrap=True)),
         console=console,
         expand=False,
     )
