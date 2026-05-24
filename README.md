@@ -1,11 +1,20 @@
 # Caliper - Agent Skill Evaluation Harness
 
+[![PyPI](https://img.shields.io/pypi/v/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
+[![Python](https://img.shields.io/pypi/pyversions/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
+
 <p align="center">
   <img src="assets/caliper-banner.png" alt="Caliper banner">
 </p>
 
 Evaluate AI agent skills with repeatable tasks, automated judging, and pass@k
 scoring.
+
+```bash
+pipx install caliper-eval
+```
+
+![Caliper terminal demo](assets/caliper-demo.gif)
 
 Caliper is a local-first evaluation harness for Claude Code skills, Codex
 skills, and API-backed agents. It runs a skill against one or more task specs,
@@ -24,8 +33,6 @@ Caliper is especially useful for agent skills because skills are hard to review
 with ordinary unit tests. A good skill is part prompt, part workflow, part tool
 contract. Caliper turns that behavior into versioned eval specs, repeatable
 runs, pass/fail judgments, and saved transcripts.
-
-![Caliper terminal demo](assets/caliper-demo.gif)
 
 ## Highlights
 
