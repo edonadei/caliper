@@ -62,16 +62,16 @@ model following instructions, using tools, and completing a workflow.
 
 ## Install
 
-The fastest way to install Caliper from GitHub is:
-
-```bash
-pipx install git+https://github.com/edonadei/verdict.git
-```
-
-After the first PyPI release, install the same CLI as:
+Install Caliper from PyPI:
 
 ```bash
 pipx install caliper-eval
+```
+
+Or install the latest version from GitHub:
+
+```bash
+pipx install git+https://github.com/edonadei/caliper.git
 ```
 
 Both install methods expose the `caliper` command:
@@ -233,7 +233,7 @@ Without the CLI installer, copy the skill into Claude Code commands:
 
 ```bash
 mkdir -p ~/.claude/commands
-curl -fsSL https://raw.githubusercontent.com/edonadei/verdict/main/skills/evaluate-skill/SKILL.md \
+curl -fsSL https://raw.githubusercontent.com/edonadei/caliper/main/skills/evaluate-skill/SKILL.md \
   -o ~/.claude/commands/evaluate-skill.md
 ```
 
@@ -250,7 +250,7 @@ Without the CLI installer, install the skill in Codex:
 
 ```bash
 mkdir -p ~/.codex/skills/evaluate-skill
-curl -fsSL https://raw.githubusercontent.com/edonadei/verdict/main/skills/evaluate-skill/SKILL.md \
+curl -fsSL https://raw.githubusercontent.com/edonadei/caliper/main/skills/evaluate-skill/SKILL.md \
   -o ~/.codex/skills/evaluate-skill/SKILL.md
 ```
 

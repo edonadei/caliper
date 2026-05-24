@@ -43,9 +43,9 @@ dev = ["pytest", "ruff"]
 caliper = "caliper.main:app"
 
 [project.urls]
-Homepage = "https://github.com/edonadei/verdict"
-Repository = "https://github.com/edonadei/verdict"
-Issues = "https://github.com/edonadei/verdict/issues"
+Homepage = "https://github.com/edonadei/caliper"
+Repository = "https://github.com/edonadei/caliper"
+Issues = "https://github.com/edonadei/caliper/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["caliper"]
