@@ -6,6 +6,7 @@ from caliper.commands.report import report_cmd
 from caliper.commands.list_cmd import list_cmd_fn
 from caliper.commands.validate import validate_cmd
 from caliper.commands.install_skill import install_skill_cmd
+from caliper.commands.update_cli import update_cli_cmd
 
 app = typer.Typer(
     name="caliper",
@@ -20,6 +21,7 @@ app.command("report", help="Render saved evaluation results")(report_cmd)
 app.command("list", help="List evaluation specs and past runs")(list_cmd_fn)
 app.command("validate", help="Validate an evaluation spec file")(validate_cmd)
 app.command("install-skill", help="Install the bundled evaluate-skill agent skill")(install_skill_cmd)
+app.command("update-cli", help="Check or update Codex and Claude Code CLIs")(update_cli_cmd)
 
 
 def main() -> None:

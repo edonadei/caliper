@@ -141,6 +141,25 @@ When the Codex desktop app is installed, Caliper prefers the app-bundled Codex
 CLI over an older `codex` found on `PATH`. Set `CODEX_CLI_PATH` to force a
 specific CLI binary.
 
+Check installed agent CLI versions:
+
+```bash
+caliper update-cli --check
+```
+
+Update an npm-installed agent CLI explicitly:
+
+```bash
+caliper update-cli codex
+caliper update-cli claude-code
+```
+
+Caliper does not auto-update agent CLIs during eval runs. That keeps evals
+reproducible and avoids adding network failures to every run. If Caliper is
+using the Codex CLI bundled inside the desktop app, `caliper update-cli codex`
+will ask you to update the app or set `CODEX_CLI_PATH`; npm cannot update the
+app-bundled binary.
+
 If you explicitly use `backend: openai-api`, set:
 
 ```bash
@@ -432,6 +451,15 @@ automatically as `task-001`, `task-002`, and so on.
 | `--model MODEL` | | Override `skill.model` for the agent under test |
 | `--verbose` | off | Show per-attempt judge reasoning |
 | `--output PATH` | | Also save results JSON to a specific path |
+
+### `caliper update-cli`
+
+| Command | Description |
+|---|---|
+| `caliper update-cli --check` | Show installed and latest npm versions for known agent CLIs |
+| `caliper update-cli codex` | Update an npm-installed Codex CLI |
+| `caliper update-cli claude-code` | Update an npm-installed Claude Code CLI |
+| `caliper update-cli codex --yes` | Update without an interactive confirmation prompt |
 
 ## Judging
 
