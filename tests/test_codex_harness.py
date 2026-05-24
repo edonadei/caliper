@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 
 import pytest
@@ -51,6 +52,7 @@ def test_codex_cli_receives_injected_skill_on_stdin(monkeypatch, tmp_path) -> No
     assert exec_cmd[exec_cmd.index("--model") + 1] == "test-model"
     assert "--skip-git-repo-check" in exec_cmd
     assert "--dangerously-bypass-approvals-and-sandbox" in exec_cmd
+    assert "--json" in exec_cmd
 
 
 def test_codex_cli_omits_model_when_unspecified(monkeypatch, tmp_path) -> None:
@@ -79,6 +81,115 @@ def test_codex_cli_omits_model_when_unspecified(monkeypatch, tmp_path) -> None:
     assert result.exit_code == 0
     exec_cmd = calls[1][0]
     assert "--model" not in exec_cmd
+
+
+def test_codex_json_stream_captures_tool_calls(monkeypatch, tmp_path) -> None:
+    def fake_run(cmd, **kwargs):
+        if cmd == ["codex", "--version"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="codex-cli 0.132.0\n", stderr="")
+        events = [
+            {"type": "thread.started", "thread_id": "thread-1"},
+            {"type": "turn.started"},
+            {
+                "type": "item.started",
+                "item": {
+                    "id": "item_0",
+                    "type": "command_execution",
+                    "command": "/bin/zsh -lc pygount --format=summary .",
+                    "aggregated_output": "",
+                    "exit_code": None,
+                    "status": "in_progress",
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_0",
+                    "type": "command_execution",
+                    "command": "/bin/zsh -lc pygount --format=summary .",
+                    "aggregated_output": "Python 1 2 0 0\n",
+                    "exit_code": 0,
+                    "status": "completed",
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {"id": "item_1", "type": "agent_message", "text": "done"},
+            },
+            {"type": "turn.completed", "usage": {}},
+        ]
+        stdout = "\n".join(json.dumps(event) for event in events)
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr("caliper.harness.codex.shutil.which", lambda _name: "codex")
+    monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex")
+    monkeypatch.setattr("caliper.harness.codex.subprocess.run", fake_run)
+
+    result = CodexHarness().run(
+        task_id="task-001",
+        attempt=1,
+        prompt="Inspect the repo",
+        skill_path=None,
+        model=None,
+        timeout=12,
+        isolated_home=str(tmp_path),
+    )
+
+    assert result.final_output == "done"
+    assert [turn.role for turn in result.transcript] == [
+        "tool_use",
+        "tool_result",
+        "assistant",
+    ]
+    assert result.transcript[0].tool_name == "shell"
+    assert result.transcript[0].tool_input == {
+        "command": "/bin/zsh -lc pygount --format=summary ."
+    }
+    assert "Python 1 2 0 0" in result.transcript[1].tool_output
+    assert "exit_code=0" in result.transcript[1].tool_output
+
+
+def test_codex_json_stream_keeps_unknown_tool_items(monkeypatch, tmp_path) -> None:
+    def fake_run(cmd, **kwargs):
+        if cmd == ["codex", "--version"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="codex-cli 0.132.0\n", stderr="")
+        events = [
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_0",
+                    "type": "mcp_tool_call",
+                    "name": "lookup",
+                    "arguments": {"query": "caliper"},
+                    "result": "found",
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {"id": "item_1", "type": "agent_message", "text": "done"},
+            },
+        ]
+        stdout = "\n".join(json.dumps(event) for event in events)
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr("caliper.harness.codex.shutil.which", lambda _name: "codex")
+    monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex")
+    monkeypatch.setattr("caliper.harness.codex.subprocess.run", fake_run)
+
+    result = CodexHarness().run(
+        task_id="task-001",
+        attempt=1,
+        prompt="Use a tool",
+        skill_path=None,
+        model=None,
+        timeout=12,
+        isolated_home=str(tmp_path),
+    )
+
+    assert result.final_output == "done"
+    assert result.transcript[0].role == "tool_use"
+    assert result.transcript[0].tool_name == "mcp_tool_call"
+    assert result.transcript[0].tool_input["name"] == "lookup"
 
 
 def test_codex_prefers_app_bundled_cli(monkeypatch, tmp_path) -> None:

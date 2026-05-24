@@ -110,7 +110,7 @@ Caliper can run the agent under test and the judge through different backends.
 | Agent under test | `skill.backend: claude-code` | `skill.backend: codex` | `skill.backend: claude-api` or `openai-api` |
 | LLM judge | `judge.backend: claude-code` | `judge.backend: codex` | `judge.backend: claude-api` or `openai-api` |
 | Auth/billing | Claude Code subscription/auth | Codex CLI subscription/auth | Provider API key/billing |
-| Transcript | Claude `stream-json` tool-call transcript | Final Codex text output | Final API response text |
+| Captured attempt record | Claude `stream-json` tool-call transcript | Codex JSONL events, including tool calls when emitted | Final API response text |
 
 ### Claude Code
 
@@ -444,6 +444,18 @@ transcript satisfies `expect`.
 judge:
   backend: codex
 ```
+
+The autorater's default input is the full attempt record Caliper captured for
+that backend. When the backend exposes tool calls, Caliper includes those tool
+names, inputs, and tool results in the transcript sent to the autorater; tool
+usage checks such as "used `pygount`" should be judged from that trace instead
+of inferred from the final assistant message alone.
+
+This is implicit. Eval specs do not need to opt into trace visibility. The only
+limitation is backend support: some runners expose structured tool-call traces,
+while others expose only final text output. In those cases, use deterministic
+`assert:` checks for files, command output, or other artifacts the transcript
+cannot prove.
 
 ### Script Judge
 

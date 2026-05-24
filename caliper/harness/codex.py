@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -62,13 +63,16 @@ class CodexHarness(HarnessBackend):
             raise HarnessConfigurationError(diagnostic)
 
         duration = time.monotonic() - start
-        transcript = [ConversationTurn(role="assistant", content=output)] if output else []
+        transcript, final_output = self._parse_json_stream(output)
+        if not transcript and output:
+            transcript = [ConversationTurn(role="assistant", content=output)]
+            final_output = output
 
         return AttemptResult(
             task_id=task_id,
             attempt=attempt,
             transcript=transcript,
-            final_output=output,
+            final_output=final_output,
             exit_code=exit_code,
             duration_seconds=duration,
             error=error,
@@ -117,6 +121,7 @@ class CodexHarness(HarnessBackend):
             cmd = [
                 codex,
                 "exec",
+                "--json",
                 "--skip-git-repo-check",
                 "--dangerously-bypass-approvals-and-sandbox",
                 "--color",
@@ -141,6 +146,82 @@ class CodexHarness(HarnessBackend):
             return "", 124, "timeout"
         except OSError as exc:
             return "", 1, f"codex CLI failed: {exc}"
+
+    def _parse_json_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:
+        transcript: list[ConversationTurn] = []
+        final_output = ""
+
+        for line in stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            if not isinstance(event, dict):
+                continue
+
+            item = event.get("item")
+            if not isinstance(item, dict):
+                continue
+
+            if item.get("type") == "agent_message":
+                text = item.get("text", "")
+                if text:
+                    transcript.append(ConversationTurn(role="assistant", content=text))
+                    final_output = text
+                continue
+
+            if event.get("type") != "item.completed":
+                continue
+
+            if item.get("type") == "command_execution":
+                command = item.get("command", "")
+                output = item.get("aggregated_output", "")
+                exit_code = item.get("exit_code")
+                status = item.get("status")
+                tool_input = {"command": command} if command else {}
+                transcript.append(
+                    ConversationTurn(
+                        role="tool_use",
+                        content=f"[tool: shell] {command}",
+                        tool_name="shell",
+                        tool_input=tool_input,
+                    )
+                )
+                result_parts = []
+                if output:
+                    result_parts.append(output)
+                if exit_code is not None:
+                    result_parts.append(f"exit_code={exit_code}")
+                if status:
+                    result_parts.append(f"status={status}")
+                tool_output = "\n".join(result_parts)
+                transcript.append(
+                    ConversationTurn(
+                        role="tool_result",
+                        content=tool_output,
+                        tool_output=tool_output,
+                    )
+                )
+                continue
+
+            item_type = str(item.get("type") or "tool")
+            transcript.append(
+                ConversationTurn(
+                    role="tool_use",
+                    content=f"[tool: {item_type}]",
+                    tool_name=item_type,
+                    tool_input=item,
+                )
+            )
+
+        if not final_output and transcript:
+            for turn in reversed(transcript):
+                if turn.role == "assistant" and turn.content:
+                    final_output = turn.content
+                    break
+
+        return transcript, final_output
 
     def _build_env(self, isolated_home: str, extra_path: list[str]) -> dict[str, str]:
         path = os.environ.get("PATH", "")
