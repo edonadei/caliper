@@ -64,6 +64,7 @@ def make_progress(tasks: list[str], k: int) -> tuple[Progress, dict[str, TaskID]
         TextColumn("{task.fields[status]}", table_column=Column(width=7, no_wrap=True)),
         console=console,
         expand=False,
+        transient=True,
     )
     task_ids: dict[str, TaskID] = {}
     for name in tasks:
