@@ -12,13 +12,10 @@ The `caliper` CLI must be installed and available on `PATH`. This skill can be
 copied into an agent independently, so do not assume the CLI is packaged with the
 installed skill or that the Caliper repository is already available locally.
 
-If the `caliper` command is missing, install it from the Caliper CLI repository:
-`https://github.com/edonadei/caliper`.
-
-From the Caliper Repository root:
+If the `caliper` command is missing, install it:
 
 ```bash
-pip install -e .
+pipx install git+https://github.com/edonadei/caliper
 ```
 
 Supported backends:
