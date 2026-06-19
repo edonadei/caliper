@@ -13,7 +13,7 @@ copied into an agent independently, so do not assume the CLI is packaged with th
 installed skill or that the Caliper repository is already available locally.
 
 If the `caliper` command is missing, install it from the Caliper CLI repository:
-`https://github.com/edonadei/verdict`.
+`https://github.com/edonadei/caliper`.
 
 From the Caliper Repository root:
 
