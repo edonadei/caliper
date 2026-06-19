@@ -46,6 +46,7 @@ caliper = "caliper.main:app"
 Homepage = "https://github.com/edonadei/caliper"
 Repository = "https://github.com/edonadei/caliper"
 Issues = "https://github.com/edonadei/caliper/issues"
+Skills = "https://clawhub.ai/edonadei/evaluate-skill"
 
 [tool.hatch.build.targets.wheel]
 packages = ["caliper"]
