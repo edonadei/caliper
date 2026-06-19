@@ -1,14 +1,9 @@
-# Caliper - Agent Skill Evaluation Harness
+# Caliper
 
 [![PyPI](https://img.shields.io/pypi/v/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Python](https://img.shields.io/pypi/pyversions/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 
-<p align="center">
-  <img src="assets/caliper-banner.png" alt="Caliper banner">
-</p>
-
-Evaluate AI agent skills with repeatable tasks, automated judging, and pass@k
-scoring.
+**pytest for agent skills.** Write a task in YAML, run it k times, get a reliability score.
 
 ```bash
 pipx install caliper-eval
@@ -16,398 +11,189 @@ pipx install caliper-eval
 
 ![Caliper terminal demo](assets/caliper-demo.gif)
 
-Caliper is a local-first evaluation harness for Claude Code skills, Codex
-skills, and API-backed agents. It runs a skill against one or more task specs,
-records every attempt, judges the result with an LLM and/or deterministic Python
-assertions, and saves reproducible result files you can inspect later.
+---
 
-Use Caliper when you want to answer practical questions like:
+Agent skills are hard to test. A skill that works on your machine, on this prompt, today, might fail tomorrow after a model update or a one-line prompt edit. Caliper makes reliability measurable: define what success looks like, run the skill repeatedly, and get a pass@k score you can track over time.
 
-- Did this skill actually get better after my prompt edit?
+Use Caliper to answer questions like:
+
+- Did my prompt edit actually improve the skill?
+- Is the skill doing the work, or would the base agent pass without it?
 - Does it still pass the workflows it passed last week?
-- Does Codex or Claude Code run this skill more reliably for my use case?
-- Is the skill doing the work, or would the baseline agent pass without it?
-- Can contributors change a skill without relying on subjective manual testing?
+- Which backend — Claude Code or Codex — runs this skill more reliably?
 
-Caliper is especially useful for agent skills because skills are hard to review
-with ordinary unit tests. A good skill is part prompt, part workflow, part tool
-contract. Caliper turns that behavior into versioned eval specs, repeatable
-runs, pass/fail judgments, and saved transcripts.
+---
 
-## Highlights
+## How it works
 
-- **Skill-first evaluation** for Claude Code, Codex, Anthropic API, and OpenAI
-  API backends.
-- **Independent agent and judge backends**, so you can test a Codex skill with a
-  Claude judge, a Claude Code skill with a Codex judge, or keep everything on one
-  provider.
-- **Natural-language and deterministic checks** through `expect:` and `assert:`.
-- **pass@k scoring** for measuring reliability across repeated attempts.
-- **Baseline runs** to show whether the skill improves over an unassisted agent.
-- **Attempt isolation** with fresh temporary homes and no session history.
-- **Reproducible result files** that snapshot the skill content, referenced local
-  files, and git SHA when available.
-- **Agent-installable evaluator skill** so Claude Code or Codex can help create,
-  validate, run, and interpret evals.
+```
+.eval.yaml spec
+      │
+      ▼
+  Harness  ──── runs your skill against the agent (Claude Code / Codex / API)
+      │
+      ▼
+   Judge   ──── LLM autorater and/or deterministic Python assertions
+      │
+      ▼
+  pass@k score + saved transcript
+```
 
-## When To Use It
+Each attempt runs in an isolated temporary home with no session history. Results are saved as JSON you can inspect and diff later.
 
-Caliper works well for:
+---
 
-- evaluating Claude Code slash-command skills
-- evaluating Codex skills
-- comparing agent backends on the same task suite
-- regression-testing prompt and workflow changes
-- checking coding, review, refactor, summarization, screenshot, and file-writing
-  behaviors
-- mixing LLM judgment with exact checks for files, JSON, command output, images,
-  and repository state
+## Quick start
 
-It is not a replacement for normal unit tests. Use unit tests for deterministic
-library behavior. Use Caliper for agent behavior where the output depends on a
-model following instructions, using tools, and completing a workflow.
-
-## Install
-
-Install Caliper from PyPI:
+**1. Install**
 
 ```bash
 pipx install caliper-eval
 ```
 
-Or install the latest version from GitHub:
+Requires Python 3.10+.
 
-```bash
-pipx install git+https://github.com/edonadei/caliper.git
-```
-
-Both install methods expose the `caliper` command:
-
-```bash
-caliper --help
-```
-
-For local development from the repository root:
-
-```bash
-pip install -e .
-```
-
-For local development and optional OpenAI API support:
-
-```bash
-pip install -e ".[dev,openai]"
-```
-
-Caliper requires Python 3.10 or newer.
-
-## Backend Setup
-
-Caliper can run the agent under test and the judge through different backends.
-
-| Role | Claude Code CLI | Codex CLI | API backends |
-|---|---|---|---|
-| Agent under test | `skill.backend: claude-code` | `skill.backend: codex` | `skill.backend: claude-api` or `openai-api` |
-| LLM judge | `judge.backend: claude-code` | `judge.backend: codex` | `judge.backend: claude-api` or `openai-api` |
-| Auth/billing | Claude Code subscription/auth | Codex CLI subscription/auth | Provider API key/billing |
-| Captured attempt record | Claude `stream-json` tool-call transcript | Codex JSONL events, including tool calls when emitted | Final API response text |
-
-### Claude Code
-
-Install and authenticate the `claude` CLI. `backend: claude-code` uses your
-normal Claude Code CLI auth.
-
-If you explicitly use `backend: claude-api`, set:
-
-```bash
-export ANTHROPIC_API_KEY=...
-```
-
-### Codex
-
-Install and authenticate the Codex CLI:
-
-```bash
-npm install -g @openai/codex
-codex login
-codex --version
-```
-
-`backend: codex` calls Codex with `codex exec`. It does not fall back to the
-OpenAI API. If the CLI is unavailable or cannot authenticate, Caliper reports a
-backend configuration error.
-
-When the Codex desktop app is installed, Caliper prefers the app-bundled Codex
-CLI over an older `codex` found on `PATH`. Set `CODEX_CLI_PATH` to force a
-specific CLI binary.
-
-Check installed agent CLI versions:
-
-```bash
-caliper update-cli --check
-```
-
-Update an npm-installed agent CLI explicitly:
-
-```bash
-caliper update-cli codex
-caliper update-cli claude-code
-```
-
-Caliper does not auto-update agent CLIs during eval runs. That keeps evals
-reproducible and avoids adding network failures to every run. If Caliper is
-using the Codex CLI bundled inside the desktop app, `caliper update-cli codex`
-will ask you to update the app or set `CODEX_CLI_PATH`; npm cannot update the
-app-bundled binary.
-
-If you explicitly use `backend: openai-api`, set:
-
-```bash
-export OPENAI_API_KEY=...
-```
-
-## Quick Start
-
-Create an eval spec:
+**2. Create a spec**
 
 ```yaml
 # my-skill.eval.yaml
 skill:
   path: ./SKILL.md
-  backend: codex
+  backend: claude-code
 
 judge:
-  backend: codex
+  backend: claude-code
 
 tasks:
-  - name: Produces the expected answer
-    prompt: "Use this skill to answer: what is 2 + 2?"
-    expect: "The assistant answers 4."
+  - name: Writes a greeting file
+    cleanup: rm -f /tmp/hello.txt
+    prompt: "Write 'hello world' to /tmp/hello.txt"
+    expect: "A file at /tmp/hello.txt containing 'hello world' was created."
+    assert: |
+      from pathlib import Path
+      assert Path("/tmp/hello.txt").read_text().strip() == "hello world"
 ```
 
-Run it:
+**3. Run it**
 
 ```bash
 caliper run my-skill.eval.yaml --k 3 --baseline
 ```
 
-Example output:
+**4. Read the output**
 
 ```text
-CALIPER  -  my-skill  -  k=3  -  codex
+CALIPER  -  my-skill  -  k=3  -  claude-code
 
-ID      Task                           k (3)   pass@k
-task-1  Produces the expected answer   2/3     96.3%    PARTIAL
+ID      Task                    k (3)   pass@k
+task-1  Writes a greeting file  3/3     100%     PASS
 
-With skill    96.3%   ###################-
-No skill      70.4%   ##############------
-Delta         +25.9%  up
-Results saved to .caliper/results/my-skill/2026-05-22T14-23-01Z.json
+With skill    100%    ####################
+No skill       70%    ##############------
+Delta          +30%   up
+
+Results saved to .caliper/results/my-skill/2026-06-19T14-23-01Z.json
 ```
 
-Browse results:
+Browse past results anytime:
 
 ```bash
 caliper list
 caliper report my-skill
 ```
 
-Validate a spec before running:
+---
+
+## Core concepts
+
+| Term | What it is |
+|---|---|
+| **Spec** | A `.eval.yaml` file that describes the skill, judge, and tasks to run |
+| **Backend** | The agent that executes the skill (`claude-code`, `codex`, `claude-api`, `openai-api`) |
+| **Judge** | What decides pass/fail — an LLM reading the transcript (`expect:`), Python assertions (`assert:`), or both |
+| **pass@k** | Reliability score: run k times, measure how often the skill succeeds |
+| **Baseline** | Re-run the same tasks without the skill to prove the skill is doing the work |
+| **Attempt** | One isolated run of a single task — fresh temporary home, no session history |
+
+---
+
+## Choosing a backend
+
+| Backend | Requires | Best for |
+|---|---|---|
+| `claude-code` | Claude Code CLI installed and authenticated | Testing Claude Code slash-command skills |
+| `codex` | Codex CLI installed (`npm install -g @openai/codex`) | Testing Codex skills |
+| `claude-api` | `ANTHROPIC_API_KEY` env var | API-backed agents, no CLI needed |
+| `openai-api` | `OPENAI_API_KEY` env var | OpenAI API agents |
+
+The agent backend and judge backend are independent — you can test a Codex skill with a Claude judge, or any other combination.
+
+### Claude Code setup
+
+Install and authenticate the `claude` CLI. `backend: claude-code` uses your existing Claude Code auth — no extra configuration needed.
+
+For `backend: claude-api`:
 
 ```bash
-caliper validate my-skill.eval.yaml
+export ANTHROPIC_API_KEY=...
 ```
 
-## Recommended Workflow
-
-1. Create a small eval spec for one behavior you care about.
-2. Run it with `--k 1` while iterating on the spec.
-3. Add deterministic `assert:` checks for facts an LLM judge should not guess.
-4. Run with `--k 3` or higher once the task is stable.
-5. Use `--baseline` to measure whether the skill helps over the raw agent.
-6. Commit the spec beside the skill so future contributors can run the same
-   evaluation before changing behavior.
+### Codex setup
 
 ```bash
-caliper run path/to/skill.eval.yaml --k 3 --baseline --verbose
+npm install -g @openai/codex
+codex login
 ```
 
-## Install The Evaluator Skill
+`backend: codex` calls `codex exec`. It does not fall back to the OpenAI API. If the Codex desktop app is installed, Caliper prefers the app-bundled binary over `codex` on `PATH`. Set `CODEX_CLI_PATH` to force a specific binary.
 
-The repository includes an `evaluate-skill` agent skill. Installing it lets
-Claude Code or Codex help you create eval specs, validate them, run Caliper, and
-summarize results from inside your normal agent workflow.
-
-If you installed the CLI, use the bundled installer:
+For `backend: openai-api`:
 
 ```bash
-caliper install-skill codex
-caliper install-skill claude-code
+export OPENAI_API_KEY=...
 ```
 
-Preview the destination without writing files:
+Check installed CLI versions:
 
 ```bash
-caliper install-skill codex --dry-run
+caliper update-cli --check
 ```
 
-Use `--force` to overwrite an existing installed copy.
+---
 
-### Claude Code
+## Recommended workflow
 
-Without the CLI installer, copy the skill into Claude Code commands:
+1. Create a spec for one behavior you care about.
+2. Run with `--k 1` while iterating on the spec.
+3. Add `assert:` for facts an LLM judge might guess wrong (files, JSON, command output).
+4. Move to `--k 3` or higher once the task is stable.
+5. Add `--baseline` to prove the skill is making a difference.
+6. Commit the spec alongside the skill so contributors can run the same eval.
 
 ```bash
-mkdir -p ~/.claude/commands
-curl -fsSL https://raw.githubusercontent.com/edonadei/caliper/main/skills/evaluate-skill/SKILL.md \
-  -o ~/.claude/commands/evaluate-skill.md
+caliper run my-skill.eval.yaml --k 3 --baseline --verbose
 ```
 
-Then use it in Claude Code:
+---
 
-```text
-/evaluate-skill validate my-skill.eval.yaml
-/evaluate-skill run my-skill.eval.yaml --k 3
-```
-
-### Codex
-
-Without the CLI installer, install the skill in Codex:
-
-```bash
-mkdir -p ~/.codex/skills/evaluate-skill
-curl -fsSL https://raw.githubusercontent.com/edonadei/caliper/main/skills/evaluate-skill/SKILL.md \
-  -o ~/.codex/skills/evaluate-skill/SKILL.md
-```
-
-Make sure `caliper` is on `PATH` for Codex sessions. If you installed Caliper in
-editable mode, the generated console script is usually enough.
-
-Then ask Codex:
-
-```text
-Use the evaluate-skill skill to validate my-skill.eval.yaml.
-Use the evaluate-skill skill to run my-skill.eval.yaml with k=3 and summarize the result.
-```
-
-## Examples
-
-### Codex Agent, Codex Judge
+## Spec format
 
 ```yaml
 skill:
-  path: ./SKILL.md
-  backend: codex
+  path: ./SKILL.md              # path to the skill file (optional for baseline-only runs)
+  backend: claude-code          # claude-code | codex | claude-api | openai-api
+  model: <model-name>           # optional model override
 
 judge:
-  backend: codex
-
-tasks:
-  - name: Validates a spec
-    prompt: "Use caliper to validate ./example.eval.yaml and summarize the result."
-    expect: "The assistant runs caliper validate and reports whether the spec is valid."
-```
-
-```bash
-caliper run my-codex-skill.eval.yaml --k 1 --verbose
-```
-
-### Claude Code Agent, Claude Judge
-
-```yaml
-skill:
-  path: ~/.claude/commands/review.md
-  backend: claude-code
-  model: claude-sonnet-4-6
-
-judge:
-  backend: claude-code
-  model: claude-haiku-4-5-20251001
-
-tasks:
-  - name: Finds a null dereference
-    prompt: "/review the staged changes in /tmp/eval-repo"
-    expect: "The review identifies a possible null pointer dereference."
-```
-
-### Mix Backends
-
-The agent backend and judge backend are independent:
-
-```yaml
-skill:
-  path: ./SKILL.md
-  backend: codex
-
-judge:
-  backend: claude-code
-```
-
-Or opt into API billing explicitly:
-
-```yaml
-skill:
-  path: ./SKILL.md
-  backend: openai-api
-  model: gpt-4o-mini
-
-judge:
-  backend: openai-api
-  model: gpt-4o-mini
-```
-
-### Deterministic Assertions
-
-Use `assert:` when success can be verified with Python. This is usually better
-than asking an LLM to judge files, JSON, command output, or screenshots.
-
-```yaml
-tasks:
-  - name: Writes an output file
-    cleanup: rm -f /tmp/out.txt
-    prompt: "Write hello world to /tmp/out.txt"
-    expect: "A file is written at /tmp/out.txt."
-    assert: |
-      from pathlib import Path
-
-      path = Path("/tmp/out.txt")
-      assert path.exists(), "Output file was not created"
-      assert path.read_text().strip() == "hello world"
-```
-
-When both `expect` and `assert` are present, both must pass.
-
-### Screenshot Skill Eval
-
-The repo includes a Codex-backed screenshot eval:
-
-```bash
-caliper validate skills/evaluate-skill/references/evals/screenshot/screenshot.eval.yaml
-caliper run skills/evaluate-skill/references/evals/screenshot/screenshot.eval.yaml --k 1 --judge script --verbose
-```
-
-On macOS, the process running the eval must have Screen Recording permission. If
-direct `screencapture -x /tmp/test.png` fails, this eval will fail until that
-permission is granted.
-
-## Spec Format
-
-```yaml
-skill:
-  path: ./SKILL.md              # optional path to the skill file
-  backend: codex                # claude-code | codex | claude-api | openai-api
-  model: <model-name>           # optional backend-specific model override
-
-judge:
-  backend: codex                # claude-code | codex | claude-api | openai-api
-  model: <model-name>           # optional backend-specific model override
+  backend: claude-code          # claude-code | codex | claude-api | openai-api
+  model: <model-name>           # optional model override
 
 sandbox:
   extra_path:
-    - ./bin                     # optional paths prepended to PATH
+    - ./bin                     # prepended to PATH inside each attempt
   forbidden_files:
-    - ".*\\.eval\\.yaml$"       # agent cannot read the spec file
-    - "./.caliper/.*"           # agent cannot read saved results
+    - ".*\\.eval\\.yaml$"       # prevents agent from reading the spec
+    - "./.caliper/.*"           # prevents agent from reading saved results
 
 tasks:
   - name: Short task name
@@ -424,120 +210,129 @@ tasks:
     assert: ./assertions/check_report.py
 ```
 
-Each task must define at least one of `expect` or `assert`. Task ids are assigned
-automatically as `task-001`, `task-002`, and so on.
+Each task needs at least one of `expect` or `assert`. Task IDs are assigned automatically as `task-001`, `task-002`, and so on.
 
-## Commands
+---
+
+## Judging
+
+### LLM autorater (`expect:`)
+
+The judge backend reads the full attempt transcript and decides whether the `expect` condition was met. When the backend captures tool-call traces (Claude Code, Codex), those traces are included — the judge can verify things like "the agent used tool X" without relying on the final text alone.
+
+```yaml
+judge:
+  backend: claude-code
+```
+
+### Deterministic assertions (`assert:`)
+
+Python assertions run locally. Use these for facts the LLM judge might guess:
+
+- file exists / exact file contents
+- JSON / schema validity
+- command output
+- images or screenshots
+- repository state
+
+```yaml
+tasks:
+  - name: Writes an output file
+    cleanup: rm -f /tmp/out.txt
+    prompt: "Write hello world to /tmp/out.txt"
+    assert: |
+      from pathlib import Path
+      path = Path("/tmp/out.txt")
+      assert path.exists(), "Output file was not created"
+      assert path.read_text().strip() == "hello world"
+```
+
+When both `expect` and `assert` are present, both must pass.
+
+### `--judge` flag
+
+| Flag | Behavior |
+|---|---|
+| `--judge autorater` (default) | LLM judge evaluates `expect` |
+| `--judge script` | Runs `assert:` always; also runs LLM judge if `expect` is present |
+
+---
+
+## CLI reference
 
 | Command | Description |
 |---|---|
 | `caliper run <spec>` | Run an evaluation spec |
-| `caliper new [name]` | Create a new evaluation spec with the wizard |
+| `caliper new [name]` | Create a new spec with the interactive wizard |
 | `caliper validate <spec>` | Validate a spec file |
 | `caliper list [spec]` | List specs and saved runs |
 | `caliper report <spec-or-result>` | Re-render saved results |
+| `caliper install-skill <backend>` | Install the bundled evaluate-skill into Claude Code or Codex |
+| `caliper update-cli [backend]` | Check or update installed agent CLI versions |
 
-### `caliper run` Flags
+### `caliper run` flags
 
 | Flag | Default | Description |
 |---|---|---|
 | `--k INT` | `3` | Attempts per task |
 | `--baseline` | off | Also run each task without the skill |
-| `--judge autorater` | `autorater` | LLM judge gives a direct pass/fail |
-| `--judge script` | | Run static assertions and, if `expect` exists, an LLM judge |
-| `--judge autorater-sdk` | | Legacy alias for Anthropic SDK judging; prefer `judge.backend: claude-api` |
+| `--judge MODE` | `autorater` | `autorater` or `script` |
 | `--workers INT` | `4` | Parallel task workers |
 | `--timeout INT` | `120` | Seconds per attempt |
-| `--model MODEL` | | Override `skill.model` for the agent under test |
+| `--model MODEL` | — | Override `skill.model` |
 | `--verbose` | off | Show per-attempt judge reasoning |
-| `--output PATH` | | Also save results JSON to a specific path |
+| `--output PATH` | — | Also save results JSON to a specific path |
 
-### `caliper update-cli`
-
-| Command | Description |
-|---|---|
-| `caliper update-cli --check` | Show installed and latest npm versions for known agent CLIs |
-| `caliper update-cli codex` | Update an npm-installed Codex CLI |
-| `caliper update-cli claude-code` | Update an npm-installed Claude Code CLI |
-| `caliper update-cli codex --yes` | Update without an interactive confirmation prompt |
-
-## Judging
-
-### Autorater
-
-`--judge autorater` asks the configured judge backend to decide whether the
-transcript satisfies `expect`.
-
-```yaml
-judge:
-  backend: codex
-```
-
-The autorater's default input is the full attempt record Caliper captured for
-that backend. When the backend exposes tool calls, Caliper includes those tool
-names, inputs, and tool results in the transcript sent to the autorater; tool
-usage checks such as "used `pygount`" should be judged from that trace instead
-of inferred from the final assistant message alone.
-
-This is implicit. Eval specs do not need to opt into trace visibility. The only
-limitation is backend support: some runners expose structured tool-call traces,
-while others expose only final text output. In those cases, use deterministic
-`assert:` checks for files, command output, or other artifacts the transcript
-cannot prove.
-
-### Script Judge
-
-`--judge script` always runs static `assert:` checks when present.
-
-If the task also has `expect`, it also asks the configured judge backend for an
-LLM verdict. With `judge.backend: codex`, that LLM check is performed by Codex
-CLI. With `judge.backend: claude-code`, it is performed by Claude Code CLI. Use
-`claude-api` or `openai-api` only when API billing is intended.
-
-### Static Assertions
-
-Static assertions run locally with Python. They are ideal for verifying:
-
-- files exist
-- exact file contents
-- JSON/schema validity
-- command output
-- images or screenshots
-- repository state
-
-## Isolation And Reproducibility
-
-Each attempt runs with a fresh temporary `HOME` directory. For Claude Code,
-Caliper installs a temporary slash-command skill in that isolated home. For
-Codex, Caliper injects the skill body directly into the prompt passed to
-`codex exec`.
-
-Results are saved next to the spec:
-
-```text
-.caliper/results/<spec-name>/<timestamp>.json
-```
-
-Each result includes a skill snapshot: the skill file content, referenced local
-files, and git SHA when available.
+---
 
 ## Scoring
 
 For each task:
 
-```text
-pass@k = 1 - (1 - successes / k)^k
+```
+pass@k = 1 - (1 - successes / k) ^ k
 ```
 
-The aggregate score is the average task pass@k. With `--baseline`, Caliper also
-runs the same tasks without the skill and reports the delta.
+The aggregate score is the average task pass@k. With `--baseline`, Caliper runs the same tasks without the skill and reports the delta.
 
-## Project Layout
+---
+
+## Install the evaluator skill
+
+The repo includes an `evaluate-skill` agent skill. Install it to let Claude Code or Codex create, validate, run, and summarize evals from inside your normal agent workflow.
+
+```bash
+caliper install-skill claude-code
+caliper install-skill codex
+```
+
+Preview without writing files:
+
+```bash
+caliper install-skill claude-code --dry-run
+```
+
+Then use it in Claude Code:
+
+```text
+/evaluate-skill run my-skill.eval.yaml --k 3
+/evaluate-skill validate my-skill.eval.yaml
+```
+
+Or in Codex:
+
+```text
+Use the evaluate-skill skill to run my-skill.eval.yaml with k=3 and summarize the result.
+```
+
+---
+
+## Project layout
 
 ```text
 caliper/
-  commands/       Typer command implementations
-  harness/        Claude, Codex, and API execution backends
+  commands/       CLI command implementations
+  harness/        Agent execution backends (Claude Code, Codex, API)
   judge/          LLM and script judging implementations
   schema/         Eval spec and result models
   runner.py       Evaluation orchestration
@@ -546,12 +341,11 @@ skills/
 tests/            Pytest coverage for harnesses, judges, and runner behavior
 ```
 
+---
+
 ## Contributing
 
-Contributions are welcome when they keep Caliper focused on repeatable,
-maintainable skill evaluation.
-
-Good first contribution areas:
+Good first areas:
 
 - add example evals for real skills
 - improve backend error messages
@@ -569,31 +363,23 @@ ruff check .
 caliper validate skills/evaluate-skill/evaluate-skill.eval.yaml
 ```
 
-When changing behavior, include either a test or an eval fixture that demonstrates
-the expected outcome. Keep backend-specific behavior isolated to the relevant
-module under `caliper/harness/` or `caliper/judge/` when possible.
+When changing behavior, include a test or an eval fixture that demonstrates the expected outcome. Keep backend-specific logic isolated to the relevant module under `caliper/harness/` or `caliper/judge/`.
+
+---
 
 ## Troubleshooting
 
-### `codex judge failed: model ... is not supported`
+**`codex judge failed: model ... is not supported`**
+The model name is not available to your Codex account. Use a model that `codex exec --model <name>` accepts.
 
-The model name in `skill.model` or `judge.model` is not available to your Codex
-account. Use a model that `codex exec --model <name>` supports.
-
-### `codex CLI not found`
-
-Install the Codex CLI and ensure it is on `PATH`:
+**`codex CLI not found`**
 
 ```bash
 npm install -g @openai/codex
 ```
 
-### `claude` command not found
+**`claude` command not found**
+Install and authenticate Claude Code, or switch the backend to `codex`, `claude-api`, or `openai-api`.
 
-Install and authenticate Claude Code, or switch the relevant backend to `codex`,
-`claude-api`, or `openai-api`.
-
-### A task passes only because of `assert:`
-
-When a task has only `assert:`, no LLM judge is required. Add `expect:` if you
-also want an LLM to judge the transcript.
+**A task passes only because of `assert:`**
+When a task has only `assert:`, no LLM judge runs. Add `expect:` if you also want an LLM to evaluate the transcript.
