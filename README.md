@@ -9,8 +9,6 @@
 pipx install caliper-eval
 ```
 
-![Caliper terminal demo](assets/caliper-demo.gif)
-
 ---
 
 Agent skills are hard to test. A skill that works on your machine, on this prompt, today, might fail tomorrow after a model update or a one-line prompt edit. Caliper makes reliability measurable: define what success looks like, run the skill repeatedly, and get a pass@k score you can track over time.
@@ -21,6 +19,8 @@ Use Caliper to answer questions like:
 - Is the skill doing the work, or would the base agent pass without it?
 - Does it still pass the workflows it passed last week?
 - Which backend — Claude Code or Codex — runs this skill more reliably?
+
+![Caliper terminal demo](assets/caliper-demo.gif)
 
 ---
 
