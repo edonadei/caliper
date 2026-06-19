@@ -313,13 +313,17 @@ The aggregate score is the average task pass@k. With `--baseline`, Caliper runs 
 
 ---
 
-## Install the evaluator skill
+## Agent skills
 
-The repo includes an `evaluate-skill` agent skill. Install it to let your agent create, validate, run, and summarize evals from inside your normal workflow — no separate terminal needed. The skill installs Caliper automatically if it's missing.
+The repo ships two agent skills. Install both with:
 
 ```bash
 npx skills@latest add edonadei/caliper
 ```
+
+### `evaluate-skill` — run and manage evals
+
+Create, validate, run, and summarize evals from inside your normal workflow — no separate terminal needed. The skill installs Caliper automatically if it's missing.
 
 Or, if you already have Caliper installed and want to wire up the skill manually:
 
@@ -347,6 +351,22 @@ Or in Codex:
 Use the evaluate-skill skill to run my-skill.eval.yaml with k=3 and summarize the result.
 ```
 
+### `grill-skill` — create evals interactively
+
+Don't have evals yet? `grill-skill` guides you through creating them. It reads your `SKILL.md`, interviews you about what good behavior looks like, and generates a 3-task spec (happy path, edge case, adversarial). Then it runs the eval and loops — k=1 to validate, k=3 to measure, baseline before you commit.
+
+```text
+/grill-skill ./my-skill/SKILL.md
+```
+
+No path needed if you're already in the skill's directory:
+
+```text
+/grill-skill
+```
+
+If an `.eval.yaml` already exists next to your skill, `grill-skill` reads the existing tasks and interviews you about gaps instead of starting from scratch.
+
 ---
 
 ## Project layout
@@ -360,6 +380,7 @@ caliper/
   runner.py       Evaluation orchestration
 skills/
   evaluate-skill/ Agent skill for running Caliper from Claude Code or Codex
+  grill-skill/    Agent skill for creating and iterating on evals interactively
 tests/            Pytest coverage for harnesses, judges, and runner behavior
 ```
 
