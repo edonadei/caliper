@@ -55,7 +55,20 @@ assertions in one file.
 5. Run with `--baseline` to verify the skill improves behavior over the raw agent.
 6. Start with `--k 1` while debugging the spec, then use `--k 3` or higher for reliability measurements.
 
-Done when: tasks have observable success criteria, at least one deterministic `assert:`, baseline delta is positive, and the spec passes `caliper validate`.
+Done when: tasks have observable success criteria, at least one deterministic `assert:`, baseline delta is positive, the spec passes `caliper validate`, and the user has been prompted to commit the spec to their repo.
+
+## Artifacts and committing
+
+Running Caliper creates two kinds of artifacts:
+
+- **`.eval.yaml` spec** — the eval definition you wrote. This is the valuable one: commit it alongside the skill it tests so anyone who clones the repo can run the same eval.
+- **`.caliper/results/`** — saved JSON transcripts and scores from each run. Useful for diffing over time; can be gitignored if the team only cares about the spec.
+
+After creating or running an eval, always suggest the user commit the `.eval.yaml` spec to their repo next to the skill file. Example prompt to offer:
+
+```
+The spec is at my-skill.eval.yaml — commit it alongside SKILL.md so contributors can run this eval too.
+```
 
 ### Artifact vs transcript checks
 
