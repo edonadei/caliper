@@ -18,6 +18,24 @@ from caliper.harness.base import (
 )
 
 
+def preferred_nvm_node_bin() -> str | None:
+    """Return the bin/ path of the highest even-major nvm Node release, or None."""
+    nvm_versions = Path.home() / ".nvm" / "versions" / "node"
+    if not nvm_versions.exists():
+        return None
+    candidates: list[tuple[int, int, int, Path]] = []
+    for node in nvm_versions.glob("v*/bin/node"):
+        m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", node.parent.parent.name)
+        if not m:
+            continue
+        major, minor, patch = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if major % 2 == 0:
+            candidates.append((major, minor, patch, node.parent))
+    if not candidates:
+        return None
+    return str(max(candidates, key=lambda item: item[:3])[3])
+
+
 class ClaudeCodeHarness(HarnessBackend):
     def __init__(self, model: str | None = None) -> None:
         self._model = model
@@ -251,7 +269,7 @@ class ClaudeCodeHarness(HarnessBackend):
         base_path = os.environ.get("PATH", "")
         path_prefixes = []
 
-        nvm_node_bin = self._preferred_nvm_node_bin()
+        nvm_node_bin = preferred_nvm_node_bin()
         if nvm_node_bin:
             path_prefixes.append(nvm_node_bin)
 
@@ -293,32 +311,6 @@ class ClaudeCodeHarness(HarnessBackend):
 
         return env
 
-    def _preferred_nvm_node_bin(self) -> str | None:
-        nvm_versions = Path.home() / ".nvm" / "versions" / "node"
-        if not nvm_versions.exists():
-            return None
-
-        candidates: list[tuple[int, int, int, Path]] = []
-        for node in nvm_versions.glob("v*/bin/node"):
-            version = self._parse_node_version(node.parent.parent.name)
-            if version is None:
-                continue
-            major, minor, patch = version
-            # Prefer even-major releases; odd majors are short-lived current
-            # releases and have broken Claude Code startup in practice.
-            if major % 2 == 0:
-                candidates.append((major, minor, patch, node.parent))
-
-        if not candidates:
-            return None
-
-        return str(max(candidates, key=lambda item: item[:3])[3])
-
-    def _parse_node_version(self, version: str) -> tuple[int, int, int] | None:
-        match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", version)
-        if not match:
-            return None
-        return tuple(int(part) for part in match.groups())
 
     def _parse_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:
         transcript: list[ConversationTurn] = []

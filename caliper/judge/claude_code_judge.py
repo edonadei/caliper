@@ -5,6 +5,7 @@ import os
 import subprocess
 
 from caliper.harness.base import ConversationTurn
+from caliper.harness.claude_code import preferred_nvm_node_bin
 from caliper.judge.base import Judge, JudgeResult
 from caliper.judge.autorater import _format_transcript, _SYSTEM, _USER_TMPL
 from caliper.schema.spec import JudgeConfig, TaskSpec
@@ -62,6 +63,14 @@ def evaluate_with_claude_code(
     return evaluate_prompt_with_claude_code(prompt, model)
 
 
+def _judge_env() -> dict[str, str]:
+    env = dict(os.environ)
+    nvm_bin = preferred_nvm_node_bin()
+    if nvm_bin:
+        env["PATH"] = nvm_bin + os.pathsep + env.get("PATH", "")
+    return env
+
+
 def evaluate_prompt_with_claude_code(prompt: str, model: str | None) -> tuple[bool, str]:
     cmd = ["claude", "-p", prompt, "--output-format", "text"]
     if model:
@@ -73,7 +82,7 @@ def evaluate_prompt_with_claude_code(prompt: str, model: str | None) -> tuple[bo
             capture_output=True,
             text=True,
             timeout=60,
-            env=dict(os.environ),
+            env=_judge_env(),
         )
         raw = proc.stdout.strip()
     except subprocess.TimeoutExpired:
