@@ -13,6 +13,8 @@ from caliper.schema.spec import JudgeConfig, TaskSpec
 class ClaudeCodeJudge(Judge):
     """Judge that uses the `claude` CLI instead of the Anthropic SDK directly."""
 
+    strategy = "claude-code"
+
     def __init__(self, config: JudgeConfig) -> None:
         self._config = config
 

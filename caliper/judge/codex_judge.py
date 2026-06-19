@@ -18,6 +18,8 @@ CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
 class CodexJudge(Judge):
     """Judge that uses `codex exec` instead of a provider SDK directly."""
 
+    strategy = "autorater"
+
     def __init__(self, config: JudgeConfig) -> None:
         self._config = config
 

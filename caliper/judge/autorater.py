@@ -46,6 +46,8 @@ def _format_transcript(turns: list[ConversationTurn]) -> str:
 
 
 class AutoraterJudge(Judge):
+    strategy = "autorater"
+
     def __init__(self, config: JudgeConfig) -> None:
         self._config = config
         self._client = anthropic.Anthropic()
