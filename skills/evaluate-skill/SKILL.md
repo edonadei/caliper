@@ -46,6 +46,20 @@ Use `references/simple.eval.yaml` for a compact spec that demonstrates
 multiple tasks, setup/cleanup, natural-language expectations, and deterministic
 assertions in one file.
 
+## Creating evals from scratch
+
+If the user has no `.eval.yaml` yet and wants help designing one interactively,
+suggest the `grill-skill` workflow instead of writing the spec manually:
+
+> "It looks like this skill doesn't have an eval yet. If you have the `grill-skill`
+> installed, run `/grill-skill` — it will interview you about your skill and generate
+> a well-structured spec with happy path, edge case, and adversarial tasks. If you'd
+> rather write it by hand, I can help with that too."
+
+Use `grill-skill` when: the user has a `SKILL.md` and no eval, or wants a guided
+create → run → iterate loop. Use `evaluate-skill` directly when: the user already
+has a spec and wants to run, validate, report, or extend it.
+
 ## Designing good agentic evals
 
 1. Name the target behavior: what should the skill do better than the base agent?
