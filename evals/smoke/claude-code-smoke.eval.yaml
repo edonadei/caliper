@@ -1,0 +1,18 @@
+skill:
+  backend: claude-code
+  model: claude-haiku-4-5-20251001
+
+judge:
+  backend: claude-api
+  model: claude-haiku-4-5-20251001
+
+tasks:
+  - name: Write hello to a file
+    setup: rm -f /tmp/caliper-e2e-smoke.txt
+    cleanup: rm -f /tmp/caliper-e2e-smoke.txt
+    prompt: Write the text "hello" to /tmp/caliper-e2e-smoke.txt using the Bash tool.
+    assert: |
+      from pathlib import Path
+      p = Path("/tmp/caliper-e2e-smoke.txt")
+      assert p.exists(), "file was not created"
+      assert "hello" in p.read_text(), "file does not contain hello"

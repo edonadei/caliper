@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from caliper.harness.base import AttemptResult, HarnessBackend
 from caliper.judge.base import Judge, JudgeResult
-from caliper.runner import TaskRunner
+from caliper.runner import run
 from caliper.schema.spec import EvalSpec, SkillConfig, TaskSpec
 
 
@@ -59,15 +59,15 @@ def test_runner_fails_attempt_when_harness_exits_nonzero(tmp_path) -> None:
         ],
     )
 
-    results = TaskRunner(
-        harness=FailingHarness(),
-        judge=judge,
+    results = run(
         spec=spec,
         spec_path=spec_path,
+        harness=FailingHarness(),
+        judge=judge,
         k=1,
         workers=1,
         timeout=30,
-    ).run()
+    )
 
     attempt = results.task_results[0].attempts[0]
     assert attempt.passed is False

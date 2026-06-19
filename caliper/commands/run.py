@@ -17,7 +17,7 @@ from caliper.reporter import (
     save_results,
     update_progress,
 )
-from caliper.runner import TaskRunner
+from caliper.runner import run, AttemptEvent
 from caliper.schema.spec import load_spec, spec_name
 
 console = Console()
@@ -59,12 +59,12 @@ def run_cmd(
     attempt_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
     pass_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
 
-    def on_attempt_done(task_id: str, attempt: int, passed: bool, cheated: bool) -> None:
-        task = next((t for t in spec.tasks if t.id == task_id), None)
+    def on_attempt_done(event: AttemptEvent) -> None:
+        task = next((t for t in spec.tasks if t.id == event.task_id), None)
         if task is None:
             return
         attempt_counts[task.name] += 1
-        if passed:
+        if event.passed:
             pass_counts[task.name] += 1
         update_progress(
             progress,
@@ -73,25 +73,22 @@ def run_cmd(
             k,
             attempt_counts[task.name],
             pass_counts[task.name],
-            cheated=cheated,
+            cheated=event.cheated,
         )
-
-    runner = TaskRunner(
-        harness=harness,
-        judge=judge,
-        spec=spec,
-        spec_path=spec_file,
-        k=k,
-        workers=workers,
-        timeout=timeout,
-        baseline=baseline,
-        judge_strategy=judge_strategy,
-        on_attempt_done=on_attempt_done,
-    )
 
     with progress:
         try:
-            results = runner.run()
+            results = run(
+                spec=spec,
+                spec_path=spec_file,
+                harness=harness,
+                judge=judge,
+                k=k,
+                workers=workers,
+                timeout=timeout,
+                baseline=baseline,
+                on_attempt_done=on_attempt_done,
+            )
         except HarnessConfigurationError as exc:
             console.print(
                 Panel(

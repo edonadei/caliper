@@ -97,6 +97,8 @@ class ScriptAssertJudge(Judge):
     write a Python assertion script.
     """
 
+    strategy = "script"
+
     def __init__(self, config: JudgeConfig) -> None:
         self._config = config
         self._client = None

@@ -11,6 +11,8 @@ from caliper.schema.spec import JudgeConfig, TaskSpec
 class OpenAIAPIJudge(Judge):
     """Judge that uses the OpenAI API explicitly."""
 
+    strategy = "autorater"
+
     def __init__(self, config: JudgeConfig) -> None:
         self._config = config
 

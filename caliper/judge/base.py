@@ -18,6 +18,8 @@ class JudgeResult:
 
 
 class Judge(ABC):
+    strategy: str = "autorater"
+
     @abstractmethod
     def evaluate(
         self,
