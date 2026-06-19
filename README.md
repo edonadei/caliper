@@ -6,7 +6,7 @@
 **pytest for agent skills.** Write a task in YAML, run it k times, get a reliability score.
 
 ```bash
-pipx install caliper-eval
+npx skills@latest add edonadei/caliper
 ```
 
 ---
@@ -46,6 +46,14 @@ Each attempt runs in an isolated temporary home with no session history. Results
 ## Quick start
 
 **1. Install**
+
+Install the `evaluate-skill` agent skill — it handles everything from inside your agent:
+
+```bash
+npx skills@latest add edonadei/caliper
+```
+
+Or install the CLI directly if you prefer running evals from the terminal:
 
 ```bash
 pipx install caliper-eval
@@ -299,7 +307,13 @@ The aggregate score is the average task pass@k. With `--baseline`, Caliper runs 
 
 ## Install the evaluator skill
 
-The repo includes an `evaluate-skill` agent skill. Install it to let Claude Code or Codex create, validate, run, and summarize evals from inside your normal agent workflow.
+The repo includes an `evaluate-skill` agent skill. Install it to let your agent create, validate, run, and summarize evals from inside your normal workflow — no separate terminal needed. The skill installs Caliper automatically if it's missing.
+
+```bash
+npx skills@latest add edonadei/caliper
+```
+
+Or, if you already have Caliper installed and want to wire up the skill manually:
 
 ```bash
 caliper install-skill claude-code
