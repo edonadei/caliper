@@ -84,6 +84,14 @@ tasks:
 
 **3. Run it**
 
+If you installed via the skill, ask your agent:
+
+```text
+/evaluate-skill run my-skill.eval.yaml --k 3 --baseline
+```
+
+Or from the terminal if you installed the CLI:
+
 ```bash
 caliper run my-skill.eval.yaml --k 3 --baseline
 ```
@@ -105,9 +113,9 @@ Results saved to .caliper/results/my-skill/2026-06-19T14-23-01Z.json
 
 Browse past results anytime:
 
-```bash
-caliper list
-caliper report my-skill
+```text
+/evaluate-skill list
+/evaluate-skill report my-skill
 ```
 
 ---
