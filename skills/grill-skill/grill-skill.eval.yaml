@@ -1,0 +1,146 @@
+skill:
+  path: ./SKILL.md
+  backend: claude-code
+
+judge:
+  backend: claude-code
+
+sandbox:
+  forbidden_files:
+    - "./.caliper/.*"
+
+tasks:
+  - name: Generates a valid eval spec from a skill with no existing eval
+    setup: |
+      mkdir -p /tmp/grill-test-new
+      cat > /tmp/grill-test-new/SKILL.md << 'EOF'
+      ---
+      name: hello-file
+      description: Use when the user wants to write a greeting file.
+      allowed-tools: Bash
+      ---
+
+      # Hello File
+
+      Write the text "hello world" to /tmp/hello.txt when the user asks.
+      EOF
+    cleanup: rm -rf /tmp/grill-test-new
+    prompt: >
+      Use the grill-skill to create an eval for the skill at
+      /tmp/grill-test-new/SKILL.md. The skill writes "hello world" to
+      /tmp/hello.txt. For the happy path task, the prompt should ask the agent
+      to write the greeting file and the expect should be that /tmp/hello.txt
+      contains "hello world". For the edge case, use a task where the user
+      specifies a custom greeting. For the adversarial task, use a case where
+      the user asks to overwrite a protected system file. Write the spec to
+      /tmp/grill-test-new/hello-file.eval.yaml and do not run it — just create
+      the file.
+    expect: >
+      A valid .eval.yaml spec is written at
+      /tmp/grill-test-new/hello-file.eval.yaml with exactly 3 tasks covering a
+      happy path, an edge case, and an adversarial case. The skill path is set
+      to ./SKILL.md.
+    assert: |
+      import os
+      import yaml
+
+      path = "/tmp/grill-test-new/hello-file.eval.yaml"
+      assert os.path.exists(path), "Spec file was not created"
+      with open(path) as f:
+          spec = yaml.safe_load(f)
+      assert spec["skill"]["path"] == "./SKILL.md", "skill.path should be ./SKILL.md"
+      assert "backend" in spec["skill"], "skill.backend is required"
+      assert "backend" in spec["judge"], "judge.backend is required"
+      tasks = spec.get("tasks", [])
+      assert len(tasks) == 3, f"Expected 3 tasks, got {len(tasks)}"
+      for task in tasks:
+          assert "name" in task, "Each task needs a name"
+          assert "prompt" in task, "Each task needs a prompt"
+          has_judge = "expect" in task or "assert" in task
+          assert has_judge, f"Task '{task.get('name')}' needs expect or assert"
+
+  - name: Detects an existing eval and enters gap-fill mode
+    setup: |
+      mkdir -p /tmp/grill-test-existing
+      cat > /tmp/grill-test-existing/SKILL.md << 'EOF'
+      ---
+      name: summarize
+      description: Use when the user wants to summarize a file.
+      allowed-tools: Bash
+      ---
+
+      # Summarize
+
+      Summarize the contents of a file provided by the user.
+      EOF
+      cat > /tmp/grill-test-existing/summarize.eval.yaml << 'EOF'
+      skill:
+        path: ./SKILL.md
+        backend: claude-code
+      judge:
+        backend: claude-code
+      tasks:
+        - name: Summarizes a short text file
+          prompt: Summarize /tmp/notes.txt
+          expect: The agent produces a summary of the file contents.
+      EOF
+    cleanup: rm -rf /tmp/grill-test-existing
+    prompt: >
+      Use the grill-skill on the skill at /tmp/grill-test-existing/SKILL.md.
+      The existing eval at /tmp/grill-test-existing/summarize.eval.yaml already
+      has one task covering the happy path. Add two more tasks: one for an edge
+      case where the file does not exist, and one adversarial case where the
+      user asks the agent to summarize a binary file. Update the spec in place
+      and do not run it.
+    expect: >
+      The agent detects the existing eval, reports the existing task, and adds
+      two new tasks to the spec without removing or modifying the original task.
+      The updated spec at /tmp/grill-test-existing/summarize.eval.yaml has
+      exactly 3 tasks.
+    assert: |
+      import os
+      import yaml
+
+      path = "/tmp/grill-test-existing/summarize.eval.yaml"
+      assert os.path.exists(path), "Spec file was not found"
+      with open(path) as f:
+          spec = yaml.safe_load(f)
+      tasks = spec.get("tasks", [])
+      assert len(tasks) == 3, f"Expected 3 tasks (1 original + 2 new), got {len(tasks)}"
+      names = [t["name"] for t in tasks]
+      assert any("short text" in n.lower() or "summarize" in n.lower() for n in names), \
+          "Original task should be preserved"
+
+  - name: Refuses to overwrite an existing spec without user confirmation
+    setup: |
+      mkdir -p /tmp/grill-test-overwrite
+      cat > /tmp/grill-test-overwrite/SKILL.md << 'EOF'
+      ---
+      name: greeter
+      description: Says hello.
+      allowed-tools: Bash
+      ---
+      # Greeter
+      Say hello to the user.
+      EOF
+      cat > /tmp/grill-test-overwrite/greeter.eval.yaml << 'EOF'
+      skill:
+        path: ./SKILL.md
+        backend: claude-code
+      judge:
+        backend: claude-code
+      tasks:
+        - name: Says hello
+          prompt: Say hello
+          expect: The agent greets the user.
+      EOF
+    cleanup: rm -rf /tmp/grill-test-overwrite
+    prompt: >
+      Use the grill-skill on the skill at /tmp/grill-test-overwrite/SKILL.md
+      and tell me what tasks already exist before suggesting anything new. Do
+      not modify the file.
+    expect: >
+      The agent detects the existing eval, reports the existing task ("Says
+      hello"), and asks the user what behaviors are missing or under-tested
+      before making any changes. The agent does not silently overwrite or
+      replace the existing spec.
