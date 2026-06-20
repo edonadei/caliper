@@ -4,34 +4,95 @@ import json
 import subprocess
 
 from caliper.harness.base import ConversationTurn
-from caliper.judge import ClaudeCodeJudge, CodexJudge, OpenAIAPIJudge, get_judge
 from caliper.judge.codex_judge import _extract_codex_error, evaluate_with_codex
-from caliper.judge.script_assert import ScriptAssertJudge
+from caliper.judge.script_assert import EvalJudge
 from caliper.schema.spec import JudgeConfig, TaskSpec
 
 
-def test_get_judge_returns_codex_for_codex_autorater_backend() -> None:
-    judge = get_judge("autorater", JudgeConfig(backend="codex"))
-
-    assert isinstance(judge, CodexJudge)
-
-
-def test_get_judge_keeps_claude_code_as_default_autorater_backend() -> None:
-    judge = get_judge("autorater", JudgeConfig(backend="claude-code"))
-
-    assert isinstance(judge, ClaudeCodeJudge)
+def test_eval_judge_always_returns_eval_judge_instance() -> None:
+    for backend in ("codex", "claude-code", "claude-api", "openai-api"):
+        judge = EvalJudge(JudgeConfig(backend=backend))
+        assert isinstance(judge, EvalJudge)
 
 
-def test_get_judge_maps_openai_api_explicitly() -> None:
-    judge = get_judge("autorater", JudgeConfig(backend="openai-api"))
+def test_eval_judge_expect_only_calls_llm(monkeypatch, tmp_path) -> None:
+    calls = []
 
-    assert isinstance(judge, OpenAIAPIJudge)
+    def fake_eval(*, expect, transcript, model, cwd, timeout=60):
+        calls.append((expect, model, cwd))
+        return True, "Codex accepted the transcript."
+
+    monkeypatch.setattr("caliper.judge.script_assert.EvalJudge._llm_evaluate",
+                        lambda self, task, transcript, spec_dir: fake_eval(
+                            expect=task.expect,
+                            transcript=transcript,
+                            model=self._config.model,
+                            cwd=spec_dir,
+                        ))
+
+    judge = EvalJudge(JudgeConfig(backend="codex", model="test-model"))
+    result = judge.evaluate(
+        task=TaskSpec(id="t1", name="t", prompt="p", expect="should say hello"),
+        transcript=[ConversationTurn(role="assistant", content="hello")],
+        final_output="hello",
+        spec_dir=str(tmp_path),
+    )
+
+    assert result.passed is True
+    assert result.assert_passed is None
+    assert result.autorater_passed is True
 
 
-def test_legacy_claude_backend_normalizes_to_claude_code() -> None:
-    config = JudgeConfig(backend="claude")
+def test_eval_judge_assert_only_runs_script_no_llm(tmp_path) -> None:
+    judge = EvalJudge(JudgeConfig(backend="codex"))
+    result = judge.evaluate(
+        task=TaskSpec(id="t2", name="t", prompt="p", assert_script="assert 1 == 1"),
+        transcript=[],
+        final_output="",
+        spec_dir=str(tmp_path),
+    )
 
-    assert config.backend == "claude-code"
+    assert result.passed is True
+    assert result.assert_passed is True
+    assert result.autorater_passed is None
+
+
+def test_eval_judge_assert_failure_makes_overall_fail(tmp_path) -> None:
+    judge = EvalJudge(JudgeConfig(backend="codex"))
+    result = judge.evaluate(
+        task=TaskSpec(id="t3", name="t", prompt="p", assert_script="assert False, 'nope'"),
+        transcript=[],
+        final_output="",
+        spec_dir=str(tmp_path),
+    )
+
+    assert result.passed is False
+    assert result.assert_passed is False
+
+
+def test_eval_judge_both_checks_must_pass(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "caliper.judge.script_assert.EvalJudge._llm_evaluate",
+        lambda self, task, transcript, spec_dir: (True, "LLM says yes"),
+    )
+
+    judge = EvalJudge(JudgeConfig(backend="codex"))
+    result = judge.evaluate(
+        task=TaskSpec(
+            id="t4",
+            name="t",
+            prompt="p",
+            expect="pass",
+            assert_script="assert False, 'script fails'",
+        ),
+        transcript=[],
+        final_output="",
+        spec_dir=str(tmp_path),
+    )
+
+    assert result.passed is False
+    assert result.autorater_passed is True
+    assert result.assert_passed is False
 
 
 def test_codex_judge_uses_output_last_message(monkeypatch, tmp_path) -> None:
@@ -41,7 +102,7 @@ def test_codex_judge_uses_output_last_message(monkeypatch, tmp_path) -> None:
         calls.append((cmd, kwargs))
         output_path = cmd[cmd.index("--output-last-message") + 1]
         with open(output_path, "w") as f:
-            json.dump({"passed": True, "reasoning": "The transcript matches."}, f)
+            json.dump({"mode": "verdict", "passed": True, "reasoning": "The transcript matches."}, f)
         return subprocess.CompletedProcess(cmd, 0, stdout="noisy session log", stderr="")
 
     monkeypatch.setattr("caliper.judge.codex_judge.shutil.which", lambda _name: "codex.cmd")
@@ -65,16 +126,16 @@ def test_codex_judge_uses_output_last_message(monkeypatch, tmp_path) -> None:
     assert kwargs["cwd"] == str(tmp_path)
 
 
-def test_script_judge_uses_codex_for_expect_when_configured(monkeypatch, tmp_path) -> None:
+def test_eval_judge_uses_codex_for_expect_when_configured(monkeypatch, tmp_path) -> None:
     calls = []
 
     def fake_eval(*, expect, transcript, model, cwd, timeout=60):
         calls.append((expect, transcript, model, cwd, timeout))
         return True, "Codex accepted the transcript."
 
-    monkeypatch.setattr("caliper.judge.script_assert.evaluate_with_codex", fake_eval)
+    monkeypatch.setattr("caliper.judge.codex_judge.evaluate_with_codex", fake_eval)
 
-    judge = ScriptAssertJudge(JudgeConfig(backend="codex", model="test-model"))
+    judge = EvalJudge(JudgeConfig(backend="codex", model="test-model"))
     result = judge.evaluate(
         task=TaskSpec(
             id="task-001",

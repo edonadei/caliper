@@ -3,11 +3,11 @@ from __future__ import annotations
 import subprocess
 
 from caliper.harness.base import ConversationTurn
-from caliper.judge.claude_code_judge import ClaudeCodeJudge
+from caliper.judge.script_assert import EvalJudge
 from caliper.schema.spec import JudgeConfig, TaskSpec
 
 
-def test_claude_code_judge_still_invokes_claude_cli(monkeypatch, tmp_path) -> None:
+def test_eval_judge_claude_code_invokes_claude_cli(monkeypatch, tmp_path) -> None:
     calls = []
 
     def fake_run(cmd, **kwargs):
@@ -15,13 +15,13 @@ def test_claude_code_judge_still_invokes_claude_cli(monkeypatch, tmp_path) -> No
         return subprocess.CompletedProcess(
             cmd,
             0,
-            stdout='{"passed": true, "reasoning": "The transcript says hello."}',
+            stdout='{"mode": "verdict", "passed": true, "reasoning": "The transcript says hello."}',
             stderr="",
         )
 
     monkeypatch.setattr("caliper.judge.claude_code_judge.subprocess.run", fake_run)
 
-    result = ClaudeCodeJudge(JudgeConfig(backend="claude", model="claude-test")).evaluate(
+    result = EvalJudge(JudgeConfig(backend="claude", model="claude-test")).evaluate(
         task=TaskSpec(
             id="task-001",
             name="Claude judge",

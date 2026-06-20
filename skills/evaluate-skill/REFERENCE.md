@@ -6,7 +6,6 @@
 ```bash
 caliper run path/to/spec.eval.yaml --k 3
 caliper run path/to/spec.eval.yaml --k 3 --baseline      # include no-skill delta
-caliper run path/to/spec.eval.yaml --judge script        # LLM writes assertion scripts
 caliper run path/to/spec.eval.yaml --verbose             # show per-attempt reasoning
 
 # Override backend and/or model at run time (no spec edit needed)
@@ -105,8 +104,7 @@ judge:
 
 - **pass@k** — probability that at least 1 of k attempts passes (default k=3)
 - **baseline** — runs each task without the skill to compute a delta score
-- **autorater** — LLM reads the full tool-call transcript + expectation → pass/fail
-- **script judge** — LLM can write Python assertion scripts for verifiable facts
+- **judge** — the spec drives evaluation: `expect:` triggers an LLM verdict (which may generate a Python assertion script); `assert:` runs a deterministic Python script; both can be combined and both must pass
 - **cheat detection** — transcript is scanned for reads of forbidden files (spec, results)
 - **isolation** — each attempt runs in a fresh temp HOME with no session history
 - **`--model TARGET`** — override skill backend/model at run time; accepts `backend:model`, bare backend (`codex`), or bare model name

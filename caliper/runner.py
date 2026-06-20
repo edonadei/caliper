@@ -106,7 +106,6 @@ def run(
             spec=spec_name(spec_path),
             timestamp=datetime.now(tz=timezone.utc),
             k=k,
-            judge_strategy=judge.strategy,
             backend=spec.skill.backend,
             model=spec.skill.model,
         ),
