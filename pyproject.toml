@@ -28,6 +28,7 @@ classifiers = [
 ]
 dependencies = [
     "typer>=0.15",
+    "click>=8",
     "rich>=13",
     "pydantic>=2",
     "pyyaml>=6",

@@ -7,7 +7,6 @@ judge:
 
 sandbox:
   forbidden_files:
-    - ".*\\.eval\\.yaml$"
     - "./.caliper/.*"
 
 tasks:

@@ -88,6 +88,11 @@ Read the existing `.eval.yaml`. Summarize existing tasks:
 >
 > What behaviors do you feel are missing or under-tested?"
 
+Always ask what behaviors are missing or under-tested before proposing new
+tasks. If the user asks you only to inspect or report the existing eval, do not
+modify the file; report the existing tasks and still end by asking what is
+missing or under-tested.
+
 Interview the user to surface gaps. For each gap, ask a follow-up to sharpen it into a concrete task (prompt + expect + optional assert). Show the proposed additions and confirm before writing them into the spec.
 
 ---
