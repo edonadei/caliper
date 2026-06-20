@@ -74,7 +74,6 @@ def _list_runs(spec_dir: Path, spec_name: str) -> None:
     table.add_column("k", justify="right")
     table.add_column("Tasks", justify="right")
     table.add_column("pass@k", justify="right")
-    table.add_column("Judge")
     table.add_column("File", style="dim")
 
     for f in files:
@@ -84,11 +83,10 @@ def _list_runs(spec_dir: Path, spec_name: str) -> None:
             score = f"{results.aggregate.avg_pass_at_k * 100:.1f}%"
             k = str(results.run.k)
             n_tasks = str(len(results.task_results))
-            judge = results.run.judge_strategy
         except Exception:
             ts = f.stem
-            score = k = n_tasks = judge = "?"
+            score = k = n_tasks = "?"
 
-        table.add_row(ts, k, n_tasks, score, judge, f.name)
+        table.add_row(ts, k, n_tasks, score, f.name)
 
     console.print(table)

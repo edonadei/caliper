@@ -8,48 +8,14 @@ import tempfile
 from pathlib import Path
 
 from caliper.harness.base import ConversationTurn
-from caliper.judge.autorater import _format_transcript, _SYSTEM, _USER_TMPL
-from caliper.judge.base import Judge, JudgeResult
-from caliper.schema.spec import JudgeConfig, TaskSpec
+from caliper.judge.script_assert import (
+    _SYSTEM,
+    _USER_TMPL,
+    _format_transcript,
+    _parse_rich_response,
+)
 
 CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
-
-
-class CodexJudge(Judge):
-    """Judge that uses `codex exec` instead of a provider SDK directly."""
-
-    strategy = "autorater"
-
-    def __init__(self, config: JudgeConfig) -> None:
-        self._config = config
-
-    def evaluate(
-        self,
-        task: TaskSpec,
-        transcript: list[ConversationTurn],
-        final_output: str,
-        spec_dir: str,
-    ) -> JudgeResult:
-        if not task.expect:
-            return JudgeResult(
-                passed=True,
-                reasoning="No expect defined; autorater skipped.",
-                autorater_passed=None,
-            )
-
-        passed, reasoning = evaluate_with_codex(
-            expect=task.expect,
-            transcript=transcript,
-            model=self._config.model,
-            cwd=spec_dir,
-        )
-
-        return JudgeResult(
-            passed=passed,
-            reasoning=reasoning,
-            autorater_passed=passed,
-            autorater_reasoning=reasoning,
-        )
 
 
 def evaluate_with_codex(
@@ -69,15 +35,7 @@ def evaluate_with_codex(
     if error:
         return False, error
 
-    try:
-        verdict = json.loads(_strip_markdown_fence(raw))
-        passed = bool(verdict.get("passed", False))
-        reasoning = str(verdict.get("reasoning", ""))
-    except (json.JSONDecodeError, KeyError):
-        passed = False
-        reasoning = f"Judge returned unparseable response: {raw[:200]}"
-
-    return passed, reasoning
+    return _parse_rich_response(_strip_markdown_fence(raw), cwd)
 
 
 def _run_codex(

@@ -21,7 +21,6 @@ class RunMeta(BaseModel):
     spec: str
     timestamp: datetime
     k: int
-    judge_strategy: str
     backend: str
     model: str | None = None
 

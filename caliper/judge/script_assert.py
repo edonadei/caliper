@@ -7,11 +7,7 @@ import tempfile
 from pathlib import Path
 
 from caliper.harness.base import ConversationTurn
-from caliper.judge.autorater import _format_transcript
-from caliper.judge.claude_code_judge import evaluate_with_claude_code
 from caliper.judge.base import Judge, JudgeResult
-from caliper.judge.codex_judge import evaluate_with_codex
-from caliper.judge.openai_api_judge import evaluate_with_openai_api
 from caliper.schema.spec import normalize_backend
 from caliper.schema.spec import JudgeConfig, TaskSpec
 
@@ -48,6 +44,21 @@ _USER_TMPL = """\
 Evaluate the transcript. Respond with JSON.
 """
 
+
+def _format_transcript(turns: list[ConversationTurn]) -> str:
+    lines: list[str] = []
+    for t in turns:
+        if t.role == "assistant":
+            lines.append(f"[assistant] {t.content}")
+        elif t.role == "tool_use":
+            inp = json.dumps(t.tool_input, ensure_ascii=False) if t.tool_input else ""
+            lines.append(f"[tool_use: {t.tool_name}] {inp}")
+        elif t.role == "tool_result":
+            out = (t.tool_output or "")[:2000]
+            lines.append(f"[tool_result] {out}")
+    return "\n".join(lines) or "(empty transcript)"
+
+
 def _run_inline_script(code: str, spec_dir: str) -> tuple[bool, str]:
     with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
         f.write(code)
@@ -70,13 +81,32 @@ def _run_inline_script(code: str, spec_dir: str) -> tuple[bool, str]:
         Path(tmp_path).unlink(missing_ok=True)
 
 
+def _parse_rich_response(raw: str, spec_dir: str) -> tuple[bool, str]:
+    try:
+        verdict = json.loads(raw)
+    except json.JSONDecodeError:
+        return False, f"Judge returned unparseable response: {raw[:200]}"
+
+    mode = verdict.get("mode", "verdict")
+    reasoning = str(verdict.get("reasoning", ""))
+
+    if mode == "script":
+        code = verdict.get("code", "")
+        if not code:
+            return False, "Judge returned empty script"
+        passed, evidence = _run_inline_script(code, spec_dir)
+        detail = f"{reasoning} | script: {'ok' if passed else evidence}"
+        return passed, detail
+
+    return bool(verdict.get("passed", False)), reasoning
+
+
 def _run_assert_from_task(task: TaskSpec, spec_dir: str) -> tuple[bool, str] | None:
     """Run the static assert field from the task spec, if present."""
     if not task.assert_script:
         return None
 
     raw = task.assert_script.strip()
-    # File path: single line ending in .py, no newlines
     if "\n" not in raw and raw.endswith(".py"):
         script_path = Path(raw)
         if not script_path.is_absolute():
@@ -90,12 +120,8 @@ def _run_assert_from_task(task: TaskSpec, spec_dir: str) -> tuple[bool, str] | N
     return _run_inline_script(code, spec_dir)
 
 
-class ScriptAssertJudge(Judge):
-    """
-    Handles both the static task.assert field and LLM-generated assertion scripts.
-    When task.expect is present, asks the LLM to either give a direct verdict or
-    write a Python assertion script.
-    """
+class EvalJudge(Judge):
+    """Universal judge: runs the static assert script and/or calls an LLM to evaluate."""
 
     strategy = "script"
 
@@ -115,18 +141,15 @@ class ScriptAssertJudge(Judge):
         autorater_passed: bool | None = None
         autorater_reasoning: str | None = None
 
-        # 1. Run the static assert from the spec (if any)
         static_result = _run_assert_from_task(task, spec_dir)
         if static_result is not None:
             assert_passed, assert_evidence = static_result
 
-        # 2. Run the LLM judge (direct verdict or generated script)
         if task.expect:
             llm_passed, llm_reasoning = self._llm_evaluate(task, transcript, spec_dir)
             autorater_passed = llm_passed
             autorater_reasoning = llm_reasoning
 
-        # Overall: both checks must pass (whichever are defined)
         checks = []
         if assert_passed is not None:
             checks.append(assert_passed)
@@ -153,12 +176,10 @@ class ScriptAssertJudge(Judge):
     def _llm_evaluate(
         self, task: TaskSpec, transcript: list[ConversationTurn], spec_dir: str
     ) -> tuple[bool, str]:
-        user_msg = _USER_TMPL.format(
-            expect=task.expect,
-            transcript=_format_transcript(transcript),
-        )
         match normalize_backend(self._config.backend):
             case "codex":
+                from caliper.judge.codex_judge import evaluate_with_codex
+
                 return evaluate_with_codex(
                     expect=task.expect,
                     transcript=transcript,
@@ -166,16 +187,22 @@ class ScriptAssertJudge(Judge):
                     cwd=spec_dir,
                 )
             case "claude-code":
+                from caliper.judge.claude_code_judge import evaluate_with_claude_code
+
                 return evaluate_with_claude_code(
                     expect=task.expect,
                     transcript=transcript,
                     model=self._config.model,
+                    spec_dir=spec_dir,
                 )
             case "openai-api":
+                from caliper.judge.openai_api_judge import evaluate_with_openai_api
+
                 return evaluate_with_openai_api(
                     expect=task.expect,
                     transcript=transcript,
                     model=self._config.model,
+                    spec_dir=spec_dir,
                 )
             case "claude-api":
                 model = self._config.model or "claude-haiku-4-5-20251001"
@@ -183,30 +210,20 @@ class ScriptAssertJudge(Judge):
                     import anthropic
 
                     self._client = anthropic.Anthropic()
-                response = self._client.messages.create(
-                    model=model,
-                    max_tokens=1024,
-                    system=_SYSTEM,
-                    messages=[{"role": "user", "content": user_msg}],
+                user_msg = _USER_TMPL.format(
+                    expect=task.expect,
+                    transcript=_format_transcript(transcript),
                 )
-                raw = response.content[0].text.strip()
+                try:
+                    response = self._client.messages.create(
+                        model=model,
+                        max_tokens=1024,
+                        system=_SYSTEM,
+                        messages=[{"role": "user", "content": user_msg}],
+                    )
+                    raw = response.content[0].text.strip()
+                except Exception as exc:
+                    return False, f"claude-api judge failed: {exc}"
+                return _parse_rich_response(raw, spec_dir)
             case _:
                 return False, f"Unknown judge backend: {self._config.backend!r}"
-
-        try:
-            verdict = json.loads(raw)
-        except json.JSONDecodeError:
-            return False, f"Judge returned unparseable response: {raw[:200]}"
-
-        mode = verdict.get("mode", "verdict")
-        reasoning = str(verdict.get("reasoning", ""))
-
-        if mode == "script":
-            code = verdict.get("code", "")
-            if not code:
-                return False, "Judge returned empty script"
-            passed, evidence = _run_inline_script(code, spec_dir)
-            detail = f"{reasoning} | script: {'ok' if passed else evidence}"
-            return passed, detail
-
-        return bool(verdict.get("passed", False)), reasoning

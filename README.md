@@ -265,13 +265,6 @@ tasks:
 
 When both `expect` and `assert` are present, both must pass.
 
-### `--judge` flag
-
-| Flag | Behavior |
-|---|---|
-| `--judge autorater` (default) | LLM judge evaluates `expect` |
-| `--judge script` | Runs `assert:` always; also runs LLM judge if `expect` is present |
-
 ---
 
 ## CLI reference
@@ -292,7 +285,6 @@ When both `expect` and `assert` are present, both must pass.
 |---|---|---|
 | `--k INT` | `3` | Attempts per task |
 | `--baseline` | off | Also run each task without the skill |
-| `--judge MODE` | `autorater` | `autorater` or `script` |
 | `--workers INT` | `4` | Parallel task workers |
 | `--timeout INT` | `120` | Seconds per attempt |
 | `--model TARGET` | — | Override skill backend and/or model (see below) |

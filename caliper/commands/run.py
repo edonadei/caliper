@@ -9,7 +9,7 @@ from rich.panel import Panel
 
 from caliper.harness.base import HarnessConfigurationError
 from caliper.harness import get_harness
-from caliper.judge import get_judge
+from caliper.judge import EvalJudge
 from caliper.reporter import (
     make_progress,
     print_banner,
@@ -29,7 +29,6 @@ def run_cmd(
     workers: int = typer.Option(4, "--workers", help="Parallel task workers"),
     timeout: int = typer.Option(120, "--timeout", help="Seconds per attempt"),
     baseline: bool = typer.Option(False, "--baseline", help="Also run without skill for delta"),
-    judge_strategy: str = typer.Option("autorater", "--judge", help="Judge strategy: autorater | script"),
     output: Optional[Path] = typer.Option(None, "--output", help="Save results JSON to path"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show per-attempt reasoning"),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Override skill backend/model (e.g. claude-api:claude-sonnet-4-6 or claude-sonnet-4-6)"),
@@ -63,7 +62,7 @@ def run_cmd(
     print_banner(name, k, spec.skill.backend, spec.skill.model)
 
     harness = get_harness(spec.skill.backend, spec.skill.model)
-    judge = get_judge(judge_strategy, spec.judge)
+    judge = EvalJudge(spec.judge)
 
     task_names = [t.name for t in spec.tasks]
     progress, task_ids = make_progress(task_names, k)
