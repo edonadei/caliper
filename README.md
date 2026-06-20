@@ -20,8 +20,6 @@ Use Caliper to answer questions like:
 - Does it still pass the workflows it passed last week?
 - Which backend — Claude Code or Codex — runs this skill more reliably?
 
-![Caliper terminal demo](assets/caliper-demo.gif)
-
 ---
 
 ## How it works
@@ -318,6 +316,9 @@ When both `expect` and `assert` are present, both must pass.
 ---
 
 ## CLI reference
+
+![Caliper terminal demo](assets/caliper-demo.gif)
+
 
 | Command | Description |
 |---|---|
