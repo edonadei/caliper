@@ -38,10 +38,11 @@ _BAR_FULL = "█" if _UNICODE else "#"
 _BAR_EMPTY = "░" if _UNICODE else "-"
 
 
-def print_banner(spec_name: str, k: int, backend: str) -> None:
+def print_banner(spec_name: str, k: int, backend: str, model: str | None = None) -> None:
+    target = f"[cyan]{backend}[/cyan]" + (f" [dim]{_SEP} {model}[/dim]" if model else "")
     console.print(
         Panel(
-            f"{_BANNER}  {_SEP}  [bold]{spec_name}[/bold]  {_SEP}  k=[cyan]{k}[/cyan]  {_SEP}  [cyan]{backend}[/cyan]",
+            f"{_BANNER}  {_SEP}  [bold]{spec_name}[/bold]  {_SEP}  k=[cyan]{k}[/cyan]  {_SEP}  {target}",
             border_style="cyan",
             padding=(0, 2),
         )

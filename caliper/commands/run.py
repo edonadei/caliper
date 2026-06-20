@@ -18,7 +18,7 @@ from caliper.reporter import (
     update_progress,
 )
 from caliper.runner import run, AttemptEvent
-from caliper.schema.spec import load_spec, spec_name
+from caliper.schema.spec import load_spec, parse_target, spec_name
 
 console = Console()
 
@@ -32,7 +32,8 @@ def run_cmd(
     judge_strategy: str = typer.Option("autorater", "--judge", help="Judge strategy: autorater | script"),
     output: Optional[Path] = typer.Option(None, "--output", help="Save results JSON to path"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show per-attempt reasoning"),
-    model: Optional[str] = typer.Option(None, "--model", "-m", help="Override the skill model (e.g. claude-sonnet-4-6)"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Override skill backend/model (e.g. claude-api:claude-sonnet-4-6 or claude-sonnet-4-6)"),
+    judge_model: Optional[str] = typer.Option(None, "--judge-model", help="Override judge backend/model (e.g. claude-api:claude-haiku-4-5-20251001)"),
 ) -> None:
     if not spec_file.exists():
         console.print(f"[bold red]Error:[/bold red] File not found: {spec_file}")
@@ -45,10 +46,21 @@ def run_cmd(
         raise typer.Exit(1)
 
     if model:
-        spec.skill.model = model
+        backend_override, model_override = parse_target(model)
+        if backend_override:
+            spec.skill.backend = backend_override
+        if model_override:
+            spec.skill.model = model_override
+
+    if judge_model:
+        j_backend, j_model = parse_target(judge_model)
+        if j_backend:
+            spec.judge.backend = j_backend
+        if j_model:
+            spec.judge.model = j_model
 
     name = spec_name(spec_file)
-    print_banner(name, k, spec.skill.backend)
+    print_banner(name, k, spec.skill.backend, spec.skill.model)
 
     harness = get_harness(spec.skill.backend, spec.skill.model)
     judge = get_judge(judge_strategy, spec.judge)

@@ -295,9 +295,32 @@ When both `expect` and `assert` are present, both must pass.
 | `--judge MODE` | `autorater` | `autorater` or `script` |
 | `--workers INT` | `4` | Parallel task workers |
 | `--timeout INT` | `120` | Seconds per attempt |
-| `--model MODEL` | — | Override `skill.model` |
+| `--model TARGET` | — | Override skill backend and/or model (see below) |
+| `--judge-model TARGET` | — | Override judge backend and/or model (see below) |
 | `--verbose` | off | Show per-attempt judge reasoning |
 | `--output PATH` | — | Also save results JSON to a specific path |
+
+#### `--model` and `--judge-model` syntax
+
+Both flags accept a `backend:model` compound value, a bare backend name, or a bare model name:
+
+```bash
+# Override backend and model together
+caliper run my-skill.eval.yaml --model claude-api:claude-sonnet-4-6
+
+# Override backend only (model stays unset / from spec)
+caliper run my-skill.eval.yaml --model codex
+
+# Override model only (backend stays from spec)
+caliper run my-skill.eval.yaml --model claude-sonnet-4-6
+
+# Override judge independently
+caliper run my-skill.eval.yaml --model claude-api:claude-sonnet-4-6 --judge-model claude-api:claude-haiku-4-5-20251001
+```
+
+Accepted backends: `claude-code`, `codex`, `claude-api`, `openai-api` (aliases: `claude`, `anthropic`, `openai`).
+
+The spec file is never modified — overrides apply only to the current run.
 
 ---
 
