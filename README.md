@@ -3,7 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Python](https://img.shields.io/pypi/pyversions/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 
-**pytest for agent skills.** Write a task in YAML, run it k times, get a reliability score.
+**Reliability testing for agent skills.** Define what success looks like, run your skill k times, and get a pass@k score you can track and compare.
 
 ```bash
 npx skills@latest add edonadei/caliper
@@ -47,19 +47,13 @@ Each attempt runs in an isolated temporary home with no session history. Results
 
 **1. Install**
 
-Install the `evaluate-skill` agent skill — it handles everything from inside your agent:
+Install the `evaluate-skill` agent skill — it handles everything from inside your agent, including installing Caliper automatically:
 
 ```bash
 npx skills@latest add edonadei/caliper
 ```
 
-Or install the CLI directly if you prefer running evals from the terminal:
-
-```bash
-pipx install caliper-eval
-```
-
-Requires Python 3.10+.
+Advanced: if you prefer running evals directly from the terminal, `pipx install caliper-eval` (requires Python 3.10+).
 
 **2. Create a spec**
 
@@ -117,6 +111,62 @@ Browse past results anytime:
 /evaluate-skill list
 /evaluate-skill report my-skill
 ```
+
+---
+
+## Agent skills
+
+The repo ships two agent skills. Install both with:
+
+```bash
+npx skills@latest add edonadei/caliper
+```
+
+### `evaluate-skill` — run and manage evals
+
+Create, validate, run, and summarize evals from inside your normal workflow — no separate terminal needed. The skill installs Caliper automatically if it's missing.
+
+Or, if you already have Caliper installed and want to wire up the skill manually:
+
+```bash
+caliper install-skill claude-code
+caliper install-skill codex
+```
+
+Preview without writing files:
+
+```bash
+caliper install-skill claude-code --dry-run
+```
+
+Then use it in Claude Code:
+
+```text
+/evaluate-skill run my-skill.eval.yaml --k 3
+/evaluate-skill validate my-skill.eval.yaml
+```
+
+Or in Codex:
+
+```text
+Use the evaluate-skill skill to run my-skill.eval.yaml with k=3 and summarize the result.
+```
+
+### `grill-skill` — create evals interactively
+
+Don't have evals yet? `grill-skill` guides you through creating them. It reads your `SKILL.md`, interviews you about what good behavior looks like, and generates a 3-task spec (happy path, edge case, adversarial). Then it runs the eval and loops — k=1 to validate, k=3 to measure, baseline before you commit.
+
+```text
+/grill-skill ./my-skill/SKILL.md
+```
+
+No path needed if you're already in the skill's directory:
+
+```text
+/grill-skill
+```
+
+If an `.eval.yaml` already exists next to your skill, `grill-skill` reads the existing tasks and interviews you about gaps instead of starting from scratch.
 
 ---
 
@@ -186,8 +236,8 @@ caliper update-cli --check
 5. Add `--baseline` to prove the skill is making a difference.
 6. Commit the spec alongside the skill so contributors can run the same eval.
 
-```bash
-caliper run my-skill.eval.yaml --k 3 --baseline --verbose
+```text
+/evaluate-skill run my-skill.eval.yaml --k 3 --baseline --verbose
 ```
 
 ---
@@ -325,62 +375,6 @@ pass@k = 1 - (1 - successes / k) ^ k
 ```
 
 The aggregate score is the average task pass@k. With `--baseline`, Caliper runs the same tasks without the skill and reports the delta.
-
----
-
-## Agent skills
-
-The repo ships two agent skills. Install both with:
-
-```bash
-npx skills@latest add edonadei/caliper
-```
-
-### `evaluate-skill` — run and manage evals
-
-Create, validate, run, and summarize evals from inside your normal workflow — no separate terminal needed. The skill installs Caliper automatically if it's missing.
-
-Or, if you already have Caliper installed and want to wire up the skill manually:
-
-```bash
-caliper install-skill claude-code
-caliper install-skill codex
-```
-
-Preview without writing files:
-
-```bash
-caliper install-skill claude-code --dry-run
-```
-
-Then use it in Claude Code:
-
-```text
-/evaluate-skill run my-skill.eval.yaml --k 3
-/evaluate-skill validate my-skill.eval.yaml
-```
-
-Or in Codex:
-
-```text
-Use the evaluate-skill skill to run my-skill.eval.yaml with k=3 and summarize the result.
-```
-
-### `grill-skill` — create evals interactively
-
-Don't have evals yet? `grill-skill` guides you through creating them. It reads your `SKILL.md`, interviews you about what good behavior looks like, and generates a 3-task spec (happy path, edge case, adversarial). Then it runs the eval and loops — k=1 to validate, k=3 to measure, baseline before you commit.
-
-```text
-/grill-skill ./my-skill/SKILL.md
-```
-
-No path needed if you're already in the skill's directory:
-
-```text
-/grill-skill
-```
-
-If an `.eval.yaml` already exists next to your skill, `grill-skill` reads the existing tasks and interviews you about gaps instead of starting from scratch.
 
 ---
 
