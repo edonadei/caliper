@@ -15,6 +15,11 @@ caliper run path/to/spec.eval.yaml --k 3
 # Baseline run — before committing, proves the skill makes a difference
 caliper run path/to/spec.eval.yaml --k 3 --baseline
 
+# Run against a different backend or model without editing the spec
+caliper run path/to/spec.eval.yaml --model claude-api:claude-sonnet-4-6
+caliper run path/to/spec.eval.yaml --model codex
+caliper run path/to/spec.eval.yaml --judge-model claude-api:claude-haiku-4-5-20251001
+
 # Browse past results
 caliper list
 caliper report path/to/spec.eval.yaml

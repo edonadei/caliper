@@ -8,6 +8,13 @@ caliper run path/to/spec.eval.yaml --k 3
 caliper run path/to/spec.eval.yaml --k 3 --baseline      # include no-skill delta
 caliper run path/to/spec.eval.yaml --judge script        # LLM writes assertion scripts
 caliper run path/to/spec.eval.yaml --verbose             # show per-attempt reasoning
+
+# Override backend and/or model at run time (no spec edit needed)
+caliper run path/to/spec.eval.yaml --model claude-api:claude-sonnet-4-6
+caliper run path/to/spec.eval.yaml --model codex
+caliper run path/to/spec.eval.yaml --model claude-sonnet-4-6   # model only, keep spec backend
+caliper run path/to/spec.eval.yaml --judge-model claude-api:claude-haiku-4-5-20251001
+caliper run path/to/spec.eval.yaml --model claude-api:claude-sonnet-4-6 --judge-model claude-api:claude-haiku-4-5-20251001
 ```
 
 ### Create a new evaluation spec (interactive wizard)
@@ -102,6 +109,8 @@ judge:
 - **script judge** — LLM can write Python assertion scripts for verifiable facts
 - **cheat detection** — transcript is scanned for reads of forbidden files (spec, results)
 - **isolation** — each attempt runs in a fresh temp HOME with no session history
+- **`--model TARGET`** — override skill backend/model at run time; accepts `backend:model`, bare backend (`codex`), or bare model name
+- **`--judge-model TARGET`** — same syntax, overrides the judge backend/model independently
 
 ## Results storage
 

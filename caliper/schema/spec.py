@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 BackendName = Literal["claude-code", "codex", "claude-api", "openai-api"]
 
+_VALID_BACKENDS: frozenset[str] = frozenset({"claude-code", "codex", "claude-api", "openai-api"})
+
 
 def normalize_backend(value: str) -> str:
     aliases = {
@@ -16,6 +18,23 @@ def normalize_backend(value: str) -> str:
         "openai": "openai-api",
     }
     return aliases.get(value, value)
+
+
+def parse_target(value: str) -> tuple[str | None, str | None]:
+    """Parse a --model / --judge-model value into (backend, model).
+
+    Accepts three forms:
+      "claude-api:claude-sonnet-4-6"  -> ("claude-api", "claude-sonnet-4-6")
+      "codex"                         -> ("codex", None)   # known backend name
+      "claude-sonnet-4-6"             -> (None, "claude-sonnet-4-6")
+    """
+    if ":" in value:
+        backend, _, model = value.partition(":")
+        return normalize_backend(backend) or None, model or None
+    normalized = normalize_backend(value)
+    if normalized in _VALID_BACKENDS:
+        return normalized, None
+    return None, value
 
 
 class TaskSpec(BaseModel):
