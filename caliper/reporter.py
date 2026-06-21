@@ -134,9 +134,14 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
 
     _print_aggregate(results)
 
-    if verbose:
+    tasks_to_detail = (
+        results.task_results
+        if verbose
+        else [tr for tr in results.task_results if tr.pass_at_k < 1.0]
+    )
+    if tasks_to_detail:
         console.print()
-        for tr in results.task_results:
+        for tr in tasks_to_detail:
             _print_task_detail(tr, k)
 
 
@@ -182,6 +187,18 @@ def _print_aggregate(results: RunResults) -> None:
     console.print()
 
 
+_OUTPUT_TRUNCATE_AT = 500
+
+
+def _format_output(output: str) -> str:
+    if not output or not output.strip():
+        return "[dim][no output][/dim]"
+    if len(output) > _OUTPUT_TRUNCATE_AT:
+        tail = output[-_OUTPUT_TRUNCATE_AT:]
+        return f"[dim][...truncated, showing last {_OUTPUT_TRUNCATE_AT} chars][/dim]\n{tail}"
+    return output
+
+
 def _print_task_detail(tr: TaskResult, k: int) -> None:
     lines: list[str] = []
     for attempt in tr.attempts:
@@ -194,10 +211,11 @@ def _print_task_detail(tr: TaskResult, k: int) -> None:
         if attempt.cheated:
             for ev in attempt.cheat_evidence:
                 lines.append(f"    [yellow]cheat:[/yellow] {ev}")
-        if attempt.autorater_reasoning:
-            lines.append(f"    [dim]{attempt.autorater_reasoning}[/dim]")
+        lines.append(f"    [dim]output:[/dim] {_format_output(attempt.output)}")
         if attempt.assert_evidence:
             lines.append(f"    [dim]assert: {attempt.assert_evidence}[/dim]")
+        if attempt.autorater_reasoning:
+            lines.append(f"    [dim]{attempt.autorater_reasoning}[/dim]")
 
     console.print(
         Panel(

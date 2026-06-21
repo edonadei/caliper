@@ -25,6 +25,20 @@ caliper list
 caliper report path/to/spec.eval.yaml
 ```
 
+## Inspecting failures
+
+After any `caliper run`, failed tasks are shown automatically with their output
+and `assert_evidence` — no extra command needed. If a failure is still unclear,
+use `--verbose` to see full output for all tasks (including passing ones):
+
+```bash
+# Full output for all tasks (passing + failing), untruncated
+caliper report path/to/spec.eval.yaml --verbose
+
+# Or inspect a specific past run
+caliper report path/to/spec.eval.yaml --run 2026-06-21T14-53-12Z --verbose
+```
+
 ## Spec skeleton (claude-code backend)
 
 ```yaml

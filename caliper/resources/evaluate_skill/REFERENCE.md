@@ -26,10 +26,15 @@ caliper validate path/to/spec.eval.yaml
 ```bash
 caliper list                        # all specs with latest scores
 caliper list my-skill-eval          # all runs for one spec
-caliper report my-skill-eval        # latest run (table view)
+caliper report my-skill-eval        # latest run — failed tasks shown with detail
+caliper report my-skill-eval --verbose  # all tasks with full output
 caliper report my-skill-eval --run 2026-05-12T14-23-01Z  # specific run
 caliper report results.json --format json
 ```
+
+After any `caliper run`, failed tasks are automatically shown with their agent
+output (last 500 chars) and `assert_evidence`. Use `--verbose` when you need
+full output for all tasks including passing ones.
 
 ## Spec format (.eval.yaml)
 
