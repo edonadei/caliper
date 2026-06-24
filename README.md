@@ -24,9 +24,13 @@ Use Caliper to answer questions like:
 Caliper runs each task with and without the skill, and shows you the difference:
 
 ```text
-With skill    100%
-No skill       70%
-Delta          +30%
+ID      Task                              k (3)   pass@k
+task-1  Writes a conventional commit msg  3/3     100%     PASS
+task-2  Generates a valid config file     2/3      96%     PASS
+
+With skill     98%    ###################-
+No skill       55%    ###########---------
+Delta          +43%   up
 ```
 
 ---
