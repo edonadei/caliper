@@ -2,6 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Python](https://img.shields.io/pypi/pyversions/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
+[![Skills](https://skills.sh/b/edonadei/caliper)](https://skills.sh/edonadei/caliper)
 
 **Reliability testing for agent skills.** Define what success looks like, run your skill k times, and get a pass@k score you can track and compare.
 
@@ -19,6 +20,14 @@ Use Caliper to answer questions like:
 - Is the skill doing the work, or would the base agent pass without it?
 - Does it still pass the workflows it passed last week?
 - Which backend — Claude Code or Codex — runs this skill more reliably?
+
+Caliper runs each task with and without the skill, and shows you the difference:
+
+```text
+With skill    100%
+No skill       70%
+Delta          +30%
+```
 
 ---
 
