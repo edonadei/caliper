@@ -22,6 +22,110 @@ Use Caliper to answer questions like:
 
 ---
 
+## Quick start
+
+There are two ways to use Caliper. Pick whichever fits how you work.
+
+### Path A — Agentic (let your agent drive)
+
+You never touch YAML by hand: the skills write the spec, run it, and read the results for you.
+
+**1. Install the skills**
+
+```bash
+npx skills@latest add edonadei/caliper
+```
+
+This installs `grill-skill` and `evaluate-skill`, and pulls in Caliper automatically.
+
+**2. Generate a spec interactively**
+
+In your agent (Claude Code or Codex), point `grill-skill` at the skill you want to test:
+
+```text
+/grill-skill ./my-skill/SKILL.md
+```
+
+It reads your `SKILL.md`, interviews you about what good behavior looks like, and writes a 3-task `.eval.yaml` (happy path, edge case, adversarial).
+
+**3. Run and measure**
+
+```text
+/evaluate-skill run my-skill.eval.yaml --k 3 --baseline
+```
+
+The agent runs the eval, compares against the no-skill baseline, and summarizes the result inline. Browse past runs anytime:
+
+```text
+/evaluate-skill list
+/evaluate-skill report my-skill
+```
+
+### Path B — CLI (run it yourself)
+
+**1. Install the CLI**
+
+```bash
+pipx install caliper-eval   # requires Python 3.10+
+```
+
+**2. Write a spec**
+
+```yaml
+# my-skill.eval.yaml
+skill:
+  path: ./SKILL.md
+  backend: claude-code
+
+judge:
+  backend: claude-code
+
+tasks:
+  # Autorater — the LLM judge reads the transcript and decides
+  - name: Writes a conventional commit message
+    prompt: "Summarize the staged git diff as a commit message."
+    expect: >
+      The response is a conventional-commit message: a concise subject
+      line under 72 characters, followed by a body explaining why the
+      change was made, not just what changed.
+
+  # Script execution — a deterministic Python assertion
+  - name: Generates a valid config file
+    cleanup: rm -f /tmp/app.config.json
+    prompt: "Generate a config at /tmp/app.config.json with a 'port' of 8080."
+    assert: |
+      import json
+      from pathlib import Path
+      data = json.loads(Path("/tmp/app.config.json").read_text())
+      assert data["port"] == 8080
+```
+
+`expect:` is graded by the judge LLM; `assert:` runs locally as Python. A task can use either or both — when both are present, both must pass.
+
+**3. Run it**
+
+```bash
+caliper run my-skill.eval.yaml --k 3 --baseline
+```
+
+**4. Read the output**
+
+```text
+CALIPER  -  my-skill  -  k=3  -  claude-code
+
+ID      Task                              k (3)   pass@k
+task-1  Writes a conventional commit msg  3/3     100%     PASS
+task-2  Generates a valid config file     2/3      96%     PASS
+
+With skill     98%    ###################-
+No skill       55%    ###########---------
+Delta          +43%   up
+
+Results saved to .caliper/results/my-skill/2026-06-19T14-23-01Z.json
+```
+
+---
+
 ## How it works
 
 ```
@@ -38,77 +142,6 @@ Use Caliper to answer questions like:
 ```
 
 Each attempt runs in an isolated temporary home with no session history. Results are saved as JSON you can inspect and diff later.
-
----
-
-## Quick start
-
-**1. Install**
-
-Install the `evaluate-skill` agent skill — it handles everything from inside your agent, including installing Caliper automatically:
-
-```bash
-npx skills@latest add edonadei/caliper
-```
-
-Advanced: if you prefer running evals directly from the terminal, `pipx install caliper-eval` (requires Python 3.10+).
-
-**2. Create a spec**
-
-```yaml
-# my-skill.eval.yaml
-skill:
-  path: ./SKILL.md
-  backend: claude-code
-
-judge:
-  backend: claude-code
-
-tasks:
-  - name: Writes a greeting file
-    cleanup: rm -f /tmp/hello.txt
-    prompt: "Write 'hello world' to /tmp/hello.txt"
-    expect: "A file at /tmp/hello.txt containing 'hello world' was created."
-    assert: |
-      from pathlib import Path
-      assert Path("/tmp/hello.txt").read_text().strip() == "hello world"
-```
-
-**3. Run it**
-
-If you installed via the skill, ask your agent:
-
-```text
-/evaluate-skill run my-skill.eval.yaml --k 3 --baseline
-```
-
-Or from the terminal if you installed the CLI:
-
-```bash
-caliper run my-skill.eval.yaml --k 3 --baseline
-```
-
-**4. Read the output**
-
-```text
-CALIPER  -  my-skill  -  k=3  -  claude-code
-
-ID      Task                    k (3)   pass@k
-task-1  Writes a greeting file  3/3     100%     PASS
-
-With skill    100%    ####################
-No skill       70%    ##############------
-Delta          +30%   up
-
-Results saved to .caliper/results/my-skill/2026-06-19T14-23-01Z.json
-```
-
-Browse past results anytime:
-
-```text
-/evaluate-skill list
-/evaluate-skill report my-skill
-```
 
 ---
 
