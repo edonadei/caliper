@@ -24,11 +24,7 @@ Use Caliper to answer questions like:
 
 ## Quick start
 
-There are two ways to use Caliper. Pick whichever fits how you work.
-
 ### Path A — Agentic (let your agent drive)
-
-You never touch YAML by hand: the skills write the spec, run it, and read the results for you.
 
 **1. Install the skills**
 
@@ -36,17 +32,15 @@ You never touch YAML by hand: the skills write the spec, run it, and read the re
 npx skills@latest add edonadei/caliper
 ```
 
-This installs `grill-skill` and `evaluate-skill`, and pulls in Caliper automatically.
-
 **2. Generate a spec interactively**
 
-In your agent (Claude Code or Codex), point `grill-skill` at the skill you want to test:
+In your agent (Claude Code or Codex):
 
 ```text
 /grill-skill ./my-skill/SKILL.md
 ```
 
-It reads your `SKILL.md`, interviews you about what good behavior looks like, and writes a 3-task `.eval.yaml` (happy path, edge case, adversarial).
+`grill-skill` reads your `SKILL.md`, interviews you, and writes a 3-task `.eval.yaml` (happy path, edge case, adversarial).
 
 **3. Run and measure**
 
@@ -54,7 +48,7 @@ It reads your `SKILL.md`, interviews you about what good behavior looks like, an
 /evaluate-skill run my-skill.eval.yaml --k 3 --baseline
 ```
 
-The agent runs the eval, compares against the no-skill baseline, and summarizes the result inline. Browse past runs anytime:
+Browse past runs:
 
 ```text
 /evaluate-skill list
@@ -100,7 +94,7 @@ tasks:
       assert data["port"] == 8080
 ```
 
-`expect:` is graded by the judge LLM; `assert:` runs locally as Python. A task can use either or both — when both are present, both must pass.
+`expect:` is graded by the judge LLM; `assert:` runs locally as Python. Use either or both.
 
 **3. Run it**
 
