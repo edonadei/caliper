@@ -36,6 +36,11 @@ TARGETS = {
         binary="claude",
         npm_package="@anthropic-ai/claude-code",
     ),
+    "pi": CliTarget(
+        name="pi",
+        binary="pi",
+        npm_package="@earendil-works/pi-coding-agent",
+    ),
 }
 
 ALIASES = {
@@ -47,7 +52,7 @@ ALIASES = {
 def update_cli_cmd(
     target: Annotated[
         Optional[str],
-        typer.Argument(help="CLI to update: codex, claude-code, or all"),
+        typer.Argument(help="CLI to update: codex, claude-code, pi, or all"),
     ] = None,
     check: Annotated[
         bool,

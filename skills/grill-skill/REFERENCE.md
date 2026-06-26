@@ -107,6 +107,7 @@ Add `assert:` when the outcome is a fact that an LLM judge might guess wrong:
 |---|---|---|
 | `claude-code` | Claude Code CLI | Default for most skills |
 | `codex` | Codex CLI | For Codex-targeted skills |
+| `pi` | pi CLI (authenticated) | For pi / agentskills.io skills; native `--skill` loading |
 | `claude-api` | `ANTHROPIC_API_KEY` | No CLI needed |
 | `openai-api` | `OPENAI_API_KEY` | No CLI needed |
 

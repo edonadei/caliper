@@ -7,6 +7,13 @@
 caliper run path/to/spec.eval.yaml --k 3
 caliper run path/to/spec.eval.yaml --k 3 --baseline      # include no-skill delta
 caliper run path/to/spec.eval.yaml --verbose             # show per-attempt reasoning
+
+# Override backend and/or model at run time (no spec edit needed)
+caliper run path/to/spec.eval.yaml --model claude-api:claude-sonnet-4-6
+caliper run path/to/spec.eval.yaml --model codex
+caliper run path/to/spec.eval.yaml --model claude-sonnet-4-6   # model only, keep spec backend
+caliper run path/to/spec.eval.yaml --judge-model claude-api:claude-haiku-4-5-20251001
+caliper run path/to/spec.eval.yaml --model claude-api:claude-sonnet-4-6 --judge-model claude-api:claude-haiku-4-5-20251001
 ```
 
 ### Create a new evaluation spec (interactive wizard)
@@ -26,22 +33,17 @@ caliper validate path/to/spec.eval.yaml
 ```bash
 caliper list                        # all specs with latest scores
 caliper list my-skill-eval          # all runs for one spec
-caliper report my-skill-eval        # latest run — failed tasks shown with detail
-caliper report my-skill-eval --verbose  # all tasks with full output
+caliper report my-skill-eval        # latest run (table view)
 caliper report my-skill-eval --run 2026-05-12T14-23-01Z  # specific run
 caliper report results.json --format json
 ```
-
-After any `caliper run`, failed tasks are automatically shown with their agent
-output (last 500 chars) and `assert_evidence`. Use `--verbose` when you need
-full output for all tasks including passing ones.
 
 ## Spec format (.eval.yaml)
 
 ```yaml
 skill:
   path: ./SKILL.md
-  backend: claude-code     # claude-code | codex | claude-api | openai-api
+  backend: claude-code     # claude-code | codex | pi | claude-api | openai-api
   model: claude-sonnet-4-6 # optional
 
 judge:
@@ -85,6 +87,18 @@ judge:
   backend: codex
 ```
 
+For a pi-backed eval (loads the skill natively via pi's `--skill` flag):
+
+```yaml
+skill:
+  path: ./SKILL.md
+  backend: pi
+  model: claude-sonnet-4-6  # optional; overrides pi's configured default
+
+judge:
+  backend: pi
+```
+
 For an API-backed eval, opt in explicitly:
 
 ```yaml
@@ -105,6 +119,8 @@ judge:
 - **judge** — the spec drives evaluation: `expect:` triggers an LLM verdict (which may generate a Python assertion script); `assert:` runs a deterministic Python script; both can be combined and both must pass
 - **cheat detection** — transcript is scanned for reads of forbidden files (spec, results)
 - **isolation** — each attempt runs in a fresh temp HOME with no session history
+- **`--model TARGET`** — override skill backend/model at run time; accepts `backend:model`, bare backend (`codex`), or bare model name
+- **`--judge-model TARGET`** — same syntax, overrides the judge backend/model independently
 
 ## Results storage
 

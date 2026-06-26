@@ -25,6 +25,9 @@ Supported backends:
 - `codex` — runs Codex skills by prepending the skill body to the prompt passed
   to `codex exec`; this uses the Codex CLI subscription/auth and never falls
   back to the OpenAI API.
+- `pi` — runs pi skills via the pi CLI (`pi --print --mode json`), loading the
+  skill natively with pi's `--skill` flag (agentskills.io standard). Uses the pi
+  CLI's `~/.pi/agent` subscription/auth.
 - `claude-api` — runs through the Anthropic API explicitly.
 - `openai-api` — runs through the OpenAI API explicitly.
 
