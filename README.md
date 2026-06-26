@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Skills](https://skills.sh/b/edonadei/caliper)](https://skills.sh/edonadei/caliper)
 
-**Reliability testing for agent skills.** Define what success looks like, run your skill k times, and get a pass@k score you can track and compare.
+**Reliability testing for agent skills.** Define what success looks like, run your skill k times, and get a pass@k score you can track and compare. Works with the agent you already use — Claude Code, Codex, or Pi.
 
 ```bash
 npx skills@latest add edonadei/caliper
@@ -19,7 +19,7 @@ Use Caliper to answer questions like:
 - Did my prompt edit actually improve the skill?
 - Is the skill doing the work, or would the base agent pass without it?
 - Does it still pass the workflows it passed last week?
-- Which backend — Claude Code or Codex — runs this skill more reliably?
+- Which agent — Claude Code, Codex, or Pi — runs this skill more reliably?
 
 Caliper runs each task with and without the skill, and shows you the difference:
 
@@ -139,7 +139,7 @@ Results saved to .caliper/results/my-skill/2026-06-19T14-23-01Z.json
 .eval.yaml spec
       │
       ▼
-  Harness  ──── runs your skill against the agent (Claude Code / Codex / API)
+  Harness  ──── runs your skill against the agent (Claude Code / Codex / Pi)
       │
       ▼
    Judge   ──── LLM autorater and/or deterministic Python assertions
