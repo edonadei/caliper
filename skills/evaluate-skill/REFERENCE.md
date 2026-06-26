@@ -43,7 +43,7 @@ caliper report results.json --format json
 ```yaml
 skill:
   path: ./SKILL.md
-  backend: claude-code     # claude-code | codex | claude-api | openai-api
+  backend: claude-code     # claude-code | codex | pi | claude-api | openai-api
   model: claude-sonnet-4-6 # optional
 
 judge:
@@ -85,6 +85,18 @@ skill:
 
 judge:
   backend: codex
+```
+
+For a pi-backed eval (loads the skill natively via pi's `--skill` flag):
+
+```yaml
+skill:
+  path: ./SKILL.md
+  backend: pi
+  model: claude-sonnet-4-6  # optional; overrides pi's configured default
+
+judge:
+  backend: pi
 ```
 
 For an API-backed eval, opt in explicitly:

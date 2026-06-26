@@ -6,9 +6,11 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
-BackendName = Literal["claude-code", "codex", "claude-api", "openai-api"]
+BackendName = Literal["claude-code", "codex", "claude-api", "openai-api", "pi"]
 
-_VALID_BACKENDS: frozenset[str] = frozenset({"claude-code", "codex", "claude-api", "openai-api"})
+_VALID_BACKENDS: frozenset[str] = frozenset(
+    {"claude-code", "codex", "claude-api", "openai-api", "pi"}
+)
 
 
 def normalize_backend(value: str) -> str:

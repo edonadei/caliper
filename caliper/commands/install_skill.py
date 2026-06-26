@@ -13,6 +13,7 @@ SKILL_FILENAME = "SKILL.md"
 TARGETS = {
     "codex": Path(".codex") / "skills" / "evaluate-skill" / "SKILL.md",
     "claude-code": Path(".claude") / "commands" / "evaluate-skill.md",
+    "pi": Path(".pi") / "agent" / "skills" / "evaluate-skill" / "SKILL.md",
 }
 
 
@@ -23,7 +24,7 @@ def load_packaged_skill() -> str:
 def install_skill_cmd(
     target: Annotated[
         str,
-        typer.Argument(help="Agent target to install for: codex or claude-code"),
+        typer.Argument(help="Agent target to install for: codex, claude-code, or pi"),
     ],
     force: Annotated[
         bool,
