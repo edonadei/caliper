@@ -1,10 +1,10 @@
-# Caliper &nbsp;<sub>reliability testing for agent skills</sub>
+# Caliper
 
 [![PyPI](https://img.shields.io/pypi/v/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Python](https://img.shields.io/pypi/pyversions/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Skills](https://skills.sh/b/edonadei/caliper)](https://skills.sh/edonadei/caliper)
 
-Run your skill _k_ times, get a pass@k score you can track and compare, and prove the skill beats the base agent. Works with the agent you already use — Claude Code, Codex, or Pi.
+**Reliability testing for agent skills.** Run your skill _k_ times, get a pass@k score you can track and compare, and prove the skill beats the base agent. Works with the agent you already use — Claude Code, Codex, or Pi.
 
 ```bash
 npx skills@latest add edonadei/caliper
