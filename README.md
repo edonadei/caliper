@@ -37,6 +37,13 @@ Use Caliper to answer questions like:
 
 ## Quick start
 
+> **New to evals?** Start with the **[Eval Starter Pack](examples/starter-pack/)** —
+> four copy-paste `.eval.yaml` templates, each catching a real agent failure
+> (false success, tool misuse, runaway loops, prompt regressions). Every
+> template runs green as-is against a bundled example, so you can prove your
+> setup works before changing a line, then point it at your own skill by editing
+> two or three commented lines.
+
 ### Path A — Agentic (let your agent drive)
 
 **1. Install the skills**

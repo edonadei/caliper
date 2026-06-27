@@ -1,0 +1,58 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# FAILURE MODE: PROMPT REGRESSIONS
+#
+# You tweak a prompt to fix one case — and silently break three others that
+# used to work. Regressions hide because nobody re-checks the old cases.
+#
+# The fix: keep a small, FIXED set of cases that already work and re-run it on
+# every prompt change. These aren't adversarial edge cases; they're your
+# baseline. When one flips from green to red, your last edit caused it.
+#
+# Each case uses a deterministic `assert:` (exact expected output) so a pass is
+# unambiguous — no LLM judgment, no flakiness.
+#
+# Run it as-is (all four pass against the bundled slugify skill):
+#   caliper run prompt-regression.eval.yaml --k 3
+# Re-run it after every edit to your prompt/SKILL.md and watch for reds.
+# ─────────────────────────────────────────────────────────────────────────────
+
+skill:
+  # 👉 EDIT 1: point this at your own SKILL.md.
+  path: ./SKILL.md
+  backend: claude-code             # 👉 EDIT 2: claude-code | codex | pi | claude-api | openai-api
+  model: claude-haiku-4-5-20251001 # optional — delete to use your agent's default model
+
+judge:
+  backend: claude-code
+  model: claude-haiku-4-5-20251001
+
+# 👉 EDIT 3: replace these four cases with the fixed set that matters for your
+#            skill. Keep them simple and unambiguous — they are your tripwire.
+tasks:
+  - name: Basic two-word title
+    cleanup: rm -f /tmp/caliper-slug-1.txt
+    prompt: "Slugify 'Hello World' and write the result to /tmp/caliper-slug-1.txt"
+    assert: |
+      from pathlib import Path
+      assert Path("/tmp/caliper-slug-1.txt").read_text().strip() == "hello-world"
+
+  - name: Multi-word title
+    cleanup: rm -f /tmp/caliper-slug-2.txt
+    prompt: "Slugify 'The Quick Brown Fox' and write the result to /tmp/caliper-slug-2.txt"
+    assert: |
+      from pathlib import Path
+      assert Path("/tmp/caliper-slug-2.txt").read_text().strip() == "the-quick-brown-fox"
+
+  - name: Strips punctuation
+    cleanup: rm -f /tmp/caliper-slug-3.txt
+    prompt: "Slugify 'Report: Q3 2026!' and write the result to /tmp/caliper-slug-3.txt"
+    assert: |
+      from pathlib import Path
+      assert Path("/tmp/caliper-slug-3.txt").read_text().strip() == "report-q3-2026"
+
+  - name: Collapses padding and extra spaces
+    cleanup: rm -f /tmp/caliper-slug-4.txt
+    prompt: "Slugify '  Padded   Title  ' and write the result to /tmp/caliper-slug-4.txt"
+    assert: |
+      from pathlib import Path
+      assert Path("/tmp/caliper-slug-4.txt").read_text().strip() == "padded-title"
