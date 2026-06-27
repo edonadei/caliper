@@ -1,13 +1,25 @@
-# Caliper
+# Caliper &nbsp;<sub>reliability testing for agent skills</sub>
 
 [![PyPI](https://img.shields.io/pypi/v/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Python](https://img.shields.io/pypi/pyversions/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Skills](https://skills.sh/b/edonadei/caliper)](https://skills.sh/edonadei/caliper)
 
-**Reliability testing for agent skills.** Define what success looks like, run your skill k times, and get a pass@k score you can track and compare. Works with the agent you already use — Claude Code, Codex, or Pi.
+Run your skill _k_ times, get a pass@k score you can track and compare, and prove the skill beats the base agent. Works with the agent you already use — Claude Code, Codex, or Pi.
 
 ```bash
 npx skills@latest add edonadei/caliper
+```
+
+Run each task with and without the skill, and Caliper shows you the difference:
+
+```text
+ID      Task                              k (3)   pass@k
+task-1  Writes a conventional commit msg  3/3     100%     PASS
+task-2  Generates a valid config file     2/3      96%     PASS
+
+With skill     98%    ###################-
+No skill       55%    ###########---------
+Delta          +43%   up
 ```
 
 ---
@@ -20,18 +32,6 @@ Use Caliper to answer questions like:
 - Is the skill doing the work, or would the base agent pass without it?
 - Does it still pass the workflows it passed last week?
 - Which agent — Claude Code, Codex, or Pi — runs this skill more reliably?
-
-Caliper runs each task with and without the skill, and shows you the difference:
-
-```text
-ID      Task                              k (3)   pass@k
-task-1  Writes a conventional commit msg  3/3     100%     PASS
-task-2  Generates a valid config file     2/3      96%     PASS
-
-With skill     98%    ###################-
-No skill       55%    ###########---------
-Delta          +43%   up
-```
 
 ---
 
