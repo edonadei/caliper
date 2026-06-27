@@ -37,13 +37,6 @@ Use Caliper to answer questions like:
 
 ## Quick start
 
-> **New to evals?** Start with the **[Eval Starter Pack](examples/starter-pack/)** —
-> four copy-paste `.eval.yaml` templates, each catching a real agent failure
-> (false success, tool misuse, runaway loops, prompt regressions). Every
-> template runs green as-is against a bundled example, so you can prove your
-> setup works before changing a line, then point it at your own skill by editing
-> two or three commented lines.
-
 ### Path A — Agentic (let your agent drive)
 
 **1. Install the skills**
@@ -137,6 +130,14 @@ Delta          +43%   up
 
 Results saved to .caliper/results/my-skill/2026-06-19T14-23-01Z.json
 ```
+
+### Not sure what to put in a spec?
+
+The **[Eval Starter Pack](examples/starter-pack/)** has four copy-paste
+templates, each catching a real agent failure (false success, tool misuse,
+runaway loops, prompt regressions). Every template runs green as-is against a
+bundled example, then points at your own skill by editing two or three
+commented lines.
 
 ---
 
