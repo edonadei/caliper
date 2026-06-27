@@ -367,9 +367,6 @@ When both `expect` and `assert` are present, both must pass.
 
 ## CLI reference
 
-![Caliper terminal demo](assets/caliper-demo.gif)
-
-
 | Command | Description |
 |---|---|
 | `caliper run <spec>` | Run an evaluation spec |
