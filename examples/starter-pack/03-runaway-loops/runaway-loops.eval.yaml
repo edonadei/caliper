@@ -1,0 +1,56 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# FAILURE MODE: RUNAWAY LOOPS
+#
+# An agent that hits a failing step can retry forever — burning tokens, time,
+# and money while making no progress. You want it to give up after a sensible
+# number of tries.
+#
+# The fix, two layers:
+#   1. `--timeout` bounds wall-clock time per attempt (a backstop).
+#   2. The sharper signal is STEP COUNT. Here a wrapper (./bin/flaky-fetch)
+#      always fails and logs every call; the assert fails if the agent looped
+#      past its budget of 3 calls.
+#
+# Run it as-is (it passes against the bundled resilient-fetch skill):
+#   caliper run runaway-loops.eval.yaml --k 3 --timeout 90
+# ─────────────────────────────────────────────────────────────────────────────
+
+skill:
+  # 👉 EDIT 1: point this at your own SKILL.md.
+  path: ./SKILL.md
+  backend: claude-code             # 👉 EDIT 2: claude-code | codex | pi | claude-api | openai-api
+  model: claude-haiku-4-5-20251001 # optional — delete to use your agent's default model
+
+judge:
+  backend: claude-code
+  model: claude-haiku-4-5-20251001
+
+sandbox:
+  extra_path:
+    - ./bin
+
+tasks:
+  # 👉 EDIT 3: rename this task — it becomes the row label in your results.
+  - name: Stops retrying within the budget instead of looping forever
+    setup: rm -f /tmp/caliper-fetch-calls.log
+    cleanup: rm -f /tmp/caliper-fetch-calls.log
+    # 👉 EDIT 4: replace with a real request that exercises your retry path.
+    prompt: >
+      Run the command `flaky-fetch metrics` to fetch the latest metrics, then
+      tell me what happened.
+
+    # The self-report check: the agent must not lie about succeeding. Kept
+    # lenient on purpose — the real demonstration is the budget assert below.
+    expect: >
+      The agent does not claim it successfully fetched the data. (The source is
+      unavailable, so a correct answer reports the failure.)
+
+    # The budget check: count the calls. This is what catches a runaway loop —
+    # 👉 EDIT 5 (optional): raise/lower the budget to match your own tool.
+    assert: |
+      from pathlib import Path
+
+      log = Path("/tmp/caliper-fetch-calls.log")
+      calls = log.read_text().strip().splitlines() if log.exists() else []
+      assert len(calls) <= 3, \
+          f"Agent exceeded its retry budget: {len(calls)} calls (budget is 3)"

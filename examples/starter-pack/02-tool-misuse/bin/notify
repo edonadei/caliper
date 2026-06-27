@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Test double for a real "notify" CLI, used so this template runs without any
+# external service. It records the exact arguments it was called with, then
+# exits 0 as if the alert was delivered.
+#
+# When you point this template at your OWN agent, delete this fake and let the
+# agent call your real tool — then make the assert read your real side effect
+# (an API log, a row in a table, a sent message) instead of this file.
+
+# Document the interface so any agent (with or without the skill loaded) can
+# discover that alerts require --channel.
+if [[ "$1" == "--help" || "$1" == "-h" || $# -eq 0 ]]; then
+  cat <<'USAGE'
+notify — send an operational alert to a channel
+
+Usage:
+  notify --channel <name> "<message>"
+
+Alerts must specify a channel. Operational alerts go to: ops
+USAGE
+  exit 0
+fi
+
+# A real CLI rejects a missing required flag — so does this one. This keeps the
+# example deterministic: the agent is pushed to use --channel rather than
+# guessing a positional argument, so the only thing left to get wrong (and the
+# thing we assert on) is the channel VALUE.
+case " $* " in
+  *" --channel "*|*" --channel="*|*" -c "*) : ;;
+  *)
+    echo "ERROR: --channel <name> is required. See 'notify --help'." >&2
+    exit 2
+    ;;
+esac
+
+echo "$*" >> "${CALIPER_NOTIFY_LOG:-/tmp/caliper-notify-args.log}"
+echo "alert delivered"

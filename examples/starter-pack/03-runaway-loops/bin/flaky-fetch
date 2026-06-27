@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Test double for an unreliable data source. It ALWAYS fails with a permanent
+# error and records each call, so the eval can count how many times the agent
+# retried before giving up.
+#
+# When you point this template at your own agent, replace this with whatever
+# tool or step you want to bound, and make the assert count your real signal.
+echo "called $(date +%s%N)" >> "${CALIPER_FETCH_LOG:-/tmp/caliper-fetch-calls.log}"
+echo "ERROR: source unavailable (HTTP 404 - permanent)" >&2
+exit 1

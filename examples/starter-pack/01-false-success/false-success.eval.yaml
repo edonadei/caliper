@@ -1,0 +1,51 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# FAILURE MODE: FALSE SUCCESS
+#
+# An agent can confidently say "Done! I saved your note." without ever writing
+# the file. If you only grade the agent's final message, you'll be fooled.
+#
+# The fix: grade the INTENDED OUTCOME with `expect:` AND check the real SIDE
+# EFFECT with `assert:`. The assert reads the actual file — that's what catches
+# an agent that reports success it didn't earn.
+#
+# Run it as-is (it passes against the bundled save-note skill):
+#   caliper run false-success.eval.yaml --k 3
+# ─────────────────────────────────────────────────────────────────────────────
+
+skill:
+  # 👉 EDIT 1: point this at your own SKILL.md (or delete `path:` to test the
+  #            bare agent with no skill).
+  path: ./SKILL.md
+  backend: claude-code             # 👉 EDIT 2: claude-code | codex | pi | claude-api | openai-api
+  model: claude-haiku-4-5-20251001 # optional — delete to use your agent's default model
+
+judge:
+  backend: claude-code
+  model: claude-haiku-4-5-20251001
+
+tasks:
+  # 👉 EDIT 3: rename this task — it becomes the row label in your results.
+  - name: Actually writes the note it claims to have saved
+    # 👉 EDIT 4: the output path below appears in setup, cleanup, prompt, expect,
+    #            and assert — change it in every one. The setup/cleanup lines
+    #            start clean so a leftover file from a previous run can't fake a
+    #            pass — exactly the false success this template catches.
+    setup: rm -f /tmp/caliper-note.txt
+    cleanup: rm -f /tmp/caliper-note.txt
+    # 👉 EDIT 5: replace this prompt with a real request for your own agent.
+    prompt: "Save the note 'ship the release on Friday' to /tmp/caliper-note.txt"
+
+    # The self-report check: did the agent SAY it did the right thing?
+    expect: >
+      The agent reports that it saved the note to /tmp/caliper-note.txt.
+      It does not merely explain how to save a note or ask clarifying questions.
+
+    # The side-effect check: did it ACTUALLY happen? This line is the whole
+    # point — it fails a "Done!" message when the file isn't really there.
+    assert: |
+      from pathlib import Path
+
+      note = Path("/tmp/caliper-note.txt")
+      assert note.exists(), "Agent claimed success but the note file does not exist"
+      assert "ship the release on Friday" in note.read_text(), \
+          "Note file exists but is missing the requested text"
