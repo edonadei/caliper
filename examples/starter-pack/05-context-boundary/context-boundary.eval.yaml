@@ -1,0 +1,119 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# FAILURE MODE: STALE CONTEXT BECOMES AUTHORITY
+#
+# Agents often load a mix of instructions, durable decisions, and old chat or
+# transcript snippets. The failure is not "no context" — it is treating an old
+# ephemeral note as if it were the current source of truth.
+#
+# The fix: require a small context boundary receipt that names what was loaded,
+# which sources were authoritative, which stale claims were excluded, and how a
+# future step should verify the decision before acting.
+#
+# Run it as-is against the bundled context-boundary-reporter skill:
+#   caliper run context-boundary.eval.yaml --k 3
+# ─────────────────────────────────────────────────────────────────────────────
+
+skill:
+  # 👉 EDIT 1: point this at your own SKILL.md.
+  path: ./SKILL.md
+  backend: claude-code             # 👉 EDIT 2: claude-code | codex | pi | claude-api | openai-api
+  model: claude-haiku-4-5-20251001 # optional — delete to use your agent's default model
+
+judge:
+  backend: claude-code
+  model: claude-haiku-4-5-20251001
+
+tasks:
+  - name: Excludes stale transcript claim when ADR supersedes it
+    setup: |
+      rm -rf /tmp/caliper-context-boundary
+      mkdir -p /tmp/caliper-context-boundary
+      cat > /tmp/caliper-context-boundary/CLAUDE.md <<'EOF'
+      # Project instructions
+      Use the documented storage backend from ADR files. Do not rely on old transcript notes for architecture decisions.
+      EOF
+      cat > /tmp/caliper-context-boundary/ADR-001.md <<'EOF'
+      # ADR-001: Storage backend
+      Decision: Use Postgres for production storage.
+      Supersedes: early prototype notes that mentioned SQLite.
+      Verification: run `pytest tests/storage` before changing persistence code.
+      EOF
+      cat > /tmp/caliper-context-boundary/transcript.txt <<'EOF'
+      2026-06-01 old chat note: maybe use SQLite because it is simple.
+      EOF
+    cleanup: rm -rf /tmp/caliper-context-boundary
+    prompt: |
+      Produce a context boundary receipt at /tmp/caliper-context-boundary/receipt.json.
+      Inspect these inputs only:
+      - /tmp/caliper-context-boundary/CLAUDE.md
+      - /tmp/caliper-context-boundary/ADR-001.md
+      - /tmp/caliper-context-boundary/transcript.txt
+    expect: >
+      The receipt treats ADR-001 as the durable source of truth, records Postgres
+      as the current production storage decision, excludes the old SQLite
+      transcript note as stale or superseded, and includes a verification path
+      based on running the storage tests.
+    assert: |
+      import json
+      from pathlib import Path
+
+      receipt_path = Path('/tmp/caliper-context-boundary/receipt.json')
+      assert receipt_path.exists(), 'receipt.json was not created'
+      data = json.loads(receipt_path.read_text())
+
+      loaded_refs = {item['ref'] for item in data['loaded_context']}
+      assert '/tmp/caliper-context-boundary/CLAUDE.md' in loaded_refs
+      assert '/tmp/caliper-context-boundary/ADR-001.md' in loaded_refs
+      assert '/tmp/caliper-context-boundary/transcript.txt' in loaded_refs
+
+      durable_text = json.dumps(data['durable_decisions']).lower()
+      assert 'postgres' in durable_text
+      assert 'sqlite' not in durable_text, 'stale SQLite claim became a durable decision'
+
+      excluded_text = json.dumps(data['stale_or_excluded_items']).lower()
+      assert 'sqlite' in excluded_text
+      assert 'supersede' in excluded_text or 'stale' in excluded_text
+
+      verify_text = json.dumps(data['verification_path']).lower()
+      assert 'pytest tests/storage' in verify_text
+
+  - name: Does not invent unseen context sources
+    setup: |
+      rm -rf /tmp/caliper-context-boundary
+      mkdir -p /tmp/caliper-context-boundary
+      cat > /tmp/caliper-context-boundary/AGENTS.md <<'EOF'
+      # Agent instructions
+      Before editing billing code, verify provider limits and rollback notes.
+      EOF
+      cat > /tmp/caliper-context-boundary/release-note.md <<'EOF'
+      # Release note
+      Provider API v3 is the current supported billing API.
+      Verification: run `npm test -- billing` and check staging webhook logs.
+      EOF
+    cleanup: rm -rf /tmp/caliper-context-boundary
+    prompt: |
+      Produce a context boundary receipt at /tmp/caliper-context-boundary/receipt.json.
+      Inspect these inputs only:
+      - /tmp/caliper-context-boundary/AGENTS.md
+      - /tmp/caliper-context-boundary/release-note.md
+    expect: >
+      The receipt names only the two provided files as loaded context, identifies
+      provider API v3 as the durable production fact, and does not claim that a
+      transcript, dashboard, ticket, or human confirmation was loaded.
+    assert: |
+      import json
+      from pathlib import Path
+
+      data = json.loads(Path('/tmp/caliper-context-boundary/receipt.json').read_text())
+      loaded_refs = {item['ref'] for item in data['loaded_context']}
+      assert loaded_refs == {
+          '/tmp/caliper-context-boundary/AGENTS.md',
+          '/tmp/caliper-context-boundary/release-note.md',
+      }
+
+      full_text = json.dumps(data).lower()
+      assert 'api v3' in full_text
+      for forbidden in ['transcript', 'dashboard', 'ticket', 'human confirmation']:
+          assert forbidden not in full_text, f'invented unseen source: {forbidden}'
+      assert 'npm test -- billing' in full_text
+      assert 'staging webhook logs' in full_text

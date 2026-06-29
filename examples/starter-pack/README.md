@@ -1,6 +1,6 @@
 # Caliper Eval Starter Pack
 
-Four copy-paste eval templates that take you from install to a real,
+Five copy-paste eval templates that take you from install to a real,
 running eval in about five minutes. Each one targets a specific way agents
 fail — and each one runs **green as-is** against a tiny bundled example, so you
 can prove your setup works before you change a single line.
@@ -25,7 +25,7 @@ Two terms you'll see in every template:
 - **`--k N`** runs each task `N` times; **pass@k** is the resulting reliability
   score — what fraction of runs succeeded, not whether one lucky run passed.
 
-## The four templates
+## The five templates
 
 | # | Template | The failure it catches |
 |---|----------|------------------------|
@@ -33,6 +33,7 @@ Two terms you'll see in every template:
 | 2 | [`02-tool-misuse`](02-tool-misuse/tool-misuse.eval.yaml) | The agent calls the right tool with the **wrong arguments**. |
 | 3 | [`03-runaway-loops`](03-runaway-loops/runaway-loops.eval.yaml) | The agent retries forever, burning time and tokens. |
 | 4 | [`04-prompt-regression`](04-prompt-regression/prompt-regression.eval.yaml) | A prompt edit silently breaks cases that used to pass. |
+| 5 | [`05-context-boundary`](05-context-boundary/context-boundary.eval.yaml) | Old chat/transcript context gets treated as current truth. |
 
 ### 1. False success — *grade the outcome, not the bragging*
 
@@ -74,6 +75,17 @@ last change caused a regression.
 **Reach for it when** you're actively editing a prompt or `SKILL.md` and want a
 tripwire.
 
+### 5. Context boundary — *separate durable facts from stale notes*
+
+Agents do not only fail by missing context. They also fail by treating an old
+chat note, transcript snippet, or one-off assumption as if it were the current
+source of truth. This template asks the skill to write a small JSON receipt that
+names the loaded files, durable decisions, excluded stale claims, and the
+verification path.
+
+**Reach for it when** your skill loads memory, transcripts, ADRs, release notes,
+or team context and must prove what was actually authoritative before acting.
+
 ## Run them
 
 Each template runs from its own folder. From the repo:
@@ -90,8 +102,9 @@ Do the same for the other three:
 
 ```bash
 cd ../02-tool-misuse      && caliper run tool-misuse.eval.yaml --k 3
-cd ../03-runaway-loops    && caliper run runaway-loops.eval.yaml --k 3 --timeout 90
+cd ../03-runaway-loops     && caliper run runaway-loops.eval.yaml --k 3 --timeout 90
 cd ../04-prompt-regression && caliper run prompt-regression.eval.yaml --k 3
+cd ../05-context-boundary  && caliper run context-boundary.eval.yaml --k 3
 ```
 
 ## Point a template at your own agent
