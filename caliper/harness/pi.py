@@ -130,7 +130,11 @@ class PiHarness(HarnessBackend):
         if model:
             cmd += ["--model", model]
         if skill_path:
-            skill_src = Path(skill_path).expanduser()
+            # Prefer the staged copy in the run's cwd (siblings staged alongside,
+            # cheat surfaces excluded) over the real skill dir; fall back to the
+            # original path when nothing was staged (e.g. a lone command file).
+            staged = Path(isolated_home) / "SKILL.md"
+            skill_src = staged if staged.exists() else Path(skill_path).expanduser()
             if skill_src.exists():
                 cmd += ["--skill", str(skill_src)]
         cmd.append(prompt)

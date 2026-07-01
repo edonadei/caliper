@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from caliper.harness.base import AttemptResult, HarnessBackend
 from caliper.judge.base import Judge, JudgeResult
-from caliper.runner import run
+from caliper.runner import _stage_skill_directory, run
 from caliper.schema.spec import EvalSpec, SkillConfig, TaskSpec
 
 
@@ -75,3 +75,57 @@ def test_runner_fails_attempt_when_harness_exits_nonzero(tmp_path) -> None:
     assert attempt.assert_evidence == "agent failed"
     assert results.aggregate.avg_pass_at_k == 0
     assert judge.calls == 0
+
+
+def _make_skill_dir(tmp_path):
+    skill_dir = tmp_path / "my-skill"
+    (skill_dir / "references").mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("See [REFERENCE.md](REFERENCE.md)")
+    (skill_dir / "REFERENCE.md").write_text("token: UNIQUE-REF-42")
+    (skill_dir / "references" / "deep.md").write_text("nested detail")
+    return skill_dir
+
+
+def test_stage_copies_skill_siblings_into_home(tmp_path) -> None:
+    skill_dir = _make_skill_dir(tmp_path)
+    home = tmp_path / "home"
+    home.mkdir()
+
+    _stage_skill_directory(str(skill_dir / "SKILL.md"), str(home), [])
+
+    assert (home / "REFERENCE.md").read_text() == "token: UNIQUE-REF-42"
+    assert (home / "references" / "deep.md").read_text() == "nested detail"
+    assert (home / "SKILL.md").exists()
+
+
+def test_stage_excludes_cheat_surfaces(tmp_path) -> None:
+    skill_dir = _make_skill_dir(tmp_path)
+    (skill_dir / ".caliper" / "results").mkdir(parents=True)
+    (skill_dir / ".caliper" / "results" / "run.json").write_text("answers")
+    (skill_dir / "my-skill.eval.yaml").write_text("expect: the secret")
+    (skill_dir / "secret.txt").write_text("do not stage me")
+    home = tmp_path / "home"
+    home.mkdir()
+
+    _stage_skill_directory(
+        str(skill_dir / "SKILL.md"), str(home), [r"secret\.txt$"]
+    )
+
+    assert not (home / ".caliper").exists()
+    assert not (home / "my-skill.eval.yaml").exists()
+    assert not (home / "secret.txt").exists()
+    # Legitimate references are still staged.
+    assert (home / "REFERENCE.md").exists()
+
+
+def test_stage_ignores_lone_command_file(tmp_path) -> None:
+    # A bare slash-command .md (not named SKILL.md) has no skill directory;
+    # we must not slurp its siblings (which could be an arbitrary repo).
+    (tmp_path / "review.md").write_text("Review the code.")
+    (tmp_path / "unrelated.md").write_text("do not copy")
+    home = tmp_path / "home"
+    home.mkdir()
+
+    _stage_skill_directory(str(tmp_path / "review.md"), str(home), [])
+
+    assert not (home / "unrelated.md").exists()

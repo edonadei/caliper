@@ -167,6 +167,10 @@ def _run_attempt(
             for p in spec.sandbox.extra_path
         ]
         skill_path = _resolve_skill_path(spec, spec_path) if with_skill else None
+        if skill_path:
+            _stage_skill_directory(
+                skill_path, tmp_dir, list(spec.sandbox.forbidden_files)
+            )
         attempt_result = harness.run(
             task_id=task.id,
             attempt=attempt,
@@ -244,6 +248,61 @@ def _resolve_skill_path(spec: EvalSpec, spec_path: Path) -> str | None:
     if not path.is_absolute():
         path = spec_path.parent / path
     return str(path.resolve())
+
+
+# Directories never staged into a run: results (cheat surface), VCS, caches.
+_STAGE_EXCLUDE_DIRS = {".caliper", ".git", "__pycache__", "node_modules", ".venv"}
+# Per-file cap so a stray large fixture or binary can't bloat every attempt.
+_STAGE_MAX_FILE_BYTES = 5 * 1024 * 1024
+
+
+def _stage_skill_directory(
+    skill_path: str, isolated_home: str, forbidden_files: list[str]
+) -> None:
+    """Copy a directory-based skill's sibling files into the run's working dir.
+
+    Real Claude Code / Codex install a skill as a *directory*, but the harnesses
+    only inject ``SKILL.md``'s text, so relative pointers like
+    ``[REFERENCE.md](REFERENCE.md)`` and ``references/`` were unreachable during a
+    run (see issue #19). Every CLI backend runs the agent with ``cwd`` set to
+    ``isolated_home``; staging the skill directory's contents there makes those
+    pointers resolve — one copy fixes ``claude-code``, ``codex`` and ``pi`` at once.
+
+    Only a real skill *directory* is staged: we key off a file named ``SKILL.md``.
+    A lone slash-command ``.md`` file has no skill directory and is left alone (so
+    we never slurp an arbitrary parent repo into the run).
+
+    Cheat surfaces are never staged: the ``.eval.yaml`` spec, ``.caliper/``
+    results, and anything the spec marks ``forbidden_files`` are all skipped, so
+    staging cannot leak the answer key even if the agent reads what it finds.
+    """
+    src = Path(skill_path)
+    if src.name != "SKILL.md" or not src.exists():
+        return
+
+    skill_dir = src.parent
+    home = Path(isolated_home)
+    forbidden = [re.compile(p) for p in forbidden_files]
+
+    for item in sorted(skill_dir.rglob("*")):
+        if not item.is_file():
+            continue
+        rel = item.relative_to(skill_dir)
+        if any(part in _STAGE_EXCLUDE_DIRS for part in rel.parts):
+            continue
+        if item.name.endswith(".eval.yaml"):
+            continue
+        rel_posix = rel.as_posix()
+        if any(r.search(rel_posix) or r.search("./" + rel_posix) for r in forbidden):
+            continue
+        try:
+            if item.stat().st_size > _STAGE_MAX_FILE_BYTES:
+                continue
+        except OSError:
+            continue
+        dst = home / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(item, dst)
 
 
 class _CheatDetector:
