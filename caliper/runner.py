@@ -259,22 +259,20 @@ _STAGE_MAX_FILE_BYTES = 5 * 1024 * 1024
 def _stage_skill_directory(
     skill_path: str, isolated_home: str, forbidden_files: list[str]
 ) -> None:
-    """Copy a directory-based skill's sibling files into the run's working dir.
+    """Stage a directory-based skill's files into the run's working dir.
 
-    Real Claude Code / Codex install a skill as a *directory*, but the harnesses
-    only inject ``SKILL.md``'s text, so relative pointers like
-    ``[REFERENCE.md](REFERENCE.md)`` and ``references/`` were unreachable during a
-    run (see issue #19). Every CLI backend runs the agent with ``cwd`` set to
-    ``isolated_home``; staging the skill directory's contents there makes those
-    pointers resolve — one copy fixes ``claude-code``, ``codex`` and ``pi`` at once.
+    Modern skills lean on progressive disclosure: a short ``SKILL.md`` that
+    points at ``REFERENCE.md``, ``references/`` and helper scripts the agent
+    reads on demand. If we hand the agent only ``SKILL.md``'s text those
+    pointers dangle, so we copy the skill directory into ``isolated_home`` (the
+    cwd the agent runs in) and the relative links resolve as they would from a
+    real install.
 
-    Only a real skill *directory* is staged: we key off a file named ``SKILL.md``.
-    A lone slash-command ``.md`` file has no skill directory and is left alone (so
-    we never slurp an arbitrary parent repo into the run).
-
-    Cheat surfaces are never staged: the ``.eval.yaml`` spec, ``.caliper/``
-    results, and anything the spec marks ``forbidden_files`` are all skipped, so
-    staging cannot leak the answer key even if the agent reads what it finds.
+    Only a real skill *directory* is staged, keyed off a file named ``SKILL.md``;
+    a lone slash-command ``.md`` has no directory and is left alone. Cheat
+    surfaces — the ``.eval.yaml`` spec, ``.caliper/`` results, and anything the
+    spec marks ``forbidden_files`` — are never copied, so staging cannot leak the
+    answer key.
     """
     src = Path(skill_path)
     if src.name != "SKILL.md" or not src.exists():
