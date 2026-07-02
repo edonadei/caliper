@@ -35,6 +35,35 @@ class FailingHarness(HarnessBackend):
         )
 
 
+class InfraErrorHarness(FailingHarness):
+    def __init__(self) -> None:
+        self.attempts: list[int] = []
+
+    def run(
+        self,
+        task_id: str,
+        attempt: int,
+        prompt: str,
+        *,
+        skill_path: str | None,
+        model: str | None,
+        timeout: int,
+        isolated_home: str,
+        extra_path: list[str] | None = None,
+    ) -> AttemptResult:
+        self.attempts.append(attempt)
+        return super().run(
+            task_id=task_id,
+            attempt=attempt,
+            prompt=prompt,
+            skill_path=skill_path,
+            model=model,
+            timeout=timeout,
+            isolated_home=isolated_home,
+            extra_path=extra_path,
+        )
+
+
 class RecordingJudge(Judge):
     def __init__(self) -> None:
         self.calls = 0
@@ -44,11 +73,8 @@ class RecordingJudge(Judge):
         return JudgeResult(passed=True, reasoning="should not run")
 
 
-def test_runner_fails_attempt_when_harness_exits_nonzero(tmp_path) -> None:
-    spec_path = tmp_path / "failing.eval.yaml"
-    spec_path.write_text("skill:\n  backend: codex\ntasks: []\n")
-    judge = RecordingJudge()
-    spec = EvalSpec(
+def _one_task_spec() -> EvalSpec:
+    return EvalSpec(
         skill=SkillConfig(backend="codex"),
         tasks=[
             TaskSpec(
@@ -59,6 +85,13 @@ def test_runner_fails_attempt_when_harness_exits_nonzero(tmp_path) -> None:
             )
         ],
     )
+
+
+def test_runner_fails_attempt_when_harness_exits_nonzero(tmp_path) -> None:
+    spec_path = tmp_path / "failing.eval.yaml"
+    spec_path.write_text("skill:\n  backend: codex\ntasks: []\n")
+    judge = RecordingJudge()
+    spec = _one_task_spec()
 
     results = run(
         spec=spec,
@@ -80,6 +113,50 @@ def test_runner_fails_attempt_when_harness_exits_nonzero(tmp_path) -> None:
     assert tr.unusable == 1
     assert tr.pass_at_k is None
     assert judge.calls == 0
+
+
+def test_runner_runs_all_infra_failures_by_default(tmp_path) -> None:
+    spec_path = tmp_path / "failing.eval.yaml"
+    spec_path.write_text("skill:\n  backend: codex\ntasks: []\n")
+    harness = InfraErrorHarness()
+
+    results = run(
+        spec=_one_task_spec(),
+        spec_path=spec_path,
+        harness=harness,
+        judge=RecordingJudge(),
+        k=3,
+        workers=1,
+        timeout=30,
+    )
+
+    assert harness.attempts == [1, 2, 3]
+    assert len(results.task_results[0].attempts) == 3
+    assert results.task_results[0].unusable == 3
+    assert results.task_results[0].pass_at_k is None
+
+
+def test_runner_fail_fast_stops_after_unusable_threshold(tmp_path) -> None:
+    spec_path = tmp_path / "failing.eval.yaml"
+    spec_path.write_text("skill:\n  backend: codex\ntasks: []\n")
+    harness = InfraErrorHarness()
+
+    results = run(
+        spec=_one_task_spec(),
+        spec_path=spec_path,
+        harness=harness,
+        judge=RecordingJudge(),
+        k=3,
+        workers=1,
+        timeout=30,
+        fail_fast_unusable=1,
+    )
+
+    task = results.task_results[0]
+    assert harness.attempts == [1]
+    assert [attempt.outcome for attempt in task.attempts] == [Outcome.INFRA_ERROR]
+    assert task.unusable == 1
+    assert task.pass_at_k is None
 
 
 def _make_skill_dir(tmp_path):
@@ -112,9 +189,7 @@ def test_stage_excludes_cheat_surfaces(tmp_path) -> None:
     home = tmp_path / "home"
     home.mkdir()
 
-    _stage_skill_directory(
-        str(skill_dir / "SKILL.md"), str(home), [r"secret\.txt$"]
-    )
+    _stage_skill_directory(str(skill_dir / "SKILL.md"), str(home), [r"secret\.txt$"])
 
     assert not (home / ".caliper").exists()
     assert not (home / "my-skill.eval.yaml").exists()

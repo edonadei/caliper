@@ -5,7 +5,12 @@ from datetime import datetime, timezone
 
 from rich.console import Console
 
-from caliper.reporter import _OUTPUT_TRUNCATE_AT, _format_output, make_progress, print_results
+from caliper.reporter import (
+    _OUTPUT_TRUNCATE_AT,
+    _format_output,
+    make_progress,
+    print_results,
+)
 from caliper.schema.results import (
     AggregateScore,
     AttemptRecord,
@@ -181,7 +186,12 @@ def test_only_failed_tasks_shown_in_mixed_results() -> None:
     results = _make_results(
         [
             _make_task("task-001", passed=True, output="pass output"),
-            _make_task("task-002", passed=False, output="fail output", assert_evidence="file not found"),
+            _make_task(
+                "task-002",
+                passed=False,
+                output="fail output",
+                assert_evidence="file not found",
+            ),
         ]
     )
     out = _render(results)
@@ -222,9 +232,7 @@ def test_verbose_shows_all_tasks() -> None:
 
 def test_long_output_truncated_in_rendered_output() -> None:
     long_output = "z" * (_OUTPUT_TRUNCATE_AT + 200)
-    results = _make_results(
-        [_make_task("task-001", passed=False, output=long_output)]
-    )
+    results = _make_results([_make_task("task-001", passed=False, output=long_output)])
     out = _render(results)
     assert "truncated" in out
     # Rich wraps long lines; count total z's to verify the tail was included
@@ -232,11 +240,55 @@ def test_long_output_truncated_in_rendered_output() -> None:
 
 
 def test_empty_output_renders_no_output_marker() -> None:
-    results = _make_results(
-        [_make_task("task-001", passed=False, output="")]
-    )
+    results = _make_results([_make_task("task-001", passed=False, output="")])
     out = _render(results)
     assert "no output" in out
+
+
+def test_aborted_unusable_task_is_reported_as_aborted() -> None:
+    task = TaskResult(
+        task_id="task-001",
+        task_name="Task task-001",
+        attempts=[
+            AttemptRecord(
+                attempt=1,
+                output="",
+                duration_seconds=1.0,
+                outcome=Outcome.INFRA_ERROR,
+                assert_evidence="spending cap",
+            )
+        ],
+        successes=0,
+        unusable=1,
+        pass_at_k=None,
+    )
+    results = RunResults(
+        run=RunMeta(
+            spec="test-spec",
+            timestamp=datetime(2026, 6, 21, 12, 0, 0, tzinfo=timezone.utc),
+            k=3,
+            backend="claude-code",
+        ),
+        skill_snapshot=SkillSnapshot(path="/fake/SKILL.md"),
+        task_results=[task],
+        aggregate=AggregateScore(
+            avg_pass_at_k=0.0,
+            per_task=[
+                TaskScore(
+                    task_id=task.task_id,
+                    task_name=task.task_name,
+                    k=3,
+                    successes=0,
+                    score=None,
+                )
+            ],
+        ),
+    )
+
+    out = _render(results)
+
+    assert "ABORTED" in out
+    assert "1/3 attempts" in out
 
 
 # ---------------------------------------------------------------------------

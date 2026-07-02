@@ -29,11 +29,32 @@ def run_cmd(
     k: int = typer.Option(3, "--k", help="Attempts per task"),
     workers: int = typer.Option(4, "--workers", help="Parallel task workers"),
     timeout: int = typer.Option(120, "--timeout", help="Seconds per attempt"),
-    baseline: bool = typer.Option(False, "--baseline", help="Also run without skill for delta"),
-    output: Optional[Path] = typer.Option(None, "--output", help="Save results JSON to path"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show per-attempt reasoning"),
-    model: Optional[str] = typer.Option(None, "--model", "-m", help="Override skill backend/model (e.g. claude-api:claude-sonnet-4-6 or claude-sonnet-4-6)"),
-    judge_model: Optional[str] = typer.Option(None, "--judge-model", help="Override judge backend/model (e.g. claude-api:claude-haiku-4-5-20251001)"),
+    fail_fast_unusable: int = typer.Option(
+        0,
+        "--fail-fast",
+        min=0,
+        help="Stop a task after N consecutive infra_error/timeout attempts (0 disables)",
+    ),
+    baseline: bool = typer.Option(
+        False, "--baseline", help="Also run without skill for delta"
+    ),
+    output: Optional[Path] = typer.Option(
+        None, "--output", help="Save results JSON to path"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Show per-attempt reasoning"
+    ),
+    model: Optional[str] = typer.Option(
+        None,
+        "--model",
+        "-m",
+        help="Override skill backend/model (e.g. claude-api:claude-sonnet-4-6 or claude-sonnet-4-6)",
+    ),
+    judge_model: Optional[str] = typer.Option(
+        None,
+        "--judge-model",
+        help="Override judge backend/model (e.g. claude-api:claude-haiku-4-5-20251001)",
+    ),
 ) -> None:
     if not spec_file.exists():
         console.print(f"[bold red]Error:[/bold red] File not found: {spec_file}")
@@ -107,6 +128,7 @@ def run_cmd(
                 k=k,
                 workers=workers,
                 timeout=timeout,
+                fail_fast_unusable=fail_fast_unusable,
                 baseline=baseline,
                 on_attempt_done=on_attempt_done,
             )
