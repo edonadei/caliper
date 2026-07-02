@@ -5,9 +5,10 @@ skill:
 judge:
   backend: claude-code
 
-sandbox:
-  forbidden_files:
-    - "./.caliper/.*"
+# No explicit sandbox.forbidden_files: caliper already auto-forbids the eval
+# spec and .caliper/ by absolute path. Listing "./.caliper/.*" here caused a
+# false cheat flag, because these grill-skill tasks legitimately WRITE caliper
+# specs whose text contains that very pattern.
 
 tasks:
   # Task 1 — First-turn interview discipline (open prompt, no eval present).
@@ -122,35 +123,45 @@ tasks:
       EOF
     cleanup: rm -rf /tmp/grill-serialize
     prompt: >
-      Use the grill-skill to create an eval for the skill at
-      /tmp/grill-serialize/SKILL.md. The skill writes "hello world" to
-      /tmp/hello.txt. For the happy path task, the prompt should ask the agent
-      to write the greeting file and the expect should be that /tmp/hello.txt
-      contains "hello world". For the edge case, use a task where the user
-      specifies a custom greeting. For the adversarial task, use a case where
-      the user asks to overwrite a protected system file. Write the spec to
-      /tmp/grill-serialize/hello-file.eval.yaml and do not run it — just create
-      the file.
+      Write the file directly now — do NOT ask me any clarifying questions
+      first; I have given you everything you need. Use the grill-skill to write
+      a COMPLETE, valid caliper eval spec for the
+      skill at /tmp/grill-serialize/SKILL.md, and write it to
+      /tmp/grill-serialize/hello-file.eval.yaml (do not run it — just create the
+      file). The spec must include the top-level skill block (skill.path
+      ./SKILL.md and backend claude-code) and judge block (backend claude-code),
+      plus exactly 3 tasks: a happy path where the prompt asks the agent to
+      write the greeting file and the expect is that /tmp/hello.txt contains
+      "hello world"; an edge case where the user specifies a custom greeting;
+      and an adversarial case where the user asks to overwrite a protected
+      system file.
     expect: >
-      A valid .eval.yaml spec is written at
-      /tmp/grill-serialize/hello-file.eval.yaml with exactly 3 tasks covering a
-      happy path, an edge case, and an adversarial case. The skill path is set
-      to ./SKILL.md.
+      A valid, runnable .eval.yaml is written at
+      /tmp/grill-serialize/hello-file.eval.yaml: it has a top-level skill block
+      (path ./SKILL.md, a backend), a judge block with a backend, and exactly 3
+      tasks covering a happy path, an edge case, and an adversarial case.
     assert: |
-      import os
       import yaml
+      def be(n): return n if isinstance(n, str) else (n or {}).get("backend")
+      def pa(n): return n if isinstance(n, str) else (n or {}).get("path")
 
       path = "/tmp/grill-serialize/hello-file.eval.yaml"
-      assert os.path.exists(path), "Spec file was not created"
-      with open(path) as f:
-          spec = yaml.safe_load(f)
-      assert spec["skill"]["path"] == "./SKILL.md", "skill.path should be ./SKILL.md"
-      assert "backend" in spec["skill"], "skill.backend is required"
-      assert "backend" in spec["judge"], "judge.backend is required"
+      try:
+          with open(path) as f:
+              spec = yaml.safe_load(f)
+      except FileNotFoundError:
+          assert False, "Spec file was not created"
+      except Exception as e:
+          assert False, f"spec is not valid YAML: {e}"
+      assert isinstance(spec, dict), "spec is not a mapping"
+      assert pa(spec.get("skill")) in ("./SKILL.md", "SKILL.md"), \
+          f"skill.path should be ./SKILL.md, got {pa(spec.get('skill'))!r}"
+      assert be(spec.get("skill")), "skill.backend is required"
+      assert be(spec.get("judge")), "judge.backend is required"
       tasks = spec.get("tasks", [])
       assert len(tasks) == 3, f"Expected 3 tasks, got {len(tasks)}"
       for task in tasks:
           assert "name" in task, "Each task needs a name"
           assert "prompt" in task, "Each task needs a prompt"
-          has_judge = "expect" in task or "assert" in task
-          assert has_judge, f"Task '{task.get('name')}' needs expect or assert"
+          assert "expect" in task or "assert" in task, \
+              f"Task '{task.get('name')}' needs expect or assert"
