@@ -50,12 +50,8 @@ _OUTCOME_GLYPH = {
 }
 
 
-def print_banner(
-    spec_name: str, k: int, backend: str, model: str | None = None
-) -> None:
-    target = f"[cyan]{backend}[/cyan]" + (
-        f" [dim]{_SEP} {model}[/dim]" if model else ""
-    )
+def print_banner(spec_name: str, k: int, backend: str, model: str | None = None) -> None:
+    target = f"[cyan]{backend}[/cyan]" + (f" [dim]{_SEP} {model}[/dim]" if model else "")
     console.print(
         Panel(
             f"{_BANNER}  {_SEP}  [bold]{spec_name}[/bold]  {_SEP}  k=[cyan]{k}[/cyan]  {_SEP}  {target}",
@@ -99,23 +95,22 @@ def update_progress(
     passed: int,
     cheated: bool = False,
     unusable: int = 0,
+    finished: bool = False,
 ) -> None:
     tid = task_ids.get(task_name)
     if tid is None:
         return
+    terminal = completed == k or finished
     if cheated:
         status = f"[bold yellow]{_WARN} cheat[/bold yellow]"
-    elif completed == k and unusable:
+    elif terminal and unusable:
         status = f"[bold yellow]{_UNUSABLE}{unusable}[/bold yellow]"
-    elif completed == k:
-        status = (
-            f"[bold green]{_CHECK}[/bold green]"
-            if passed == k
-            else f"[bold red]{_CROSS}[/bold red]"
-        )
+    elif terminal:
+        status = f"[bold green]{_CHECK}[/bold green]" if passed == k else f"[bold red]{_CROSS}[/bold red]"
     else:
         status = f"[dim]{completed}/{k}[/dim]"
-    progress.update(tid, total=k, completed=completed, status=status)
+    rendered_completed = k if finished and completed < k else completed
+    progress.update(tid, total=k, completed=rendered_completed, status=status)
 
 
 def print_results(results: RunResults, verbose: bool = False) -> None:
@@ -134,9 +129,7 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     )
     console.print()
 
-    table = Table(
-        box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False
-    )
+    table = Table(box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False)
     table.add_column("ID", style="dim", no_wrap=True)
     table.add_column("Task")
     table.add_column(f"k ({k})", justify="center")
@@ -196,13 +189,7 @@ def _print_aggregate(results: RunResults) -> None:
 
     def score_bar(score: float, width: int = 20) -> str:
         filled = round(score * width)
-        return (
-            "[green]"
-            + _BAR_FULL * filled
-            + "[/green][dim]"
-            + _BAR_EMPTY * (width - filled)
-            + "[/dim]"
-        )
+        return "[green]" + _BAR_FULL * filled + "[/green][dim]" + _BAR_EMPTY * (width - filled) + "[/dim]"
 
     console.print(
         f" [bold]With skill[/bold]    [cyan]{agg.avg_pass_at_k * 100:.1f}%[/cyan]  {score_bar(agg.avg_pass_at_k)}"
@@ -260,17 +247,13 @@ def _format_output(output: str) -> str:
 
 def _print_task_detail(tr: TaskResult, k: int) -> None:
     lines: list[str] = []
-    if len(tr.attempts) < k:
+    if len(tr.attempts) < k and tr.pass_at_k is None:
         lines.append(
             f"  [yellow]ABORTED[/yellow] after {len(tr.attempts)}/{k} attempts"
         )
     for attempt in tr.attempts:
         prefix = _OUTCOME_GLYPH.get(attempt.outcome, f"[red]{_CROSS}[/red]")
-        label = (
-            ""
-            if attempt.outcome.is_usable
-            else f"  [yellow]{attempt.outcome.value}[/yellow]"
-        )
+        label = "" if attempt.outcome.is_usable else f"  [yellow]{attempt.outcome.value}[/yellow]"
         lines.append(
             f"  Attempt {attempt.attempt}  {prefix}{label}  ({attempt.duration_seconds:.1f}s)"
         )

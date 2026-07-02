@@ -48,6 +48,7 @@ def run(
     timeout: int = 120,
     baseline: bool = False,
     on_attempt_done: Callable[[AttemptEvent], None] | None = None,
+    on_task_done: Callable[[TaskResult], None] | None = None,
     fail_fast_unusable: int = 0,
 ) -> RunResults:
     skill_snapshot = _SkillSnapshotter().snapshot(_resolve_skill_path(spec, spec_path))
@@ -75,6 +76,7 @@ def run(
                 timeout,
                 True,
                 on_attempt_done,
+                on_task_done,
                 fail_fast_unusable,
             ): task
             for task in spec.tasks
@@ -93,6 +95,7 @@ def run(
                     timeout,
                     False,
                     on_attempt_done,
+                    on_task_done,
                     fail_fast_unusable,
                 ): task
                 for task in spec.tasks
@@ -154,35 +157,31 @@ def _run_task(
     timeout: int,
     with_skill: bool,
     on_attempt_done: Callable[[AttemptEvent], None] | None,
+    on_task_done: Callable[[TaskResult], None] | None,
     fail_fast_unusable: int,
 ) -> TaskResult:
     attempts: list[AttemptRecord] = []
-    consecutive_unusable = 0
+    consecutive_fail_fast_triggers = 0
     for attempt_num in range(1, k + 1):
         record = _run_attempt(
-            task,
-            attempt_num,
-            harness,
-            judge,
-            cheat,
-            spec,
-            spec_path,
-            timeout,
-            with_skill,
-            on_attempt_done,
+            task, attempt_num, harness, judge, cheat,
+            spec, spec_path, timeout, with_skill, on_attempt_done,
         )
         attempts.append(record)
         if record.outcome in _FAIL_FAST_OUTCOMES:
-            consecutive_unusable += 1
-        else:
-            consecutive_unusable = 0
-        if fail_fast_unusable > 0 and consecutive_unusable >= fail_fast_unusable:
+            consecutive_fail_fast_triggers += 1
+        elif record.outcome.is_usable:
+            consecutive_fail_fast_triggers = 0
+        if (
+            fail_fast_unusable > 0
+            and consecutive_fail_fast_triggers >= fail_fast_unusable
+        ):
             break
 
     successes = sum(1 for a in attempts if a.outcome == Outcome.PASS)
     usable = sum(1 for a in attempts if a.outcome.is_usable)
     unusable = len(attempts) - usable
-    return TaskResult(
+    result = TaskResult(
         task_id=task.id,
         task_name=task.name,
         attempts=attempts,
@@ -190,6 +189,9 @@ def _run_task(
         unusable=unusable,
         pass_at_k=pass_at_k(successes, usable) if usable > 0 else None,
     )
+    if on_task_done and len(attempts) < k:
+        on_task_done(result)
+    return result
 
 
 def _run_attempt(
@@ -208,7 +210,8 @@ def _run_attempt(
     try:
         _run_shell(task.setup)
         resolved_extra_path = [
-            str((spec_path.parent / p).resolve()) for p in spec.sandbox.extra_path
+            str((spec_path.parent / p).resolve())
+            for p in spec.sandbox.extra_path
         ]
         skill_path = _resolve_skill_path(spec, spec_path) if with_skill else None
         if skill_path:
@@ -238,9 +241,7 @@ def _run_attempt(
             or looks_like_infra_failure(infra_text)
         ):
             outcome = classify_outcome(attempt_result, [], None)
-            evidence = (
-                attempt_result.error or f"harness exited {attempt_result.exit_code}"
-            )
+            evidence = attempt_result.error or f"harness exited {attempt_result.exit_code}"
             return _finish(
                 AttemptRecord(
                     attempt=attempt,
@@ -302,9 +303,7 @@ def _finish(
 ) -> AttemptRecord:
     if on_attempt_done:
         on_attempt_done(
-            AttemptEvent(
-                task_id=task.id, attempt=record.attempt, outcome=record.outcome
-            )
+            AttemptEvent(task_id=task.id, attempt=record.attempt, outcome=record.outcome)
         )
     return record
 

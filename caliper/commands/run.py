@@ -18,7 +18,7 @@ from caliper.reporter import (
     update_progress,
 )
 from caliper.runner import run, AttemptEvent
-from caliper.schema.results import Outcome
+from caliper.schema.results import Outcome, TaskResult
 from caliper.schema.spec import load_spec, parse_target, spec_name
 
 console = Console()
@@ -118,6 +118,21 @@ def run_cmd(
             unusable=unusable_counts[task.name],
         )
 
+    def on_task_done(result: TaskResult) -> None:
+        if len(result.attempts) >= k:
+            return
+        update_progress(
+            progress,
+            task_ids,
+            result.task_name,
+            k,
+            len(result.attempts),
+            result.successes,
+            cheated=any(attempt.outcome == Outcome.CHEAT for attempt in result.attempts),
+            unusable=result.unusable,
+            finished=True,
+        )
+
     with progress:
         try:
             results = run(
@@ -131,6 +146,7 @@ def run_cmd(
                 fail_fast_unusable=fail_fast_unusable,
                 baseline=baseline,
                 on_attempt_done=on_attempt_done,
+                on_task_done=on_task_done,
             )
         except HarnessConfigurationError as exc:
             console.print(

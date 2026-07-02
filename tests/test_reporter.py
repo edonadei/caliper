@@ -10,6 +10,7 @@ from caliper.reporter import (
     _format_output,
     make_progress,
     print_results,
+    update_progress,
 )
 from caliper.schema.results import (
     AggregateScore,
@@ -28,6 +29,25 @@ def test_make_progress_initializes_task_totals() -> None:
 
     assert progress.tasks[task_ids["Task one"]].total == 3
     assert progress.tasks[task_ids["Task two"]].total == 3
+
+
+def test_update_progress_marks_early_stopped_task_finished() -> None:
+    progress, task_ids = make_progress(["Task one"], k=3)
+
+    update_progress(
+        progress,
+        task_ids,
+        "Task one",
+        k=3,
+        completed=1,
+        passed=0,
+        unusable=1,
+        finished=True,
+    )
+
+    task = progress.tasks[task_ids["Task one"]]
+    assert task.completed == 3
+    assert task.fields["status"] == "[bold yellow]⊘1[/bold yellow]"
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +309,65 @@ def test_aborted_unusable_task_is_reported_as_aborted() -> None:
 
     assert "ABORTED" in out
     assert "1/3 attempts" in out
+
+
+def test_early_stopped_task_with_usable_pass_is_not_reported_as_aborted() -> None:
+    task = TaskResult(
+        task_id="task-001",
+        task_name="Task task-001",
+        attempts=[
+            AttemptRecord(
+                attempt=1,
+                output="ok",
+                duration_seconds=1.0,
+                outcome=Outcome.PASS,
+            ),
+            AttemptRecord(
+                attempt=2,
+                output="",
+                duration_seconds=1.0,
+                outcome=Outcome.INFRA_ERROR,
+                assert_evidence="spending cap",
+            ),
+            AttemptRecord(
+                attempt=3,
+                output="",
+                duration_seconds=1.0,
+                outcome=Outcome.INFRA_ERROR,
+                assert_evidence="spending cap",
+            ),
+        ],
+        successes=1,
+        unusable=2,
+        pass_at_k=1.0,
+    )
+    results = RunResults(
+        run=RunMeta(
+            spec="test-spec",
+            timestamp=datetime(2026, 6, 21, 12, 0, 0, tzinfo=timezone.utc),
+            k=5,
+            backend="claude-code",
+        ),
+        skill_snapshot=SkillSnapshot(path="/fake/SKILL.md"),
+        task_results=[task],
+        aggregate=AggregateScore(
+            avg_pass_at_k=1.0,
+            per_task=[
+                TaskScore(
+                    task_id=task.task_id,
+                    task_name=task.task_name,
+                    k=5,
+                    successes=1,
+                    score=1.0,
+                )
+            ],
+        ),
+    )
+
+    out = _render(results, verbose=True)
+
+    assert "ABORTED" not in out
+    assert "PASS" in out
 
 
 # ---------------------------------------------------------------------------
