@@ -31,3 +31,5 @@ Rules:
 3. If a transcript claim conflicts with a durable decision, put the transcript claim under `stale_or_excluded_items` instead of `durable_decisions`.
 4. Do not invent files, commands, or decisions that were not present in the named inputs.
 5. Write only valid JSON to the requested output file.
+6. Write the JSON file to the requested path *before* you report anything. Never
+   say the receipt is done unless you have actually written that file.

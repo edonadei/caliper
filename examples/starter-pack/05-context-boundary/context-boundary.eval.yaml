@@ -61,14 +61,22 @@ tasks:
       assert receipt_path.exists(), 'receipt.json was not created'
       data = json.loads(receipt_path.read_text())
 
-      loaded_refs = {item['ref'] for item in data['loaded_context']}
-      assert '/tmp/caliper-context-boundary/CLAUDE.md' in loaded_refs
-      assert '/tmp/caliper-context-boundary/ADR-001.md' in loaded_refs
-      assert '/tmp/caliper-context-boundary/transcript.txt' in loaded_refs
+      # Match on basename so the agent may spell refs as absolute, relative,
+      # or bare filenames — what matters is that each input was named.
+      loaded_names = {item['ref'].rsplit('/', 1)[-1] for item in data['loaded_context']}
+      assert 'CLAUDE.md' in loaded_names
+      assert 'ADR-001.md' in loaded_names
+      assert 'transcript.txt' in loaded_names
 
-      durable_text = json.dumps(data['durable_decisions']).lower()
-      assert 'postgres' in durable_text
-      assert 'sqlite' not in durable_text, 'stale SQLite claim became a durable decision'
+      # Inspect only the decision text, not the whole block: a correct receipt
+      # legitimately mentions SQLite under `supersedes` (the ADR supersedes the
+      # old SQLite notes). What must NOT happen is SQLite being the decision.
+      decision_text = ' '.join(
+          str(d.get('decision', d)) if isinstance(d, dict) else str(d)
+          for d in data['durable_decisions']
+      ).lower()
+      assert 'postgres' in decision_text
+      assert 'sqlite' not in decision_text, 'stale SQLite claim became the durable decision'
 
       excluded_text = json.dumps(data['stale_or_excluded_items']).lower()
       assert 'sqlite' in excluded_text
@@ -105,11 +113,10 @@ tasks:
       from pathlib import Path
 
       data = json.loads(Path('/tmp/caliper-context-boundary/receipt.json').read_text())
-      loaded_refs = {item['ref'] for item in data['loaded_context']}
-      assert loaded_refs == {
-          '/tmp/caliper-context-boundary/AGENTS.md',
-          '/tmp/caliper-context-boundary/release-note.md',
-      }
+      # Exactly the two provided files, matched by basename — no more (which
+      # would mean an invented source), no fewer.
+      loaded_names = {item['ref'].rsplit('/', 1)[-1] for item in data['loaded_context']}
+      assert loaded_names == {'AGENTS.md', 'release-note.md'}
 
       full_text = json.dumps(data).lower()
       assert 'api v3' in full_text

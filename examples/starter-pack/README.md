@@ -79,9 +79,14 @@ tripwire.
 
 Agents do not only fail by missing context. They also fail by treating an old
 chat note, transcript snippet, or one-off assumption as if it were the current
-source of truth. This template asks the skill to write a small JSON receipt that
-names the loaded files, durable decisions, excluded stale claims, and the
-verification path.
+source of truth. The lesson this template teaches is to **prove what was
+actually authoritative before acting** — separating durable facts from stale
+notes instead of trusting whatever was loaded most recently.
+
+The bundled example does this by asking the skill to emit a small JSON receipt
+naming the loaded files, durable decisions, excluded stale claims, and the
+verification path — but that shape is just one way to make the boundary
+checkable. Adapt the assertion to whatever your own skill produces.
 
 **Reach for it when** your skill loads memory, transcripts, ADRs, release notes,
 or team context and must prove what was actually authoritative before acting.
@@ -98,10 +103,10 @@ caliper run false-success.eval.yaml --k 3
 You should see all tasks pass. That confirms Caliper is wired up correctly —
 the CLI, your backend auth, and the judge all work end to end.
 
-Do the same for the other three:
+Do the same for the other four:
 
 ```bash
-cd ../02-tool-misuse      && caliper run tool-misuse.eval.yaml --k 3
+cd ../02-tool-misuse       && caliper run tool-misuse.eval.yaml --k 3
 cd ../03-runaway-loops     && caliper run runaway-loops.eval.yaml --k 3 --timeout 90
 cd ../04-prompt-regression && caliper run prompt-regression.eval.yaml --k 3
 cd ../05-context-boundary  && caliper run context-boundary.eval.yaml --k 3
