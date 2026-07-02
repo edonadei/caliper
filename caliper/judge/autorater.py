@@ -16,7 +16,7 @@ def evaluate_with_claude_api(
     model: str | None,
     spec_dir: str,
     timeout: int = 60,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, bool]:
     import anthropic
 
     user_msg = _USER_TMPL.format(
@@ -34,6 +34,6 @@ def evaluate_with_claude_api(
         )
         raw = response.content[0].text.strip()
     except Exception as exc:
-        return False, f"claude-api judge failed: {exc}"
+        return False, f"claude-api judge failed: {exc}", True
 
     return _parse_rich_response(raw, spec_dir)

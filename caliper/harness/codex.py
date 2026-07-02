@@ -76,6 +76,7 @@ class CodexHarness(HarnessBackend):
             exit_code=exit_code,
             duration_seconds=duration,
             error=error,
+            timed_out=exit_code == 124 and error == "timeout",
         )
 
     def _inject_skill(self, prompt: str, skill_path: str | None) -> str:

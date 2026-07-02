@@ -16,11 +16,11 @@ def evaluate_with_openai_api(
     model: str | None,
     spec_dir: str,
     timeout: int = 60,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, bool]:
     try:
         from openai import OpenAI
     except ImportError:
-        return False, "openai package not installed; run: pip install caliper[openai]"
+        return False, "openai package not installed; run: pip install caliper[openai]", True
 
     user_msg = _USER_TMPL.format(
         expect=expect,
@@ -38,7 +38,7 @@ def evaluate_with_openai_api(
         )
         raw = response.choices[0].message.content or ""
     except Exception as exc:
-        return False, f"openai-api judge failed: {exc}"
+        return False, f"openai-api judge failed: {exc}", True
 
     return _parse_rich_response(_strip_markdown_fence(raw.strip()), spec_dir)
 

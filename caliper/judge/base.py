@@ -15,6 +15,10 @@ class JudgeResult:
     assert_evidence: str | None = None
     autorater_passed: bool | None = None
     autorater_reasoning: str | None = None
+    # True when the judge could not produce any usable verdict (unparseable
+    # autorater response, or the judge call threw). Distinct from a `passed`
+    # verdict of False, which is a genuine task failure.
+    errored: bool = False
 
 
 class Judge(ABC):

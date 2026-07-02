@@ -89,6 +89,7 @@ class PiHarness(HarnessBackend):
             exit_code=exit_code,
             duration_seconds=duration,
             error=error,
+            timed_out=exit_code == 124 and error == "timeout",
         )
 
     def _cli_available(self) -> bool:

@@ -25,7 +25,7 @@ def evaluate_with_codex(
     model: str | None,
     cwd: str,
     timeout: int = 60,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, bool]:
     user_msg = _USER_TMPL.format(
         expect=expect,
         transcript=_format_transcript(transcript),
@@ -33,7 +33,7 @@ def evaluate_with_codex(
     prompt = f"{_SYSTEM}\n\n{user_msg}"
     raw, error = _run_codex(prompt, model, cwd, timeout)
     if error:
-        return False, error
+        return False, error, True
 
     return _parse_rich_response(_strip_markdown_fence(raw), cwd)
 

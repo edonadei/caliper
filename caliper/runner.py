@@ -13,11 +13,13 @@ from typing import Callable
 
 from caliper.harness.base import ConversationTurn, HarnessBackend
 from caliper.judge.base import Judge
+from caliper.outcome import classify_outcome, looks_like_infra_failure
 from caliper.schema.results import (
     AggregateScore,
     AttemptRecord,
     DeltaReport,
     FileSnapshot,
+    Outcome,
     RunMeta,
     RunResults,
     SkillSnapshot,
@@ -31,8 +33,7 @@ from caliper.scoring import aggregate_scores, compute_delta, pass_at_k
 class AttemptEvent:
     task_id: str
     attempt: int
-    passed: bool
-    cheated: bool
+    outcome: Outcome
 
 
 def run(
@@ -88,7 +89,8 @@ def run(
     task_results_without.sort(key=lambda r: r.task_id)
 
     pass_counts_with = {
-        r.task_id: (r.task_name, r.successes, k) for r in task_results_with
+        r.task_id: (r.task_name, r.successes, len(r.attempts) - r.unusable, k)
+        for r in task_results_with
     }
     agg_with = aggregate_scores(pass_counts_with)
 
@@ -96,7 +98,8 @@ def run(
     delta: DeltaReport | None = None
     if baseline and task_results_without:
         pass_counts_without = {
-            r.task_id: (r.task_name, r.successes, k) for r in task_results_without
+            r.task_id: (r.task_name, r.successes, len(r.attempts) - r.unusable, k)
+            for r in task_results_without
         }
         agg_without = aggregate_scores(pass_counts_without)
         delta = compute_delta(agg_with, agg_without)
@@ -137,13 +140,16 @@ def _run_task(
         )
         attempts.append(record)
 
-    successes = sum(1 for a in attempts if a.passed)
+    successes = sum(1 for a in attempts if a.outcome == Outcome.PASS)
+    usable = sum(1 for a in attempts if a.outcome.is_usable)
+    unusable = len(attempts) - usable
     return TaskResult(
         task_id=task.id,
         task_name=task.name,
         attempts=attempts,
         successes=successes,
-        pass_at_k=pass_at_k(successes, k),
+        unusable=unusable,
+        pass_at_k=pass_at_k(successes, usable) if usable > 0 else None,
     )
 
 
@@ -182,31 +188,44 @@ def _run_attempt(
             extra_path=resolved_extra_path,
         )
 
-        if attempt_result.exit_code != 0:
-            error = attempt_result.error or f"harness exited {attempt_result.exit_code}"
-            if on_attempt_done:
-                on_attempt_done(AttemptEvent(task_id=task.id, attempt=attempt, passed=False, cheated=False))
-            return AttemptRecord(
-                attempt=attempt,
-                output=attempt_result.final_output,
-                duration_seconds=attempt_result.duration_seconds,
-                passed=False,
-                cheated=False,
-                assert_passed=False,
-                assert_evidence=error,
+        # Short-circuit on timeout / infrastructure noise before spending a
+        # (paid) judge call on garbage output. classify_outcome remains the sole
+        # authority on the label; this only decides whether to do the work.
+        infra_text = "\n".join(
+            part for part in (attempt_result.final_output, attempt_result.error) if part
+        )
+        if (
+            attempt_result.timed_out
+            or attempt_result.exit_code != 0
+            or looks_like_infra_failure(infra_text)
+        ):
+            outcome = classify_outcome(attempt_result, [], None)
+            evidence = attempt_result.error or f"harness exited {attempt_result.exit_code}"
+            return _finish(
+                AttemptRecord(
+                    attempt=attempt,
+                    output=attempt_result.final_output,
+                    duration_seconds=attempt_result.duration_seconds,
+                    outcome=outcome,
+                    assert_evidence=evidence,
+                ),
+                task,
+                on_attempt_done,
             )
 
         cheat_violations = cheat.check(attempt_result.transcript)
         if cheat_violations:
-            if on_attempt_done:
-                on_attempt_done(AttemptEvent(task_id=task.id, attempt=attempt, passed=False, cheated=True))
-            return AttemptRecord(
-                attempt=attempt,
-                output=attempt_result.final_output,
-                duration_seconds=attempt_result.duration_seconds,
-                passed=False,
-                cheated=True,
-                cheat_evidence=cheat_violations,
+            outcome = classify_outcome(attempt_result, cheat_violations, None)
+            return _finish(
+                AttemptRecord(
+                    attempt=attempt,
+                    output=attempt_result.final_output,
+                    duration_seconds=attempt_result.duration_seconds,
+                    outcome=outcome,
+                    cheat_evidence=cheat_violations,
+                ),
+                task,
+                on_attempt_done,
             )
 
         judge_result = judge.evaluate(
@@ -215,25 +234,37 @@ def _run_attempt(
             final_output=attempt_result.final_output,
             spec_dir=str(spec_path.parent),
         )
+        outcome = classify_outcome(attempt_result, [], judge_result)
 
-        passed = judge_result.passed
-        if on_attempt_done:
-            on_attempt_done(AttemptEvent(task_id=task.id, attempt=attempt, passed=passed, cheated=False))
-
-        return AttemptRecord(
-            attempt=attempt,
-            output=attempt_result.final_output,
-            duration_seconds=attempt_result.duration_seconds,
-            passed=passed,
-            cheated=False,
-            assert_passed=judge_result.assert_passed,
-            assert_evidence=judge_result.assert_evidence,
-            autorater_passed=judge_result.autorater_passed,
-            autorater_reasoning=judge_result.autorater_reasoning,
+        return _finish(
+            AttemptRecord(
+                attempt=attempt,
+                output=attempt_result.final_output,
+                duration_seconds=attempt_result.duration_seconds,
+                outcome=outcome,
+                assert_passed=judge_result.assert_passed,
+                assert_evidence=judge_result.assert_evidence,
+                autorater_passed=judge_result.autorater_passed,
+                autorater_reasoning=judge_result.autorater_reasoning,
+            ),
+            task,
+            on_attempt_done,
         )
     finally:
         _run_shell(task.cleanup)
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _finish(
+    record: AttemptRecord,
+    task: TaskSpec,
+    on_attempt_done: Callable[[AttemptEvent], None] | None,
+) -> AttemptRecord:
+    if on_attempt_done:
+        on_attempt_done(
+            AttemptEvent(task_id=task.id, attempt=record.attempt, outcome=record.outcome)
+        )
+    return record
 
 
 def _run_shell(cmd: str | None) -> None:

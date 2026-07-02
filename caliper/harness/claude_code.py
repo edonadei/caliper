@@ -111,6 +111,7 @@ class ClaudeCodeHarness(HarnessBackend):
                 exit_code=124,
                 duration_seconds=timeout,
                 error="timeout",
+                timed_out=True,
             )
         finally:
             if skill_file and skill_file.exists():

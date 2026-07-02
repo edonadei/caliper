@@ -41,6 +41,7 @@ class ClaudeAPIHarness(HarnessBackend):
             exit_code=exit_code,
             duration_seconds=duration,
             error=error,
+            timed_out=exit_code == 124 and error == "timeout",
         )
 
     def _inject_skill(self, prompt: str, skill_path: str | None) -> str:
@@ -71,4 +72,6 @@ class ClaudeAPIHarness(HarnessBackend):
             )
             return content.strip(), 0, None
         except Exception as exc:
+            if "Timeout" in type(exc).__name__:
+                return "", 124, "timeout"
             return "", 1, str(exc)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 
@@ -20,7 +19,7 @@ def evaluate_with_claude_code(
     transcript: list[ConversationTurn],
     model: str | None,
     spec_dir: str,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, bool]:
     user_msg = _USER_TMPL.format(
         expect=expect,
         transcript=_format_transcript(transcript),
@@ -28,7 +27,7 @@ def evaluate_with_claude_code(
     prompt = f"{_SYSTEM}\n\n{user_msg}"
     raw, error = _run_claude_code(prompt, model)
     if error:
-        return False, error
+        return False, error, True
     return _parse_rich_response(raw, spec_dir)
 
 
