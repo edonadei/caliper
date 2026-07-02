@@ -3,6 +3,7 @@ from __future__ import annotations
 from caliper.harness.base import AttemptResult, HarnessBackend
 from caliper.judge.base import Judge, JudgeResult
 from caliper.runner import _stage_skill_directory, run
+from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, SkillConfig, TaskSpec
 
 
@@ -71,8 +72,11 @@ def test_runner_fails_attempt_when_harness_exits_nonzero(tmp_path) -> None:
 
     attempt = results.task_results[0].attempts[0]
     assert attempt.passed is False
+    assert attempt.outcome == Outcome.INFRA_ERROR
     assert attempt.assert_passed is False
     assert attempt.assert_evidence == "agent failed"
+    assert results.task_results[0].unusable_attempts == 1
+    assert results.aggregate.unusable_attempts == 1
     assert results.aggregate.avg_pass_at_k == 0
     assert judge.calls == 0
 
@@ -107,9 +111,7 @@ def test_stage_excludes_cheat_surfaces(tmp_path) -> None:
     home = tmp_path / "home"
     home.mkdir()
 
-    _stage_skill_directory(
-        str(skill_dir / "SKILL.md"), str(home), [r"secret\.txt$"]
-    )
+    _stage_skill_directory(str(skill_dir / "SKILL.md"), str(home), [r"secret\.txt$"])
 
     assert not (home / ".caliper").exists()
     assert not (home / "my-skill.eval.yaml").exists()

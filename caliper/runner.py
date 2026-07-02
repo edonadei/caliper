@@ -22,9 +22,15 @@ from caliper.schema.results import (
     RunResults,
     SkillSnapshot,
     TaskResult,
+    Outcome,
 )
 from caliper.schema.spec import EvalSpec, TaskSpec, spec_name
-from caliper.scoring import aggregate_scores, compute_delta, pass_at_k
+from caliper.scoring import (
+    aggregate_scores,
+    classify_outcome,
+    compute_delta,
+    score_outcomes,
+)
 
 
 @dataclass
@@ -60,16 +66,34 @@ def run(
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures_with = {
             pool.submit(
-                _run_task, task, harness, judge, cheat, spec, spec_path,
-                k, timeout, True, on_attempt_done,
+                _run_task,
+                task,
+                harness,
+                judge,
+                cheat,
+                spec,
+                spec_path,
+                k,
+                timeout,
+                True,
+                on_attempt_done,
             ): task
             for task in spec.tasks
         }
         futures_without = (
             {
                 pool.submit(
-                    _run_task, task, harness, judge, cheat, spec, spec_path,
-                    k, timeout, False, on_attempt_done,
+                    _run_task,
+                    task,
+                    harness,
+                    judge,
+                    cheat,
+                    spec,
+                    spec_path,
+                    k,
+                    timeout,
+                    False,
+                    on_attempt_done,
                 ): task
                 for task in spec.tasks
             }
@@ -88,7 +112,13 @@ def run(
     task_results_without.sort(key=lambda r: r.task_id)
 
     pass_counts_with = {
-        r.task_id: (r.task_name, r.successes, k) for r in task_results_with
+        r.task_id: (
+            r.task_name,
+            r.successes,
+            len(r.attempts) - r.unusable_attempts,
+            r.unusable_attempts,
+        )
+        for r in task_results_with
     }
     agg_with = aggregate_scores(pass_counts_with)
 
@@ -96,7 +126,13 @@ def run(
     delta: DeltaReport | None = None
     if baseline and task_results_without:
         pass_counts_without = {
-            r.task_id: (r.task_name, r.successes, k) for r in task_results_without
+            r.task_id: (
+                r.task_name,
+                r.successes,
+                len(r.attempts) - r.unusable_attempts,
+                r.unusable_attempts,
+            )
+            for r in task_results_without
         }
         agg_without = aggregate_scores(pass_counts_without)
         delta = compute_delta(agg_with, agg_without)
@@ -132,18 +168,27 @@ def _run_task(
     attempts: list[AttemptRecord] = []
     for attempt_num in range(1, k + 1):
         record = _run_attempt(
-            task, attempt_num, harness, judge, cheat,
-            spec, spec_path, timeout, with_skill, on_attempt_done,
+            task,
+            attempt_num,
+            harness,
+            judge,
+            cheat,
+            spec,
+            spec_path,
+            timeout,
+            with_skill,
+            on_attempt_done,
         )
         attempts.append(record)
 
-    successes = sum(1 for a in attempts if a.passed)
+    score = score_outcomes([a.outcome for a in attempts if a.outcome is not None])
     return TaskResult(
         task_id=task.id,
         task_name=task.name,
         attempts=attempts,
-        successes=successes,
-        pass_at_k=pass_at_k(successes, k),
+        successes=score.successes,
+        pass_at_k=score.pass_at_k,
+        unusable_attempts=score.unusable_attempts,
     )
 
 
@@ -163,8 +208,7 @@ def _run_attempt(
     try:
         _run_shell(task.setup)
         resolved_extra_path = [
-            str((spec_path.parent / p).resolve())
-            for p in spec.sandbox.extra_path
+            str((spec_path.parent / p).resolve()) for p in spec.sandbox.extra_path
         ]
         skill_path = _resolve_skill_path(spec, spec_path) if with_skill else None
         if skill_path:
@@ -184,13 +228,24 @@ def _run_attempt(
 
         if attempt_result.exit_code != 0:
             error = attempt_result.error or f"harness exited {attempt_result.exit_code}"
+            outcome = classify_outcome(
+                exit_code=attempt_result.exit_code,
+                error=error,
+                cheated=False,
+                judge_result=None,
+            )
             if on_attempt_done:
-                on_attempt_done(AttemptEvent(task_id=task.id, attempt=attempt, passed=False, cheated=False))
+                on_attempt_done(
+                    AttemptEvent(
+                        task_id=task.id, attempt=attempt, passed=False, cheated=False
+                    )
+                )
             return AttemptRecord(
                 attempt=attempt,
                 output=attempt_result.final_output,
                 duration_seconds=attempt_result.duration_seconds,
                 passed=False,
+                outcome=outcome,
                 cheated=False,
                 assert_passed=False,
                 assert_evidence=error,
@@ -198,13 +253,24 @@ def _run_attempt(
 
         cheat_violations = cheat.check(attempt_result.transcript)
         if cheat_violations:
+            outcome = classify_outcome(
+                exit_code=attempt_result.exit_code,
+                error=attempt_result.error,
+                cheated=True,
+                judge_result=None,
+            )
             if on_attempt_done:
-                on_attempt_done(AttemptEvent(task_id=task.id, attempt=attempt, passed=False, cheated=True))
+                on_attempt_done(
+                    AttemptEvent(
+                        task_id=task.id, attempt=attempt, passed=False, cheated=True
+                    )
+                )
             return AttemptRecord(
                 attempt=attempt,
                 output=attempt_result.final_output,
                 duration_seconds=attempt_result.duration_seconds,
                 passed=False,
+                outcome=outcome,
                 cheated=True,
                 cheat_evidence=cheat_violations,
             )
@@ -216,15 +282,26 @@ def _run_attempt(
             spec_dir=str(spec_path.parent),
         )
 
-        passed = judge_result.passed
+        outcome = classify_outcome(
+            exit_code=attempt_result.exit_code,
+            error=attempt_result.error,
+            cheated=False,
+            judge_result=judge_result,
+        )
+        passed = outcome == Outcome.PASS
         if on_attempt_done:
-            on_attempt_done(AttemptEvent(task_id=task.id, attempt=attempt, passed=passed, cheated=False))
+            on_attempt_done(
+                AttemptEvent(
+                    task_id=task.id, attempt=attempt, passed=passed, cheated=False
+                )
+            )
 
         return AttemptRecord(
             attempt=attempt,
             output=attempt_result.final_output,
             duration_seconds=attempt_result.duration_seconds,
             passed=passed,
+            outcome=outcome,
             cheated=False,
             assert_passed=judge_result.assert_passed,
             assert_evidence=judge_result.assert_evidence,

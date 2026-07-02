@@ -115,6 +115,7 @@ judge:
 ## Key concepts
 
 - **pass@k** — probability that at least 1 of k attempts passes (default k=3)
+- **outcome** — per-attempt result tag: `pass`, `task_fail`, `judge_error`, `infra_error`, `timeout`, or `cheat`
 - **baseline** — runs each task without the skill to compute a delta score
 - **judge** — the spec drives evaluation: `expect:` triggers an LLM verdict (which may generate a Python assertion script); `assert:` runs a deterministic Python script; both can be combined and both must pass
 - **cheat detection** — transcript is scanned for reads of forbidden files (spec, results)
@@ -127,6 +128,11 @@ judge:
 Results are saved automatically to `.caliper/results/<spec-name>/<timestamp>.json`
 alongside the spec file. Each result includes a full skill snapshot (content + git SHA
 of the skill file and any referenced scripts) for reproducibility.
+
+Each attempt keeps `passed` for compatibility and adds `outcome` for diagnosis.
+`infra_error`, `timeout`, and `judge_error` are unusable attempts: they are shown
+separately and excluded from the pass@k denominator so rate limits, CLI failures,
+timeouts, or judge failures do not masquerade as skill regressions.
 
 ## Designing good evals — full guidance
 

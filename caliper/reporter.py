@@ -15,7 +15,7 @@ from rich.table import Table
 from rich.table import Column
 from rich.text import Text
 
-from caliper.schema.results import RunResults, TaskResult
+from caliper.schema.results import Outcome, RunResults, TaskResult
 
 console = Console()
 
@@ -38,8 +38,12 @@ _BAR_FULL = "█" if _UNICODE else "#"
 _BAR_EMPTY = "░" if _UNICODE else "-"
 
 
-def print_banner(spec_name: str, k: int, backend: str, model: str | None = None) -> None:
-    target = f"[cyan]{backend}[/cyan]" + (f" [dim]{_SEP} {model}[/dim]" if model else "")
+def print_banner(
+    spec_name: str, k: int, backend: str, model: str | None = None
+) -> None:
+    target = f"[cyan]{backend}[/cyan]" + (
+        f" [dim]{_SEP} {model}[/dim]" if model else ""
+    )
     console.print(
         Panel(
             f"{_BANNER}  {_SEP}  [bold]{spec_name}[/bold]  {_SEP}  k=[cyan]{k}[/cyan]  {_SEP}  {target}",
@@ -89,7 +93,11 @@ def update_progress(
     if cheated:
         status = f"[bold yellow]{_WARN} cheat[/bold yellow]"
     elif completed == k:
-        status = f"[bold green]{_CHECK}[/bold green]" if passed == k else f"[bold red]{_CROSS}[/bold red]"
+        status = (
+            f"[bold green]{_CHECK}[/bold green]"
+            if passed == k
+            else f"[bold red]{_CROSS}[/bold red]"
+        )
     else:
         status = f"[dim]{completed}/{k}[/dim]"
     progress.update(tid, total=k, completed=completed, status=status)
@@ -111,7 +119,9 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     )
     console.print()
 
-    table = Table(box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False)
+    table = Table(
+        box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False
+    )
     table.add_column("ID", style="dim", no_wrap=True)
     table.add_column("Task")
     table.add_column(f"k ({k})", justify="center")
@@ -121,10 +131,14 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     for tr in results.task_results:
         cheated_count = sum(1 for a in tr.attempts if a.cheated)
         status_text = _status_cell(tr, cheated_count > 0)
+        usable_attempts = len(tr.attempts) - tr.unusable_attempts
+        attempts_text = f"{tr.successes}/{usable_attempts}"
+        if tr.unusable_attempts:
+            attempts_text += f" (+{tr.unusable_attempts} unusable)"
         table.add_row(
             tr.task_id,
             tr.task_name,
-            f"{tr.successes}/{k}",
+            attempts_text,
             f"{tr.pass_at_k * 100:.1f}%",
             status_text,
         )
@@ -148,7 +162,11 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
 def _status_cell(tr: TaskResult, any_cheat: bool) -> Text:
     if any_cheat:
         return Text(f"{_WARN} CHEAT", style="bold yellow")
-    if tr.successes == tr.pass_at_k * len(tr.attempts) and tr.successes == len(tr.attempts):
+    if tr.unusable_attempts and tr.unusable_attempts == len(tr.attempts):
+        return Text(f"{_WARN} UNUSABLE", style="bold yellow")
+    if tr.successes == tr.pass_at_k * len(tr.attempts) and tr.successes == len(
+        tr.attempts
+    ):
         pass
     if tr.pass_at_k >= 0.99:
         return Text(f"{_CHECK} PASS", style="bold green")
@@ -163,11 +181,19 @@ def _print_aggregate(results: RunResults) -> None:
 
     def score_bar(score: float, width: int = 20) -> str:
         filled = round(score * width)
-        return "[green]" + _BAR_FULL * filled + "[/green][dim]" + _BAR_EMPTY * (width - filled) + "[/dim]"
+        return (
+            "[green]"
+            + _BAR_FULL * filled
+            + "[/green][dim]"
+            + _BAR_EMPTY * (width - filled)
+            + "[/dim]"
+        )
 
     console.print(
         f" [bold]With skill[/bold]    [cyan]{agg.avg_pass_at_k * 100:.1f}%[/cyan]  {score_bar(agg.avg_pass_at_k)}"
     )
+    if agg.unusable_attempts:
+        console.print(f" [yellow]{agg.unusable_attempts} unusable attempts[/yellow]")
 
     if results.baseline:
         base = results.baseline
@@ -202,12 +228,23 @@ def _format_output(output: str) -> str:
 def _print_task_detail(tr: TaskResult, k: int) -> None:
     lines: list[str] = []
     for attempt in tr.attempts:
+        outcome = attempt.outcome or (
+            Outcome.PASS if attempt.passed else Outcome.TASK_FAIL
+        )
         prefix = (
             f"[green]{_CHECK}[/green]"
             if attempt.passed
-            else (f"[yellow]{_WARN}[/yellow]" if attempt.cheated else f"[red]{_CROSS}[/red]")
+            else (
+                f"[yellow]{_WARN}[/yellow]"
+                if attempt.cheated
+                or outcome
+                in {Outcome.INFRA_ERROR, Outcome.TIMEOUT, Outcome.JUDGE_ERROR}
+                else f"[red]{_CROSS}[/red]"
+            )
         )
-        lines.append(f"  Attempt {attempt.attempt}  {prefix}  ({attempt.duration_seconds:.1f}s)")
+        lines.append(
+            f"  Attempt {attempt.attempt}  {prefix}  {outcome.value}  ({attempt.duration_seconds:.1f}s)"
+        )
         if attempt.cheated:
             for ev in attempt.cheat_evidence:
                 lines.append(f"    [yellow]cheat:[/yellow] {ev}")

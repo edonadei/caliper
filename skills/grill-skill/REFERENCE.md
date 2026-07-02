@@ -39,6 +39,11 @@ caliper report path/to/spec.eval.yaml --verbose
 caliper report path/to/spec.eval.yaml --run 2026-06-21T14-53-12Z --verbose
 ```
 
+Each saved attempt includes an `outcome`: `pass`, `task_fail`, `judge_error`,
+`infra_error`, `timeout`, or `cheat`. Treat `infra_error`, `timeout`, and
+`judge_error` as unusable attempt noise rather than skill regressions; Caliper
+shows them separately and excludes them from the pass@k denominator.
+
 ## Spec skeleton (claude-code backend)
 
 ```yaml

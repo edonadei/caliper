@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import io
+import json
 from datetime import datetime, timezone
 
 from rich.console import Console
 
-from caliper.reporter import _OUTPUT_TRUNCATE_AT, _format_output, make_progress, print_results
+from caliper.reporter import (
+    _OUTPUT_TRUNCATE_AT,
+    _format_output,
+    make_progress,
+    print_results,
+    results_to_json,
+)
 from caliper.schema.results import (
     AggregateScore,
     AttemptRecord,
+    Outcome,
     RunMeta,
     RunResults,
     SkillSnapshot,
@@ -35,12 +43,14 @@ def _make_attempt(
     output: str = "some output",
     assert_evidence: str | None = None,
     autorater_reasoning: str | None = None,
+    outcome: Outcome | None = None,
 ) -> AttemptRecord:
     return AttemptRecord(
         attempt=1,
         output=output,
         duration_seconds=5.0,
         passed=passed,
+        outcome=outcome,
         assert_passed=passed if assert_evidence is None else not passed,
         assert_evidence=assert_evidence,
         autorater_passed=None,
@@ -55,12 +65,15 @@ def _make_task(
     output: str = "some output",
     assert_evidence: str | None = None,
     autorater_reasoning: str | None = None,
+    outcome: Outcome | None = None,
+    unusable_attempts: int = 0,
 ) -> TaskResult:
     attempt = _make_attempt(
         passed=passed,
         output=output,
         assert_evidence=assert_evidence,
         autorater_reasoning=autorater_reasoning,
+        outcome=outcome,
     )
     return TaskResult(
         task_id=task_id,
@@ -68,6 +81,7 @@ def _make_task(
         attempts=[attempt],
         successes=1 if passed else 0,
         pass_at_k=1.0 if passed else 0.0,
+        unusable_attempts=unusable_attempts,
     )
 
 
@@ -79,6 +93,7 @@ def _make_results(task_results: list[TaskResult]) -> RunResults:
             k=1,
             successes=tr.successes,
             score=tr.pass_at_k,
+            unusable_attempts=tr.unusable_attempts,
         )
         for tr in task_results
     ]
@@ -94,6 +109,7 @@ def _make_results(task_results: list[TaskResult]) -> RunResults:
         aggregate=AggregateScore(
             avg_pass_at_k=sum(tr.pass_at_k for tr in task_results) / len(task_results),
             per_task=scores,
+            unusable_attempts=sum(tr.unusable_attempts for tr in task_results),
         ),
     )
 
@@ -180,7 +196,12 @@ def test_only_failed_tasks_shown_in_mixed_results() -> None:
     results = _make_results(
         [
             _make_task("task-001", passed=True, output="pass output"),
-            _make_task("task-002", passed=False, output="fail output", assert_evidence="file not found"),
+            _make_task(
+                "task-002",
+                passed=False,
+                output="fail output",
+                assert_evidence="file not found",
+            ),
         ]
     )
     out = _render(results)
@@ -221,9 +242,7 @@ def test_verbose_shows_all_tasks() -> None:
 
 def test_long_output_truncated_in_rendered_output() -> None:
     long_output = "z" * (_OUTPUT_TRUNCATE_AT + 200)
-    results = _make_results(
-        [_make_task("task-001", passed=False, output=long_output)]
-    )
+    results = _make_results([_make_task("task-001", passed=False, output=long_output)])
     out = _render(results)
     assert "truncated" in out
     # Rich wraps long lines; count total z's to verify the tail was included
@@ -231,9 +250,7 @@ def test_long_output_truncated_in_rendered_output() -> None:
 
 
 def test_empty_output_renders_no_output_marker() -> None:
-    results = _make_results(
-        [_make_task("task-001", passed=False, output="")]
-    )
+    results = _make_results([_make_task("task-001", passed=False, output="")])
     out = _render(results)
     assert "no output" in out
 
@@ -249,3 +266,40 @@ def test_autorater_reasoning_shown_for_failed_task() -> None:
     )
     out = _render(results)
     assert "judge said no" in out
+
+
+def test_unusable_attempt_count_shown_in_report_summary() -> None:
+    results = _make_results(
+        [
+            _make_task(
+                "task-001",
+                passed=False,
+                output="Spending cap reached resets 4:30am",
+                outcome=Outcome.INFRA_ERROR,
+                assert_evidence="Spending cap reached resets 4:30am",
+                unusable_attempts=1,
+            )
+        ]
+    )
+
+    out = _render(results)
+
+    assert "1 unusable" in out
+    assert "infra_error" in out
+
+
+def test_results_json_includes_outcome() -> None:
+    results = _make_results(
+        [
+            _make_task(
+                "task-001",
+                passed=False,
+                outcome=Outcome.INFRA_ERROR,
+                unusable_attempts=1,
+            )
+        ]
+    )
+
+    payload = json.loads(results_to_json(results))
+
+    assert payload["task_results"][0]["attempts"][0]["outcome"] == "infra_error"

@@ -430,6 +430,17 @@ For each task:
 pass@k = 1 - (1 - successes / k) ^ k
 ```
 
+Each attempt also has an `outcome` in the saved JSON:
+
+- `pass` — the attempt satisfied the judge(s).
+- `task_fail` — the skill got a fair attempt but failed the task.
+- `judge_error` — the judge did not produce a usable verdict.
+- `infra_error` — the harness or CLI failed before the task could be judged.
+- `timeout` — the attempt exceeded its time budget.
+- `cheat` — forbidden-file access was detected.
+
+`infra_error`, `timeout`, and `judge_error` are counted as unusable attempts and excluded from the pass@k denominator. They are reported separately so infrastructure noise does not look like a skill regression. `passed` remains available in the JSON and is equivalent to `outcome == "pass"`.
+
 The aggregate score is the average task pass@k. With `--baseline`, Caliper runs the same tasks without the skill and reports the delta.
 
 ---
