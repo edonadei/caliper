@@ -18,6 +18,7 @@ from caliper.reporter import (
     update_progress,
 )
 from caliper.runner import run, AttemptEvent
+from caliper.schema.results import Outcome
 from caliper.schema.spec import load_spec, parse_target, spec_name
 
 console = Console()
@@ -69,14 +70,22 @@ def run_cmd(
 
     attempt_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
     pass_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
+    unusable_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
 
     def on_attempt_done(event: AttemptEvent) -> None:
         task = next((t for t in spec.tasks if t.id == event.task_id), None)
         if task is None:
             return
         attempt_counts[task.name] += 1
-        if event.passed:
+        if event.outcome == Outcome.PASS:
             pass_counts[task.name] += 1
+        if not event.outcome.is_usable:
+            unusable_counts[task.name] += 1
+            # Surface noise the moment it lands so a watching agent/human can stop.
+            progress.console.print(
+                f"[yellow]⊘[/yellow] {task.name} · attempt {event.attempt}: "
+                f"[yellow]{event.outcome.value}[/yellow]"
+            )
         update_progress(
             progress,
             task_ids,
@@ -84,7 +93,8 @@ def run_cmd(
             k,
             attempt_counts[task.name],
             pass_counts[task.name],
-            cheated=event.cheated,
+            cheated=event.outcome == Outcome.CHEAT,
+            unusable=unusable_counts[task.name],
         )
 
     with progress:

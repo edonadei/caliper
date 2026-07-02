@@ -40,6 +40,7 @@ class OpenAIAPIHarness(HarnessBackend):
             exit_code=exit_code,
             duration_seconds=duration,
             error=error,
+            timed_out=exit_code == 124 and error == "timeout",
         )
 
     def _run_api(self, prompt: str, model: str, timeout: int) -> tuple[str, int, str | None]:
@@ -58,4 +59,6 @@ class OpenAIAPIHarness(HarnessBackend):
             content = response.choices[0].message.content or ""
             return content.strip(), 0, None
         except Exception as exc:
+            if "Timeout" in type(exc).__name__:
+                return "", 124, "timeout"
             return "", 1, str(exc)

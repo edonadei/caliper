@@ -3,6 +3,7 @@ from __future__ import annotations
 from caliper.harness.base import AttemptResult, HarnessBackend
 from caliper.judge.base import Judge, JudgeResult
 from caliper.runner import _stage_skill_directory, run
+from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, SkillConfig, TaskSpec
 
 
@@ -70,10 +71,14 @@ def test_runner_fails_attempt_when_harness_exits_nonzero(tmp_path) -> None:
     )
 
     attempt = results.task_results[0].attempts[0]
+    # A nonzero harness exit is infrastructure noise, not a task failure: it is
+    # unusable, excluded from pass@k, and never reaches the judge.
+    assert attempt.outcome is Outcome.INFRA_ERROR
     assert attempt.passed is False
-    assert attempt.assert_passed is False
     assert attempt.assert_evidence == "agent failed"
-    assert results.aggregate.avg_pass_at_k == 0
+    tr = results.task_results[0]
+    assert tr.unusable == 1
+    assert tr.pass_at_k is None
     assert judge.calls == 0
 
 

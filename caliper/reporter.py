@@ -15,7 +15,7 @@ from rich.table import Table
 from rich.table import Column
 from rich.text import Text
 
-from caliper.schema.results import RunResults, TaskResult
+from caliper.schema.results import Outcome, RunResults, TaskResult
 
 console = Console()
 
@@ -36,6 +36,18 @@ _UP = "↑" if _UNICODE else "up"
 _DOWN = "↓" if _UNICODE else "down"
 _BAR_FULL = "█" if _UNICODE else "#"
 _BAR_EMPTY = "░" if _UNICODE else "-"
+_UNUSABLE = "⊘" if _UNICODE else "o"
+
+# Per-outcome glyph for the per-attempt detail view. Usable failures read as
+# failures; the three noise outcomes get the distinct ⊘ marker.
+_OUTCOME_GLYPH = {
+    Outcome.PASS: f"[green]{_CHECK}[/green]",
+    Outcome.TASK_FAIL: f"[red]{_CROSS}[/red]",
+    Outcome.CHEAT: f"[yellow]{_WARN}[/yellow]",
+    Outcome.INFRA_ERROR: f"[yellow]{_UNUSABLE}[/yellow]",
+    Outcome.TIMEOUT: f"[yellow]{_UNUSABLE}[/yellow]",
+    Outcome.JUDGE_ERROR: f"[yellow]{_UNUSABLE}[/yellow]",
+}
 
 
 def print_banner(spec_name: str, k: int, backend: str, model: str | None = None) -> None:
@@ -82,12 +94,15 @@ def update_progress(
     completed: int,
     passed: int,
     cheated: bool = False,
+    unusable: int = 0,
 ) -> None:
     tid = task_ids.get(task_name)
     if tid is None:
         return
     if cheated:
         status = f"[bold yellow]{_WARN} cheat[/bold yellow]"
+    elif completed == k and unusable:
+        status = f"[bold yellow]{_UNUSABLE}{unusable}[/bold yellow]"
     elif completed == k:
         status = f"[bold green]{_CHECK}[/bold green]" if passed == k else f"[bold red]{_CROSS}[/bold red]"
     else:
@@ -121,11 +136,12 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     for tr in results.task_results:
         cheated_count = sum(1 for a in tr.attempts if a.cheated)
         status_text = _status_cell(tr, cheated_count > 0)
+        pass_at_k = "—" if tr.pass_at_k is None else f"{tr.pass_at_k * 100:.1f}%"
         table.add_row(
             tr.task_id,
             tr.task_name,
             f"{tr.successes}/{k}",
-            f"{tr.pass_at_k * 100:.1f}%",
+            pass_at_k,
             status_text,
         )
 
@@ -137,7 +153,11 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     tasks_to_detail = (
         results.task_results
         if verbose
-        else [tr for tr in results.task_results if tr.pass_at_k < 1.0]
+        else [
+            tr
+            for tr in results.task_results
+            if tr.pass_at_k is None or tr.pass_at_k < 1.0
+        ]
     )
     if tasks_to_detail:
         console.print()
@@ -148,14 +168,15 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
 def _status_cell(tr: TaskResult, any_cheat: bool) -> Text:
     if any_cheat:
         return Text(f"{_WARN} CHEAT", style="bold yellow")
-    if tr.successes == tr.pass_at_k * len(tr.attempts) and tr.successes == len(tr.attempts):
-        pass
+    if tr.pass_at_k is None:
+        return Text(f"{_UNUSABLE} UNUSABLE", style="bold yellow")
+    suffix = f" ({tr.unusable} {_UNUSABLE})" if tr.unusable else ""
     if tr.pass_at_k >= 0.99:
-        return Text(f"{_CHECK} PASS", style="bold green")
+        return Text(f"{_CHECK} PASS{suffix}", style="bold green")
     elif tr.successes == 0:
-        return Text(f"{_CROSS} FAIL", style="bold red")
+        return Text(f"{_CROSS} FAIL{suffix}", style="bold red")
     else:
-        return Text("~ PARTIAL", style="bold yellow")
+        return Text(f"~ PARTIAL{suffix}", style="bold yellow")
 
 
 def _print_aggregate(results: RunResults) -> None:
@@ -184,7 +205,27 @@ def _print_aggregate(results: RunResults) -> None:
             f" [bold]Delta[/bold]        [{color}]{sign}{delta * 100:.1f}%[/{color}]  {arrow}"
         )
 
+    _print_unusable_summary(results)
     console.print()
+
+
+def _print_unusable_summary(results: RunResults) -> None:
+    """One line, only when there is noise to report, so a clean run is unchanged."""
+    counts: dict[Outcome, int] = {}
+    for tr in results.task_results:
+        for a in tr.attempts:
+            if not a.outcome.is_usable:
+                counts[a.outcome] = counts.get(a.outcome, 0) + 1
+    total = sum(counts.values())
+    if not total:
+        return
+    breakdown = " · ".join(
+        f"{n} {o.value}" for o, n in sorted(counts.items(), key=lambda kv: kv[0].value)
+    )
+    console.print(
+        f" [yellow]{_UNUSABLE} {total} unusable[/yellow]  [dim]({breakdown}) "
+        f"— excluded from pass@k[/dim]"
+    )
 
 
 _OUTPUT_TRUNCATE_AT = 500
@@ -202,12 +243,11 @@ def _format_output(output: str) -> str:
 def _print_task_detail(tr: TaskResult, k: int) -> None:
     lines: list[str] = []
     for attempt in tr.attempts:
-        prefix = (
-            f"[green]{_CHECK}[/green]"
-            if attempt.passed
-            else (f"[yellow]{_WARN}[/yellow]" if attempt.cheated else f"[red]{_CROSS}[/red]")
+        prefix = _OUTCOME_GLYPH.get(attempt.outcome, f"[red]{_CROSS}[/red]")
+        label = "" if attempt.outcome.is_usable else f"  [yellow]{attempt.outcome.value}[/yellow]"
+        lines.append(
+            f"  Attempt {attempt.attempt}  {prefix}{label}  ({attempt.duration_seconds:.1f}s)"
         )
-        lines.append(f"  Attempt {attempt.attempt}  {prefix}  ({attempt.duration_seconds:.1f}s)")
         if attempt.cheated:
             for ev in attempt.cheat_evidence:
                 lines.append(f"    [yellow]cheat:[/yellow] {ev}")

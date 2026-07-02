@@ -114,7 +114,8 @@ judge:
 
 ## Key concepts
 
-- **pass@k** — probability that at least 1 of k attempts passes (default k=3)
+- **pass@k** — probability that at least 1 of k attempts passes (default k=3), computed over the *usable* attempts only
+- **outcome** — each attempt is typed `pass`, `task_fail`, `cheat`, `infra_error`, `timeout`, or `judge_error`; the last three are *unusable* (infrastructure/judge noise) and are excluded from the pass@k denominator and reported as a separate "N unusable" count, so a throttled or judge-flaked run is not mistaken for a regression. `passed` in the JSON equals `outcome == pass`.
 - **baseline** — runs each task without the skill to compute a delta score
 - **judge** — the spec drives evaluation: `expect:` triggers an LLM verdict (which may generate a Python assertion script); `assert:` runs a deterministic Python script; both can be combined and both must pass
 - **cheat detection** — transcript is scanned for reads of forbidden files (spec, results)
@@ -126,7 +127,9 @@ judge:
 
 Results are saved automatically to `.caliper/results/<spec-name>/<timestamp>.json`
 alongside the spec file. Each result includes a full skill snapshot (content + git SHA
-of the skill file and any referenced scripts) for reproducibility.
+of the skill file and any referenced scripts) for reproducibility. Each attempt
+records its `outcome` (see above) and per-task results include an `unusable` count;
+a task with no usable attempts has `pass_at_k: null`.
 
 ## Designing good evals — full guidance
 

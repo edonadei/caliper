@@ -81,11 +81,17 @@ def _run_inline_script(code: str, spec_dir: str) -> tuple[bool, str]:
         Path(tmp_path).unlink(missing_ok=True)
 
 
-def _parse_rich_response(raw: str, spec_dir: str) -> tuple[bool, str]:
+def _parse_rich_response(raw: str, spec_dir: str) -> tuple[bool, str, bool]:
+    """Parse an autorater response into (passed, reasoning, errored).
+
+    ``errored`` is True when the autorater failed to yield a usable verdict at
+    all (unparseable JSON, or a malformed verdict object). It is distinct from a
+    verdict of ``passed=False`` — a real judgment that the task failed.
+    """
     try:
         verdict = json.loads(raw)
     except json.JSONDecodeError:
-        return False, f"Judge returned unparseable response: {raw[:200]}"
+        return False, f"Judge returned unparseable response: {raw[:200]}", True
 
     mode = verdict.get("mode", "verdict")
     reasoning = str(verdict.get("reasoning", ""))
@@ -93,12 +99,12 @@ def _parse_rich_response(raw: str, spec_dir: str) -> tuple[bool, str]:
     if mode == "script":
         code = verdict.get("code", "")
         if not code:
-            return False, "Judge returned empty script"
+            return False, "Judge returned empty script", True
         passed, evidence = _run_inline_script(code, spec_dir)
         detail = f"{reasoning} | script: {'ok' if passed else evidence}"
-        return passed, detail
+        return passed, detail, False
 
-    return bool(verdict.get("passed", False)), reasoning
+    return bool(verdict.get("passed", False)), reasoning, False
 
 
 def _run_assert_from_task(task: TaskSpec, spec_dir: str) -> tuple[bool, str] | None:
@@ -140,23 +146,27 @@ class EvalJudge(Judge):
         assert_evidence: str | None = None
         autorater_passed: bool | None = None
         autorater_reasoning: str | None = None
+        autorater_errored = False
 
         static_result = _run_assert_from_task(task, spec_dir)
         if static_result is not None:
             assert_passed, assert_evidence = static_result
 
         if task.expect:
-            llm_passed, llm_reasoning = self._llm_evaluate(task, transcript, spec_dir)
-            autorater_passed = llm_passed
+            llm_passed, llm_reasoning, autorater_errored = self._llm_evaluate(
+                task, transcript, spec_dir
+            )
             autorater_reasoning = llm_reasoning
+            # An errored autorater yields no verdict: leave autorater_passed None
+            # so it is dropped from the checks rather than counted as a failure.
+            autorater_passed = None if autorater_errored else llm_passed
 
-        checks = []
-        if assert_passed is not None:
-            checks.append(assert_passed)
-        if autorater_passed is not None:
-            checks.append(autorater_passed)
-
+        # Rule B: only checks that produced a verdict count. A judge_error is
+        # raised only when *no* verdict survives (see ADR-0001).
+        checks = [c for c in (assert_passed, autorater_passed) if c is not None]
+        errored = not checks
         overall = all(checks) if checks else False
+
         reasoning_parts = []
         if autorater_reasoning:
             reasoning_parts.append(autorater_reasoning)
@@ -171,11 +181,12 @@ class EvalJudge(Judge):
             assert_evidence=assert_evidence,
             autorater_passed=autorater_passed,
             autorater_reasoning=autorater_reasoning,
+            errored=errored,
         )
 
     def _llm_evaluate(
         self, task: TaskSpec, transcript: list[ConversationTurn], spec_dir: str
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool, str, bool]:
         match normalize_backend(self._config.backend):
             case "codex":
                 from caliper.judge.codex_judge import evaluate_with_codex
@@ -223,7 +234,7 @@ class EvalJudge(Judge):
                     )
                     raw = response.content[0].text.strip()
                 except Exception as exc:
-                    return False, f"claude-api judge failed: {exc}"
+                    return False, f"claude-api judge failed: {exc}", True
                 return _parse_rich_response(raw, spec_dir)
             case _:
-                return False, f"Unknown judge backend: {self._config.backend!r}"
+                return False, f"Unknown judge backend: {self._config.backend!r}", True

@@ -26,6 +26,7 @@ class AttemptResult:
     exit_code: int
     duration_seconds: float
     error: str | None = None
+    timed_out: bool = False
     cheated: bool = False
     cheat_evidence: list[str] = field(default_factory=list)
 

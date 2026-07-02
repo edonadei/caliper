@@ -424,13 +424,33 @@ The spec file is never modified — overrides apply only to the current run.
 
 ## Scoring
 
-For each task:
+Every attempt carries a typed **outcome**, so infrastructure and judge noise are
+not scored as task failure:
+
+| Outcome | Meaning | Counts toward pass@k? |
+| --- | --- | --- |
+| `pass` | satisfied the task's judge(s) | ✅ success |
+| `task_fail` | the skill genuinely failed the task | ✅ attempt |
+| `cheat` | a forbidden-file read was detected | ✅ attempt |
+| `infra_error` | harness failure — nonzero exit, or a detected rate-limit / spending-cap | ❌ unusable |
+| `timeout` | exceeded the time budget with no result | ❌ unusable |
+| `judge_error` | the judge produced no verdict (unparseable / errored autorater) | ❌ unusable |
+
+`passed` is retained in the JSON as a convenience, equal to `outcome == pass`.
+
+For each task, pass@k is computed over the **usable** attempts (those that got a
+fair shot); unusable attempts leave the denominator and are reported as a
+separate "N unusable" count:
 
 ```
-pass@k = 1 - (1 - successes / k) ^ k
+usable  = pass + task_fail + cheat
+pass@k  = 1 - (1 - successes / usable) ^ usable      # None if usable == 0
 ```
 
-The aggregate score is the average task pass@k. With `--baseline`, Caliper runs the same tasks without the skill and reports the delta.
+The aggregate score is the average task pass@k, skipping tasks with no usable
+attempts. With `--baseline`, Caliper runs the same tasks without the skill and
+reports the delta. A throttled or judge-flaked run therefore no longer
+masquerades as a regression.
 
 ---
 
