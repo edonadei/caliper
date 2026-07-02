@@ -10,10 +10,106 @@ sandbox:
     - "./.caliper/.*"
 
 tasks:
-  - name: Generates a valid eval spec from a skill with no existing eval
+  # Task 1 — First-turn interview discipline (open prompt, no eval present).
+  # Exercises the prose we most want to shorten: Phase 1 understanding+confirm
+  # and the one-question-at-a-time discipline. Single-shot harness, so we judge
+  # the FIRST turn only: the agent must interview, not run ahead. The assert is
+  # a deterministic guard that it did NOT fabricate answers and write a spec.
+  - name: Interviews before generating — asks, then stops (does not run ahead)
     setup: |
-      mkdir -p /tmp/grill-test-new
-      cat > /tmp/grill-test-new/SKILL.md << 'EOF'
+      rm -rf /tmp/grill-fresh
+      mkdir -p /tmp/grill-fresh
+      cat > /tmp/grill-fresh/SKILL.md << 'EOF'
+      ---
+      name: changelog-writer
+      description: Use when the user wants to turn merged PRs into a changelog entry.
+      allowed-tools: Bash, Read, Write
+      ---
+
+      # Changelog Writer
+
+      Read the merged PRs since the last tag and write a grouped changelog
+      entry (Features / Fixes / Chore) to CHANGELOG.md.
+      EOF
+    cleanup: rm -rf /tmp/grill-fresh
+    prompt: >
+      I want to create a caliper eval for my skill at
+      /tmp/grill-fresh/SKILL.md. I'm here and will answer whatever you need —
+      do NOT assume what the eval tasks should be, and do NOT write any files
+      yet. What do you need to know from me to get started?
+    expect: >
+      Pass if the agent opens the interview instead of running ahead: it reads
+      the SKILL.md, gives some understanding of the skill, and asks the user for
+      input before generating anything — then STOPS to wait. The number of
+      questions does not matter. Fail if the agent skips the interview: it
+      invents the user's answers, generates the eval tasks itself without
+      asking, or writes any .eval.yaml file in this turn.
+    assert: |
+      import glob
+      # It must not have run ahead and written a spec before interviewing.
+      specs = glob.glob("/tmp/grill-fresh/*.eval.yaml")
+      assert not specs, f"Agent wrote a spec without interviewing: {specs}"
+
+  # Task 2 — Gap-fill detection + no silent overwrite (open prompt, eval present).
+  # Exercises the gap-fill prose: detect existing eval, report tasks, ask what's
+  # missing BEFORE changing anything. Assert is a deterministic guard that the
+  # existing spec was left untouched in this first turn.
+  - name: Detects an existing eval and asks before touching it
+    setup: |
+      rm -rf /tmp/grill-existing
+      mkdir -p /tmp/grill-existing
+      cat > /tmp/grill-existing/SKILL.md << 'EOF'
+      ---
+      name: summarize
+      description: Use when the user wants to summarize a file.
+      allowed-tools: Bash
+      ---
+
+      # Summarize
+
+      Summarize the contents of a file provided by the user.
+      EOF
+      cat > /tmp/grill-existing/summarize.eval.yaml << 'EOF'
+      skill:
+        path: ./SKILL.md
+        backend: claude-code
+      judge:
+        backend: claude-code
+      tasks:
+        - name: Summarizes a short text file
+          prompt: Summarize /tmp/notes.txt
+          expect: The agent produces a summary of the file contents.
+      EOF
+    cleanup: rm -rf /tmp/grill-existing
+    prompt: >
+      I want to improve the eval for my skill at
+      /tmp/grill-existing/SKILL.md using grill-skill. I'm here to answer your
+      questions — do NOT change any files yet. Tell me the current state of my
+      eval and what you need from me.
+    expect: >
+      Pass if the agent detects the existing eval, reports the existing task
+      ("Summarizes a short text file"), and asks the user what behaviors are
+      missing or under-tested before proposing or writing any changes. Fail if
+      it ignores the existing eval, silently overwrites or rewrites it, or adds
+      tasks without first asking what is missing.
+    assert: |
+      import yaml
+      # The existing spec must be untouched: still exactly its one original task.
+      with open("/tmp/grill-existing/summarize.eval.yaml") as f:
+          spec = yaml.safe_load(f)
+      tasks = spec.get("tasks", [])
+      assert len(tasks) == 1, f"Existing spec was modified in this turn: {len(tasks)} tasks"
+      assert tasks[0]["name"] == "Summarizes a short text file", "Original task was altered"
+
+  # Task 3 — Serialization correctness (structure supplied, full artifact check).
+  # The deterministic anchor: when the user hands over the task structure, the
+  # agent must serialize a valid 3-task spec. This is the back-half of the
+  # workflow and the one task with a full artifact assert.
+  - name: Serializes a valid 3-task spec when the structure is given
+    setup: |
+      rm -rf /tmp/grill-serialize
+      mkdir -p /tmp/grill-serialize
+      cat > /tmp/grill-serialize/SKILL.md << 'EOF'
       ---
       name: hello-file
       description: Use when the user wants to write a greeting file.
@@ -24,27 +120,27 @@ tasks:
 
       Write the text "hello world" to /tmp/hello.txt when the user asks.
       EOF
-    cleanup: rm -rf /tmp/grill-test-new
+    cleanup: rm -rf /tmp/grill-serialize
     prompt: >
       Use the grill-skill to create an eval for the skill at
-      /tmp/grill-test-new/SKILL.md. The skill writes "hello world" to
+      /tmp/grill-serialize/SKILL.md. The skill writes "hello world" to
       /tmp/hello.txt. For the happy path task, the prompt should ask the agent
       to write the greeting file and the expect should be that /tmp/hello.txt
       contains "hello world". For the edge case, use a task where the user
       specifies a custom greeting. For the adversarial task, use a case where
       the user asks to overwrite a protected system file. Write the spec to
-      /tmp/grill-test-new/hello-file.eval.yaml and do not run it — just create
+      /tmp/grill-serialize/hello-file.eval.yaml and do not run it — just create
       the file.
     expect: >
       A valid .eval.yaml spec is written at
-      /tmp/grill-test-new/hello-file.eval.yaml with exactly 3 tasks covering a
+      /tmp/grill-serialize/hello-file.eval.yaml with exactly 3 tasks covering a
       happy path, an edge case, and an adversarial case. The skill path is set
       to ./SKILL.md.
     assert: |
       import os
       import yaml
 
-      path = "/tmp/grill-test-new/hello-file.eval.yaml"
+      path = "/tmp/grill-serialize/hello-file.eval.yaml"
       assert os.path.exists(path), "Spec file was not created"
       with open(path) as f:
           spec = yaml.safe_load(f)
@@ -58,89 +154,3 @@ tasks:
           assert "prompt" in task, "Each task needs a prompt"
           has_judge = "expect" in task or "assert" in task
           assert has_judge, f"Task '{task.get('name')}' needs expect or assert"
-
-  - name: Detects an existing eval and enters gap-fill mode
-    setup: |
-      mkdir -p /tmp/grill-test-existing
-      cat > /tmp/grill-test-existing/SKILL.md << 'EOF'
-      ---
-      name: summarize
-      description: Use when the user wants to summarize a file.
-      allowed-tools: Bash
-      ---
-
-      # Summarize
-
-      Summarize the contents of a file provided by the user.
-      EOF
-      cat > /tmp/grill-test-existing/summarize.eval.yaml << 'EOF'
-      skill:
-        path: ./SKILL.md
-        backend: claude-code
-      judge:
-        backend: claude-code
-      tasks:
-        - name: Summarizes a short text file
-          prompt: Summarize /tmp/notes.txt
-          expect: The agent produces a summary of the file contents.
-      EOF
-    cleanup: rm -rf /tmp/grill-test-existing
-    prompt: >
-      Use the grill-skill on the skill at /tmp/grill-test-existing/SKILL.md.
-      The existing eval at /tmp/grill-test-existing/summarize.eval.yaml already
-      has one task covering the happy path. Add two more tasks: one for an edge
-      case where the file does not exist, and one adversarial case where the
-      user asks the agent to summarize a binary file. Update the spec in place
-      and do not run it.
-    expect: >
-      The agent detects the existing eval, reports the existing task, and adds
-      two new tasks to the spec without removing or modifying the original task.
-      The updated spec at /tmp/grill-test-existing/summarize.eval.yaml has
-      exactly 3 tasks.
-    assert: |
-      import os
-      import yaml
-
-      path = "/tmp/grill-test-existing/summarize.eval.yaml"
-      assert os.path.exists(path), "Spec file was not found"
-      with open(path) as f:
-          spec = yaml.safe_load(f)
-      tasks = spec.get("tasks", [])
-      assert len(tasks) == 3, f"Expected 3 tasks (1 original + 2 new), got {len(tasks)}"
-      names = [t["name"] for t in tasks]
-      assert any("short text" in n.lower() or "summarize" in n.lower() for n in names), \
-          "Original task should be preserved"
-
-  - name: Refuses to overwrite an existing spec without user confirmation
-    setup: |
-      mkdir -p /tmp/grill-test-overwrite
-      cat > /tmp/grill-test-overwrite/SKILL.md << 'EOF'
-      ---
-      name: greeter
-      description: Says hello.
-      allowed-tools: Bash
-      ---
-      # Greeter
-      Say hello to the user.
-      EOF
-      cat > /tmp/grill-test-overwrite/greeter.eval.yaml << 'EOF'
-      skill:
-        path: ./SKILL.md
-        backend: claude-code
-      judge:
-        backend: claude-code
-      tasks:
-        - name: Says hello
-          prompt: Say hello
-          expect: The agent greets the user.
-      EOF
-    cleanup: rm -rf /tmp/grill-test-overwrite
-    prompt: >
-      Use the grill-skill on the skill at /tmp/grill-test-overwrite/SKILL.md
-      and tell me what tasks already exist before suggesting anything new. Do
-      not modify the file.
-    expect: >
-      The agent detects the existing eval, reports the existing task ("Says
-      hello"), and asks the user what behaviors are missing or under-tested
-      before making any changes. The agent does not silently overwrite or
-      replace the existing spec.

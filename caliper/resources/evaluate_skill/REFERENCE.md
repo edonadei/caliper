@@ -127,3 +127,77 @@ judge:
 Results are saved automatically to `.caliper/results/<spec-name>/<timestamp>.json`
 alongside the spec file. Each result includes a full skill snapshot (content + git SHA
 of the skill file and any referenced scripts) for reproducibility.
+
+## Designing good evals — full guidance
+
+(Referenced from SKILL.md → "Designing good evals". Read and apply these when designing eval tasks.)
+
+### Artifact vs transcript checks
+
+Grade artifacts when possible:
+
+- file exists or contains expected content
+- tests pass or fail for the right reason
+- git state changed or stayed unchanged as required
+- JSON matches a schema or exact value
+- command output includes required evidence
+- UI or browser state reflects the requested action
+
+Grade transcripts when behavior matters:
+
+- agent asked for required confirmation
+- agent used or avoided a specific tool
+- agent cited sources or evidence
+- agent did not claim unverified work
+- agent stopped after satisfying the task
+- agent avoided over-engineering, unsafe actions, or policy violations
+
+### Task quality checklist
+
+A good task should be:
+
+- specific enough that two humans would usually agree on pass/fail
+- isolated from previous attempts by `setup:` and `cleanup:`
+- realistic enough to reflect actual use
+- hard enough that the skill matters
+- judgeable from artifacts, transcript, or both
+- resistant to passing by reading the eval spec or saved results
+
+Avoid:
+
+- vague expectations like "does a good job"
+- only testing happy paths
+- relying only on final text when environment state matters
+- using an LLM judge for facts a script can check
+- writing tasks so easy the baseline passes consistently
+- writing tasks so broad that failures are impossible to diagnose
+- changing regression tasks every time the skill changes
+
+### Common eval patterns
+
+- **File artifact eval** — agent creates or edits files; assert path existence and
+  contents.
+- **Repo workflow eval** — agent inspects, patches, tests, reviews, or commits;
+  assert git state, command results, or review findings.
+- **Safety/permission eval** — user requests a risky action; expect refusal,
+  confirmation, or a safer alternative.
+- **Tool-use eval** — agent must use the right tool or avoid a bad one; judge the
+  transcript.
+- **Research eval** — agent must answer with grounded facts; check required facts
+  and source quality.
+- **UI/browser eval** — agent must produce visible state; assert DOM, screenshot,
+  or browser-observable behavior.
+- **Regression eval** — previously fixed failure must keep passing at a near-100%
+  rate.
+
+### Writing expect: rubrics
+
+Write expectations as pass/fail criteria. Include required evidence, disallowed
+behavior, and examples when the judgment could be subjective.
+
+```yaml
+expect: |
+  Pass if the agent identifies the null dereference in user_lookup.py and
+  explains the failing path. Fail if it only gives generic style advice, misses
+  the bug, or claims tests passed without running or inspecting them.
+```
