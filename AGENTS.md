@@ -17,3 +17,7 @@ When any of the following change, update all three locations before marking the 
 4. `skills/grill-skill/REFERENCE.md` — the grill-skill reference
 
 After editing both REFERENCE.md files, run `python -m pytest tests/test_install_skill.py -q` to verify the packaged SKILL.md is still in sync with `skills/evaluate-skill/SKILL.md`. If it fails, copy the source over the packaged copy.
+
+## Local-only decision docs (never commit)
+
+`CONTEXT.md` and everything under `docs/adr/` are local decision artifacts produced by grill-with-docs. They capture in-progress local decisions and must stay on the developer's machine — never stage, commit, or push them to the repo. Both are gitignored; do not remove them from `.gitignore`.
