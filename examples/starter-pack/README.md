@@ -121,8 +121,7 @@ side-effect path, which can appear in `setup`, `cleanup`, `prompt`, and
 
 1. **`skill.path`** — point it at your own `SKILL.md` (or delete it to test the
    bare agent with no skill).
-2. **`skill.backend`** — your agent: `claude-code`, `codex`, `pi`, `claude-api`,
-   or `openai-api`.
+2. **`skill.backend`** — your agent: `claude-code`, `codex`, or `pi`.
 3. **`tasks[].prompt`** (and the matching `expect:`/`assert:`) — describe a real
    request and what a correct result looks like for *your* skill.
 

@@ -16,7 +16,7 @@ The `caliper` CLI must be on `PATH`. This skill can be copied into an agent with
 pipx install caliper-eval
 ```
 
-Backends for the skill-under-test (`skill.backend`) and the judge (`judge.backend`) are chosen independently — from `claude-code`, `codex`, `pi`, `claude-api`, `openai-api`. The CLI backends (`codex`, `pi`) use their own CLI subscription/auth and never fall back to an API; the API backends run only when you intend API billing. Full per-backend detail and every command: [REFERENCE.md](REFERENCE.md).
+Backends for the skill-under-test (`skill.backend`) and the judge (`judge.backend`) are chosen independently — from `claude-code`, `codex`, `pi`. Every backend is a CLI agent that uses its own subscription/auth; there is no direct-API backend (for API billing, configure a CLI with an API key). Full per-backend detail and every command: [REFERENCE.md](REFERENCE.md).
 
 ## Spec shape
 
@@ -25,7 +25,7 @@ An `.eval.yaml` names the skill, the judge, and a list of tasks. Keep `skill.pat
 ```yaml
 skill:
   path: ./SKILL.md      # relative to the spec file
-  backend: codex        # claude-code | codex | pi | claude-api | openai-api
+  backend: codex        # claude-code | codex | pi
 judge:
   backend: codex        # independent of skill.backend
 tasks:

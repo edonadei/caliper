@@ -221,7 +221,7 @@ If an `.eval.yaml` already exists next to your skill, `grill-skill` reads the ex
 | Term | What it is |
 |---|---|
 | **Spec** | A `.eval.yaml` file that describes the skill, judge, and tasks to run |
-| **Backend** | The agent that executes the skill (`claude-code`, `codex`, `pi`, `claude-api`, `openai-api`) |
+| **Backend** | The CLI agent that executes the skill (`claude-code`, `codex`, `pi`) |
 | **Judge** | What decides pass/fail — an LLM reading the transcript (`expect:`), Python assertions (`assert:`), or both |
 | **pass@k** | Reliability score: run k times, measure how often the skill succeeds |
 | **Baseline** | Re-run the same tasks without the skill to prove the skill is doing the work |
@@ -236,20 +236,14 @@ If an `.eval.yaml` already exists next to your skill, `grill-skill` reads the ex
 | `claude-code` | Claude Code CLI installed and authenticated | Testing Claude Code slash-command skills |
 | `codex` | Codex CLI installed (`npm install -g @openai/codex`) | Testing Codex skills |
 | `pi` | pi CLI installed (`npm install -g @earendil-works/pi-coding-agent`) and authenticated | Testing pi skills (agentskills.io) |
-| `claude-api` | `ANTHROPIC_API_KEY` env var | API-backed agents, no CLI needed |
-| `openai-api` | `OPENAI_API_KEY` env var | OpenAI API agents |
+
+Caliper runs skills only through CLI agents — every backend can actually load and run a skill. There is no direct-API backend: to run against API-priced billing, configure one of these CLIs with an API key (e.g. `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) rather than selecting a separate backend.
 
 The agent backend and judge backend are independent — you can test a Codex skill with a Claude judge, or any other combination.
 
 ### Claude Code setup
 
 Install and authenticate the `claude` CLI. `backend: claude-code` uses your existing Claude Code auth — no extra configuration needed.
-
-For `backend: claude-api`:
-
-```bash
-export ANTHROPIC_API_KEY=...
-```
 
 ### Codex setup
 
@@ -258,13 +252,7 @@ npm install -g @openai/codex
 codex login
 ```
 
-`backend: codex` calls `codex exec`. It does not fall back to the OpenAI API. If the Codex desktop app is installed, Caliper prefers the app-bundled binary over `codex` on `PATH`. Set `CODEX_CLI_PATH` to force a specific binary.
-
-For `backend: openai-api`:
-
-```bash
-export OPENAI_API_KEY=...
-```
+`backend: codex` calls `codex exec`. If the Codex desktop app is installed, Caliper prefers the app-bundled binary over `codex` on `PATH`. Set `CODEX_CLI_PATH` to force a specific binary.
 
 ### pi setup
 
@@ -303,11 +291,11 @@ caliper update-cli --check
 ```yaml
 skill:
   path: ./SKILL.md              # path to the skill file (optional for baseline-only runs)
-  backend: claude-code          # claude-code | codex | pi | claude-api | openai-api
+  backend: claude-code          # claude-code | codex | pi
   model: <model-name>           # optional model override
 
 judge:
-  backend: claude-code          # claude-code | codex | pi | claude-api | openai-api
+  backend: claude-code          # claude-code | codex | pi
   model: <model-name>           # optional model override
 
 sandbox:
@@ -406,7 +394,7 @@ Both flags accept a `backend:model` compound value, a bare backend name, or a ba
 
 ```bash
 # Override backend and model together
-caliper run my-skill.eval.yaml --model claude-api:claude-sonnet-4-6
+caliper run my-skill.eval.yaml --model codex:gpt-5-codex
 
 # Override backend only (model stays unset / from spec)
 caliper run my-skill.eval.yaml --model codex
@@ -415,10 +403,10 @@ caliper run my-skill.eval.yaml --model codex
 caliper run my-skill.eval.yaml --model claude-sonnet-4-6
 
 # Override judge independently
-caliper run my-skill.eval.yaml --model claude-api:claude-sonnet-4-6 --judge-model claude-api:claude-haiku-4-5-20251001
+caliper run my-skill.eval.yaml --model codex --judge-model claude-code:claude-haiku-4-5-20251001
 ```
 
-Accepted backends: `claude-code`, `codex`, `pi`, `claude-api`, `openai-api` (aliases: `claude`, `anthropic`, `openai`).
+Accepted backends: `claude-code`, `codex`, `pi` (alias: `claude` → `claude-code`).
 
 The spec file is never modified — overrides apply only to the current run.
 
@@ -558,7 +546,7 @@ Good first areas:
 Before opening a pull request:
 
 ```bash
-pip install -e ".[dev,openai]"
+pip install -e ".[dev]"
 pytest
 ruff format --check .
 ruff check .
@@ -583,7 +571,7 @@ npm install -g @openai/codex
 ```
 
 **`claude` command not found**
-Install and authenticate Claude Code, or switch the backend to `codex`, `pi`, `claude-api`, or `openai-api`.
+Install and authenticate Claude Code, or switch the backend to `codex` or `pi`.
 
 **A task passes only because of `assert:`**
 When a task has only `assert:`, no LLM judge runs. Add `expect:` if you also want an LLM to evaluate the transcript.

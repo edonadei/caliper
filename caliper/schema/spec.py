@@ -6,18 +6,14 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
-BackendName = Literal["claude-code", "codex", "claude-api", "openai-api", "pi"]
+BackendName = Literal["claude-code", "codex", "pi"]
 
-_VALID_BACKENDS: frozenset[str] = frozenset(
-    {"claude-code", "codex", "claude-api", "openai-api", "pi"}
-)
+_VALID_BACKENDS: frozenset[str] = frozenset({"claude-code", "codex", "pi"})
 
 
 def normalize_backend(value: str) -> str:
     aliases = {
         "claude": "claude-code",
-        "anthropic": "claude-api",
-        "openai": "openai-api",
     }
     return aliases.get(value, value)
 
@@ -26,9 +22,9 @@ def parse_target(value: str) -> tuple[str | None, str | None]:
     """Parse a --model / --judge-model value into (backend, model).
 
     Accepts three forms:
-      "claude-api:claude-sonnet-4-6"  -> ("claude-api", "claude-sonnet-4-6")
-      "codex"                         -> ("codex", None)   # known backend name
-      "claude-sonnet-4-6"             -> (None, "claude-sonnet-4-6")
+      "codex:gpt-5-codex"   -> ("codex", "gpt-5-codex")
+      "codex"               -> ("codex", None)   # known backend name
+      "claude-sonnet-4-6"   -> (None, "claude-sonnet-4-6")
     """
     if ":" in value:
         backend, _, model = value.partition(":")

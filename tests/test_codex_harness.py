@@ -7,7 +7,6 @@ import pytest
 
 from caliper.harness.base import HarnessConfigurationError
 from caliper.harness.codex import CodexHarness
-from caliper.harness.openai_api import OpenAIAPIHarness
 
 
 def test_codex_cli_receives_injected_skill_on_stdin(monkeypatch, tmp_path) -> None:
@@ -271,7 +270,7 @@ def test_codex_fails_clearly_when_cli_is_not_runnable(monkeypatch, tmp_path) -> 
             isolated_home=str(tmp_path),
         )
 
-    assert "does not fall back to the OpenAI API" in str(exc.value)
+    assert "Caliper runs skills only through CLI agents" in str(exc.value)
 
 
 def test_codex_fails_clearly_when_cli_requires_newer_version(
@@ -315,27 +314,3 @@ def test_codex_fails_clearly_when_cli_requires_newer_version(
     assert "requested model" in message
     assert "upgrade the Codex app or CLI" in message
     assert "Hello" not in message
-
-
-def test_openai_api_backend_is_explicit(monkeypatch, tmp_path) -> None:
-    api_calls = []
-
-    def fake_api(self, prompt: str, model: str, timeout: int):
-        api_calls.append((prompt, model, timeout))
-        return "api ok", 0, None
-
-    monkeypatch.setattr(OpenAIAPIHarness, "_run_api", fake_api)
-
-    result = OpenAIAPIHarness(model="api-model").run(
-        task_id="task-001",
-        attempt=1,
-        prompt="Hello",
-        skill_path=None,
-        model=None,
-        timeout=12,
-        isolated_home=str(tmp_path),
-    )
-
-    assert result.exit_code == 0
-    assert result.final_output == "api ok"
-    assert api_calls == [("Hello", "api-model", 12)]

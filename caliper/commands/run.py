@@ -48,12 +48,12 @@ def run_cmd(
         None,
         "--model",
         "-m",
-        help="Override skill backend/model (e.g. claude-api:claude-sonnet-4-6 or claude-sonnet-4-6)",
+        help="Override skill backend/model (e.g. codex:gpt-5-codex or claude-sonnet-4-6)",
     ),
     judge_model: Optional[str] = typer.Option(
         None,
         "--judge-model",
-        help="Override judge backend/model (e.g. claude-api:claude-haiku-4-5-20251001)",
+        help="Override judge backend/model (e.g. claude-code:claude-haiku-4-5-20251001)",
     ),
 ) -> None:
     if not spec_file.exists():
