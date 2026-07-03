@@ -22,7 +22,7 @@ def evaluate_with_pi(
     model: str | None,
     spec_dir: str,
     timeout: int = 60,
-) -> tuple[bool, str, bool]:
+) -> tuple[bool, str, bool, str | None]:
     user_msg = _USER_TMPL.format(
         expect=expect,
         transcript=_format_transcript(transcript),
@@ -30,8 +30,11 @@ def evaluate_with_pi(
     prompt = f"{_SYSTEM}\n\n{user_msg}"
     raw, error = _run_pi(prompt, model, spec_dir, timeout)
     if error:
-        return False, error, True
-    return _parse_rich_response(raw, spec_dir)
+        return False, error, True, model
+    passed, reasoning, errored = _parse_rich_response(raw, spec_dir)
+    # pi's judge invocation doesn't surface the resolved model, so we can only
+    # report the one that was requested (None when its own default was used).
+    return passed, reasoning, errored, model
 
 
 def _run_pi(

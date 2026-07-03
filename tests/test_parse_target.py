@@ -11,6 +11,12 @@ from caliper.schema.spec import parse_target
         # backend:model compound
         ("codex:gpt-5-codex", ("codex", "gpt-5-codex")),
         ("pi:claude-sonnet-4-6", ("pi", "claude-sonnet-4-6")),
+        # hermes takes a provider/model value straight through to its -m flag
+        (
+            "hermes:anthropic/claude-sonnet-4.6",
+            ("hermes", "anthropic/claude-sonnet-4.6"),
+        ),
+        ("hermes", ("hermes", None)),
         # alias normalised on the backend side
         ("claude:claude-sonnet-4-6", ("claude-code", "claude-sonnet-4-6")),
         # backend only (known name, no colon)

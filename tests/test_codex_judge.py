@@ -20,7 +20,7 @@ def test_eval_judge_expect_only_calls_llm(monkeypatch, tmp_path) -> None:
 
     def fake_eval(*, expect, transcript, model, cwd, timeout=60):
         calls.append((expect, model, cwd))
-        return True, "Codex accepted the transcript.", False
+        return True, "Codex accepted the transcript.", False, model
 
     monkeypatch.setattr(
         "caliper.judge.script_assert.EvalJudge._llm_evaluate",
@@ -77,7 +77,7 @@ def test_eval_judge_assert_failure_makes_overall_fail(tmp_path) -> None:
 def test_eval_judge_both_checks_must_pass(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         "caliper.judge.script_assert.EvalJudge._llm_evaluate",
-        lambda self, task, transcript, spec_dir: (True, "LLM says yes", False),
+        lambda self, task, transcript, spec_dir: (True, "LLM says yes", False, None),
     )
 
     judge = EvalJudge(backend="codex")
@@ -100,7 +100,7 @@ def test_eval_judge_both_checks_must_pass(monkeypatch, tmp_path) -> None:
 
 
 def _errored_llm(self, task, transcript, spec_dir):
-    return False, "judge flaked", True
+    return False, "judge flaked", True, None
 
 
 def test_errored_autorater_dropped_when_assert_passes(monkeypatch, tmp_path) -> None:
@@ -184,7 +184,7 @@ def test_codex_judge_uses_output_last_message(monkeypatch, tmp_path) -> None:
     )
     monkeypatch.setattr("caliper.judge.codex_judge.subprocess.run", fake_run)
 
-    passed, reasoning, errored = evaluate_with_codex(
+    passed, reasoning, errored, _model = evaluate_with_codex(
         expect="The assistant says hello.",
         transcript=[ConversationTurn(role="assistant", content="hello")],
         model="test-model",
@@ -209,7 +209,7 @@ def test_eval_judge_uses_codex_for_expect_when_configured(
 
     def fake_eval(*, expect, transcript, model, cwd, timeout=60):
         calls.append((expect, transcript, model, cwd, timeout))
-        return True, "Codex accepted the transcript.", False
+        return True, "Codex accepted the transcript.", False, model
 
     monkeypatch.setattr("caliper.judge.codex_judge.evaluate_with_codex", fake_eval)
 

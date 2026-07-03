@@ -214,7 +214,7 @@ If an `.eval.yaml` already exists next to your skill, `grill-skill` reads the ex
 | Term | What it is |
 |---|---|
 | **Spec** | A `.eval.yaml` file that describes the skill, judge, and tasks to run |
-| **Backend** | The CLI agent that executes the skill (`claude-code`, `codex`, `pi`) |
+| **Backend** | The CLI agent that executes the skill (`claude-code`, `codex`, `pi`, `hermes`) |
 | **Judge** | What decides pass/fail — an LLM reading the transcript (`expect:`), Python assertions (`assert:`), or both |
 | **pass@k** | Reliability score: run k times, measure how often the skill succeeds |
 | **Baseline** | Re-run the same tasks without the skill to prove the skill is doing the work |
@@ -241,6 +241,7 @@ caliper run my-skill.eval.yaml --model pi --judge-model claude-code
 | `claude-code` | Claude Code CLI installed and authenticated | Testing Claude Code slash-command skills |
 | `codex` | Codex CLI installed (`npm install -g @openai/codex`) | Testing Codex skills |
 | `pi` | pi CLI installed (`npm install -g @earendil-works/pi-coding-agent`) and authenticated | Testing pi skills (agentskills.io) |
+| `hermes` | Hermes Agent CLI installed and authenticated (Nous Research) | Testing skills on Hermes; `hermes:<provider>/<model>` selects the model |
 
 Caliper runs skills only through CLI agents — every backend can actually load and run a skill. There is no direct-API backend: to run against API-priced billing, configure one of these CLIs with an API key (e.g. `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) rather than selecting a separate backend.
 
@@ -267,6 +268,15 @@ pi   # then authenticate (e.g. /login for a subscription provider, or set the pr
 ```
 
 `--model pi` runs `pi --print --mode json` and loads the skill natively via pi's `--skill` flag (the agentskills.io standard). It reuses your `~/.pi/agent` auth and settings — the `:model` half of `--model pi:<model>` overrides pi's configured default when set. Set `PI_CLI_PATH` to force a specific binary. Note: pi's built-in default provider is `google`, so running `--model pi` with no model relies on your pi config to resolve a provider you are authenticated for.
+
+### Hermes setup
+
+```bash
+curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+hermes login   # authenticate; pick a default model/provider you have credits for
+```
+
+Hermes is a stateful, always-on agent (persistent memory, a persona, auto-generated skills), so Caliper **normalizes it to a neutral agent** to keep its pass@k apples-to-apples with the other backends: every attempt runs in an isolated `HERMES_HOME` seeded with your `~/.hermes` auth/config only (never `SOUL.md`/`MEMORY.md`) and with `--ignore-rules`, and the skill-under-test is staged as the sole local skill. `--model hermes` runs `hermes -z` (oneshot) then `hermes sessions export` to recover the full tool-call trajectory; `--model hermes:<provider>/<model>` (e.g. `hermes:anthropic/claude-sonnet-4.6`) selects the model, otherwise your `~/.hermes/config.yaml` default is used — point it at a provider you have credits for. Set `HERMES_CLI_PATH` to force a specific binary. Hermes updates itself (`hermes update`), so it is not part of `caliper update-cli`.
 
 Check installed CLI versions:
 
@@ -407,7 +417,7 @@ caliper run my-skill.eval.yaml --model claude-sonnet-4-6
 caliper run my-skill.eval.yaml --model codex --judge-model claude-code:claude-haiku-4-5-20251001
 ```
 
-Accepted backends: `claude-code`, `codex`, `pi` (alias: `claude` → `claude-code`). The actual engine used is recorded in each saved run's `RunMeta`, so results stay traceable even though the spec doesn't pin it.
+Accepted backends: `claude-code`, `codex`, `pi`, `hermes` (alias: `claude` → `claude-code`). The actual engine used is recorded in each saved run's `RunMeta` — the skill `backend`/`model`, and the `judge_backend`/`judge_model` that graded it — so results stay traceable even though the spec doesn't pin it. When you don't name a model and the CLI uses its own default, `RunMeta` records the concrete model the agent resolved rather than a bare "default", wherever the backend reports it — the skill model from hermes' session export, and the `judge_model` from the `claude-code` judge's JSON output. `judge_model` stays empty for an `assert:`-only run, where no LLM judge fired.
 
 ---
 

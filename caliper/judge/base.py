@@ -19,6 +19,10 @@ class JudgeResult:
     # autorater response, or the judge call threw). Distinct from a `passed`
     # verdict of False, which is a genuine task failure.
     errored: bool = False
+    # The concrete model the autorater used, when the judge CLI reports it (e.g.
+    # claude-code echoes it in its JSON output). ``None`` when no LLM autorater
+    # ran (assert-only task) or the backend does not surface the model.
+    resolved_model: str | None = None
 
 
 class Judge(ABC):
