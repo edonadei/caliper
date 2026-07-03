@@ -142,7 +142,11 @@ class CodexHarness(HarnessBackend):
                 env=env,
                 cwd=isolated_home,
             )
-            return result.stdout.strip(), result.returncode, result.stderr.strip() or None
+            return (
+                result.stdout.strip(),
+                result.returncode,
+                result.stderr.strip() or None,
+            )
         except subprocess.TimeoutExpired:
             return "", 124, "timeout"
         except OSError as exc:
@@ -337,7 +341,9 @@ class CodexHarness(HarnessBackend):
 
     def _summarize_cli_configuration_error(self, text: str) -> str:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
-        version_line = next((line for line in lines if line.startswith("OpenAI Codex")), None)
+        version_line = next(
+            (line for line in lines if line.startswith("OpenAI Codex")), None
+        )
         error_lines = [line for line in lines if line.startswith("ERROR:")]
         detail_lines = [
             line

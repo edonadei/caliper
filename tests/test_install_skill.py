@@ -30,7 +30,9 @@ def test_install_skill_codex_writes_expected_path(tmp_path) -> None:
 
 
 def test_install_skill_claude_code_writes_expected_path(tmp_path) -> None:
-    result = runner.invoke(app, ["install-skill", "claude-code"], env={"HOME": str(tmp_path)})
+    result = runner.invoke(
+        app, ["install-skill", "claude-code"], env={"HOME": str(tmp_path)}
+    )
 
     destination = tmp_path / ".claude" / "commands" / "evaluate-skill.md"
     assert result.exit_code == 0, result.output

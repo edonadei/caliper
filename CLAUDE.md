@@ -18,6 +18,15 @@ When any of the following change, update all three locations before marking the 
 
 After editing both REFERENCE.md files, run `python -m pytest tests/test_install_skill.py -q` to verify the packaged SKILL.md is still in sync with `skills/evaluate-skill/SKILL.md`. If it fails, copy the source over the packaged copy.
 
+## Formatting
+
+`ruff` is the single formatting and linting authority for this repo, pinned to
+`ruff==0.13.0`. Run `ruff format .` and `ruff check .` before finishing. Never
+hand-reformat lines outside the scope of your change — the formatter is the
+only style authority, and manual reflow inflates diffs. CI enforces
+`ruff format --check .` and `ruff check .` on every PR. See `CONTRIBUTING.md`
+for details.
+
 ## Local-only decision docs (never commit)
 
 `CONTEXT.md` and everything under `docs/adr/` are local decision artifacts produced by grill-with-docs. They capture in-progress local decisions and must stay on the developer's machine — never stage, commit, or push them to the repo. Both are gitignored; do not remove them from `.gitignore`.

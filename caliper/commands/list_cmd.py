@@ -14,8 +14,12 @@ console = Console()
 
 
 def list_cmd_fn(
-    spec: Annotated[Optional[str], typer.Argument(help="Spec name to list runs for")] = None,
-    directory: Annotated[Path, typer.Option("--dir", help="Directory to search")] = Path("."),
+    spec: Annotated[
+        Optional[str], typer.Argument(help="Spec name to list runs for")
+    ] = None,
+    directory: Annotated[
+        Path, typer.Option("--dir", help="Directory to search")
+    ] = Path("."),
 ) -> None:
     caliper_dir = directory / ".caliper" / "results"
 
@@ -27,7 +31,9 @@ def list_cmd_fn(
 
 def _list_specs(results_dir: Path) -> None:
     if not results_dir.exists():
-        console.print("[dim]No evaluation results found. Run [bold]caliper run[/bold] first.[/dim]")
+        console.print(
+            "[dim]No evaluation results found. Run [bold]caliper run[/bold] first.[/dim]"
+        )
         return
 
     table = Table(box=box.ROUNDED, header_style="bold cyan", expand=False)

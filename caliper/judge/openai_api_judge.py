@@ -20,7 +20,11 @@ def evaluate_with_openai_api(
     try:
         from openai import OpenAI
     except ImportError:
-        return False, "openai package not installed; run: pip install caliper[openai]", True
+        return (
+            False,
+            "openai package not installed; run: pip install caliper[openai]",
+            True,
+        )
 
     user_msg = _USER_TMPL.format(
         expect=expect,

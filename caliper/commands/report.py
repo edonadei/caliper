@@ -13,14 +13,22 @@ console = Console()
 
 
 def report_cmd(
-    spec_or_file: Annotated[str, typer.Argument(help="Spec name or path to results JSON")],
-    run: Annotated[Optional[str], typer.Option("--run", help="Specific run timestamp")] = None,
-    fmt: Annotated[str, typer.Option("--format", "-f", help="Output format: table | json")] = "table",
+    spec_or_file: Annotated[
+        str, typer.Argument(help="Spec name or path to results JSON")
+    ],
+    run: Annotated[
+        Optional[str], typer.Option("--run", help="Specific run timestamp")
+    ] = None,
+    fmt: Annotated[
+        str, typer.Option("--format", "-f", help="Output format: table | json")
+    ] = "table",
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
     results_path = _resolve_path(spec_or_file, run)
     if results_path is None:
-        console.print(f"[bold red]Error:[/bold red] No results found for {spec_or_file!r}")
+        console.print(
+            f"[bold red]Error:[/bold red] No results found for {spec_or_file!r}"
+        )
         raise typer.Exit(1)
 
     try:

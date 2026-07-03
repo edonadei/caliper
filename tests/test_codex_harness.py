@@ -22,7 +22,9 @@ def test_codex_cli_receives_injected_skill_on_stdin(monkeypatch, tmp_path) -> No
     def fake_run(cmd, **kwargs):
         calls.append((cmd, kwargs))
         if cmd == ["codex.cmd", "--version"]:
-            return subprocess.CompletedProcess(cmd, 0, stdout="codex-cli 0.132.0\n", stderr="")
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="codex-cli 0.132.0\n", stderr=""
+            )
         assert cmd[:2] == ["codex.cmd", "exec"]
         assert cmd[-1] == "-"
         assert kwargs["input"].startswith("[Skill context]\nUse caliper carefully.")
@@ -31,7 +33,9 @@ def test_codex_cli_receives_injected_skill_on_stdin(monkeypatch, tmp_path) -> No
         return subprocess.CompletedProcess(cmd, 0, stdout="VALID\n", stderr="")
 
     monkeypatch.setattr("caliper.harness.codex.shutil.which", fake_which)
-    monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex")
+    monkeypatch.setattr(
+        "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
+    )
     monkeypatch.setattr("caliper.harness.codex.subprocess.run", fake_run)
 
     result = CodexHarness().run(
@@ -61,11 +65,15 @@ def test_codex_cli_omits_model_when_unspecified(monkeypatch, tmp_path) -> None:
     def fake_run(cmd, **kwargs):
         calls.append((cmd, kwargs))
         if cmd == ["codex", "--version"]:
-            return subprocess.CompletedProcess(cmd, 0, stdout="codex-cli 0.132.0\n", stderr="")
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="codex-cli 0.132.0\n", stderr=""
+            )
         return subprocess.CompletedProcess(cmd, 0, stdout="OK\n", stderr="")
 
     monkeypatch.setattr("caliper.harness.codex.shutil.which", lambda _name: "codex")
-    monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex")
+    monkeypatch.setattr(
+        "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
+    )
     monkeypatch.setattr("caliper.harness.codex.subprocess.run", fake_run)
 
     result = CodexHarness().run(
@@ -86,7 +94,9 @@ def test_codex_cli_omits_model_when_unspecified(monkeypatch, tmp_path) -> None:
 def test_codex_json_stream_captures_tool_calls(monkeypatch, tmp_path) -> None:
     def fake_run(cmd, **kwargs):
         if cmd == ["codex", "--version"]:
-            return subprocess.CompletedProcess(cmd, 0, stdout="codex-cli 0.132.0\n", stderr="")
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="codex-cli 0.132.0\n", stderr=""
+            )
         events = [
             {"type": "thread.started", "thread_id": "thread-1"},
             {"type": "turn.started"},
@@ -122,7 +132,9 @@ def test_codex_json_stream_captures_tool_calls(monkeypatch, tmp_path) -> None:
         return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
     monkeypatch.setattr("caliper.harness.codex.shutil.which", lambda _name: "codex")
-    monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex")
+    monkeypatch.setattr(
+        "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
+    )
     monkeypatch.setattr("caliper.harness.codex.subprocess.run", fake_run)
 
     result = CodexHarness().run(
@@ -152,7 +164,9 @@ def test_codex_json_stream_captures_tool_calls(monkeypatch, tmp_path) -> None:
 def test_codex_json_stream_keeps_unknown_tool_items(monkeypatch, tmp_path) -> None:
     def fake_run(cmd, **kwargs):
         if cmd == ["codex", "--version"]:
-            return subprocess.CompletedProcess(cmd, 0, stdout="codex-cli 0.132.0\n", stderr="")
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="codex-cli 0.132.0\n", stderr=""
+            )
         events = [
             {
                 "type": "item.completed",
@@ -173,7 +187,9 @@ def test_codex_json_stream_keeps_unknown_tool_items(monkeypatch, tmp_path) -> No
         return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
     monkeypatch.setattr("caliper.harness.codex.shutil.which", lambda _name: "codex")
-    monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex")
+    monkeypatch.setattr(
+        "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
+    )
     monkeypatch.setattr("caliper.harness.codex.subprocess.run", fake_run)
 
     result = CodexHarness().run(
@@ -209,12 +225,12 @@ def test_codex_config_copy_strips_top_level_model(monkeypatch, tmp_path) -> None
     real_codex_home.mkdir(parents=True)
     (real_codex_home / "auth.json").write_text("{}")
     (real_codex_home / "config.toml").write_text(
-        '\n'.join(
+        "\n".join(
             [
                 'model = "gpt-5.5"',
                 'model_reasoning_effort = "medium"',
                 "",
-                '[profiles.keep]',
+                "[profiles.keep]",
                 'model = "profile-model"',
             ]
         )
@@ -235,7 +251,9 @@ def test_codex_config_copy_strips_top_level_model(monkeypatch, tmp_path) -> None
 
 def test_codex_fails_clearly_when_cli_is_not_runnable(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("caliper.harness.codex.shutil.which", lambda _name: "codex.exe")
-    monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex")
+    monkeypatch.setattr(
+        "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
+    )
 
     def fake_run(cmd, **kwargs):
         raise OSError("access denied")
@@ -256,21 +274,27 @@ def test_codex_fails_clearly_when_cli_is_not_runnable(monkeypatch, tmp_path) -> 
     assert "does not fall back to the OpenAI API" in str(exc.value)
 
 
-def test_codex_fails_clearly_when_cli_requires_newer_version(monkeypatch, tmp_path) -> None:
+def test_codex_fails_clearly_when_cli_requires_newer_version(
+    monkeypatch, tmp_path
+) -> None:
     monkeypatch.setattr("caliper.harness.codex.shutil.which", lambda _name: "codex")
-    monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex")
+    monkeypatch.setattr(
+        "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
+    )
 
     def fake_run(cmd, **kwargs):
         if cmd == ["codex", "--version"]:
-            return subprocess.CompletedProcess(cmd, 0, stdout="codex-cli 0.46.0\n", stderr="")
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="codex-cli 0.46.0\n", stderr=""
+            )
         return subprocess.CompletedProcess(
             cmd,
             1,
             stdout="",
             stderr=(
                 "ERROR: unexpected status 400 Bad Request: "
-                "{\"detail\":\"The 'gpt-5.4-mini' model requires a newer version "
-                "of Codex. Please upgrade to the latest app or CLI and try again.\"}"
+                '{"detail":"The \'gpt-5.4-mini\' model requires a newer version '
+                'of Codex. Please upgrade to the latest app or CLI and try again."}'
             ),
         )
 

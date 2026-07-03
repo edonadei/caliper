@@ -113,7 +113,11 @@ def _print_checks(targets: list[CliTarget]) -> None:
 def _update(cli: CliTarget, *, yes: bool) -> None:
     command = _command_for(cli)
     app_bundle = _app_bundle_for(cli)
-    if app_bundle and command == str(app_bundle) and not os.environ.get("CODEX_CLI_PATH"):
+    if (
+        app_bundle
+        and command == str(app_bundle)
+        and not os.environ.get("CODEX_CLI_PATH")
+    ):
         console.print(
             "[bold yellow]Codex app bundle detected.[/bold yellow] "
             "Caliper currently uses the Codex CLI inside the desktop app, so "
@@ -124,7 +128,9 @@ def _update(cli: CliTarget, *, yes: bool) -> None:
 
     npm = shutil.which("npm")
     if not npm:
-        console.print("[bold red]Error:[/bold red] npm is required to update agent CLIs.")
+        console.print(
+            "[bold red]Error:[/bold red] npm is required to update agent CLIs."
+        )
         raise typer.Exit(1)
 
     install_cmd = [npm, "install", "-g", cli.npm_package]
@@ -194,7 +200,11 @@ def _latest_npm_version(package: str) -> str | None:
 
 def _update_hint(cli: CliTarget, command: str | None) -> str:
     app_bundle = _app_bundle_for(cli)
-    if app_bundle and command == str(app_bundle) and not os.environ.get("CODEX_CLI_PATH"):
+    if (
+        app_bundle
+        and command == str(app_bundle)
+        and not os.environ.get("CODEX_CLI_PATH")
+    ):
         return "update desktop app or set CODEX_CLI_PATH"
     return f"caliper update-cli {cli.name}"
 

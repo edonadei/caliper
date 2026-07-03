@@ -9,7 +9,9 @@ from caliper.harness.base import HarnessConfigurationError
 from caliper.harness.claude_code import ClaudeCodeHarness
 
 
-def test_claude_harness_accepts_runner_contract_with_extra_path(monkeypatch, tmp_path) -> None:
+def test_claude_harness_accepts_runner_contract_with_extra_path(
+    monkeypatch, tmp_path
+) -> None:
     skill = tmp_path / "review.md"
     skill.write_text("Review the code.")
     run_calls = []
@@ -45,7 +47,9 @@ def test_claude_harness_accepts_runner_contract_with_extra_path(monkeypatch, tmp
     assert result.exit_code == 0
     assert result.final_output == "done"
 
-    cmd, kwargs = next((cmd, kwargs) for cmd, kwargs in run_calls if cmd[:2] == ["claude", "-p"])
+    cmd, kwargs = next(
+        (cmd, kwargs) for cmd, kwargs in run_calls if cmd[:2] == ["claude", "-p"]
+    )
     assert cmd[:2] == ["claude", "-p"]
     assert cmd[2] == "/review the diff"
     assert "--dangerously-skip-permissions" in cmd
@@ -54,7 +58,9 @@ def test_claude_harness_accepts_runner_contract_with_extra_path(monkeypatch, tmp
     assert not list((tmp_path / "home" / ".claude" / "commands").glob("*.md"))
 
 
-def test_claude_harness_reports_cli_startup_crash_before_auth(monkeypatch, tmp_path) -> None:
+def test_claude_harness_reports_cli_startup_crash_before_auth(
+    monkeypatch, tmp_path
+) -> None:
     def fake_run(cmd, **kwargs):
         stderr = "\n".join(
             [

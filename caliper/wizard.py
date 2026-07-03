@@ -8,7 +8,14 @@ from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.rule import Rule
 
-from caliper.schema.spec import EvalSpec, JudgeConfig, SandboxConfig, SkillConfig, TaskSpec, normalize_backend
+from caliper.schema.spec import (
+    EvalSpec,
+    JudgeConfig,
+    SandboxConfig,
+    SkillConfig,
+    TaskSpec,
+    normalize_backend,
+)
 
 console = Console()
 
@@ -26,11 +33,14 @@ def run_wizard(
 
     # ── Step 1: Skill ─────────────────────────────────────────────────────────
     console.print(Rule("[bold]Step 1 — Skill[/bold]", style="cyan"))
-    skill_p = Prompt.ask(
-        "  Path to skill file",
-        default=skill_path or "",
-        show_default=bool(skill_path),
-    ).strip() or None
+    skill_p = (
+        Prompt.ask(
+            "  Path to skill file",
+            default=skill_path or "",
+            show_default=bool(skill_path),
+        ).strip()
+        or None
+    )
 
     backend_choice = Prompt.ask(
         "  Backend",
@@ -54,13 +64,17 @@ def run_wizard(
 
     # ── Step 3: Tasks ─────────────────────────────────────────────────────────
     console.print(Rule("[bold]Step 3 — Tasks[/bold]", style="cyan"))
-    console.print("  [dim]Add tasks one by one. Leave task name empty to finish.[/dim]\n")
+    console.print(
+        "  [dim]Add tasks one by one. Leave task name empty to finish.[/dim]\n"
+    )
 
     tasks: list[TaskSpec] = []
     task_num = 1
 
     while True:
-        task_name = Prompt.ask(f"  Task {task_num} name (empty to finish)", default="").strip()
+        task_name = Prompt.ask(
+            f"  Task {task_num} name (empty to finish)", default=""
+        ).strip()
         if not task_name:
             if not tasks:
                 console.print("  [yellow]At least one task is required.[/yellow]")
@@ -80,10 +94,13 @@ def run_wizard(
             prompt_lines.append(line)
         prompt_text = "\n".join(prompt_lines)
 
-        expect = Prompt.ask(
-            "  Expectation [dim](what does success look like?)[/dim]",
-            default="",
-        ).strip() or None
+        expect = (
+            Prompt.ask(
+                "  Expectation [dim](what does success look like?)[/dim]",
+                default="",
+            ).strip()
+            or None
+        )
 
         assert_val: str | None = None
         if Confirm.ask("  Add an assert script?", default=False):
@@ -156,4 +173,6 @@ def _to_yaml(spec: EvalSpec) -> str:
     for task in data.get("tasks", []):
         if "assert_script" in task:
             task["assert"] = task.pop("assert_script")
-    return yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    return yaml.dump(
+        data, default_flow_style=False, allow_unicode=True, sort_keys=False
+    )

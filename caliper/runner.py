@@ -65,16 +65,38 @@ def run(
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures_with = {
             pool.submit(
-                _run_task, task, harness, judge, cheat, spec, spec_path,
-                k, timeout, True, on_attempt_done, on_task_done, fail_fast_unusable,
+                _run_task,
+                task,
+                harness,
+                judge,
+                cheat,
+                spec,
+                spec_path,
+                k,
+                timeout,
+                True,
+                on_attempt_done,
+                on_task_done,
+                fail_fast_unusable,
             ): task
             for task in spec.tasks
         }
         futures_without = (
             {
                 pool.submit(
-                    _run_task, task, harness, judge, cheat, spec, spec_path,
-                    k, timeout, False, on_attempt_done, on_task_done, fail_fast_unusable,
+                    _run_task,
+                    task,
+                    harness,
+                    judge,
+                    cheat,
+                    spec,
+                    spec_path,
+                    k,
+                    timeout,
+                    False,
+                    on_attempt_done,
+                    on_task_done,
+                    fail_fast_unusable,
                 ): task
                 for task in spec.tasks
             }
@@ -142,8 +164,16 @@ def _run_task(
     consecutive_fail_fast_triggers = 0
     for attempt_num in range(1, k + 1):
         record = _run_attempt(
-            task, attempt_num, harness, judge, cheat,
-            spec, spec_path, timeout, with_skill, on_attempt_done,
+            task,
+            attempt_num,
+            harness,
+            judge,
+            cheat,
+            spec,
+            spec_path,
+            timeout,
+            with_skill,
+            on_attempt_done,
         )
         attempts.append(record)
         if record.outcome in _FAIL_FAST_OUTCOMES:
@@ -188,8 +218,7 @@ def _run_attempt(
     try:
         _run_shell(task.setup)
         resolved_extra_path = [
-            str((spec_path.parent / p).resolve())
-            for p in spec.sandbox.extra_path
+            str((spec_path.parent / p).resolve()) for p in spec.sandbox.extra_path
         ]
         skill_path = _resolve_skill_path(spec, spec_path) if with_skill else None
         if skill_path:
@@ -219,7 +248,9 @@ def _run_attempt(
             or looks_like_infra_failure(infra_text)
         ):
             outcome = classify_outcome(attempt_result, [], None)
-            evidence = attempt_result.error or f"harness exited {attempt_result.exit_code}"
+            evidence = (
+                attempt_result.error or f"harness exited {attempt_result.exit_code}"
+            )
             return _finish(
                 AttemptRecord(
                     attempt=attempt,
@@ -281,7 +312,9 @@ def _finish(
 ) -> AttemptRecord:
     if on_attempt_done:
         on_attempt_done(
-            AttemptEvent(task_id=task.id, attempt=record.attempt, outcome=record.outcome)
+            AttemptEvent(
+                task_id=task.id, attempt=record.attempt, outcome=record.outcome
+            )
         )
     return record
 

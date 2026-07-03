@@ -66,7 +66,10 @@ class ClaudeCodeHarness(HarnessBackend):
         real_home = Path.home()
         for src, dst in [
             (real_home / ".claude.json", home / ".claude.json"),
-            (real_home / ".claude" / ".credentials.json", home / ".claude" / ".credentials.json"),
+            (
+                real_home / ".claude" / ".credentials.json",
+                home / ".claude" / ".credentials.json",
+            ),
         ]:
             if src.exists():
                 dst.parent.mkdir(parents=True, exist_ok=True)
@@ -134,7 +137,9 @@ class ClaudeCodeHarness(HarnessBackend):
             final_output=final_output,
             exit_code=proc.returncode,
             duration_seconds=duration,
-            error=proc.stderr.strip() if proc.returncode != 0 and not final_output else None,
+            error=proc.stderr.strip()
+            if proc.returncode != 0 and not final_output
+            else None,
         )
 
     def _diagnose_configuration_error(
@@ -206,7 +211,8 @@ class ClaudeCodeHarness(HarnessBackend):
             "typeerror:" in lowered
             or "syntaxerror:" in lowered
             or "referenceerror:" in lowered
-            or "file:///opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/" in lowered
+            or "file:///opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/"
+            in lowered
             or "node.js v" in lowered
         ) and "claude-code/cli.js" in lowered
 
@@ -241,7 +247,13 @@ class ClaudeCodeHarness(HarnessBackend):
     def _seed_credentials_from_keychain(self, dst: Path) -> None:
         try:
             result = subprocess.run(
-                ["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
+                [
+                    "security",
+                    "find-generic-password",
+                    "-s",
+                    "Claude Code-credentials",
+                    "-w",
+                ],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -255,8 +267,10 @@ class ClaudeCodeHarness(HarnessBackend):
     def _build_cmd(self, prompt: str, model: str | None) -> list[str]:
         cmd = [
             "claude",
-            "-p", prompt,
-            "--output-format", "stream-json",
+            "-p",
+            prompt,
+            "--output-format",
+            "stream-json",
             "--verbose",
             "--dangerously-skip-permissions",
         ]
@@ -265,7 +279,10 @@ class ClaudeCodeHarness(HarnessBackend):
         return cmd
 
     def _build_env(
-        self, isolated_home: str, extra_path: list[str], has_file_credentials: bool = False
+        self,
+        isolated_home: str,
+        extra_path: list[str],
+        has_file_credentials: bool = False,
     ) -> dict[str, str]:
         base_path = os.environ.get("PATH", "")
         path_prefixes = []
@@ -278,7 +295,11 @@ class ClaudeCodeHarness(HarnessBackend):
         # omits Homebrew prefixes. Prepend them when present so tools installed
         # via Homebrew (e.g. on Apple Silicon at /opt/homebrew/bin) are found.
         if sys.platform == "darwin":
-            homebrew_candidates = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"]
+            homebrew_candidates = [
+                "/opt/homebrew/bin",
+                "/opt/homebrew/sbin",
+                "/usr/local/bin",
+            ]
             path_prefixes.extend(p for p in homebrew_candidates if os.path.isdir(p))
 
         if extra_path:
@@ -312,7 +333,6 @@ class ClaudeCodeHarness(HarnessBackend):
 
         return env
 
-
     def _parse_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:
         transcript: list[ConversationTurn] = []
         final_output = ""
@@ -332,7 +352,9 @@ class ClaudeCodeHarness(HarnessBackend):
                 for block in event.get("message", {}).get("content", []):
                     btype = block.get("type", "")
                     if btype == "text":
-                        transcript.append(ConversationTurn(role="assistant", content=block["text"]))
+                        transcript.append(
+                            ConversationTurn(role="assistant", content=block["text"])
+                        )
                     elif btype == "tool_use":
                         transcript.append(
                             ConversationTurn(
@@ -350,7 +372,9 @@ class ClaudeCodeHarness(HarnessBackend):
                         c.get("text", "") for c in content if isinstance(c, dict)
                     )
                 transcript.append(
-                    ConversationTurn(role="tool_result", content=content, tool_output=content)
+                    ConversationTurn(
+                        role="tool_result", content=content, tool_output=content
+                    )
                 )
 
             elif etype == "result":

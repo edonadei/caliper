@@ -122,7 +122,8 @@ class PiHarness(HarnessBackend):
         cmd = [
             pi,
             "--print",
-            "--mode", "json",
+            "--mode",
+            "json",
             "--no-session",
             # Trust the project-local skill file for this run; without it pi
             # blocks on an interactive trust prompt when a skill is loaded.
@@ -153,7 +154,11 @@ class PiHarness(HarnessBackend):
                 env=env,
                 cwd=isolated_home,
             )
-            return result.stdout.strip(), result.returncode, result.stderr.strip() or None
+            return (
+                result.stdout.strip(),
+                result.returncode,
+                result.stderr.strip() or None,
+            )
         except subprocess.TimeoutExpired:
             return "", 124, "timeout"
         except OSError as exc:

@@ -61,12 +61,16 @@ def test_classify_infra_error_on_rate_limit_signal_despite_zero_exit() -> None:
 
 
 def test_classify_timeout() -> None:
-    out = classify_outcome(_harness(exit_code=124, error="timeout", timed_out=True), [], None)
+    out = classify_outcome(
+        _harness(exit_code=124, error="timeout", timed_out=True), [], None
+    )
     assert out is Outcome.TIMEOUT
 
 
 def test_classify_cheat() -> None:
-    assert classify_outcome(_harness(), ["/forbidden/answers.txt"], None) is Outcome.CHEAT
+    assert (
+        classify_outcome(_harness(), ["/forbidden/answers.txt"], None) is Outcome.CHEAT
+    )
 
 
 def test_precedence_timeout_beats_infra() -> None:
