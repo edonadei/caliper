@@ -170,19 +170,6 @@ npx skills@latest add edonadei/caliper
 
 Create, validate, run, and summarize evals from inside your normal workflow — no separate terminal needed. The skill installs Caliper automatically if it's missing.
 
-Or, if you already have Caliper installed and want to wire up the skill manually:
-
-```bash
-caliper install-skill claude-code
-caliper install-skill codex
-```
-
-Preview without writing files:
-
-```bash
-caliper install-skill claude-code --dry-run
-```
-
 Then use it in Claude Code:
 
 ```text
@@ -375,7 +362,6 @@ When both `expect` and `assert` are present, both must pass.
 | `caliper list [spec]` | List specs and saved runs |
 | `caliper report <spec-or-result>` | Re-render saved results |
 | `caliper compare <A> <B>` | Diff two saved runs of the same eval, task by task |
-| `caliper install-skill <backend>` | Install the bundled evaluate-skill into Claude Code or Codex |
 | `caliper update-cli [backend]` | Check or update installed agent CLI versions |
 
 ### `caliper run` flags
