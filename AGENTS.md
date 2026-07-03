@@ -13,10 +13,7 @@ When any of the following change, update all three locations before marking the 
 
 1. `README.md` — CLI reference table and any relevant prose sections
 2. `skills/evaluate-skill/REFERENCE.md` — the source skill reference
-3. `caliper/resources/evaluate_skill/REFERENCE.md` — the packaged copy (must match #2)
-4. `skills/grill-skill/REFERENCE.md` — the grill-skill reference
-
-After editing both REFERENCE.md files, run `python -m pytest tests/test_install_skill.py -q` to verify the packaged SKILL.md is still in sync with `skills/evaluate-skill/SKILL.md`. If it fails, copy the source over the packaged copy.
+3. `skills/grill-skill/REFERENCE.md` — the grill-skill reference
 
 ## Local-only decision docs (never commit)
 
