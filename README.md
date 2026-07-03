@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Skills](https://skills.sh/b/edonadei/caliper)](https://skills.sh/edonadei/caliper)
 
-Know whether your skill actually works. Write a short spec of what "good" looks like, run it _k_ times, and get a pass@k score you can track. Caliper also runs the tasks without the skill, so you can see whether it's the skill or the base agent doing the work. Works with the agent you already use: Claude Code, Codex, or Pi.
+Know whether your skill actually works. Write a short spec of what "good" looks like, run it _k_ times, and get a pass@k score you can track. Caliper also runs the tasks without the skill, so you can see whether it's the skill or the base agent doing the work. Works with the agent you already use: Claude Code, Codex, Pi, or Hermes.
 
 **Teach your agent to evaluate:**
 
@@ -39,7 +39,7 @@ Use Caliper to answer questions like:
 - Did my prompt edit actually improve the skill?
 - Is the skill doing the work, or would the base agent pass without it?
 - Does it still pass the workflows it passed last week?
-- Which agent — Claude Code, Codex, or Pi — runs this skill more reliably?
+- Which agent — Claude Code, Codex, Pi, or Hermes — runs this skill more reliably?
 
 ---
 
@@ -344,7 +344,7 @@ Each task needs at least one of `expect` or `assert`. Task IDs are assigned auto
 
 ### LLM autorater (`expect:`)
 
-The judge engine reads the full attempt transcript and decides whether the `expect` condition was met. When the backend captures tool-call traces (Claude Code, Codex, pi), those traces are included — the judge can verify things like "the agent used tool X" without relying on the final text alone.
+The judge engine reads the full attempt transcript and decides whether the `expect` condition was met. When the backend captures tool-call traces (Claude Code, Codex, pi, Hermes), those traces are included — the judge can verify things like "the agent used tool X" without relying on the final text alone.
 
 The judge engine is chosen at run time and defaults to `claude-code`; point it at a different agent with `--judge-model` (e.g. `--judge-model codex`), independently of the skill's `--model`.
 
@@ -529,7 +529,7 @@ aggregate score.
 ```text
 caliper/
   commands/       CLI command implementations
-  harness/        Agent execution backends (Claude Code, Codex, API)
+  harness/        Agent execution backends (Claude Code, Codex, pi, Hermes)
   judge/          LLM and script judging implementations
   schema/         Eval spec and result models
   runner.py       Evaluation orchestration
