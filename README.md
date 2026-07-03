@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Skills](https://skills.sh/b/edonadei/caliper)](https://skills.sh/edonadei/caliper)
 
-Know whether your skill actually works. Write a short spec of what "good" looks like, run it _k_ times, and get a pass@k score you can track — with proof the skill beats the base agent underneath. Works with the agent you already use: Claude Code, Codex, or Pi.
+Know whether your skill actually works. Write a short spec of what "good" looks like, run it _k_ times, and get a pass@k score you can track. Caliper also runs the tasks without the skill, so you can see whether it's the skill or the base agent doing the work. Works with the agent you already use: Claude Code, Codex, or Pi.
 
 **Install Caliper:**
 
@@ -18,7 +18,7 @@ npx skills@latest add edonadei/caliper
 caliper run my-skill.eval.yaml --k 3 --baseline
 ```
 
-That command reads a spec — a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you. Caliper runs each task with and without the skill, and shows you the difference:
+That command reads a spec: a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you. Caliper runs each task with and without the skill, then shows you the difference:
 
 ```text
 ID      Task                              k (3)   pass@k
