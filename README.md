@@ -534,28 +534,7 @@ tests/            Pytest coverage for harnesses, judges, and runner behavior
 
 ## Contributing
 
-Good first areas:
-
-- add example evals for real skills
-- improve backend error messages
-- add deterministic assertion helpers
-- expand tests for harness and judge behavior
-- improve result reporting and summaries
-- document common setup problems for Claude Code and Codex
-
-Before opening a pull request:
-
-```bash
-pip install -e ".[dev]"
-pytest
-ruff format --check .
-ruff check .
-caliper validate skills/evaluate-skill/evaluate-skill.eval.yaml
-```
-
-Formatting is enforced by CI on every PR. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the formatter convention, the pinned ruff version, and the one-time `pre-commit install` step.
-
-When changing behavior, include a test or an eval fixture that demonstrates the expected outcome. Keep backend-specific logic isolated to the relevant module under `caliper/harness/` or `caliper/judge/`.
+Contributions are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for good first areas, the pre-PR checklist, the ruff formatting convention and pinned version, and the one-time `pre-commit install` step.
 
 ---
 

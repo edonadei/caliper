@@ -1,5 +1,14 @@
 # Contributing to Caliper
 
+## Good first areas
+
+- add example evals for real skills
+- improve backend error messages
+- add deterministic assertion helpers
+- expand tests for harness and judge behavior
+- improve result reporting and summaries
+- document common setup problems for Claude Code and Codex
+
 ## Formatting and linting
 
 Caliper uses [**ruff**](https://docs.astral.sh/ruff/) as the single authority
@@ -79,7 +88,7 @@ something, let it; if it doesn't, leave it alone.
 Before opening a pull request:
 
 ```bash
-pip install -e ".[dev,openai]"
+pip install -e ".[dev]"
 pytest
 ruff format --check .
 ruff check .
