@@ -38,6 +38,19 @@ caliper report my-skill-eval --run 2026-05-12T14-23-01Z  # specific run
 caliper report results.json --format json
 ```
 
+### Compare two runs (ablation)
+Diff two already-saved runs of the same eval — full vs. shortened skill, or the
+same skill over time. Tasks are matched by name; `Δ = b − a`; a negative Δ flags
+a regression; a side with no usable attempts shows `—` (unmeasured, never a
+regression); the headline `Δ (matched)` averages only tasks measured on both
+sides. Each argument is addressed like `report` (spec name → latest run, or a
+results-JSON path); pin a historical run by naming its path.
+```bash
+caliper compare full-eval short-eval          # latest run of each spec
+caliper compare a.json b.json                 # pin specific runs
+caliper compare full-eval short-eval --format json   # for a ship/no-ship gate
+```
+
 ## Spec format (.eval.yaml)
 
 ```yaml

@@ -370,6 +370,7 @@ When both `expect` and `assert` are present, both must pass.
 | `caliper validate <spec>` | Validate a spec file |
 | `caliper list [spec]` | List specs and saved runs |
 | `caliper report <spec-or-result>` | Re-render saved results |
+| `caliper compare <A> <B>` | Diff two saved runs of the same eval, task by task |
 | `caliper install-skill <backend>` | Install the bundled evaluate-skill into Claude Code or Codex |
 | `caliper update-cli [backend]` | Check or update installed agent CLI versions |
 
@@ -408,6 +409,70 @@ caliper run my-skill.eval.yaml --model codex --judge-model claude-code:claude-ha
 Accepted backends: `claude-code`, `codex`, `pi` (alias: `claude` → `claude-code`).
 
 The spec file is never modified — overrides apply only to the current run.
+
+---
+
+## Comparing two runs (`caliper compare`)
+
+An **ablation** compares two runs of the *same* eval — a full skill vs. a
+shortened variant, or the same skill over time. `caliper compare <A> <B>` diffs
+two already-saved runs task by task, so you don't hand-write a JSON script to
+answer "did this change regress?".
+
+```bash
+# Latest run of each spec (a bare spec name resolves to its latest run)
+caliper compare commit-simple-full commit-simple-short
+
+# Pin specific runs by pointing at their results JSON
+caliper compare .caliper/results/demo/2026-07-01T10-00-00Z.json \
+                .caliper/results/demo/2026-07-02T09-00-00Z.json
+
+# Machine-readable diff for a ship / no-ship decision
+caliper compare A B --format json
+```
+
+Each positional (`A`, `B`) is addressed exactly like `report`'s argument: a spec
+name (→ its latest run) or a path to a results JSON. There are no `--run-a/-b`
+flags — pin a historical run by naming its JSON path.
+
+```
+──────────────────── CALIPER  —  compare  —  commit-simple ─────────────────────
+    A 2026-07-01T10-00-00Z (claude-code)   ·   B 2026-07-02T09-00-00Z (claude-code)   ·   k=5
+
+╭──────────────────┬──────────┬──────────┬────────┬─────────┬─────────╮
+│ Task             │ A pass@k │ B pass@k │      Δ │ A strip │ B strip │
+├──────────────────┼──────────┼──────────┼────────┼─────────┼─────────┤
+│ commits cleanly  │   100.0% │   100.0% │      — │ ✓✓✓✓✓   │ ✓✓✓✓✓   │
+│ handles conflict │    80.0% │    40.0% │ -40.0% │ ✓✓✓✓✗   │ ✓✗✓✗✗   │
+│ pushes upstream  │    80.0% │        — │      — │ ✓✓✓✓✗   │ ⊘⊘⊘⊘⊘   │
+╰──────────────────┴──────────┴──────────┴────────┴─────────┴─────────╯
+
+ A 90.0%   B 70.0%   Δ (matched) -20.0% ↓
+ ⚠ 1 regression: handles conflict
+ ⊘ 1 unmeasured (excluded from Δ): pushes upstream
+ unmatched — only in A: flaky task   only in B: new task
+```
+
+How the diff reads:
+
+- **Tasks are matched by name.** `task_id` is only positional, so name is the
+  stable identity — reordered tasks still line up. A task present in only one
+  run is listed as **unmatched** and left out of the delta.
+- **`Δ` is `b − a`.** A negative Δ renders red and flags the task as a
+  **regression** (any-below rule: B below A by any amount).
+- **pass@k excludes unusable attempts.** The strips reuse the run report's
+  glyphs; `⊘` marks an unusable attempt (rate-limit / timeout / judge error).
+  A task with *no* usable attempts on a side shows `—` (unmeasured) and is never
+  counted as a regression — infra noise can't fake a loss.
+- **The headline `Δ (matched)`** averages each side over only the tasks measured
+  on **both** sides, so it is strictly like-for-like.
+- **Guards** for a `k` mismatch or different spec names print as warnings in the
+  header *and* in `--format json` (`k_mismatch`, `spec_mismatch`, `warnings`), so
+  an agent driving `compare` sees them too.
+
+The `--format json` output serializes the full comparison (per-task scores,
+deltas, `regression`/`has_regression` flags, unmatched task lists, and the
+warnings) for scripting.
 
 ---
 

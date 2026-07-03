@@ -23,7 +23,16 @@ caliper run path/to/spec.eval.yaml --judge-model claude-code:claude-haiku-4-5-20
 # Browse past results
 caliper list
 caliper report path/to/spec.eval.yaml
+
+# Compare two saved runs of the same eval (ablation: full vs. shortened, or over time)
+caliper compare full-eval short-eval           # spec name -> latest run, or a results-JSON path
+caliper compare a.json b.json --format json     # per-task Δ, regression flags, for scripting
 ```
+
+`caliper compare <A> <B>` diffs two already-saved runs task by task: tasks are
+matched by name, `Δ = b − a`, a negative Δ flags a regression (any-below), and a
+side with no usable attempts shows `—` (unmeasured, never a regression) so
+infra/judge noise can't fake a loss.
 
 ## Inspecting failures
 

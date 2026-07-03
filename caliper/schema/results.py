@@ -107,3 +107,46 @@ class RunResults(BaseModel):
     aggregate: AggregateScore
     baseline: AggregateScore | None = None
     delta: DeltaReport | None = None
+
+
+class TaskComparison(BaseModel):
+    """One matched task diffed across two runs (A vs B).
+
+    ``a_score``/``b_score`` are the stored per-task ``pass_at_k`` (``None`` when
+    every attempt was unusable — the task was never fairly measured). ``delta``
+    is ``b - a`` only when both sides were measured, else ``None`` (never faked
+    as 0). ``regression`` fires on the any-below rule: B below A, both measured.
+    """
+
+    task_name: str
+    a_score: float | None
+    b_score: float | None
+    delta: float | None
+    regression: bool
+    a_outcomes: list[Outcome]
+    b_outcomes: list[Outcome]
+
+
+class RunComparison(BaseModel):
+    """The pure result of ``diff_runs(a, b)`` — the whole ``compare`` contract.
+
+    Rendering (table) and ``--format json`` are thin shells over this value.
+    Usable/unusable counts are intentionally *not* stored: they are derivable
+    from ``a_outcomes``/``b_outcomes`` (see docs/adr/0001-attempt-outcome-taxonomy.md).
+    """
+
+    a: RunMeta
+    b: RunMeta
+    matched: list[TaskComparison]
+    unmatched_a: list[str]
+    unmatched_b: list[str]
+    # Aggregate over the fully-comparable set (tasks measured on *both* sides).
+    a_matched_avg: float
+    b_matched_avg: float
+    aggregate_delta: float
+    has_regression: bool
+    k_mismatch: bool
+    spec_mismatch: bool
+    # Human-readable guards, mirrored into both the table header and JSON so an
+    # agent on --format json sees the exact warning a human sees.
+    warnings: list[str]
