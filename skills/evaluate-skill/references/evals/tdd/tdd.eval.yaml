@@ -1,11 +1,5 @@
 skill:
   path: ./SKILL.md
-  backend: claude
-  model: claude-sonnet-4-6
-
-judge:
-  backend: claude
-  model: claude-sonnet-4-6
 
 tasks:
   - name: Writes failing test before implementing new function

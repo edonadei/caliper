@@ -13,9 +13,10 @@ Install the CLI and make sure your agent backend is authenticated:
 pipx install caliper-eval        # or: pip install caliper-eval
 ```
 
-The templates default to the `claude-code` backend. If you use a different
-agent, change the `backend:` line in any template (see
-[Choosing a backend](../../README.md#choosing-a-backend)).
+The engine (agent + model) isn't written in the templates — it's chosen when you
+run. Everything defaults to `claude-code`; to use a different agent, pass
+`--model` (e.g. `--model codex:gpt-5-codex`) — see
+[Choosing an engine](../../README.md#choosing-an-engine).
 
 Two terms you'll see in every template:
 
@@ -121,9 +122,12 @@ side-effect path, which can appear in `setup`, `cleanup`, `prompt`, and
 
 1. **`skill.path`** — point it at your own `SKILL.md` (or delete it to test the
    bare agent with no skill).
-2. **`skill.backend`** — your agent: `claude-code`, `codex`, or `pi`.
-3. **`tasks[].prompt`** (and the matching `expect:`/`assert:`) — describe a real
+2. **`tasks[].prompt`** (and the matching `expect:`/`assert:`) — describe a real
    request and what a correct result looks like for *your* skill.
+
+The agent itself isn't in the template — pass it at run time with `--model`
+(`claude-code`, `codex`, `pi`, or a `backend:model` pair); it defaults to
+`claude-code`.
 
 For templates 2 and 3, the fake tool under `bin/` is a stand-in so the example
 runs without any external service. When you switch to your own agent, delete the

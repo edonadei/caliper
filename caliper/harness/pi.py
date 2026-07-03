@@ -216,14 +216,14 @@ class PiHarness(CliHarness):
                 "pi cannot run with the current provider/credential "
                 "configuration.\n\n"
                 "Caliper copies your `~/.pi/agent` auth and settings verbatim "
-                "and passes `--model` only when the spec sets one. The pi CLI "
+                "and passes a model to pi only when you select one. The pi CLI "
                 "returned:\n"
                 f"  {text}\n\n"
-                "pi's built-in default provider is `google`, so a spec with no "
-                "`model:` (and no Google credentials) can fail here. Set a "
-                "`model:`/provider you are authenticated for in the spec, or "
-                "configure pi's default provider with `pi` directly, then rerun "
-                "caliper."
+                "pi's built-in default provider is `google`, so running "
+                "`--model pi` with no model (and no Google credentials) can fail "
+                "here. Pass `--model pi:<model>` for a provider you are "
+                "authenticated for, or configure pi's default provider with `pi` "
+                "directly, then rerun caliper."
             )
 
         auth_markers = (
