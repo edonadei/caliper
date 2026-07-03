@@ -533,7 +533,7 @@ tests/            Pytest coverage for harnesses, judges, and runner behavior
 
 ## Contributing
 
-Contributions are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for good first areas, the pre-PR checklist, the ruff formatting convention and pinned version, and the one-time `pre-commit install` step.
+Contributions are welcome. See [`CONTRIBUTING.md`](.github/CONTRIBUTING.md) for good first areas, the pre-PR checklist, the ruff formatting convention and pinned version, and the one-time `pre-commit install` step.
 
 ---
 
