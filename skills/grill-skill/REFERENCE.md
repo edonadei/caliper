@@ -16,9 +16,9 @@ caliper run path/to/spec.eval.yaml --k 3
 caliper run path/to/spec.eval.yaml --k 3 --baseline
 
 # Run against a different backend or model without editing the spec
-caliper run path/to/spec.eval.yaml --model claude-api:claude-sonnet-4-6
+caliper run path/to/spec.eval.yaml --model codex:gpt-5-codex
 caliper run path/to/spec.eval.yaml --model codex
-caliper run path/to/spec.eval.yaml --judge-model claude-api:claude-haiku-4-5-20251001
+caliper run path/to/spec.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001
 
 # Browse past results
 caliper list
@@ -115,7 +115,5 @@ Add `assert:` when the outcome is a fact that an LLM judge might guess wrong:
 | `claude-code` | Claude Code CLI | Default for most skills |
 | `codex` | Codex CLI | For Codex-targeted skills |
 | `pi` | pi CLI (authenticated) | For pi / agentskills.io skills; native `--skill` loading |
-| `claude-api` | `ANTHROPIC_API_KEY` | No CLI needed |
-| `openai-api` | `OPENAI_API_KEY` | No CLI needed |
 
-Skill backend and judge backend are independent.
+Skill backend and judge backend are independent. Every backend is a CLI agent; for API billing, configure a CLI with an API key rather than selecting a separate backend.

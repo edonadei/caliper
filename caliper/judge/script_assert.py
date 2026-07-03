@@ -133,7 +133,6 @@ class EvalJudge(Judge):
 
     def __init__(self, config: JudgeConfig) -> None:
         self._config = config
-        self._client = None
 
     def evaluate(
         self,
@@ -206,35 +205,5 @@ class EvalJudge(Judge):
                     model=self._config.model,
                     spec_dir=spec_dir,
                 )
-            case "openai-api":
-                from caliper.judge.openai_api_judge import evaluate_with_openai_api
-
-                return evaluate_with_openai_api(
-                    expect=task.expect,
-                    transcript=transcript,
-                    model=self._config.model,
-                    spec_dir=spec_dir,
-                )
-            case "claude-api":
-                model = self._config.model or "claude-haiku-4-5-20251001"
-                if self._client is None:
-                    import anthropic
-
-                    self._client = anthropic.Anthropic()
-                user_msg = _USER_TMPL.format(
-                    expect=task.expect,
-                    transcript=_format_transcript(transcript),
-                )
-                try:
-                    response = self._client.messages.create(
-                        model=model,
-                        max_tokens=1024,
-                        system=_SYSTEM,
-                        messages=[{"role": "user", "content": user_msg}],
-                    )
-                    raw = response.content[0].text.strip()
-                except Exception as exc:
-                    return False, f"claude-api judge failed: {exc}", True
-                return _parse_rich_response(raw, spec_dir)
             case _:
                 return False, f"Unknown judge backend: {self._config.backend!r}", True

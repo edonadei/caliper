@@ -19,7 +19,7 @@ def new_cmd(
         str,
         typer.Option(
             "--backend",
-            help="Pre-populate backend (claude-code, codex, claude-api, openai-api, pi)",
+            help="Pre-populate backend (claude-code, codex, pi)",
         ),
     ] = "claude-code",
     output: Annotated[

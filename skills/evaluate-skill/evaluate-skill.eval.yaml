@@ -64,7 +64,7 @@ tasks:
       Codex CLI skill at ./SKILL.md. Use codex as both the skill backend and
       judge backend. Include one task named "Answers
       arithmetic", with prompt "What is 2 + 2?" and expectation "The assistant
-      answers 4." Do not use openai-api unless API billing is requested.
+      answers 4."
     expect: >
       A valid .eval.yaml file is written at /tmp/caliper-created.eval.yaml. It
       uses codex for both skill.backend and judge.backend and includes the
@@ -87,33 +87,6 @@ tasks:
       assert task["name"] == "Answers arithmetic", "Unexpected task name"
       assert task["prompt"] == "What is 2 + 2?", "Unexpected prompt"
       assert task["expect"] == "The assistant answers 4.", "Unexpected expectation"
-
-  - name: Creates an explicit API-backed eval spec
-    cleanup: rm -f /tmp/caliper-openai-api.eval.yaml
-    prompt: >
-      Create an evaluation spec file at /tmp/caliper-openai-api.eval.yaml for a
-      skill at ./SKILL.md that should run through OpenAI API billing, not the
-      Codex CLI subscription. Use openai-api as both skill.backend and
-      judge.backend, with model gpt-4o-mini. Include one task named "Answers
-      arithmetic", with prompt "What is 2 + 2?" and expectation "The assistant
-      answers 4."
-    expect: >
-      A valid .eval.yaml file is written at /tmp/caliper-openai-api.eval.yaml.
-      It uses openai-api for both skill.backend and judge.backend, showing that
-      API billing is an explicit backend choice rather than a Codex fallback.
-    assert: |
-      import os
-      import yaml
-
-      path = "/tmp/caliper-openai-api.eval.yaml"
-      assert os.path.exists(path), "Spec file was not created"
-      with open(path) as f:
-          spec = yaml.safe_load(f)
-      assert spec["skill"]["backend"] == "openai-api", "skill backend should be openai-api"
-      assert spec["judge"]["backend"] == "openai-api", "judge backend should be openai-api"
-      assert spec["skill"]["model"] == "gpt-4o-mini", "skill model should be set"
-      assert spec["judge"]["model"] == "gpt-4o-mini", "judge model should be set"
-      assert spec["tasks"][0]["name"] == "Answers arithmetic", "Unexpected task name"
 
   - name: Explains mixed Claude Code and Codex backend support
     cleanup: rm -f /tmp/caliper-mixed-backend.eval.yaml

@@ -45,9 +45,10 @@ class CodexHarness(HarnessBackend):
         if not self._cli_available():
             raise HarnessConfigurationError(
                 "Codex CLI is not available for the `codex` backend.\n\n"
-                "Caliper does not fall back to the OpenAI API for `backend: codex`. "
-                "Install and authenticate the Codex CLI, or explicitly use "
-                "`backend: openai-api` for API-based evals."
+                "Caliper runs skills only through CLI agents. Install and "
+                "authenticate the Codex CLI to use `backend: codex`. For API "
+                "billing, configure the Codex CLI with an API key rather than "
+                "selecting a separate backend."
             )
 
         self._copy_codex_config(isolated_home)
@@ -326,8 +327,9 @@ class CodexHarness(HarnessBackend):
                 "back to the OpenAI API. The Codex CLI returned:\n"
                 f"  {text}\n\n"
                 "Run `codex login` and verify `codex exec` works in your normal "
-                "shell, then retry the eval. If you intended to use API billing, "
-                "set `backend: openai-api` explicitly."
+                "shell, then retry the eval. For API billing, configure the "
+                "Codex CLI with an API key rather than selecting a separate "
+                "backend."
             )
 
         if sys.platform == "darwin" and "operation not permitted" in lowered:

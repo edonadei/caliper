@@ -9,18 +9,16 @@ from caliper.schema.spec import parse_target
     "value, expected",
     [
         # backend:model compound
-        ("claude-api:claude-sonnet-4-6", ("claude-api", "claude-sonnet-4-6")),
-        ("openai-api:gpt-4o", ("openai-api", "gpt-4o")),
-        # aliases normalised on the backend side
-        ("anthropic:claude-sonnet-4-6", ("claude-api", "claude-sonnet-4-6")),
+        ("codex:gpt-5-codex", ("codex", "gpt-5-codex")),
+        ("pi:claude-sonnet-4-6", ("pi", "claude-sonnet-4-6")),
+        # alias normalised on the backend side
         ("claude:claude-sonnet-4-6", ("claude-code", "claude-sonnet-4-6")),
         # backend only (known name, no colon)
         ("codex", ("codex", None)),
         ("claude-code", ("claude-code", None)),
-        ("claude-api", ("claude-api", None)),
-        ("openai-api", ("openai-api", None)),
+        ("pi", ("pi", None)),
         # alias as backend-only
-        ("anthropic", ("claude-api", None)),
+        ("claude", ("claude-code", None)),
         # plain model name (not a known backend)
         ("claude-sonnet-4-6", (None, "claude-sonnet-4-6")),
         ("gpt-4o", (None, "gpt-4o")),
@@ -29,7 +27,7 @@ from caliper.schema.spec import parse_target
         # colon with no backend → model only
         (":claude-sonnet-4-6", (None, "claude-sonnet-4-6")),
         # multiple colons → only first split
-        ("claude-api:some:model", ("claude-api", "some:model")),
+        ("codex:some:model", ("codex", "some:model")),
     ],
 )
 def test_parse_target(value: str, expected: tuple[str | None, str | None]) -> None:

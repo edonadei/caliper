@@ -10,7 +10,7 @@ from caliper.schema.spec import JudgeConfig, TaskSpec
 
 
 def test_eval_judge_always_returns_eval_judge_instance() -> None:
-    for backend in ("codex", "claude-code", "claude-api", "openai-api"):
+    for backend in ("codex", "claude-code", "pi"):
         judge = EvalJudge(JudgeConfig(backend=backend))
         assert isinstance(judge, EvalJudge)
 

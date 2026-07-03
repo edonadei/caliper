@@ -44,7 +44,7 @@ def run_wizard(
 
     backend_choice = Prompt.ask(
         "  Backend",
-        choices=["claude-code", "codex", "claude-api", "openai-api", "pi"],
+        choices=["claude-code", "codex", "pi"],
         default=normalize_backend(backend),
     )
     model = Prompt.ask("  Model override", default="").strip() or None
@@ -55,7 +55,7 @@ def run_wizard(
     console.print(Rule("[bold]Step 2 — Judge[/bold]", style="cyan"))
     judge_backend = Prompt.ask(
         "  Judge backend",
-        choices=["claude-code", "codex", "claude-api", "openai-api", "pi"],
+        choices=["claude-code", "codex", "pi"],
         default="claude-code",
     )
     judge_model = Prompt.ask("  Judge model override", default="").strip() or None

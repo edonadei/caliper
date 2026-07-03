@@ -9,11 +9,11 @@ caliper run path/to/spec.eval.yaml --k 3 --baseline      # include no-skill delt
 caliper run path/to/spec.eval.yaml --verbose             # show per-attempt reasoning
 
 # Override backend and/or model at run time (no spec edit needed)
-caliper run path/to/spec.eval.yaml --model claude-api:claude-sonnet-4-6
+caliper run path/to/spec.eval.yaml --model codex:gpt-5-codex
 caliper run path/to/spec.eval.yaml --model codex
 caliper run path/to/spec.eval.yaml --model claude-sonnet-4-6   # model only, keep spec backend
-caliper run path/to/spec.eval.yaml --judge-model claude-api:claude-haiku-4-5-20251001
-caliper run path/to/spec.eval.yaml --model claude-api:claude-sonnet-4-6 --judge-model claude-api:claude-haiku-4-5-20251001
+caliper run path/to/spec.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001
+caliper run path/to/spec.eval.yaml --model codex --judge-model claude-code:claude-haiku-4-5-20251001
 ```
 
 ### Create a new evaluation spec (interactive wizard)
@@ -21,7 +21,7 @@ caliper run path/to/spec.eval.yaml --model claude-api:claude-sonnet-4-6 --judge-
 caliper new my-skill-eval
 caliper new --skill ~/.claude/commands/review.md --backend claude-code
 caliper new --skill ./SKILL.md --backend codex
-caliper new --skill ./SKILL.md --backend openai-api
+caliper new --skill ./SKILL.md --backend pi
 ```
 
 ### Validate a spec file
@@ -43,7 +43,7 @@ caliper report results.json --format json
 ```yaml
 skill:
   path: ./SKILL.md
-  backend: claude-code     # claude-code | codex | pi | claude-api | openai-api
+  backend: claude-code     # claude-code | codex | pi
   model: claude-sonnet-4-6 # optional
 
 judge:
@@ -97,19 +97,6 @@ skill:
 
 judge:
   backend: pi
-```
-
-For an API-backed eval, opt in explicitly:
-
-```yaml
-skill:
-  path: ./SKILL.md
-  backend: openai-api
-  model: gpt-4o-mini
-
-judge:
-  backend: openai-api
-  model: gpt-4o-mini
 ```
 
 ## Key concepts

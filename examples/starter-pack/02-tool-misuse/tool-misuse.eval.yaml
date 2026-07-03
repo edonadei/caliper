@@ -16,7 +16,7 @@
 skill:
   # 👉 EDIT 1: point this at your own SKILL.md.
   path: ./SKILL.md
-  backend: claude-code             # 👉 EDIT 2: claude-code | codex | pi | claude-api | openai-api
+  backend: claude-code             # 👉 EDIT 2: claude-code | codex | pi
   model: claude-haiku-4-5-20251001 # optional — delete to use your agent's default model
 
 judge:
