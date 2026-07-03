@@ -6,13 +6,13 @@
 
 Know whether your skill actually works. Write a short spec of what "good" looks like, run it _k_ times, and get a pass@k score you can track. Caliper also runs the tasks without the skill, so you can see whether it's the skill or the base agent doing the work. Works with the agent you already use: Claude Code, Codex, or Pi.
 
-**Install Caliper:**
+**Teach your agent to evaluate:**
 
 ```bash
 npx skills@latest add edonadei/caliper
 ```
 
-**Measure your skill:**
+**Or run it yourself:**
 
 ```bash
 caliper run my-skill.eval.yaml --k 3 --baseline
