@@ -10,11 +10,9 @@ from rich.rule import Rule
 
 from caliper.schema.spec import (
     EvalSpec,
-    JudgeConfig,
     SandboxConfig,
     SkillConfig,
     TaskSpec,
-    normalize_backend,
 )
 
 console = Console()
@@ -26,12 +24,13 @@ def run_wizard(
     name: str | None = None,
     output: Path | None = None,
     skill_path: str | None = None,
-    backend: str = "claude-code",
 ) -> Path:
     console.print(Panel(_BANNER, border_style="cyan", padding=(0, 2)))
     console.print()
 
     # ── Step 1: Skill ─────────────────────────────────────────────────────────
+    # The wizard authors *specs* only. The engine (backend/model) is a runtime
+    # axis chosen at `caliper run` time, so it is never written here (ADR 0004).
     console.print(Rule("[bold]Step 1 — Skill[/bold]", style="cyan"))
     skill_p = (
         Prompt.ask(
@@ -42,28 +41,10 @@ def run_wizard(
         or None
     )
 
-    backend_choice = Prompt.ask(
-        "  Backend",
-        choices=["claude-code", "codex", "pi"],
-        default=normalize_backend(backend),
-    )
-    model = Prompt.ask("  Model override", default="").strip() or None
-
     console.print()
 
-    # ── Step 2: Judge ─────────────────────────────────────────────────────────
-    console.print(Rule("[bold]Step 2 — Judge[/bold]", style="cyan"))
-    judge_backend = Prompt.ask(
-        "  Judge backend",
-        choices=["claude-code", "codex", "pi"],
-        default="claude-code",
-    )
-    judge_model = Prompt.ask("  Judge model override", default="").strip() or None
-
-    console.print()
-
-    # ── Step 3: Tasks ─────────────────────────────────────────────────────────
-    console.print(Rule("[bold]Step 3 — Tasks[/bold]", style="cyan"))
+    # ── Step 2: Tasks ─────────────────────────────────────────────────────────
+    console.print(Rule("[bold]Step 2 — Tasks[/bold]", style="cyan"))
     console.print(
         "  [dim]Add tasks one by one. Leave task name empty to finish.[/dim]\n"
     )
@@ -139,16 +120,15 @@ def run_wizard(
 
     console.print()
 
-    # ── Step 4: Output path ───────────────────────────────────────────────────
-    console.print(Rule("[bold]Step 4 — Save[/bold]", style="cyan"))
+    # ── Step 3: Output path ───────────────────────────────────────────────────
+    console.print(Rule("[bold]Step 3 — Save[/bold]", style="cyan"))
     default_name = (name or "my-eval") + ".eval.yaml"
     if output is None:
         out_str = Prompt.ask("  Save spec to", default=default_name).strip()
         output = Path(out_str)
 
     spec = EvalSpec(
-        skill=SkillConfig(path=skill_p, backend=backend_choice, model=model),
-        judge=JudgeConfig(backend=judge_backend, model=judge_model),
+        skill=SkillConfig(path=skill_p),
         sandbox=SandboxConfig(forbidden_files=[".*\\.eval\\.yaml$", "./.caliper/.*"]),
         tasks=tasks,
     )
@@ -159,7 +139,9 @@ def run_wizard(
         Panel(
             f"Spec written to [bold cyan]{output}[/bold cyan]\n"
             f"Validate with: [dim]caliper validate {output}[/dim]\n"
-            f"Run with:      [dim]caliper run {output}[/dim]",
+            f"Run with:      [dim]caliper run {output}[/dim]\n"
+            "Pick an engine at run time (default claude-code), e.g.:\n"
+            f"               [dim]caliper run {output} --model codex:gpt-5-codex[/dim]",
             title="[bold green]✓ Done[/bold green]",
             border_style="green",
         )

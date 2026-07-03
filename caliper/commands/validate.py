@@ -43,15 +43,14 @@ def validate_cmd(
 
     name = spec_name(spec_file)
     n_tasks = len(spec.tasks)
-    backend = spec.skill.backend
+    skill_path = spec.skill.path or "(bare agent — no skill)"
 
     console.print(
         Panel(
             f"[bold]{name}[/bold]\n"
-            f"  backend  [cyan]{backend}[/cyan]\n"
+            f"  skill    [cyan]{skill_path}[/cyan]\n"
             f"  tasks    [cyan]{n_tasks}[/cyan]\n"
-            f"  judge    [cyan]{spec.judge.backend}[/cyan]"
-            + (f" / [dim]{spec.judge.model}[/dim]" if spec.judge.model else ""),
+            "  engine   [dim]chosen at run time (--model / --judge-model)[/dim]",
             title=f"[bold green]{CHECK} Spec is valid[/bold green]",
             border_style="green",
         )

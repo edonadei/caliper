@@ -32,7 +32,7 @@ class CodexHarness(CliHarness):
             raise HarnessConfigurationError(
                 "Codex CLI is not available for the `codex` backend.\n\n"
                 "Caliper runs skills only through CLI agents. Install and "
-                "authenticate the Codex CLI to use `backend: codex`. For API "
+                "authenticate the Codex CLI to run with `--model codex`. For API "
                 "billing, configure the Codex CLI with an API key rather than "
                 "selecting a separate backend."
             )
@@ -218,10 +218,11 @@ class CodexHarness(CliHarness):
             return (
                 "Codex CLI cannot run the requested model with this account or "
                 "installed version.\n\n"
-                "Caliper uses `codex exec` for `backend: codex`. The Codex CLI "
+                "Caliper uses `codex exec` for `--model codex`. The Codex CLI "
                 "returned:\n"
                 f"  {summary}\n\n"
-                "Omit `model` to use the Codex CLI default, upgrade the Codex app "
+                "Pass `--model codex` (no model) to use the Codex CLI default, "
+                "upgrade the Codex app "
                 "or CLI, or choose a model supported by the installed Codex CLI "
                 "and account, then retry the eval."
             )
@@ -241,7 +242,7 @@ class CodexHarness(CliHarness):
             return (
                 "Codex CLI cannot run with the current subscription/authentication "
                 "configuration.\n\n"
-                "Caliper uses `codex exec` for `backend: codex` and does not fall "
+                "Caliper uses `codex exec` for `--model codex` and does not fall "
                 "back to the OpenAI API. The Codex CLI returned:\n"
                 f"  {text}\n\n"
                 "Run `codex login` and verify `codex exec` works in your normal "

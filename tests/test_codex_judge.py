@@ -6,12 +6,12 @@ import subprocess
 from caliper.harness.base import ConversationTurn
 from caliper.judge.codex_judge import _extract_codex_error, evaluate_with_codex
 from caliper.judge.script_assert import EvalJudge
-from caliper.schema.spec import JudgeConfig, TaskSpec
+from caliper.schema.spec import TaskSpec
 
 
 def test_eval_judge_always_returns_eval_judge_instance() -> None:
     for backend in ("codex", "claude-code", "pi"):
-        judge = EvalJudge(JudgeConfig(backend=backend))
+        judge = EvalJudge(backend=backend)
         assert isinstance(judge, EvalJudge)
 
 
@@ -27,12 +27,12 @@ def test_eval_judge_expect_only_calls_llm(monkeypatch, tmp_path) -> None:
         lambda self, task, transcript, spec_dir: fake_eval(
             expect=task.expect,
             transcript=transcript,
-            model=self._config.model,
+            model=self._model,
             cwd=spec_dir,
         ),
     )
 
-    judge = EvalJudge(JudgeConfig(backend="codex", model="test-model"))
+    judge = EvalJudge(backend="codex", model="test-model")
     result = judge.evaluate(
         task=TaskSpec(id="t1", name="t", prompt="p", expect="should say hello"),
         transcript=[ConversationTurn(role="assistant", content="hello")],
@@ -46,7 +46,7 @@ def test_eval_judge_expect_only_calls_llm(monkeypatch, tmp_path) -> None:
 
 
 def test_eval_judge_assert_only_runs_script_no_llm(tmp_path) -> None:
-    judge = EvalJudge(JudgeConfig(backend="codex"))
+    judge = EvalJudge(backend="codex")
     result = judge.evaluate(
         task=TaskSpec(id="t2", name="t", prompt="p", assert_script="assert 1 == 1"),
         transcript=[],
@@ -60,7 +60,7 @@ def test_eval_judge_assert_only_runs_script_no_llm(tmp_path) -> None:
 
 
 def test_eval_judge_assert_failure_makes_overall_fail(tmp_path) -> None:
-    judge = EvalJudge(JudgeConfig(backend="codex"))
+    judge = EvalJudge(backend="codex")
     result = judge.evaluate(
         task=TaskSpec(
             id="t3", name="t", prompt="p", assert_script="assert False, 'nope'"
@@ -80,7 +80,7 @@ def test_eval_judge_both_checks_must_pass(monkeypatch, tmp_path) -> None:
         lambda self, task, transcript, spec_dir: (True, "LLM says yes", False),
     )
 
-    judge = EvalJudge(JudgeConfig(backend="codex"))
+    judge = EvalJudge(backend="codex")
     result = judge.evaluate(
         task=TaskSpec(
             id="t4",
@@ -108,7 +108,7 @@ def test_errored_autorater_dropped_when_assert_passes(monkeypatch, tmp_path) -> 
     monkeypatch.setattr(
         "caliper.judge.script_assert.EvalJudge._llm_evaluate", _errored_llm
     )
-    judge = EvalJudge(JudgeConfig(backend="codex"))
+    judge = EvalJudge(backend="codex")
     result = judge.evaluate(
         task=TaskSpec(
             id="t", name="t", prompt="p", expect="x", assert_script="assert True"
@@ -128,7 +128,7 @@ def test_errored_autorater_does_not_override_failing_assert(
     monkeypatch.setattr(
         "caliper.judge.script_assert.EvalJudge._llm_evaluate", _errored_llm
     )
-    judge = EvalJudge(JudgeConfig(backend="codex"))
+    judge = EvalJudge(backend="codex")
     result = judge.evaluate(
         task=TaskSpec(
             id="t", name="t", prompt="p", expect="x", assert_script="assert False"
@@ -146,7 +146,7 @@ def test_judge_error_when_only_check_errors(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         "caliper.judge.script_assert.EvalJudge._llm_evaluate", _errored_llm
     )
-    judge = EvalJudge(JudgeConfig(backend="codex"))
+    judge = EvalJudge(backend="codex")
     result = judge.evaluate(
         task=TaskSpec(id="t", name="t", prompt="p", expect="x"),
         transcript=[],
@@ -213,7 +213,7 @@ def test_eval_judge_uses_codex_for_expect_when_configured(
 
     monkeypatch.setattr("caliper.judge.codex_judge.evaluate_with_codex", fake_eval)
 
-    judge = EvalJudge(JudgeConfig(backend="codex", model="test-model"))
+    judge = EvalJudge(backend="codex", model="test-model")
     result = judge.evaluate(
         task=TaskSpec(
             id="task-001",

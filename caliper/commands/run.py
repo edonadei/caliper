@@ -19,7 +19,7 @@ from caliper.reporter import (
 )
 from caliper.runner import run, AttemptEvent
 from caliper.schema.results import Outcome, TaskResult
-from caliper.schema.spec import load_spec, parse_target, spec_name
+from caliper.schema.spec import DEFAULT_BACKEND, load_spec, parse_target, spec_name
 
 console = Console()
 
@@ -66,25 +66,26 @@ def run_cmd(
         console.print(f"[bold red]Invalid spec:[/bold red] {exc}")
         raise typer.Exit(1)
 
+    # The engine is a runtime axis, not a spec field (ADR 0004): resolve it here
+    # from the flags, defaulting to claude-code. The resolved (backend, model)
+    # is what gets recorded in RunMeta.
+    backend, skill_model = DEFAULT_BACKEND, None
     if model:
-        backend_override, model_override = parse_target(model)
-        if backend_override:
-            spec.skill.backend = backend_override
-        if model_override:
-            spec.skill.model = model_override
+        b, m = parse_target(model)
+        backend = b or backend
+        skill_model = m
 
+    judge_backend, judge_model_name = DEFAULT_BACKEND, None
     if judge_model:
-        j_backend, j_model = parse_target(judge_model)
-        if j_backend:
-            spec.judge.backend = j_backend
-        if j_model:
-            spec.judge.model = j_model
+        jb, jm = parse_target(judge_model)
+        judge_backend = jb or judge_backend
+        judge_model_name = jm
 
     name = spec_name(spec_file)
-    print_banner(name, k, spec.skill.backend, spec.skill.model)
+    print_banner(name, k, backend, skill_model)
 
-    harness = get_harness(spec.skill.backend, spec.skill.model)
-    judge = EvalJudge(spec.judge)
+    harness = get_harness(backend, skill_model)
+    judge = EvalJudge(judge_backend, judge_model_name)
 
     task_names = [t.name for t in spec.tasks]
     progress, task_ids = make_progress(task_names, k)
@@ -142,6 +143,8 @@ def run_cmd(
                 spec_path=spec_file,
                 harness=harness,
                 judge=judge,
+                backend=backend,
+                model=skill_model,
                 k=k,
                 workers=workers,
                 timeout=timeout,

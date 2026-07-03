@@ -82,10 +82,6 @@ pipx install caliper-eval   # requires Python 3.10+
 # my-skill.eval.yaml
 skill:
   path: ./SKILL.md
-  backend: claude-code
-
-judge:
-  backend: claude-code
 
 tasks:
   # Autorater — the LLM judge reads the transcript and decides
@@ -108,6 +104,8 @@ tasks:
 ```
 
 `expect:` is graded by the judge LLM; `assert:` runs locally as Python. Use either or both.
+
+The spec never names an engine — the skill and judge default to `claude-code`, and you pick a different agent/model at run time with `--model` / `--judge-model` (see [Choosing an engine](#choosing-an-engine)).
 
 **3. Run it**
 
@@ -229,7 +227,19 @@ If an `.eval.yaml` already exists next to your skill, `grill-skill` reads the ex
 
 ---
 
-## Choosing a backend
+## Choosing an engine
+
+The engine (backend + model) is a **runtime axis, not a spec field** — the spec
+describes *what* is tested and *how* success is judged, and you pick the agent
+that runs and grades it at invocation. Both default to `claude-code`; select a
+different one with `--model` / `--judge-model`:
+
+```bash
+caliper run my-skill.eval.yaml                          # claude-code (default)
+caliper run my-skill.eval.yaml --model codex            # codex, its default model
+caliper run my-skill.eval.yaml --model codex:gpt-5-codex
+caliper run my-skill.eval.yaml --model pi --judge-model claude-code
+```
 
 | Backend | Requires | Best for |
 |---|---|---|
@@ -239,11 +249,11 @@ If an `.eval.yaml` already exists next to your skill, `grill-skill` reads the ex
 
 Caliper runs skills only through CLI agents — every backend can actually load and run a skill. There is no direct-API backend: to run against API-priced billing, configure one of these CLIs with an API key (e.g. `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) rather than selecting a separate backend.
 
-The agent backend and judge backend are independent — you can test a Codex skill with a Claude judge, or any other combination.
+The skill engine and judge engine are independent — you can test a Codex skill with a Claude judge, or any other combination, by pairing `--model` with `--judge-model`.
 
 ### Claude Code setup
 
-Install and authenticate the `claude` CLI. `backend: claude-code` uses your existing Claude Code auth — no extra configuration needed.
+Install and authenticate the `claude` CLI. `--model claude-code` uses your existing Claude Code auth — no extra configuration needed.
 
 ### Codex setup
 
@@ -252,7 +262,7 @@ npm install -g @openai/codex
 codex login
 ```
 
-`backend: codex` calls `codex exec`. If the Codex desktop app is installed, Caliper prefers the app-bundled binary over `codex` on `PATH`. Set `CODEX_CLI_PATH` to force a specific binary.
+`--model codex` calls `codex exec`. If the Codex desktop app is installed, Caliper prefers the app-bundled binary over `codex` on `PATH`. Set `CODEX_CLI_PATH` to force a specific binary.
 
 ### pi setup
 
@@ -261,7 +271,7 @@ npm install -g @earendil-works/pi-coding-agent
 pi   # then authenticate (e.g. /login for a subscription provider, or set the provider API key)
 ```
 
-`backend: pi` runs `pi --print --mode json` and loads the skill natively via pi's `--skill` flag (the agentskills.io standard). It reuses your `~/.pi/agent` auth and settings — the spec's `model:` overrides pi's configured default when set. Set `PI_CLI_PATH` to force a specific binary. Note: pi's built-in default provider is `google`, so a spec with no `model:` relies on your pi config to resolve a provider you are authenticated for.
+`--model pi` runs `pi --print --mode json` and loads the skill natively via pi's `--skill` flag (the agentskills.io standard). It reuses your `~/.pi/agent` auth and settings — the `:model` half of `--model pi:<model>` overrides pi's configured default when set. Set `PI_CLI_PATH` to force a specific binary. Note: pi's built-in default provider is `google`, so running `--model pi` with no model relies on your pi config to resolve a provider you are authenticated for.
 
 Check installed CLI versions:
 
@@ -291,12 +301,9 @@ caliper update-cli --check
 ```yaml
 skill:
   path: ./SKILL.md              # path to the skill file (optional for baseline-only runs)
-  backend: claude-code          # claude-code | codex | pi
-  model: <model-name>           # optional model override
 
-judge:
-  backend: claude-code          # claude-code | codex | pi
-  model: <model-name>           # optional model override
+# Note: there is no `backend`/`model` or `judge:` block. The engine is a runtime
+# axis — pass `--model` / `--judge-model` at run time (default: claude-code).
 
 sandbox:
   extra_path:
@@ -328,12 +335,9 @@ Each task needs at least one of `expect` or `assert`. Task IDs are assigned auto
 
 ### LLM autorater (`expect:`)
 
-The judge backend reads the full attempt transcript and decides whether the `expect` condition was met. When the backend captures tool-call traces (Claude Code, Codex), those traces are included — the judge can verify things like "the agent used tool X" without relying on the final text alone.
+The judge engine reads the full attempt transcript and decides whether the `expect` condition was met. When the backend captures tool-call traces (Claude Code, Codex, pi), those traces are included — the judge can verify things like "the agent used tool X" without relying on the final text alone.
 
-```yaml
-judge:
-  backend: claude-code
-```
+The judge engine is chosen at run time and defaults to `claude-code`; point it at a different agent with `--judge-model` (e.g. `--judge-model codex`), independently of the skill's `--model`.
 
 ### Deterministic assertions (`assert:`)
 
@@ -383,32 +387,30 @@ When both `expect` and `assert` are present, both must pass.
 | `--workers INT` | `4` | Parallel task workers |
 | `--timeout INT` | `120` | Seconds per attempt |
 | `--fail-fast INT` | `0` | Stop a task after N consecutive `infra_error`/`timeout` attempts (`0` disables) |
-| `--model TARGET` | — | Override skill backend and/or model (see below) |
-| `--judge-model TARGET` | — | Override judge backend and/or model (see below) |
+| `--model TARGET` | `claude-code` | Skill engine — backend and/or model (see below) |
+| `--judge-model TARGET` | `claude-code` | Judge engine — backend and/or model (see below) |
 | `--verbose` | off | Show per-attempt judge reasoning |
 | `--output PATH` | — | Also save results JSON to a specific path |
 
 #### `--model` and `--judge-model` syntax
 
-Both flags accept a `backend:model` compound value, a bare backend name, or a bare model name:
+The engine is not stored in the spec — these flags select it, defaulting to `claude-code` when omitted. Both accept a `backend:model` compound value, a bare backend name, or a bare model name:
 
 ```bash
-# Override backend and model together
+# Backend and model together
 caliper run my-skill.eval.yaml --model codex:gpt-5-codex
 
-# Override backend only (model stays unset / from spec)
+# Backend only (that backend's default model)
 caliper run my-skill.eval.yaml --model codex
 
-# Override model only (backend stays from spec)
+# Model only (backend stays claude-code)
 caliper run my-skill.eval.yaml --model claude-sonnet-4-6
 
-# Override judge independently
+# Select the judge engine independently
 caliper run my-skill.eval.yaml --model codex --judge-model claude-code:claude-haiku-4-5-20251001
 ```
 
-Accepted backends: `claude-code`, `codex`, `pi` (alias: `claude` → `claude-code`).
-
-The spec file is never modified — overrides apply only to the current run.
+Accepted backends: `claude-code`, `codex`, `pi` (alias: `claude` → `claude-code`). The actual engine used is recorded in each saved run's `RunMeta`, so results stay traceable even though the spec doesn't pin it.
 
 ---
 

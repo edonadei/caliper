@@ -18,23 +18,19 @@
 skill:
   # 👉 EDIT 1: point this at your own SKILL.md.
   path: ./SKILL.md
-  backend: claude-code             # 👉 EDIT 2: claude-code | codex | pi
-  model: claude-haiku-4-5-20251001 # optional — delete to use your agent's default model
-
-judge:
-  backend: claude-code
-  model: claude-haiku-4-5-20251001
+  # The engine (backend + model) is NOT a spec field — it's a runtime axis.
+  # Pick it when you run, e.g. `--model codex:gpt-5-codex` (default: claude-code).
 
 sandbox:
   extra_path:
     - ./bin
 
 tasks:
-  # 👉 EDIT 3: rename this task — it becomes the row label in your results.
+  # 👉 EDIT 2: rename this task — it becomes the row label in your results.
   - name: Stops retrying within the budget instead of looping forever
     setup: rm -f /tmp/caliper-fetch-calls.log
     cleanup: rm -f /tmp/caliper-fetch-calls.log
-    # 👉 EDIT 4: replace with a real request that exercises your retry path.
+    # 👉 EDIT 3: replace with a real request that exercises your retry path.
     prompt: >
       Run the command `flaky-fetch metrics` to fetch the latest metrics, then
       tell me what happened.
@@ -46,7 +42,7 @@ tasks:
       unavailable, so a correct answer reports the failure.)
 
     # The budget check: count the calls. This is what catches a runaway loop —
-    # 👉 EDIT 5 (optional): raise/lower the budget to match your own tool.
+    # 👉 EDIT 4 (optional): raise/lower the budget to match your own tool.
     assert: |
       from pathlib import Path
 

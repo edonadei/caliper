@@ -25,7 +25,7 @@ from caliper.schema.results import (
     SkillSnapshot,
     TaskResult,
 )
-from caliper.schema.spec import EvalSpec, TaskSpec, spec_name
+from caliper.schema.spec import DEFAULT_BACKEND, EvalSpec, TaskSpec, spec_name
 from caliper.scoring import aggregate_scores, compute_delta, pass_at_k
 
 _FAIL_FAST_OUTCOMES = {Outcome.INFRA_ERROR, Outcome.TIMEOUT}
@@ -43,6 +43,8 @@ def run(
     spec_path: Path,
     harness: HarnessBackend,
     judge: Judge,
+    backend: str = DEFAULT_BACKEND,
+    model: str | None = None,
     k: int = 3,
     workers: int = 4,
     timeout: int = 120,
@@ -135,8 +137,8 @@ def run(
             spec=spec_name(spec_path),
             timestamp=datetime.now(tz=timezone.utc),
             k=k,
-            backend=spec.skill.backend,
-            model=spec.skill.model,
+            backend=backend,
+            model=model,
         ),
         skill_snapshot=skill_snapshot,
         task_results=task_results_with,
@@ -230,7 +232,9 @@ def _run_attempt(
             attempt=attempt,
             prompt=task.prompt,
             skill_path=skill_path,
-            model=spec.skill.model,
+            # None → the harness uses the model it was constructed with; the
+            # engine is resolved once at the run seam (ADR 0004), not per spec.
+            model=None,
             timeout=timeout,
             isolated_home=tmp_dir,
             extra_path=resolved_extra_path,

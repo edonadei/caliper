@@ -16,18 +16,15 @@ The `caliper` CLI must be on `PATH`. This skill can be copied into an agent with
 pipx install caliper-eval
 ```
 
-Backends for the skill-under-test (`skill.backend`) and the judge (`judge.backend`) are chosen independently — from `claude-code`, `codex`, `pi`. Every backend is a CLI agent that uses its own subscription/auth; there is no direct-API backend (for API billing, configure a CLI with an API key). Full per-backend detail and every command: [REFERENCE.md](REFERENCE.md).
+The engine (backend + model) is not part of the spec — it is chosen at run time with `--model` (skill) and `--judge-model` (judge), independently, from `claude-code`, `codex`, `pi`, defaulting to `claude-code`. Every backend is a CLI agent that uses its own subscription/auth; there is no direct-API backend (for API billing, configure a CLI with an API key). Full per-backend detail and every command: [REFERENCE.md](REFERENCE.md).
 
 ## Spec shape
 
-An `.eval.yaml` names the skill, the judge, and a list of tasks. Keep `skill.path` relative to the spec file (usually `./SKILL.md`):
+An `.eval.yaml` names the skill and a list of tasks. Keep `skill.path` relative to the spec file (usually `./SKILL.md`):
 
 ```yaml
 skill:
   path: ./SKILL.md      # relative to the spec file
-  backend: codex        # claude-code | codex | pi
-judge:
-  backend: codex        # independent of skill.backend
 tasks:
   - name: What success looks like
     prompt: <prompt sent to the skill under test>
@@ -36,7 +33,7 @@ tasks:
       assert ...
 ```
 
-Add `model:` under `skill`/`judge` only when the user asks for a specific model. The full format (setup/cleanup, external assert scripts, sandbox) is in [REFERENCE.md](REFERENCE.md).
+The spec has no `backend`/`model` or `judge:` block; pick the engine when you run, e.g. `caliper run <spec> --model codex --judge-model codex`. The full format (setup/cleanup, external assert scripts, sandbox) is in [REFERENCE.md](REFERENCE.md).
 
 ## Bundled references
 

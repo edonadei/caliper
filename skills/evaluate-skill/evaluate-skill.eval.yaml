@@ -1,23 +1,19 @@
 skill:
   path: ./SKILL.md
-  backend: codex
 
-judge:
-  backend: codex
+# The engine (backend + model) is a runtime axis, not a spec field — run this
+# eval with `--model codex --judge-model codex` (or any other engine).
 
 sandbox:
   forbidden_files:
     - "./.caliper/.*"
 
 tasks:
-  - name: Validates a Codex-backed spec and reports it as valid
+  - name: Validates a well-formed spec and reports it as valid
     setup: |
       cat > /tmp/caliper-test-valid.eval.yaml << 'EOF'
       skill:
         path: ./SKILL.md
-        backend: codex
-      judge:
-        backend: codex
       tasks:
         - name: Test arithmetic
           prompt: What is 2 + 2?
@@ -29,7 +25,7 @@ tasks:
       and tell me whether it is valid.
     expect: >
       The agent runs caliper validate on /tmp/caliper-test-valid.eval.yaml and
-      reports that the Codex-backed spec is valid with no errors.
+      reports that the spec is valid with no errors.
     assert: |
       import subprocess
 
@@ -43,7 +39,7 @@ tasks:
     setup: |
       cat > /tmp/caliper-test-invalid.eval.yaml << 'EOF'
       skill:
-        backend: claude-code
+        path: ./SKILL.md
       tasks:
         - name: Broken task
           prompt: do something
@@ -57,18 +53,20 @@ tasks:
       describing that the task is missing both expect and assert fields. The
       agent does not edit the invalid spec file.
 
-  - name: Creates a Codex CLI eval spec file on request
+  - name: Creates an engineless eval spec and defers the engine to run time
     cleanup: rm -f /tmp/caliper-created.eval.yaml
     prompt: >
       Create an evaluation spec file at /tmp/caliper-created.eval.yaml for a
-      Codex CLI skill at ./SKILL.md. Use codex as both the skill backend and
-      judge backend. Include one task named "Answers
-      arithmetic", with prompt "What is 2 + 2?" and expectation "The assistant
-      answers 4."
+      skill at ./SKILL.md that I intend to run on the Codex CLI. Include one task
+      named "Answers arithmetic", with prompt "What is 2 + 2?" and expectation
+      "The assistant answers 4." Then tell me how to run it against Codex.
     expect: >
-      A valid .eval.yaml file is written at /tmp/caliper-created.eval.yaml. It
-      uses codex for both skill.backend and judge.backend and includes the
-      requested task.
+      A valid .eval.yaml file is written at /tmp/caliper-created.eval.yaml with
+      skill.path ./SKILL.md and the requested task. The spec does NOT pin a
+      backend or model (no skill.backend/model, no judge block) because the
+      engine is a runtime axis, and the agent tells the user to select Codex at
+      run time with `caliper run ... --model codex` (optionally
+      `--judge-model codex`).
     assert: |
       import os
       import yaml
@@ -77,29 +75,30 @@ tasks:
       assert os.path.exists(path), "Spec file was not created"
       with open(path) as f:
           spec = yaml.safe_load(f)
-      assert spec["skill"]["backend"] == "codex", "skill backend should be codex"
       assert spec["skill"]["path"] == "./SKILL.md", "skill path should be ./SKILL.md"
-      assert "model" not in spec["skill"], "skill model should be omitted unless requested"
-      assert spec["judge"]["backend"] == "codex", "judge backend should be codex"
-      assert "model" not in spec["judge"], "judge model should be omitted unless requested"
+      assert "backend" not in spec["skill"], "engine is a runtime axis: no skill.backend"
+      assert "model" not in spec["skill"], "engine is a runtime axis: no skill.model"
+      assert "judge" not in spec, "engine is a runtime axis: no judge block belongs in the spec"
       assert len(spec.get("tasks", [])) == 1, "Expected exactly one task"
       task = spec["tasks"][0]
       assert task["name"] == "Answers arithmetic", "Unexpected task name"
       assert task["prompt"] == "What is 2 + 2?", "Unexpected prompt"
       assert task["expect"] == "The assistant answers 4.", "Unexpected expectation"
 
-  - name: Explains mixed Claude Code and Codex backend support
+  - name: Explains independent skill and judge engines are selected at run time
     cleanup: rm -f /tmp/caliper-mixed-backend.eval.yaml
     prompt: >
       Create an evaluation spec file at /tmp/caliper-mixed-backend.eval.yaml
-      that evaluates a Claude Code skill at ~/.claude/commands/review.md with
-      skill.backend set to claude-code, but judges it with Codex. Include one
-      task named "Reviews staged changes", prompt "/review the staged changes",
-      and expectation "The review reports at least one actionable issue."
+      that evaluates a Claude Code skill at ~/.claude/commands/review.md but is
+      judged by Codex. Include one task named "Reviews staged changes", prompt
+      "/review the staged changes", and expectation "The review reports at least
+      one actionable issue." Then tell me the exact command to run it that way.
     expect: >
-      The agent creates a valid spec with skill.backend set to claude-code and
-      judge.backend set to codex, showing that Caliper supports independent
-      agent and judge backends.
+      The agent writes a valid engineless spec (skill.path
+      ~/.claude/commands/review.md, no backend/model, no judge block) and
+      explains that the skill and judge engines are chosen independently at run
+      time — e.g. `caliper run ... --model claude-code --judge-model codex` —
+      because Caliper treats the engine as a runtime axis, not a spec field.
     assert: |
       import os
       import yaml
@@ -108,8 +107,9 @@ tasks:
       assert os.path.exists(path), "Spec file was not created"
       with open(path) as f:
           spec = yaml.safe_load(f)
-      assert spec["skill"]["backend"] == "claude-code", "skill backend should be claude-code"
-      assert spec["judge"]["backend"] == "codex", "judge backend should be codex"
+      assert spec["skill"]["path"] == "~/.claude/commands/review.md", "Unexpected skill path"
+      assert "backend" not in spec["skill"], "engine is a runtime axis: no skill.backend"
+      assert "judge" not in spec, "engine is a runtime axis: no judge block belongs in the spec"
       assert spec["tasks"][0]["name"] == "Reviews staged changes", "Unexpected task name"
 
   - name: Lists available evaluations gracefully

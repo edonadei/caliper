@@ -1,9 +1,7 @@
-skill:
-  backend: codex
-
-judge:
-  backend: claude-code
-  model: claude-haiku-4-5-20251001
+# End-to-end smoke eval for the `codex` backend.
+# The engine is a runtime axis, not a spec field — pick it when you run:
+#   caliper run tests/codex-smoke.eval.yaml --model codex
+skill: {}
 
 tasks:
   - name: Write hello to a file

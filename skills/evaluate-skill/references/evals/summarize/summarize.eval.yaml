@@ -1,11 +1,5 @@
 skill:
   path: ./SKILL.md
-  backend: claude-code
-  model: claude-haiku-4-5-20251001
-
-judge:
-  backend: claude-code
-  model: claude-sonnet-4-6
 
 sandbox:
   extra_path:

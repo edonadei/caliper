@@ -16,23 +16,19 @@ skill:
   # 👉 EDIT 1: point this at your own SKILL.md (or delete `path:` to test the
   #            bare agent with no skill).
   path: ./SKILL.md
-  backend: claude-code             # 👉 EDIT 2: claude-code | codex | pi
-  model: claude-haiku-4-5-20251001 # optional — delete to use your agent's default model
-
-judge:
-  backend: claude-code
-  model: claude-haiku-4-5-20251001
+  # The engine (backend + model) is NOT a spec field — it's a runtime axis.
+  # Pick it when you run, e.g. `--model codex:gpt-5-codex` (default: claude-code).
 
 tasks:
-  # 👉 EDIT 3: rename this task — it becomes the row label in your results.
+  # 👉 EDIT 2: rename this task — it becomes the row label in your results.
   - name: Actually writes the note it claims to have saved
-    # 👉 EDIT 4: the output path below appears in setup, cleanup, prompt, expect,
+    # 👉 EDIT 3: the output path below appears in setup, cleanup, prompt, expect,
     #            and assert — change it in every one. The setup/cleanup lines
     #            start clean so a leftover file from a previous run can't fake a
     #            pass — exactly the false success this template catches.
     setup: rm -f /tmp/caliper-note.txt
     cleanup: rm -f /tmp/caliper-note.txt
-    # 👉 EDIT 5: replace this prompt with a real request for your own agent.
+    # 👉 EDIT 4: replace this prompt with a real request for your own agent.
     prompt: "Save the note 'ship the release on Friday' to /tmp/caliper-note.txt"
 
     # The self-report check: did the agent SAY it did the right thing?

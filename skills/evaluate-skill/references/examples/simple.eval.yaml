@@ -1,11 +1,5 @@
 skill:
   path: ~/.claude/commands/review.md
-  backend: claude
-  model: claude-sonnet-4-6
-
-judge:
-  backend: claude
-  model: claude-haiku-4-5-20251001
 
 sandbox:
   forbidden_files:

@@ -127,7 +127,7 @@ class JudgeErrorThenPass(Judge):
 
 def _one_task_spec() -> EvalSpec:
     return EvalSpec(
-        skill=SkillConfig(backend="codex"),
+        skill=SkillConfig(),
         tasks=[
             TaskSpec(
                 id="task-001",
@@ -141,7 +141,7 @@ def _one_task_spec() -> EvalSpec:
 
 def test_runner_fails_attempt_when_harness_exits_nonzero(tmp_path) -> None:
     spec_path = tmp_path / "failing.eval.yaml"
-    spec_path.write_text("skill:\n  backend: codex\ntasks: []\n")
+    spec_path.write_text("skill: {}\ntasks: []\n")
     judge = RecordingJudge()
     spec = _one_task_spec()
 
@@ -169,7 +169,7 @@ def test_runner_fails_attempt_when_harness_exits_nonzero(tmp_path) -> None:
 
 def test_runner_runs_all_infra_failures_by_default(tmp_path) -> None:
     spec_path = tmp_path / "failing.eval.yaml"
-    spec_path.write_text("skill:\n  backend: codex\ntasks: []\n")
+    spec_path.write_text("skill: {}\ntasks: []\n")
     harness = InfraErrorHarness()
 
     results = run(
@@ -190,7 +190,7 @@ def test_runner_runs_all_infra_failures_by_default(tmp_path) -> None:
 
 def test_runner_fail_fast_stops_after_unusable_threshold(tmp_path) -> None:
     spec_path = tmp_path / "failing.eval.yaml"
-    spec_path.write_text("skill:\n  backend: codex\ntasks: []\n")
+    spec_path.write_text("skill: {}\ntasks: []\n")
     harness = InfraErrorHarness()
 
     results = run(
@@ -213,7 +213,7 @@ def test_runner_fail_fast_stops_after_unusable_threshold(tmp_path) -> None:
 
 def test_runner_fail_fast_does_not_reset_streak_on_judge_error(tmp_path) -> None:
     spec_path = tmp_path / "failing.eval.yaml"
-    spec_path.write_text("skill:\n  backend: codex\ntasks: []\n")
+    spec_path.write_text("skill: {}\ntasks: []\n")
     harness = MixedOutcomeHarness()
 
     results = run(
@@ -240,7 +240,7 @@ def test_runner_fail_fast_does_not_reset_streak_on_judge_error(tmp_path) -> None
 
 def test_runner_emits_task_done_when_fail_fast_stops_early(tmp_path) -> None:
     spec_path = tmp_path / "failing.eval.yaml"
-    spec_path.write_text("skill:\n  backend: codex\ntasks: []\n")
+    spec_path.write_text("skill: {}\ntasks: []\n")
     finished_tasks = []
 
     run(

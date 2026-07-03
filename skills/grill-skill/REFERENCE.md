@@ -15,7 +15,7 @@ caliper run path/to/spec.eval.yaml --k 3
 # Baseline run — before committing, proves the skill makes a difference
 caliper run path/to/spec.eval.yaml --k 3 --baseline
 
-# Run against a different backend or model without editing the spec
+# Choose the engine at run time — it is not stored in the spec (default: claude-code)
 caliper run path/to/spec.eval.yaml --model codex:gpt-5-codex
 caliper run path/to/spec.eval.yaml --model codex
 caliper run path/to/spec.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001
@@ -55,15 +55,14 @@ caliper report path/to/spec.eval.yaml --verbose
 caliper report path/to/spec.eval.yaml --run 2026-06-21T14-53-12Z --verbose
 ```
 
-## Spec skeleton (claude-code backend)
+## Spec skeleton
+
+The spec carries no engine — pick the backend/model at run time with `--model` /
+`--judge-model` (default `claude-code`).
 
 ```yaml
 skill:
   path: ./SKILL.md
-  backend: claude-code
-
-judge:
-  backend: claude-code
 
 sandbox:
   forbidden_files:
@@ -125,4 +124,4 @@ Add `assert:` when the outcome is a fact that an LLM judge might guess wrong:
 | `codex` | Codex CLI | For Codex-targeted skills |
 | `pi` | pi CLI (authenticated) | For pi / agentskills.io skills; native `--skill` loading |
 
-Skill backend and judge backend are independent. Every backend is a CLI agent; for API billing, configure a CLI with an API key rather than selecting a separate backend.
+The skill engine (`--model`) and judge engine (`--judge-model`) are chosen independently at run time. Every backend is a CLI agent; for API billing, configure a CLI with an API key rather than selecting a separate backend.

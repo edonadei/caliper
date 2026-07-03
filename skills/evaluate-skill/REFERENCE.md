@@ -8,10 +8,10 @@ caliper run path/to/spec.eval.yaml --k 3
 caliper run path/to/spec.eval.yaml --k 3 --baseline      # include no-skill delta
 caliper run path/to/spec.eval.yaml --verbose             # show per-attempt reasoning
 
-# Override backend and/or model at run time (no spec edit needed)
+# Choose the engine at run time — it is not stored in the spec (default: claude-code)
 caliper run path/to/spec.eval.yaml --model codex:gpt-5-codex
-caliper run path/to/spec.eval.yaml --model codex
-caliper run path/to/spec.eval.yaml --model claude-sonnet-4-6   # model only, keep spec backend
+caliper run path/to/spec.eval.yaml --model codex                # backend only, its default model
+caliper run path/to/spec.eval.yaml --model claude-sonnet-4-6    # model only, backend stays claude-code
 caliper run path/to/spec.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001
 caliper run path/to/spec.eval.yaml --model codex --judge-model claude-code:claude-haiku-4-5-20251001
 ```
@@ -19,9 +19,8 @@ caliper run path/to/spec.eval.yaml --model codex --judge-model claude-code:claud
 ### Create a new evaluation spec (interactive wizard)
 ```bash
 caliper new my-skill-eval
-caliper new --skill ~/.claude/commands/review.md --backend claude-code
-caliper new --skill ./SKILL.md --backend codex
-caliper new --skill ./SKILL.md --backend pi
+caliper new --skill ~/.claude/commands/review.md
+caliper new --skill ./SKILL.md
 ```
 
 ### Validate a spec file
@@ -53,15 +52,14 @@ caliper compare full-eval short-eval --format json   # for a ship/no-ship gate
 
 ## Spec format (.eval.yaml)
 
+The spec carries no engine — no `backend`/`model` and no `judge:` block. Backend
+and model for both the skill and the judge are chosen at run time via `--model` /
+`--judge-model` (default `claude-code`); a spec that still pins these keys fails
+validation with a message pointing at the flags.
+
 ```yaml
 skill:
   path: ./SKILL.md
-  backend: claude-code     # claude-code | codex | pi
-  model: claude-sonnet-4-6 # optional
-
-judge:
-  backend: claude-code
-  model: claude-haiku-4-5-20251001  # optional; cheaper is fine for judging
 
 sandbox:
   forbidden_files:
@@ -89,27 +87,18 @@ tasks:
     assert: ./assertions/check_report.py
 ```
 
-For a Codex-backed eval, use:
+The same spec runs on any engine. To run it on Codex, pass the backend at run
+time — the spec is unchanged:
 
-```yaml
-skill:
-  path: ./SKILL.md
-  backend: codex
-
-judge:
-  backend: codex
+```bash
+caliper run path/to/spec.eval.yaml --model codex --judge-model codex
 ```
 
-For a pi-backed eval (loads the skill natively via pi's `--skill` flag):
+For pi (loads the skill natively via pi's `--skill` flag), the `:model` half
+overrides pi's configured default:
 
-```yaml
-skill:
-  path: ./SKILL.md
-  backend: pi
-  model: claude-sonnet-4-6  # optional; overrides pi's configured default
-
-judge:
-  backend: pi
+```bash
+caliper run path/to/spec.eval.yaml --model pi:claude-sonnet-4-6 --judge-model pi
 ```
 
 ## Key concepts
@@ -121,8 +110,9 @@ judge:
 - **judge** — the spec drives evaluation: `expect:` triggers an LLM verdict (which may generate a Python assertion script); `assert:` runs a deterministic Python script; both can be combined and both must pass
 - **cheat detection** — transcript is scanned for reads of forbidden files (spec, results)
 - **isolation** — each attempt runs in a fresh temp HOME with no session history
-- **`--model TARGET`** — override skill backend/model at run time; accepts `backend:model`, bare backend (`codex`), or bare model name
-- **`--judge-model TARGET`** — same syntax, overrides the judge backend/model independently
+- **engine as a runtime axis** — backend + model are not spec fields; they are chosen per run and recorded in `RunMeta`, so the same spec can target any agent and never ages when a model goes stale
+- **`--model TARGET`** — select the skill engine at run time (default `claude-code`); accepts `backend:model`, bare backend (`codex`), or bare model name
+- **`--judge-model TARGET`** — same syntax, selects the judge engine independently
 
 ## Results storage
 

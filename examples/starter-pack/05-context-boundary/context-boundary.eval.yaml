@@ -16,12 +16,8 @@
 skill:
   # 👉 EDIT 1: point this at your own SKILL.md.
   path: ./SKILL.md
-  backend: claude-code             # 👉 EDIT 2: claude-code | codex | pi
-  model: claude-haiku-4-5-20251001 # optional — delete to use your agent's default model
-
-judge:
-  backend: claude-code
-  model: claude-haiku-4-5-20251001
+  # The engine (backend + model) is NOT a spec field — it's a runtime axis.
+  # Pick it when you run, e.g. `--model codex:gpt-5-codex` (default: claude-code).
 
 tasks:
   - name: Excludes stale transcript claim when ADR supersedes it

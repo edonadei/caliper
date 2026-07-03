@@ -8,8 +8,7 @@ from pathlib import Path
 
 from caliper.harness.base import ConversationTurn
 from caliper.judge.base import Judge, JudgeResult
-from caliper.schema.spec import normalize_backend
-from caliper.schema.spec import JudgeConfig, TaskSpec
+from caliper.schema.spec import DEFAULT_BACKEND, normalize_backend, TaskSpec
 
 _SYSTEM = """\
 You are an evaluation judge for an AI assistant. You will be shown a conversation \
@@ -131,8 +130,12 @@ class EvalJudge(Judge):
 
     strategy = "script"
 
-    def __init__(self, config: JudgeConfig) -> None:
-        self._config = config
+    def __init__(
+        self, backend: str = DEFAULT_BACKEND, model: str | None = None
+    ) -> None:
+        # The judge engine is a runtime axis, resolved from --judge-model (ADR 0004).
+        self._backend = backend
+        self._model = model
 
     def evaluate(
         self,
@@ -186,14 +189,14 @@ class EvalJudge(Judge):
     def _llm_evaluate(
         self, task: TaskSpec, transcript: list[ConversationTurn], spec_dir: str
     ) -> tuple[bool, str, bool]:
-        match normalize_backend(self._config.backend):
+        match normalize_backend(self._backend):
             case "codex":
                 from caliper.judge.codex_judge import evaluate_with_codex
 
                 return evaluate_with_codex(
                     expect=task.expect,
                     transcript=transcript,
-                    model=self._config.model,
+                    model=self._model,
                     cwd=spec_dir,
                 )
             case "claude-code":
@@ -202,8 +205,17 @@ class EvalJudge(Judge):
                 return evaluate_with_claude_code(
                     expect=task.expect,
                     transcript=transcript,
-                    model=self._config.model,
+                    model=self._model,
+                    spec_dir=spec_dir,
+                )
+            case "pi":
+                from caliper.judge.pi_judge import evaluate_with_pi
+
+                return evaluate_with_pi(
+                    expect=task.expect,
+                    transcript=transcript,
+                    model=self._model,
                     spec_dir=spec_dir,
                 )
             case _:
-                return False, f"Unknown judge backend: {self._config.backend!r}", True
+                return False, f"Unknown judge backend: {self._backend!r}", True

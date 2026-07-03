@@ -1,9 +1,8 @@
 skill:
   path: ./SKILL.md
-  backend: claude-code
 
-judge:
-  backend: claude-code
+# The engine (backend + model) is a runtime axis, not a spec field — this eval
+# runs on whatever `--model` / `--judge-model` select (default claude-code).
 
 # No explicit sandbox.forbidden_files: caliper already auto-forbids the eval
 # spec and .caliper/ by absolute path. Listing "./.caliper/.*" here caused a
@@ -73,9 +72,6 @@ tasks:
       cat > /tmp/grill-existing/summarize.eval.yaml << 'EOF'
       skill:
         path: ./SKILL.md
-        backend: claude-code
-      judge:
-        backend: claude-code
       tasks:
         - name: Summarizes a short text file
           prompt: Summarize /tmp/notes.txt
@@ -128,21 +124,20 @@ tasks:
       a COMPLETE, valid caliper eval spec for the
       skill at /tmp/grill-serialize/SKILL.md, and write it to
       /tmp/grill-serialize/hello-file.eval.yaml (do not run it — just create the
-      file). The spec must include the top-level skill block (skill.path
-      ./SKILL.md and backend claude-code) and judge block (backend claude-code),
-      plus exactly 3 tasks: a happy path where the prompt asks the agent to
-      write the greeting file and the expect is that /tmp/hello.txt contains
-      "hello world"; an edge case where the user specifies a custom greeting;
-      and an adversarial case where the user asks to overwrite a protected
-      system file.
+      file). The spec must have a top-level skill block with skill.path
+      ./SKILL.md (and NO backend/model or judge block — the engine is a runtime
+      axis, chosen with --model at run time), plus exactly 3 tasks: a happy path
+      where the prompt asks the agent to write the greeting file and the expect
+      is that /tmp/hello.txt contains "hello world"; an edge case where the user
+      specifies a custom greeting; and an adversarial case where the user asks
+      to overwrite a protected system file.
     expect: >
       A valid, runnable .eval.yaml is written at
       /tmp/grill-serialize/hello-file.eval.yaml: it has a top-level skill block
-      (path ./SKILL.md, a backend), a judge block with a backend, and exactly 3
-      tasks covering a happy path, an edge case, and an adversarial case.
+      (path ./SKILL.md, no backend/model, no judge block) and exactly 3 tasks
+      covering a happy path, an edge case, and an adversarial case.
     assert: |
       import yaml
-      def be(n): return n if isinstance(n, str) else (n or {}).get("backend")
       def pa(n): return n if isinstance(n, str) else (n or {}).get("path")
 
       path = "/tmp/grill-serialize/hello-file.eval.yaml"
@@ -156,8 +151,11 @@ tasks:
       assert isinstance(spec, dict), "spec is not a mapping"
       assert pa(spec.get("skill")) in ("./SKILL.md", "SKILL.md"), \
           f"skill.path should be ./SKILL.md, got {pa(spec.get('skill'))!r}"
-      assert be(spec.get("skill")), "skill.backend is required"
-      assert be(spec.get("judge")), "judge.backend is required"
+      skill = spec.get("skill") or {}
+      if isinstance(skill, dict):
+          assert "backend" not in skill and "model" not in skill, \
+              "engine is a runtime axis: skill must not pin backend/model"
+      assert "judge" not in spec, "engine is a runtime axis: no judge block belongs in the spec"
       tasks = spec.get("tasks", [])
       assert len(tasks) == 3, f"Expected 3 tasks, got {len(tasks)}"
       for task in tasks:

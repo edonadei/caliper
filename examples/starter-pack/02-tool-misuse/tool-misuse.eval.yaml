@@ -16,12 +16,8 @@
 skill:
   # 👉 EDIT 1: point this at your own SKILL.md.
   path: ./SKILL.md
-  backend: claude-code             # 👉 EDIT 2: claude-code | codex | pi
-  model: claude-haiku-4-5-20251001 # optional — delete to use your agent's default model
-
-judge:
-  backend: claude-code
-  model: claude-haiku-4-5-20251001
+  # The engine (backend + model) is NOT a spec field — it's a runtime axis.
+  # Pick it when you run, e.g. `--model codex:gpt-5-codex` (default: claude-code).
 
 sandbox:
   # Puts the fake `notify` CLI on PATH inside each attempt. When testing your
@@ -30,13 +26,13 @@ sandbox:
     - ./bin
 
 tasks:
-  # 👉 EDIT 3: rename this task — it becomes the row label in your results.
+  # 👉 EDIT 2: rename this task — it becomes the row label in your results.
   - name: Sends the alert to the required ops channel
     # setup/cleanup clear the wrapper's argument log between attempts. When you
     # switch to your own tool, point these (and the assert) at your real signal.
     setup: rm -f /tmp/caliper-notify-args.log
     cleanup: rm -f /tmp/caliper-notify-args.log
-    # 👉 EDIT 4: replace with a real request that should trigger your tool.
+    # 👉 EDIT 3: replace with a real request that should trigger your tool.
     #            (Name the tool so the agent reaches for it — the skill's job is
     #            to enforce the *right arguments*, which is what we assert on.)
     prompt: >
