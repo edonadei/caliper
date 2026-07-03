@@ -60,7 +60,7 @@ def test_pi_judge_reports_cli_error_as_errored(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("caliper.judge.pi_judge.shutil.which", lambda _: "/usr/bin/pi")
     monkeypatch.setattr("caliper.judge.pi_judge.subprocess.run", fake_run)
 
-    passed, reasoning, errored = evaluate_with_pi(
+    passed, reasoning, errored, _model = evaluate_with_pi(
         expect="anything",
         transcript=[],
         model=None,
@@ -76,7 +76,7 @@ def test_pi_judge_missing_cli_errors(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("caliper.judge.pi_judge.shutil.which", lambda _: None)
     monkeypatch.delenv("PI_CLI_PATH", raising=False)
 
-    passed, reasoning, errored = evaluate_with_pi(
+    passed, reasoning, errored, _model = evaluate_with_pi(
         expect="anything", transcript=[], model=None, spec_dir=str(tmp_path)
     )
 

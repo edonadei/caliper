@@ -5,7 +5,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-_VALID_BACKENDS: frozenset[str] = frozenset({"claude-code", "codex", "pi"})
+_VALID_BACKENDS: frozenset[str] = frozenset({"claude-code", "codex", "pi", "hermes"})
 
 # The engine (backend + model) is a runtime axis, not a spec field: it is chosen
 # at invocation via --model / --judge-model and defaults to this. A saved run

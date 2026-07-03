@@ -38,6 +38,21 @@ _RULE = "—" if _UNICODE else "-"
 _WARN = "⚠" if _UNICODE else "!"
 _CHECK = "✓" if _UNICODE else "OK"
 _CROSS = "✗" if _UNICODE else "X"
+
+
+def _engine_label(backend: str | None, model: str | None) -> str:
+    """`backend · model` when a model is known, else just the backend."""
+    label = backend or "?"
+    return f"{label} {_SEP} {model}" if model else label
+
+
+def _judge_suffix(backend: str | None, model: str | None) -> str:
+    """A ` · judge <engine>` fragment, or empty when the judge is unrecorded."""
+    if not backend:
+        return ""
+    return f"  {_SEP}  judge {_engine_label(backend, model)}"
+
+
 _UP = "↑" if _UNICODE else "up"
 _DOWN = "↓" if _UNICODE else "down"
 _BAR_FULL = "█" if _UNICODE else "#"
@@ -134,11 +149,12 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     ts = results.run.timestamp.strftime("%Y-%m-%d %H:%M")
     k = results.run.k
 
+    judge_suffix = _judge_suffix(results.run.judge_backend, results.run.judge_model)
     console.print()
     console.rule(
         f"{_BANNER}  {_RULE}  [bold]{spec}[/bold]  ([cyan]{backend}[/cyan]"
         + (f" {_SEP} [dim]{model}[/dim]" if model else "")
-        + f")  {_RULE}  {ts}",
+        + f"){judge_suffix}  {_RULE}  {ts}",
         style="cyan",
     )
     console.print()
@@ -345,9 +361,11 @@ def print_comparison(comp: RunComparison) -> None:
         f"{_BANNER}  {_RULE}  compare  {_RULE}  [bold]{comp.a.spec}[/bold]",
         style="cyan",
     )
+    a_engine = _engine_label(comp.a.backend, comp.a.model)
+    b_engine = _engine_label(comp.b.backend, comp.b.model)
     console.print(
-        f"    [bold]A[/bold] {a_ts} ([cyan]{comp.a.backend}[/cyan])   {_SEP}"
-        f"   [bold]B[/bold] {b_ts} ([cyan]{comp.b.backend}[/cyan])   {_SEP}"
+        f"    [bold]A[/bold] {a_ts} ([cyan]{a_engine}[/cyan])   {_SEP}"
+        f"   [bold]B[/bold] {b_ts} ([cyan]{b_engine}[/cyan])   {_SEP}"
         f"   k=[cyan]{comp.a.k}[/cyan]"
         + (f"/[cyan]{comp.b.k}[/cyan]" if comp.k_mismatch else "")
     )

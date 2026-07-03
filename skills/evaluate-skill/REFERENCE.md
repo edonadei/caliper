@@ -94,6 +94,18 @@ overrides pi's configured default:
 caliper run path/to/spec.eval.yaml --model pi:claude-sonnet-4-6 --judge-model pi
 ```
 
+For hermes (Nous Research), the `:model` half is a `provider/model` value passed
+straight to hermes's `-m`; omit it to use your `~/.hermes/config.yaml` default:
+
+```bash
+caliper run path/to/spec.eval.yaml --model hermes:anthropic/claude-sonnet-4.6 --judge-model hermes
+```
+
+Hermes is a stateful agent, so Caliper normalizes it to a neutral agent per
+attempt (isolated `HERMES_HOME`, no persona/memory, `--ignore-rules`, the
+skill-under-test staged as the only local skill) and recovers the full tool-call
+trajectory by running `hermes -z` then `hermes sessions export`.
+
 ## Key concepts
 
 - **pass@k** — probability that at least 1 of k attempts passes (default k=3), computed over the *usable* attempts only
@@ -103,7 +115,7 @@ caliper run path/to/spec.eval.yaml --model pi:claude-sonnet-4-6 --judge-model pi
 - **judge** — the spec drives evaluation: `expect:` triggers an LLM verdict (which may generate a Python assertion script); `assert:` runs a deterministic Python script; both can be combined and both must pass
 - **cheat detection** — transcript is scanned for reads of forbidden files (spec, results)
 - **isolation** — each attempt runs in a fresh temp HOME with no session history
-- **engine as a runtime axis** — backend + model are not spec fields; they are chosen per run and recorded in `RunMeta`, so the same spec can target any agent and never ages when a model goes stale
+- **engine as a runtime axis** — backend + model are not spec fields; they are chosen per run and recorded in `RunMeta` (skill `backend`/`model` **and** `judge_backend`/`judge_model`), so the same spec can target any agent and never ages when a model goes stale. A default-model run records the concrete model the agent resolved wherever the backend reports it (skill model from hermes' export, `judge_model` from the claude-code judge's JSON), not a bare "default"; `judge_model` is empty for an assert-only run where no LLM judge fired
 - **`--model TARGET`** — select the skill engine at run time (default `claude-code`); accepts `backend:model`, bare backend (`codex`), or bare model name
 - **`--judge-model TARGET`** — same syntax, selects the judge engine independently
 

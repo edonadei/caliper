@@ -145,6 +145,8 @@ def run_cmd(
                 judge=judge,
                 backend=backend,
                 model=skill_model,
+                judge_backend=judge_backend,
+                judge_model=judge_model_name,
                 k=k,
                 workers=workers,
                 timeout=timeout,

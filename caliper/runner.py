@@ -45,6 +45,8 @@ def run(
     judge: Judge,
     backend: str = DEFAULT_BACKEND,
     model: str | None = None,
+    judge_backend: str | None = None,
+    judge_model: str | None = None,
     k: int = 3,
     workers: int = 4,
     timeout: int = 120,
@@ -63,6 +65,13 @@ def run(
 
     task_results_with: list[TaskResult] = []
     task_results_without: list[TaskResult] = []
+    # Collects the concrete model each attempt resolved (same value every time),
+    # so RunMeta can record the real model even when the CLI's default was used.
+    # list.append is atomic under the GIL, so it is safe across worker threads.
+    resolved_models: list[str] = []
+    # Same, for the judge autorater's concrete model (only set for expect: tasks
+    # whose judge CLI reports it, e.g. claude-code).
+    judge_models: list[str] = []
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures_with = {
@@ -80,6 +89,8 @@ def run(
                 on_attempt_done,
                 on_task_done,
                 fail_fast_unusable,
+                resolved_models,
+                judge_models,
             ): task
             for task in spec.tasks
         }
@@ -99,6 +110,8 @@ def run(
                     on_attempt_done,
                     on_task_done,
                     fail_fast_unusable,
+                    resolved_models,
+                    judge_models,
                 ): task
                 for task in spec.tasks
             }
@@ -138,7 +151,15 @@ def run(
             timestamp=datetime.now(tz=timezone.utc),
             k=k,
             backend=backend,
-            model=model,
+            # Prefer the explicitly requested model; otherwise fall back to the
+            # concrete model an attempt resolved (e.g. from hermes' export), so a
+            # default-model run still records what actually ran.
+            model=model or (resolved_models[0] if resolved_models else None),
+            judge_backend=judge_backend,
+            # Prefer the explicitly requested judge model; else the concrete model
+            # an autorater reported (e.g. claude-code). Stays None for assert-only
+            # runs, where no LLM judge ran.
+            judge_model=judge_model or (judge_models[0] if judge_models else None),
         ),
         skill_snapshot=skill_snapshot,
         task_results=task_results_with,
@@ -161,6 +182,8 @@ def _run_task(
     on_attempt_done: Callable[[AttemptEvent], None] | None,
     on_task_done: Callable[[TaskResult], None] | None,
     fail_fast_unusable: int,
+    resolved_models: list[str],
+    judge_models: list[str],
 ) -> TaskResult:
     attempts: list[AttemptRecord] = []
     consecutive_fail_fast_triggers = 0
@@ -176,6 +199,8 @@ def _run_task(
             timeout,
             with_skill,
             on_attempt_done,
+            resolved_models,
+            judge_models,
         )
         attempts.append(record)
         if record.outcome in _FAIL_FAST_OUTCOMES:
@@ -215,6 +240,8 @@ def _run_attempt(
     timeout: int,
     with_skill: bool,
     on_attempt_done: Callable[[AttemptEvent], None] | None,
+    resolved_models: list[str],
+    judge_models: list[str],
 ) -> AttemptRecord:
     tmp_dir = tempfile.mkdtemp(prefix="caliper-")
     try:
@@ -239,6 +266,8 @@ def _run_attempt(
             isolated_home=tmp_dir,
             extra_path=resolved_extra_path,
         )
+        if attempt_result.resolved_model:
+            resolved_models.append(attempt_result.resolved_model)
 
         # A timeout or infrastructure signal terminates the attempt before we
         # spend a (paid) judge call on garbage output. The pre-judge classifier
@@ -282,6 +311,8 @@ def _run_attempt(
             final_output=attempt_result.final_output,
             spec_dir=str(spec_path.parent),
         )
+        if judge_result.resolved_model:
+            judge_models.append(judge_result.resolved_model)
         outcome = classify_outcome(attempt_result, [], judge_result)
 
         return _finish(

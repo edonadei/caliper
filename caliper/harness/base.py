@@ -33,6 +33,11 @@ class AttemptResult:
     timed_out: bool = False
     cheated: bool = False
     cheat_evidence: list[str] = field(default_factory=list)
+    # The concrete model the agent actually resolved for this attempt, when the
+    # backend can report it (e.g. hermes echoes it in its session export). Lets a
+    # run record the real model even when none was passed and the CLI's own
+    # default was used. ``None`` when the backend cannot report it.
+    resolved_model: str | None = None
 
 
 @dataclass
@@ -166,6 +171,7 @@ class CliHarness(HarnessBackend):
             duration_seconds=duration,
             error=self._error_field(proc, final_output),
             timed_out=proc.timed_out,
+            resolved_model=self._resolved_model(proc, ctx),
         )
 
     # --- hooks a backend implements ---------------------------------------
@@ -213,6 +219,15 @@ class CliHarness(HarnessBackend):
 
     def _error_field(self, proc: ProcessResult, final_output: str) -> str | None:
         return proc.error
+
+    def _resolved_model(self, proc: ProcessResult, ctx: RunContext) -> str | None:
+        """The concrete model the agent used, if the backend can report it.
+
+        Default: the model we requested (``None`` when we let the CLI pick its
+        own default and cannot observe what it chose). A backend that surfaces
+        the resolved model in its output overrides this.
+        """
+        return ctx.model
 
     # --- shared machinery -------------------------------------------------
 

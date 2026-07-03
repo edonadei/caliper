@@ -311,3 +311,110 @@ def test_stage_ignores_lone_command_file(tmp_path) -> None:
     _stage_skill_directory(str(tmp_path / "review.md"), str(home), [])
 
     assert not (home / "unrelated.md").exists()
+
+
+class ResolvedModelHarness(HarnessBackend):
+    """A harness that reports the concrete model it resolved for each attempt."""
+
+    def __init__(self, resolved_model: str) -> None:
+        self._resolved = resolved_model
+
+    @property
+    def name(self) -> str:
+        return "resolving"
+
+    def run(
+        self,
+        task_id: str,
+        attempt: int,
+        prompt: str,
+        *,
+        skill_path: str | None,
+        model: str | None,
+        timeout: int,
+        isolated_home: str,
+        extra_path: list[str] | None = None,
+    ) -> AttemptResult:
+        return AttemptResult(
+            task_id=task_id,
+            attempt=attempt,
+            transcript=[],
+            final_output="done",
+            exit_code=0,
+            duration_seconds=0.1,
+            resolved_model=self._resolved,
+        )
+
+
+class ModelReportingJudge(Judge):
+    """A judge that reports the concrete model its autorater resolved."""
+
+    def __init__(self, resolved_model: str) -> None:
+        self._resolved = resolved_model
+
+    def evaluate(self, task, transcript, final_output, spec_dir) -> JudgeResult:
+        return JudgeResult(passed=True, reasoning="ok", resolved_model=self._resolved)
+
+
+def test_runmeta_records_judge_engine_and_resolved_model(tmp_path) -> None:
+    spec_path = tmp_path / "prov.eval.yaml"
+    spec_path.write_text("skill: {}\ntasks: []\n")
+
+    results = run(
+        spec=_one_task_spec(),
+        spec_path=spec_path,
+        harness=ResolvedModelHarness("stepfun/step-3.7-flash:free"),
+        judge=RecordingJudge(),
+        # No skill model requested — the backend's resolved model should fill it.
+        model=None,
+        judge_backend="hermes",
+        judge_model="anthropic/claude-sonnet-4.6",
+        k=1,
+        workers=1,
+        timeout=30,
+    )
+
+    # The judge engine that graded the run is persisted for reproducibility.
+    assert results.run.judge_backend == "hermes"
+    assert results.run.judge_model == "anthropic/claude-sonnet-4.6"
+    # A default-model run still records the concrete model that actually ran.
+    assert results.run.model == "stepfun/step-3.7-flash:free"
+
+
+def test_runmeta_fills_default_judge_model_from_autorater(tmp_path) -> None:
+    spec_path = tmp_path / "prov.eval.yaml"
+    spec_path.write_text("skill: {}\ntasks: []\n")
+
+    results = run(
+        spec=_one_task_spec(),
+        spec_path=spec_path,
+        harness=ResolvedModelHarness("some/model"),
+        judge=ModelReportingJudge("claude-opus-4-8"),
+        judge_backend="claude-code",
+        # No judge model requested — the autorater's concrete model fills it.
+        judge_model=None,
+        k=1,
+        workers=1,
+        timeout=30,
+    )
+
+    assert results.run.judge_backend == "claude-code"
+    assert results.run.judge_model == "claude-opus-4-8"
+
+
+def test_runmeta_prefers_explicit_model_over_resolved(tmp_path) -> None:
+    spec_path = tmp_path / "prov.eval.yaml"
+    spec_path.write_text("skill: {}\ntasks: []\n")
+
+    results = run(
+        spec=_one_task_spec(),
+        spec_path=spec_path,
+        harness=ResolvedModelHarness("some/other-model"),
+        judge=RecordingJudge(),
+        model="anthropic/claude-sonnet-4.6",
+        k=1,
+        workers=1,
+        timeout=30,
+    )
+
+    assert results.run.model == "anthropic/claude-sonnet-4.6"

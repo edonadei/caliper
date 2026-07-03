@@ -20,6 +20,10 @@ def get_harness(backend: str, model: str | None = None) -> HarnessBackend:
             from caliper.harness.pi import PiHarness
 
             return PiHarness(model=model)
+        case "hermes":
+            from caliper.harness.hermes import HermesHarness
+
+            return HermesHarness(model=model)
         case _:
             raise ValueError(f"Unknown backend: {backend!r}")
 

@@ -154,10 +154,14 @@ class EvalJudge(Judge):
         if static_result is not None:
             assert_passed, assert_evidence = static_result
 
+        autorater_model: str | None = None
         if task.expect:
-            llm_passed, llm_reasoning, autorater_errored = self._llm_evaluate(
-                task, transcript, spec_dir
-            )
+            (
+                llm_passed,
+                llm_reasoning,
+                autorater_errored,
+                autorater_model,
+            ) = self._llm_evaluate(task, transcript, spec_dir)
             autorater_reasoning = llm_reasoning
             # An errored autorater yields no verdict: leave autorater_passed None
             # so it is dropped from the checks rather than counted as a failure.
@@ -184,11 +188,12 @@ class EvalJudge(Judge):
             autorater_passed=autorater_passed,
             autorater_reasoning=autorater_reasoning,
             errored=errored,
+            resolved_model=autorater_model,
         )
 
     def _llm_evaluate(
         self, task: TaskSpec, transcript: list[ConversationTurn], spec_dir: str
-    ) -> tuple[bool, str, bool]:
+    ) -> tuple[bool, str, bool, str | None]:
         match normalize_backend(self._backend):
             case "codex":
                 from caliper.judge.codex_judge import evaluate_with_codex
@@ -217,5 +222,14 @@ class EvalJudge(Judge):
                     model=self._model,
                     spec_dir=spec_dir,
                 )
+            case "hermes":
+                from caliper.judge.hermes_judge import evaluate_with_hermes
+
+                return evaluate_with_hermes(
+                    expect=task.expect,
+                    transcript=transcript,
+                    model=self._model,
+                    spec_dir=spec_dir,
+                )
             case _:
-                return False, f"Unknown judge backend: {self._backend!r}", True
+                return False, f"Unknown judge backend: {self._backend!r}", True, None

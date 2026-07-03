@@ -123,5 +123,8 @@ Add `assert:` when the outcome is a fact that an LLM judge might guess wrong:
 | `claude-code` | Claude Code CLI | Default for most skills |
 | `codex` | Codex CLI | For Codex-targeted skills |
 | `pi` | pi CLI (authenticated) | For pi / agentskills.io skills; native `--skill` loading |
+| `hermes` | Hermes Agent CLI (authenticated) | Nous Research; normalized to a neutral agent, `hermes:<provider>/<model>` picks the model |
 
 The skill engine (`--model`) and judge engine (`--judge-model`) are chosen independently at run time. Every backend is a CLI agent; for API billing, configure a CLI with an API key rather than selecting a separate backend.
+
+`hermes` is a stateful agent (persistent memory + persona), so Caliper strips it to a neutral agent per attempt — isolated `HERMES_HOME`, no `SOUL.md`/`MEMORY.md`, `--ignore-rules`, skill-under-test staged as the only local skill — and recovers the full trajectory via `hermes sessions export` after the `hermes -z` run.

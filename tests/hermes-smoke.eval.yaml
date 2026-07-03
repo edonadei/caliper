@@ -1,0 +1,15 @@
+# End-to-end smoke eval for the `hermes` backend.
+# The engine is a runtime axis, not a spec field — pick it when you run:
+#   caliper run tests/hermes-smoke.eval.yaml --model hermes
+skill: {}
+
+tasks:
+  - name: Write hello to a file
+    setup: rm -f /tmp/caliper-e2e-smoke-hermes.txt
+    cleanup: rm -f /tmp/caliper-e2e-smoke-hermes.txt
+    prompt: Write the text "hello" to /tmp/caliper-e2e-smoke-hermes.txt using a shell command.
+    assert: |
+      from pathlib import Path
+      p = Path("/tmp/caliper-e2e-smoke-hermes.txt")
+      assert p.exists(), "file was not created"
+      assert "hello" in p.read_text(), "file does not contain hello"

@@ -45,6 +45,10 @@ class RunMeta(BaseModel):
     k: int
     backend: str
     model: str | None = None
+    # The judge engine that graded this run. Optional so results saved before
+    # judge provenance was recorded still load (they render as an unknown judge).
+    judge_backend: str | None = None
+    judge_model: str | None = None
 
 
 class AttemptRecord(BaseModel):
