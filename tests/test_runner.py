@@ -291,7 +291,9 @@ def test_stage_excludes_cheat_surfaces(tmp_path) -> None:
     home = tmp_path / "home"
     home.mkdir()
 
-    _stage_skill_directory(str(skill_dir / "SKILL.md"), str(home), [r"secret\.txt$"])
+    _stage_skill_directory(
+        str(skill_dir / "SKILL.md"), str(home), [r"secret\.txt$"]
+    )
 
     assert not (home / ".caliper").exists()
     assert not (home / "my-skill.eval.yaml").exists()

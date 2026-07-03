@@ -5,13 +5,7 @@ from datetime import datetime, timezone
 
 from rich.console import Console
 
-from caliper.reporter import (
-    _OUTPUT_TRUNCATE_AT,
-    _format_output,
-    make_progress,
-    print_results,
-    update_progress,
-)
+from caliper.reporter import _OUTPUT_TRUNCATE_AT, _format_output, make_progress, print_results, update_progress
 from caliper.schema.results import (
     AggregateScore,
     AttemptRecord,
@@ -206,12 +200,7 @@ def test_only_failed_tasks_shown_in_mixed_results() -> None:
     results = _make_results(
         [
             _make_task("task-001", passed=True, output="pass output"),
-            _make_task(
-                "task-002",
-                passed=False,
-                output="fail output",
-                assert_evidence="file not found",
-            ),
+            _make_task("task-002", passed=False, output="fail output", assert_evidence="file not found"),
         ]
     )
     out = _render(results)
@@ -252,7 +241,9 @@ def test_verbose_shows_all_tasks() -> None:
 
 def test_long_output_truncated_in_rendered_output() -> None:
     long_output = "z" * (_OUTPUT_TRUNCATE_AT + 200)
-    results = _make_results([_make_task("task-001", passed=False, output=long_output)])
+    results = _make_results(
+        [_make_task("task-001", passed=False, output=long_output)]
+    )
     out = _render(results)
     assert "truncated" in out
     # Rich wraps long lines; count total z's to verify the tail was included
@@ -260,7 +251,9 @@ def test_long_output_truncated_in_rendered_output() -> None:
 
 
 def test_empty_output_renders_no_output_marker() -> None:
-    results = _make_results([_make_task("task-001", passed=False, output="")])
+    results = _make_results(
+        [_make_task("task-001", passed=False, output="")]
+    )
     out = _render(results)
     assert "no output" in out
 

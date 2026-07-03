@@ -65,38 +65,16 @@ def run(
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures_with = {
             pool.submit(
-                _run_task,
-                task,
-                harness,
-                judge,
-                cheat,
-                spec,
-                spec_path,
-                k,
-                timeout,
-                True,
-                on_attempt_done,
-                on_task_done,
-                fail_fast_unusable,
+                _run_task, task, harness, judge, cheat, spec, spec_path,
+                k, timeout, True, on_attempt_done, on_task_done, fail_fast_unusable,
             ): task
             for task in spec.tasks
         }
         futures_without = (
             {
                 pool.submit(
-                    _run_task,
-                    task,
-                    harness,
-                    judge,
-                    cheat,
-                    spec,
-                    spec_path,
-                    k,
-                    timeout,
-                    False,
-                    on_attempt_done,
-                    on_task_done,
-                    fail_fast_unusable,
+                    _run_task, task, harness, judge, cheat, spec, spec_path,
+                    k, timeout, False, on_attempt_done, on_task_done, fail_fast_unusable,
                 ): task
                 for task in spec.tasks
             }
