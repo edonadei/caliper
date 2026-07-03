@@ -285,6 +285,10 @@ caliper update-cli --check
 
 ## Spec format
 
+To scaffold a spec, use the [`evaluate-skill`](#evaluate-skill--run-and-manage-evals)
+or [`grill-skill`](#grill-skill--create-evals-interactively) skill, or hand-write
+the YAML below.
+
 ```yaml
 skill:
   path: ./SKILL.md              # path to the skill file (optional for baseline-only runs)
@@ -357,7 +361,6 @@ When both `expect` and `assert` are present, both must pass.
 | Command | Description |
 |---|---|
 | `caliper run <spec>` | Run an evaluation spec |
-| `caliper new [name]` | Create a new spec with the interactive wizard |
 | `caliper validate <spec>` | Validate a spec file |
 | `caliper list [spec]` | List specs and saved runs |
 | `caliper report <spec-or-result>` | Re-render saved results |

@@ -16,13 +16,6 @@ caliper run path/to/spec.eval.yaml --judge-model claude-code:claude-haiku-4-5-20
 caliper run path/to/spec.eval.yaml --model codex --judge-model claude-code:claude-haiku-4-5-20251001
 ```
 
-### Create a new evaluation spec (interactive wizard)
-```bash
-caliper new my-skill-eval
-caliper new --skill ~/.claude/commands/review.md
-caliper new --skill ./SKILL.md
-```
-
 ### Validate a spec file
 ```bash
 caliper validate path/to/spec.eval.yaml

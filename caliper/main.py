@@ -1,7 +1,6 @@
 import typer
 
 from caliper.commands.run import run_cmd
-from caliper.commands.new import new_cmd
 from caliper.commands.report import report_cmd
 from caliper.commands.compare import compare_cmd
 from caliper.commands.list_cmd import list_cmd_fn
@@ -16,7 +15,6 @@ app = typer.Typer(
 )
 
 app.command("run", help="Run an evaluation spec")(run_cmd)
-app.command("new", help="Create a new evaluation spec (interactive wizard)")(new_cmd)
 app.command("report", help="Render saved evaluation results")(report_cmd)
 app.command("compare", help="Diff two saved runs of the same eval (A vs B)")(
     compare_cmd
