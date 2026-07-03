@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
-BackendName = Literal["claude-code", "codex", "pi"]
 
 _VALID_BACKENDS: frozenset[str] = frozenset({"claude-code", "codex", "pi"})
 
