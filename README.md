@@ -6,7 +6,7 @@
 
 Two commands to know whether your skill actually works. Install it, run it _k_ times, and get a pass@k score you can track — with proof the skill beats the base agent underneath. Works with the agent you already use: Claude Code, Codex, or Pi.
 
-**Install the skills:**
+**Install Caliper:**
 
 ```bash
 npx skills@latest add edonadei/caliper
