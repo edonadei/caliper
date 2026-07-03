@@ -4,17 +4,16 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
-import time
 import uuid
 from pathlib import Path
+from typing import Callable
 
 from caliper.harness.base import (
-    AttemptResult,
     ConversationTurn,
-    HarnessBackend,
-    HarnessConfigurationError,
+    CliHarness,
+    ProcessResult,
+    RunContext,
 )
 
 
@@ -36,7 +35,7 @@ def preferred_nvm_node_bin() -> str | None:
     return str(max(candidates, key=lambda item: item[:3])[3])
 
 
-class ClaudeCodeHarness(HarnessBackend):
+class ClaudeCodeHarness(CliHarness):
     def __init__(self, model: str | None = None) -> None:
         self._model = model
 
@@ -44,21 +43,9 @@ class ClaudeCodeHarness(HarnessBackend):
     def name(self) -> str:
         return "claude-code"
 
-    def run(
-        self,
-        task_id: str,
-        attempt: int,
-        prompt: str,
-        *,
-        skill_path: str | None,
-        model: str | None,
-        timeout: int,
-        isolated_home: str,
-        extra_path: list[str] | None = None,
-    ) -> AttemptResult:
-        home = Path(isolated_home)
-        commands_dir = home / ".claude" / "commands"
-        commands_dir.mkdir(parents=True, exist_ok=True)
+    def _prepare(self, ctx: RunContext) -> None:
+        home = Path(ctx.isolated_home)
+        (home / ".claude" / "commands").mkdir(parents=True, exist_ok=True)
 
         # Copy auth files from the real HOME so the CLI finds its credentials.
         # Without this, the isolated HOME causes claude to fall back to
@@ -82,76 +69,46 @@ class ClaudeCodeHarness(HarnessBackend):
         if sys.platform == "darwin" and not creds_dst.exists():
             self._seed_credentials_from_keychain(creds_dst)
 
-        has_file_credentials = creds_dst.exists()
+        ctx.extras["has_file_credentials"] = creds_dst.exists()
 
-        skill_file: Path | None = None
-        if skill_path:
-            skill_src = Path(skill_path).expanduser()
-            skill_name = skill_src.stem
+    def _command(
+        self, ctx: RunContext
+    ) -> tuple[list[str], str | None, Callable[[], None] | None]:
+        cleanup: Callable[[], None] | None = None
+        if ctx.skill_path:
+            commands_dir = Path(ctx.isolated_home) / ".claude" / "commands"
+            skill_src = Path(ctx.skill_path).expanduser()
             uid = uuid.uuid4().hex[:8]
-            skill_file = commands_dir / f"{skill_name}-vrd-{uid}.md"
+            skill_file = commands_dir / f"{skill_src.stem}-vrd-{uid}.md"
             skill_file.write_text(skill_src.read_text())
+            cleanup = lambda: skill_file.unlink(missing_ok=True)  # noqa: E731
 
-        env = self._build_env(isolated_home, extra_path or [], has_file_credentials)
-        cmd = self._build_cmd(prompt, model or self._model)
+        cmd = [
+            "claude",
+            "-p",
+            ctx.prompt,
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--dangerously-skip-permissions",
+        ]
+        if ctx.model:
+            cmd += ["--model", ctx.model]
+        return cmd, None, cleanup
 
-        start = time.monotonic()
-        try:
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                env=env,
-                cwd=str(home),
-            )
-        except subprocess.TimeoutExpired:
-            return AttemptResult(
-                task_id=task_id,
-                attempt=attempt,
-                transcript=[],
-                final_output="",
-                exit_code=124,
-                duration_seconds=timeout,
-                error="timeout",
-                timed_out=True,
-            )
-        finally:
-            if skill_file and skill_file.exists():
-                skill_file.unlink()
-
-        duration = time.monotonic() - start
-        transcript, final_output = self._parse_stream(proc.stdout)
-        diagnostic = self._diagnose_configuration_error(
-            proc.returncode,
-            final_output,
-            proc.stderr,
-        )
-        if diagnostic:
-            raise HarnessConfigurationError(diagnostic)
-
-        return AttemptResult(
-            task_id=task_id,
-            attempt=attempt,
-            transcript=transcript,
-            final_output=final_output,
-            exit_code=proc.returncode,
-            duration_seconds=duration,
-            error=proc.stderr.strip()
-            if proc.returncode != 0 and not final_output
-            else None,
+    def _environment(self, ctx: RunContext) -> dict[str, str]:
+        return self._build_env(
+            ctx.isolated_home,
+            ctx.extra_path,
+            ctx.extras.get("has_file_credentials", False),
         )
 
-    def _diagnose_configuration_error(
-        self,
-        returncode: int,
-        final_output: str,
-        stderr: str,
-    ) -> str | None:
-        text = "\n".join(part for part in (final_output, stderr) if part).strip()
+    def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
+        text = "\n".join(part for part in (final_output, proc.stderr) if part).strip()
         if not text:
             return None
 
+        returncode = proc.returncode
         lowered = text.lower()
         if returncode != 0 and self._looks_like_cli_startup_crash(text, lowered):
             summary = self._summarize_cli_crash(text)
@@ -206,6 +163,23 @@ class ClaudeCodeHarness(HarnessBackend):
 
         return None
 
+    def _fallback(
+        self,
+        transcript: list[ConversationTurn],
+        final_output: str,
+        proc: ProcessResult,
+    ) -> tuple[list[ConversationTurn], str]:
+        # Claude's stream-json stdout is never salvageable as a raw turn; its own
+        # last-assistant fallback in _parse_stream is the only fallback.
+        return transcript, final_output
+
+    def _error_field(self, proc: ProcessResult, final_output: str) -> str | None:
+        if proc.timed_out:
+            return "timeout"
+        if proc.returncode != 0 and not final_output:
+            return proc.stderr or None
+        return None
+
     def _looks_like_cli_startup_crash(self, text: str, lowered: str) -> bool:
         return (
             "typeerror:" in lowered
@@ -245,38 +219,19 @@ class ClaudeCodeHarness(HarnessBackend):
         return compact[:500]
 
     def _seed_credentials_from_keychain(self, dst: Path) -> None:
-        try:
-            result = subprocess.run(
-                [
-                    "security",
-                    "find-generic-password",
-                    "-s",
-                    "Claude Code-credentials",
-                    "-w",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                dst.write_text(result.stdout.strip())
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
-
-    def _build_cmd(self, prompt: str, model: str | None) -> list[str]:
-        cmd = [
-            "claude",
-            "-p",
-            prompt,
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--dangerously-skip-permissions",
-        ]
-        if model:
-            cmd += ["--model", model]
-        return cmd
+        out = self._capture_output(
+            [
+                "security",
+                "find-generic-password",
+                "-s",
+                "Claude Code-credentials",
+                "-w",
+            ],
+            timeout=5,
+        )
+        if out:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_text(out)
 
     def _build_env(
         self,

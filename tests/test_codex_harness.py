@@ -35,7 +35,7 @@ def test_codex_cli_receives_injected_skill_on_stdin(monkeypatch, tmp_path) -> No
     monkeypatch.setattr(
         "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )
-    monkeypatch.setattr("caliper.harness.codex.subprocess.run", fake_run)
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
 
     result = CodexHarness().run(
         task_id="task-001",
@@ -73,7 +73,7 @@ def test_codex_cli_omits_model_when_unspecified(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )
-    monkeypatch.setattr("caliper.harness.codex.subprocess.run", fake_run)
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
 
     result = CodexHarness().run(
         task_id="task-001",
@@ -134,7 +134,7 @@ def test_codex_json_stream_captures_tool_calls(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )
-    monkeypatch.setattr("caliper.harness.codex.subprocess.run", fake_run)
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
 
     result = CodexHarness().run(
         task_id="task-001",
@@ -189,7 +189,7 @@ def test_codex_json_stream_keeps_unknown_tool_items(monkeypatch, tmp_path) -> No
     monkeypatch.setattr(
         "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )
-    monkeypatch.setattr("caliper.harness.codex.subprocess.run", fake_run)
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
 
     result = CodexHarness().run(
         task_id="task-001",
@@ -257,7 +257,7 @@ def test_codex_fails_clearly_when_cli_is_not_runnable(monkeypatch, tmp_path) -> 
     def fake_run(cmd, **kwargs):
         raise OSError("access denied")
 
-    monkeypatch.setattr("caliper.harness.codex.subprocess.run", fake_run)
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
 
     with pytest.raises(HarnessConfigurationError) as exc:
         CodexHarness(model="fallback-model").run(
@@ -297,7 +297,7 @@ def test_codex_fails_clearly_when_cli_requires_newer_version(
             ),
         )
 
-    monkeypatch.setattr("caliper.harness.codex.subprocess.run", fake_run)
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
 
     with pytest.raises(HarnessConfigurationError) as exc:
         CodexHarness().run(

@@ -1,4 +1,9 @@
-from caliper.harness.base import AttemptResult, ConversationTurn, HarnessBackend
+from caliper.harness.base import (
+    AttemptResult,
+    CliHarness,
+    ConversationTurn,
+    HarnessBackend,
+)
 from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.schema.spec import normalize_backend
 
@@ -23,6 +28,7 @@ __all__ = [
     "AttemptResult",
     "ConversationTurn",
     "HarnessBackend",
+    "CliHarness",
     "ClaudeCodeHarness",
     "get_harness",
 ]

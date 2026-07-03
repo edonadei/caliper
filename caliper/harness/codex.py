@@ -2,23 +2,24 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
-import subprocess
 import sys
-import time
 from pathlib import Path
+from typing import Callable
 
 from caliper.harness.base import (
-    AttemptResult,
     ConversationTurn,
-    HarnessBackend,
+    CliHarness,
     HarnessConfigurationError,
+    ProcessResult,
+    RunContext,
 )
 
 CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
 
 
-class CodexHarness(HarnessBackend):
+class CodexHarness(CliHarness):
     def __init__(self, model: str | None = None) -> None:
         self._model = model
 
@@ -26,22 +27,7 @@ class CodexHarness(HarnessBackend):
     def name(self) -> str:
         return "codex"
 
-    def run(
-        self,
-        task_id: str,
-        attempt: int,
-        prompt: str,
-        *,
-        skill_path: str | None,
-        model: str | None,
-        timeout: int,
-        isolated_home: str,
-        extra_path: list[str] | None = None,
-    ) -> AttemptResult:
-        full_prompt = self._inject_skill(prompt, skill_path)
-        effective_model = model or self._model
-        start = time.monotonic()
-
+    def _ensure_ready(self, ctx: RunContext) -> None:
         if not self._cli_available():
             raise HarnessConfigurationError(
                 "Codex CLI is not available for the `codex` backend.\n\n"
@@ -51,39 +37,34 @@ class CodexHarness(HarnessBackend):
                 "selecting a separate backend."
             )
 
-        self._copy_codex_config(isolated_home)
-        output, exit_code, error = self._run_cli(
-            full_prompt,
-            effective_model,
-            timeout,
-            isolated_home,
-            extra_path or [],
-        )
-        diagnostic = self._diagnose_configuration_error(exit_code, output, error)
-        if diagnostic:
-            raise HarnessConfigurationError(diagnostic)
+    def _prepare(self, ctx: RunContext) -> None:
+        self._copy_codex_config(ctx.isolated_home)
 
-        duration = time.monotonic() - start
-        transcript, final_output = self._parse_json_stream(output)
-        if not transcript and output:
-            transcript = [ConversationTurn(role="assistant", content=output)]
-            final_output = output
+    def _command(
+        self, ctx: RunContext
+    ) -> tuple[list[str], str | None, Callable[[], None] | None]:
+        full_prompt = self._inject_skill(ctx.prompt, ctx.skill_path)
+        codex = self._codex_command() or "codex"
+        cmd = [
+            codex,
+            "exec",
+            "--json",
+            "--skip-git-repo-check",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--color",
+            "never",
+            "-",
+        ]
+        if ctx.model:
+            cmd[2:2] = ["--model", ctx.model]
+        return cmd, full_prompt, None
 
-        return AttemptResult(
-            task_id=task_id,
-            attempt=attempt,
-            transcript=transcript,
-            final_output=final_output,
-            exit_code=exit_code,
-            duration_seconds=duration,
-            error=error,
-            timed_out=exit_code == 124 and error == "timeout",
-        )
+    def _environment(self, ctx: RunContext) -> dict[str, str]:
+        return self._build_env(ctx.isolated_home, ctx.extra_path)
 
     def _inject_skill(self, prompt: str, skill_path: str | None) -> str:
         if not skill_path:
             return prompt
-        import re
 
         skill_src = Path(skill_path).expanduser()
         if not skill_src.exists():
@@ -96,64 +77,9 @@ class CodexHarness(HarnessBackend):
 
     def _cli_available(self) -> bool:
         codex = self._codex_command()
-        if codex is None:
-            return False
-        try:
-            result = subprocess.run(
-                [codex, "--version"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return False
-        return result.returncode == 0
+        return codex is not None and self._version_ok(codex, timeout=5)
 
-    def _run_cli(
-        self,
-        prompt: str,
-        model: str | None,
-        timeout: int,
-        isolated_home: str,
-        extra_path: list[str],
-    ) -> tuple[str, int, str | None]:
-        codex = self._codex_command() or "codex"
-        env = self._build_env(isolated_home, extra_path)
-        try:
-            cmd = [
-                codex,
-                "exec",
-                "--json",
-                "--skip-git-repo-check",
-                "--dangerously-bypass-approvals-and-sandbox",
-                "--color",
-                "never",
-                "-",
-            ]
-            if model:
-                cmd[2:2] = ["--model", model]
-
-            result = subprocess.run(
-                cmd,
-                input=prompt,
-                capture_output=True,
-                encoding="utf-8",
-                text=True,
-                timeout=timeout,
-                env=env,
-                cwd=isolated_home,
-            )
-            return (
-                result.stdout.strip(),
-                result.returncode,
-                result.stderr.strip() or None,
-            )
-        except subprocess.TimeoutExpired:
-            return "", 124, "timeout"
-        except OSError as exc:
-            return "", 1, f"codex CLI failed: {exc}"
-
-    def _parse_json_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:
+    def _parse_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:
         transcript: list[ConversationTurn] = []
         final_output = ""
 
@@ -238,10 +164,7 @@ class CodexHarness(HarnessBackend):
             "HOME": isolated_home,
             "PATH": path,
         }
-        for key in ("LANG", "LC_ALL", "TERM", "TMPDIR"):
-            if key in os.environ:
-                env[key] = os.environ[key]
-        return env
+        return self._passthrough(env, ("LANG", "LC_ALL", "TERM", "TMPDIR"))
 
     def _codex_command(self) -> str | None:
         configured = os.environ.get("CODEX_CLI_PATH")
@@ -277,16 +200,11 @@ class CodexHarness(HarnessBackend):
             filtered.append(line)
         return "\n".join(filtered) + ("\n" if config.endswith("\n") else "")
 
-    def _diagnose_configuration_error(
-        self,
-        returncode: int,
-        stdout: str,
-        stderr: str | None,
-    ) -> str | None:
-        if returncode == 0:
+    def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
+        if proc.returncode == 0:
             return None
 
-        text = "\n".join(part for part in (stdout, stderr or "") if part).strip()
+        text = "\n".join(part for part in (proc.stdout, proc.stderr) if part).strip()
         lowered = text.lower()
 
         model_markers = (
