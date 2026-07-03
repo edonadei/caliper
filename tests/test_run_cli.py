@@ -21,7 +21,7 @@ class _Progress:
         return False
 
 
-def test_run_cli_passes_fail_fast_unusable(monkeypatch, tmp_path) -> None:
+def test_run_cli_forwards_options_to_run(monkeypatch, tmp_path) -> None:
     spec_file = tmp_path / "sample.eval.yaml"
     spec_file.write_text(
         """
@@ -73,7 +73,16 @@ tasks:
     )
     monkeypatch.setattr("caliper.commands.run.run", fake_run)
 
-    result = runner.invoke(app, ["run", str(spec_file), "--k", "3", "--fail-fast", "2"])
+    result = runner.invoke(
+        app,
+        ["run", str(spec_file), "--k", "3", "--workers", "2", "--fail-fast", "2"],
+    )
 
     assert result.exit_code == 0, result.output
+    # Explicitly passed flags reach run(...)
+    assert calls["k"] == 3
+    assert calls["workers"] == 2
     assert calls["fail_fast_unusable"] == 2
+    # Defaults flow through unchanged when the flag is omitted
+    assert calls["timeout"] == 120
+    assert calls["baseline"] is False
