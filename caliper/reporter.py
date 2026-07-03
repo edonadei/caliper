@@ -15,7 +15,13 @@ from rich.table import Table
 from rich.table import Column
 from rich.text import Text
 
-from caliper.schema.results import Outcome, RunResults, TaskResult
+from caliper.schema.results import (
+    Outcome,
+    RunComparison,
+    RunResults,
+    TaskComparison,
+    TaskResult,
+)
 
 console = Console()
 
@@ -295,8 +301,136 @@ def _print_task_detail(tr: TaskResult, k: int) -> None:
     )
 
 
+# Per-outcome (glyph, style) for building the side-by-side attempt strips as
+# rich Text, so colour survives regardless of markup mode.
+_OUTCOME_STYLE = {
+    Outcome.PASS: (_CHECK, "green"),
+    Outcome.TASK_FAIL: (_CROSS, "red"),
+    Outcome.CHEAT: (_WARN, "yellow"),
+    Outcome.INFRA_ERROR: (_UNUSABLE, "yellow"),
+    Outcome.TIMEOUT: (_UNUSABLE, "yellow"),
+    Outcome.JUDGE_ERROR: (_UNUSABLE, "yellow"),
+}
+
+
+def _fmt_score(score: float | None) -> str:
+    return _RULE if score is None else f"{score * 100:.1f}%"
+
+
+def _outcome_strip(outcomes: list[Outcome]) -> Text:
+    strip = Text()
+    for oc in outcomes:
+        glyph, style = _OUTCOME_STYLE.get(oc, (_CROSS, "red"))
+        strip.append(glyph, style=style)
+    return strip
+
+
+def _delta_cell(tc: TaskComparison) -> Text:
+    # Unmeasured (None) and no-change (0.0) both read as "—"; JSON keeps them
+    # distinct. Only a real move shows a signed number.
+    if tc.delta is None or tc.delta == 0:
+        return Text(_RULE, style="dim")
+    sign = "+" if tc.delta > 0 else ""
+    style = "red" if tc.regression else "green"
+    return Text(f"{sign}{tc.delta * 100:.1f}%", style=style)
+
+
+def print_comparison(comp: RunComparison) -> None:
+    """Render a two-run diff. A thin shell over ``diff_runs`` — no logic here."""
+    a_ts = comp.a.timestamp.strftime("%Y-%m-%dT%H-%M-%SZ")
+    b_ts = comp.b.timestamp.strftime("%Y-%m-%dT%H-%M-%SZ")
+
+    console.print()
+    console.rule(
+        f"{_BANNER}  {_RULE}  compare  {_RULE}  [bold]{comp.a.spec}[/bold]",
+        style="cyan",
+    )
+    console.print(
+        f"    [bold]A[/bold] {a_ts} ([cyan]{comp.a.backend}[/cyan])   {_SEP}"
+        f"   [bold]B[/bold] {b_ts} ([cyan]{comp.b.backend}[/cyan])   {_SEP}"
+        f"   k=[cyan]{comp.a.k}[/cyan]"
+        + (f"/[cyan]{comp.b.k}[/cyan]" if comp.k_mismatch else "")
+    )
+    for warning in comp.warnings:
+        console.print(f" [bold yellow]{_WARN}[/bold yellow] [yellow]{warning}[/yellow]")
+    console.print()
+
+    table = Table(
+        box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False
+    )
+    table.add_column("Task")
+    table.add_column("A pass@k", justify="right")
+    table.add_column("B pass@k", justify="right")
+    table.add_column(f"{_delta_symbol()}", justify="right")
+    table.add_column("A strip")
+    table.add_column("B strip")
+
+    for tc in comp.matched:
+        unmeasured = tc.a_score is None or tc.b_score is None
+        name = Text(tc.task_name, style="dim" if unmeasured else "")
+        a_pk = Text(_fmt_score(tc.a_score), style="dim" if unmeasured else "")
+        b_pk = Text(_fmt_score(tc.b_score), style="dim" if unmeasured else "")
+        table.add_row(
+            name,
+            a_pk,
+            b_pk,
+            _delta_cell(tc),
+            _outcome_strip(tc.a_outcomes),
+            _outcome_strip(tc.b_outcomes),
+        )
+
+    console.print(table)
+    console.print()
+    _print_comparison_summary(comp)
+
+
+def _delta_symbol() -> str:
+    return "Δ" if _UNICODE else "delta"
+
+
+def _print_comparison_summary(comp: RunComparison) -> None:
+    arrow = _UP if comp.aggregate_delta >= 0 else _DOWN
+    sign = "+" if comp.aggregate_delta >= 0 else ""
+    color = "green" if comp.aggregate_delta >= 0 else "red"
+    console.print(
+        f" [bold]A[/bold] [cyan]{comp.a_matched_avg * 100:.1f}%[/cyan]   "
+        f"[bold]B[/bold] [cyan]{comp.b_matched_avg * 100:.1f}%[/cyan]   "
+        f"[bold]{_delta_symbol()} (matched)[/bold] "
+        f"[{color}]{sign}{comp.aggregate_delta * 100:.1f}%[/{color}] {arrow}"
+    )
+
+    regressions = [tc.task_name for tc in comp.matched if tc.regression]
+    if regressions:
+        console.print(
+            f" [bold yellow]{_WARN}[/bold yellow] [yellow]{len(regressions)} "
+            f"regression{'s' if len(regressions) > 1 else ''}:[/yellow] "
+            f"{', '.join(regressions)}"
+        )
+
+    unmeasured = [
+        tc.task_name for tc in comp.matched if tc.a_score is None or tc.b_score is None
+    ]
+    if unmeasured:
+        console.print(
+            f" [yellow]{_UNUSABLE}[/yellow] [dim]{len(unmeasured)} unmeasured "
+            f"(excluded from {_delta_symbol()}): {', '.join(unmeasured)}[/dim]"
+        )
+
+    if comp.unmatched_a or comp.unmatched_b:
+        only_a = ", ".join(comp.unmatched_a) or "—"
+        only_b = ", ".join(comp.unmatched_b) or "—"
+        console.print(
+            f" [dim]unmatched — only in A: {only_a}   only in B: {only_b}[/dim]"
+        )
+    console.print()
+
+
 def results_to_json(results: RunResults) -> str:
     return results.model_dump_json(indent=2)
+
+
+def comparison_to_json(comp: RunComparison) -> str:
+    return comp.model_dump_json(indent=2)
 
 
 def save_results(results: RunResults, spec_path: str) -> str:
