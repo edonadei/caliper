@@ -4,13 +4,21 @@
 [![Python](https://img.shields.io/pypi/pyversions/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Skills](https://skills.sh/b/edonadei/caliper)](https://skills.sh/edonadei/caliper)
 
-Run your skill _k_ times, get a pass@k score you can track and compare, and prove the skill beats the base agent. Works with the agent you already use — Claude Code, Codex, or Pi.
+Two commands to know whether your skill actually works. Install it, run it _k_ times, and get a pass@k score you can track — with proof the skill beats the base agent underneath. Works with the agent you already use: Claude Code, Codex, or Pi.
+
+**Install the skills:**
 
 ```bash
 npx skills@latest add edonadei/caliper
 ```
 
-Run each task with and without the skill, and Caliper shows you the difference:
+**Measure a skill:**
+
+```bash
+caliper run my-skill.eval.yaml --k 3 --baseline
+```
+
+That's the whole loop. Caliper runs each task with and without the skill, and shows you the difference:
 
 ```text
 ID      Task                              k (3)   pass@k
