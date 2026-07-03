@@ -33,8 +33,10 @@ and `assert_evidence` — no extra command needed. Each attempt is tagged with a
 (`infra_error` from a rate-limit / spending-cap, `timeout`, or `judge_error`)
 read as `⊘` and are excluded from the pass@k denominator, with a separate
 "N unusable" count in the summary — so a throttled or judge-flaked run is not
-mistaken for a skill regression. If a failure is still unclear, use `--verbose`
-to see full output for all tasks (including passing ones):
+mistaken for a skill regression. If `caliper run --fail-fast N` stopped a task
+after repeated `infra_error` / `timeout` outcomes, the report marks it as
+`ABORTED` and shows how many attempts ran. If a failure is still unclear, use
+`--verbose` to see full output for all tasks (including passing ones):
 
 ```bash
 # Full output for all tasks (passing + failing), untruncated

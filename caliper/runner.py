@@ -28,6 +28,8 @@ from caliper.schema.results import (
 from caliper.schema.spec import EvalSpec, TaskSpec, spec_name
 from caliper.scoring import aggregate_scores, compute_delta, pass_at_k
 
+_FAIL_FAST_OUTCOMES = {Outcome.INFRA_ERROR, Outcome.TIMEOUT}
+
 
 @dataclass
 class AttemptEvent:
@@ -46,6 +48,8 @@ def run(
     timeout: int = 120,
     baseline: bool = False,
     on_attempt_done: Callable[[AttemptEvent], None] | None = None,
+    on_task_done: Callable[[TaskResult], None] | None = None,
+    fail_fast_unusable: int = 0,
 ) -> RunResults:
     skill_snapshot = _SkillSnapshotter().snapshot(_resolve_skill_path(spec, spec_path))
 
@@ -62,7 +66,7 @@ def run(
         futures_with = {
             pool.submit(
                 _run_task, task, harness, judge, cheat, spec, spec_path,
-                k, timeout, True, on_attempt_done,
+                k, timeout, True, on_attempt_done, on_task_done, fail_fast_unusable,
             ): task
             for task in spec.tasks
         }
@@ -70,7 +74,7 @@ def run(
             {
                 pool.submit(
                     _run_task, task, harness, judge, cheat, spec, spec_path,
-                    k, timeout, False, on_attempt_done,
+                    k, timeout, False, on_attempt_done, on_task_done, fail_fast_unusable,
                 ): task
                 for task in spec.tasks
             }
@@ -131,19 +135,31 @@ def _run_task(
     timeout: int,
     with_skill: bool,
     on_attempt_done: Callable[[AttemptEvent], None] | None,
+    on_task_done: Callable[[TaskResult], None] | None,
+    fail_fast_unusable: int,
 ) -> TaskResult:
     attempts: list[AttemptRecord] = []
+    consecutive_fail_fast_triggers = 0
     for attempt_num in range(1, k + 1):
         record = _run_attempt(
             task, attempt_num, harness, judge, cheat,
             spec, spec_path, timeout, with_skill, on_attempt_done,
         )
         attempts.append(record)
+        if record.outcome in _FAIL_FAST_OUTCOMES:
+            consecutive_fail_fast_triggers += 1
+        elif record.outcome.is_usable:
+            consecutive_fail_fast_triggers = 0
+        if (
+            fail_fast_unusable > 0
+            and consecutive_fail_fast_triggers >= fail_fast_unusable
+        ):
+            break
 
     successes = sum(1 for a in attempts if a.outcome == Outcome.PASS)
     usable = sum(1 for a in attempts if a.outcome.is_usable)
     unusable = len(attempts) - usable
-    return TaskResult(
+    result = TaskResult(
         task_id=task.id,
         task_name=task.name,
         attempts=attempts,
@@ -151,6 +167,9 @@ def _run_task(
         unusable=unusable,
         pass_at_k=pass_at_k(successes, usable) if usable > 0 else None,
     )
+    if on_task_done and len(attempts) < k:
+        on_task_done(result)
+    return result
 
 
 def _run_attempt(

@@ -95,19 +95,22 @@ def update_progress(
     passed: int,
     cheated: bool = False,
     unusable: int = 0,
+    finished: bool = False,
 ) -> None:
     tid = task_ids.get(task_name)
     if tid is None:
         return
+    terminal = completed == k or finished
     if cheated:
         status = f"[bold yellow]{_WARN} cheat[/bold yellow]"
-    elif completed == k and unusable:
+    elif terminal and unusable:
         status = f"[bold yellow]{_UNUSABLE}{unusable}[/bold yellow]"
-    elif completed == k:
+    elif terminal:
         status = f"[bold green]{_CHECK}[/bold green]" if passed == k else f"[bold red]{_CROSS}[/bold red]"
     else:
         status = f"[dim]{completed}/{k}[/dim]"
-    progress.update(tid, total=k, completed=completed, status=status)
+    rendered_completed = k if finished and completed < k else completed
+    progress.update(tid, total=k, completed=rendered_completed, status=status)
 
 
 def print_results(results: RunResults, verbose: bool = False) -> None:
@@ -135,7 +138,7 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
 
     for tr in results.task_results:
         cheated_count = sum(1 for a in tr.attempts if a.cheated)
-        status_text = _status_cell(tr, cheated_count > 0)
+        status_text = _status_cell(tr, k, cheated_count > 0)
         pass_at_k = "—" if tr.pass_at_k is None else f"{tr.pass_at_k * 100:.1f}%"
         table.add_row(
             tr.task_id,
@@ -165,9 +168,11 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
             _print_task_detail(tr, k)
 
 
-def _status_cell(tr: TaskResult, any_cheat: bool) -> Text:
+def _status_cell(tr: TaskResult, k: int, any_cheat: bool) -> Text:
     if any_cheat:
         return Text(f"{_WARN} CHEAT", style="bold yellow")
+    if len(tr.attempts) < k and tr.pass_at_k is None:
+        return Text(f"{_UNUSABLE} ABORTED", style="bold yellow")
     if tr.pass_at_k is None:
         return Text(f"{_UNUSABLE} UNUSABLE", style="bold yellow")
     suffix = f" ({tr.unusable} {_UNUSABLE})" if tr.unusable else ""
@@ -242,6 +247,10 @@ def _format_output(output: str) -> str:
 
 def _print_task_detail(tr: TaskResult, k: int) -> None:
     lines: list[str] = []
+    if len(tr.attempts) < k and tr.pass_at_k is None:
+        lines.append(
+            f"  [yellow]ABORTED[/yellow] after {len(tr.attempts)}/{k} attempts"
+        )
     for attempt in tr.attempts:
         prefix = _OUTCOME_GLYPH.get(attempt.outcome, f"[red]{_CROSS}[/red]")
         label = "" if attempt.outcome.is_usable else f"  [yellow]{attempt.outcome.value}[/yellow]"

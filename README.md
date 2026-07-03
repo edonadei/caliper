@@ -393,6 +393,7 @@ When both `expect` and `assert` are present, both must pass.
 | `--baseline` | off | Also run each task without the skill |
 | `--workers INT` | `4` | Parallel task workers |
 | `--timeout INT` | `120` | Seconds per attempt |
+| `--fail-fast INT` | `0` | Stop a task after N consecutive `infra_error`/`timeout` attempts (`0` disables) |
 | `--model TARGET` | — | Override skill backend and/or model (see below) |
 | `--judge-model TARGET` | — | Override judge backend and/or model (see below) |
 | `--verbose` | off | Show per-attempt judge reasoning |
@@ -451,6 +452,13 @@ The aggregate score is the average task pass@k, skipping tasks with no usable
 attempts. With `--baseline`, Caliper runs the same tasks without the skill and
 reports the delta. A throttled or judge-flaked run therefore no longer
 masquerades as a regression.
+
+For persistent infrastructure failures, `--fail-fast N` can stop scheduling new
+attempts for a task after N consecutive `infra_error` or `timeout` outcomes.
+The default `0` keeps the historical behavior and runs all k attempts. An
+early-stopped task is shown as `ABORTED` in the report; if every completed
+attempt was unusable, its `pass_at_k` remains `null` and it is skipped in the
+aggregate score.
 
 ---
 
