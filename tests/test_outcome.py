@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from caliper.harness.base import AttemptResult
 from caliper.judge.base import JudgeResult
-from caliper.outcome import classify_outcome, looks_like_infra_failure
+from caliper.outcome import (
+    classify_outcome,
+    classify_pre_judge,
+    looks_like_infra_failure,
+)
 from caliper.schema.results import Outcome
 
 
@@ -82,6 +86,39 @@ def test_precedence_timeout_beats_infra() -> None:
 def test_precedence_infra_beats_cheat_and_judge() -> None:
     h = _harness(exit_code=1)
     assert classify_outcome(h, ["/x"], _judge(passed=True)) is Outcome.INFRA_ERROR
+
+
+# --- classify_pre_judge: the skip predicate the runner shares -------------
+
+
+def test_pre_judge_none_on_clean_attempt() -> None:
+    # Ran cleanly: no skip, proceed to cheat detection and judging.
+    assert classify_pre_judge(_harness()) is None
+
+
+def test_pre_judge_timeout() -> None:
+    assert classify_pre_judge(_harness(timed_out=True)) is Outcome.TIMEOUT
+
+
+def test_pre_judge_infra_on_nonzero_exit() -> None:
+    assert classify_pre_judge(_harness(exit_code=1)) is Outcome.INFRA_ERROR
+
+
+def test_pre_judge_infra_on_signal_despite_zero_exit() -> None:
+    h = _harness(exit_code=0, final_output="Spending cap reached resets 4:30am")
+    assert classify_pre_judge(h) is Outcome.INFRA_ERROR
+
+
+def test_pre_judge_ignores_cheat_and_judge_states() -> None:
+    # Cheat is not a pre-judge concern: it needs the transcript scan that runs
+    # after this predicate, so a clean-exit attempt returns None here.
+    assert classify_pre_judge(_harness()) is None
+
+
+def test_classify_outcome_reuses_pre_judge_predicate() -> None:
+    # The final label agrees with the skip decision on every early-exit path.
+    for h in (_harness(timed_out=True), _harness(exit_code=1)):
+        assert classify_outcome(h, [], None) is classify_pre_judge(h)
 
 
 # --- looks_like_infra_failure --------------------------------------------

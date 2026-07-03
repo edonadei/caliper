@@ -29,6 +29,26 @@ def looks_like_infra_failure(text: str) -> bool:
     return bool(text) and bool(_INFRA_SIGNALS.search(text))
 
 
+def classify_pre_judge(harness: AttemptResult) -> Outcome | None:
+    """The terminal outcome an attempt earns from its harness result alone.
+
+    Returns ``TIMEOUT`` or ``INFRA_ERROR`` when the attempt never got a fair
+    shot, so it must skip cheat detection and the (paid) judge entirely; returns
+    ``None`` when the attempt ran cleanly enough to proceed. This is the single
+    authority on that predicate: the runner asks it to decide whether to spend a
+    judge call, and ``classify_outcome`` reuses it for the final label, so the
+    skip and the label can never disagree.
+    """
+    if harness.timed_out:
+        return Outcome.TIMEOUT
+
+    text = "\n".join(part for part in (harness.final_output, harness.error) if part)
+    if harness.exit_code != 0 or looks_like_infra_failure(text):
+        return Outcome.INFRA_ERROR
+
+    return None
+
+
 def classify_outcome(
     harness: AttemptResult,
     cheat_violations: list[str],
@@ -45,12 +65,9 @@ def classify_outcome(
     ``judge`` is ``None`` on the early-exit paths (timeout / infra / cheat) where
     the judge was never run.
     """
-    if harness.timed_out:
-        return Outcome.TIMEOUT
-
-    text = "\n".join(part for part in (harness.final_output, harness.error) if part)
-    if harness.exit_code != 0 or looks_like_infra_failure(text):
-        return Outcome.INFRA_ERROR
+    pre_judge = classify_pre_judge(harness)
+    if pre_judge is not None:
+        return pre_judge
 
     if cheat_violations:
         return Outcome.CHEAT

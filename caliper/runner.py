@@ -13,7 +13,7 @@ from typing import Callable
 
 from caliper.harness.base import ConversationTurn, HarnessBackend
 from caliper.judge.base import Judge
-from caliper.outcome import classify_outcome, looks_like_infra_failure
+from caliper.outcome import classify_outcome, classify_pre_judge
 from caliper.schema.results import (
     AggregateScore,
     AttemptRecord,
@@ -236,18 +236,12 @@ def _run_attempt(
             extra_path=resolved_extra_path,
         )
 
-        # Short-circuit on timeout / infrastructure noise before spending a
-        # (paid) judge call on garbage output. classify_outcome remains the sole
-        # authority on the label; this only decides whether to do the work.
-        infra_text = "\n".join(
-            part for part in (attempt_result.final_output, attempt_result.error) if part
-        )
-        if (
-            attempt_result.timed_out
-            or attempt_result.exit_code != 0
-            or looks_like_infra_failure(infra_text)
-        ):
-            outcome = classify_outcome(attempt_result, [], None)
+        # A timeout or infrastructure signal terminates the attempt before we
+        # spend a (paid) judge call on garbage output. The pre-judge classifier
+        # owns that predicate — the runner no longer re-derives it — so the skip
+        # here and the final label can never drift apart.
+        pre_judge_outcome = classify_pre_judge(attempt_result)
+        if pre_judge_outcome is not None:
             evidence = (
                 attempt_result.error or f"harness exited {attempt_result.exit_code}"
             )
@@ -256,7 +250,7 @@ def _run_attempt(
                     attempt=attempt,
                     output=attempt_result.final_output,
                     duration_seconds=attempt_result.duration_seconds,
-                    outcome=outcome,
+                    outcome=pre_judge_outcome,
                     assert_evidence=evidence,
                 ),
                 task,
