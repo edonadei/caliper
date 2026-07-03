@@ -31,7 +31,7 @@ def test_claude_harness_accepts_runner_contract_with_extra_path(
         )
         return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr("caliper.harness.claude_code.subprocess.run", fake_run)
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
 
     result = ClaudeCodeHarness(model="claude-test").run(
         task_id="task-001",
@@ -73,7 +73,7 @@ def test_claude_harness_reports_cli_startup_crash_before_auth(
         )
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr=stderr)
 
-    monkeypatch.setattr("caliper.harness.claude_code.subprocess.run", fake_run)
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
 
     with pytest.raises(HarnessConfigurationError) as exc:
         ClaudeCodeHarness().run(
