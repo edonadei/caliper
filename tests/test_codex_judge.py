@@ -22,13 +22,15 @@ def test_eval_judge_expect_only_calls_llm(monkeypatch, tmp_path) -> None:
         calls.append((expect, model, cwd))
         return True, "Codex accepted the transcript.", False
 
-    monkeypatch.setattr("caliper.judge.script_assert.EvalJudge._llm_evaluate",
-                        lambda self, task, transcript, spec_dir: fake_eval(
-                            expect=task.expect,
-                            transcript=transcript,
-                            model=self._config.model,
-                            cwd=spec_dir,
-                        ))
+    monkeypatch.setattr(
+        "caliper.judge.script_assert.EvalJudge._llm_evaluate",
+        lambda self, task, transcript, spec_dir: fake_eval(
+            expect=task.expect,
+            transcript=transcript,
+            model=self._config.model,
+            cwd=spec_dir,
+        ),
+    )
 
     judge = EvalJudge(JudgeConfig(backend="codex", model="test-model"))
     result = judge.evaluate(
@@ -60,7 +62,9 @@ def test_eval_judge_assert_only_runs_script_no_llm(tmp_path) -> None:
 def test_eval_judge_assert_failure_makes_overall_fail(tmp_path) -> None:
     judge = EvalJudge(JudgeConfig(backend="codex"))
     result = judge.evaluate(
-        task=TaskSpec(id="t3", name="t", prompt="p", assert_script="assert False, 'nope'"),
+        task=TaskSpec(
+            id="t3", name="t", prompt="p", assert_script="assert False, 'nope'"
+        ),
         transcript=[],
         final_output="",
         spec_dir=str(tmp_path),
@@ -118,7 +122,9 @@ def test_errored_autorater_dropped_when_assert_passes(monkeypatch, tmp_path) -> 
     assert result.autorater_passed is None
 
 
-def test_errored_autorater_does_not_override_failing_assert(monkeypatch, tmp_path) -> None:
+def test_errored_autorater_does_not_override_failing_assert(
+    monkeypatch, tmp_path
+) -> None:
     monkeypatch.setattr(
         "caliper.judge.script_assert.EvalJudge._llm_evaluate", _errored_llm
     )
@@ -158,11 +164,24 @@ def test_codex_judge_uses_output_last_message(monkeypatch, tmp_path) -> None:
         calls.append((cmd, kwargs))
         output_path = cmd[cmd.index("--output-last-message") + 1]
         with open(output_path, "w") as f:
-            json.dump({"mode": "verdict", "passed": True, "reasoning": "The transcript matches."}, f)
-        return subprocess.CompletedProcess(cmd, 0, stdout="noisy session log", stderr="")
+            json.dump(
+                {
+                    "mode": "verdict",
+                    "passed": True,
+                    "reasoning": "The transcript matches.",
+                },
+                f,
+            )
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout="noisy session log", stderr=""
+        )
 
-    monkeypatch.setattr("caliper.judge.codex_judge.shutil.which", lambda _name: "codex.cmd")
-    monkeypatch.setattr("caliper.judge.codex_judge.CODEX_APP_CLI", tmp_path / "missing-codex")
+    monkeypatch.setattr(
+        "caliper.judge.codex_judge.shutil.which", lambda _name: "codex.cmd"
+    )
+    monkeypatch.setattr(
+        "caliper.judge.codex_judge.CODEX_APP_CLI", tmp_path / "missing-codex"
+    )
     monkeypatch.setattr("caliper.judge.codex_judge.subprocess.run", fake_run)
 
     passed, reasoning, errored = evaluate_with_codex(
@@ -183,7 +202,9 @@ def test_codex_judge_uses_output_last_message(monkeypatch, tmp_path) -> None:
     assert kwargs["cwd"] == str(tmp_path)
 
 
-def test_eval_judge_uses_codex_for_expect_when_configured(monkeypatch, tmp_path) -> None:
+def test_eval_judge_uses_codex_for_expect_when_configured(
+    monkeypatch, tmp_path
+) -> None:
     calls = []
 
     def fake_eval(*, expect, transcript, model, cwd, timeout=60):

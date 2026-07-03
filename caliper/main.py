@@ -20,8 +20,12 @@ app.command("new", help="Create a new evaluation spec (interactive wizard)")(new
 app.command("report", help="Render saved evaluation results")(report_cmd)
 app.command("list", help="List evaluation specs and past runs")(list_cmd_fn)
 app.command("validate", help="Validate an evaluation spec file")(validate_cmd)
-app.command("install-skill", help="Install the bundled evaluate-skill agent skill")(install_skill_cmd)
-app.command("update-cli", help="Check or update Codex and Claude Code CLIs")(update_cli_cmd)
+app.command("install-skill", help="Install the bundled evaluate-skill agent skill")(
+    install_skill_cmd
+)
+app.command("update-cli", help="Check or update Codex and Claude Code CLIs")(
+    update_cli_cmd
+)
 
 
 def main() -> None:

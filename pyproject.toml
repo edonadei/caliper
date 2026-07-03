@@ -38,7 +38,7 @@ dependencies = [
 [project.optional-dependencies]
 openai = ["openai>=1.0"]
 codex = ["openai>=1.0"]
-dev = ["pytest", "ruff"]
+dev = ["pytest", "ruff==0.13.0", "pre-commit"]
 
 [project.scripts]
 caliper = "caliper.main:app"
@@ -51,3 +51,7 @@ Skills = "https://clawhub.ai/edonadei/evaluate-skill"
 
 [tool.hatch.build.targets.wheel]
 packages = ["caliper"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"

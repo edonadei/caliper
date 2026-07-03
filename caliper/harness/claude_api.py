@@ -32,7 +32,9 @@ class ClaudeAPIHarness(HarnessBackend):
         start = time.monotonic()
         output, exit_code, error = self._run_api(full_prompt, effective_model, timeout)
         duration = time.monotonic() - start
-        transcript = [ConversationTurn(role="assistant", content=output)] if output else []
+        transcript = (
+            [ConversationTurn(role="assistant", content=output)] if output else []
+        )
         return AttemptResult(
             task_id=task_id,
             attempt=attempt,
@@ -54,7 +56,9 @@ class ClaudeAPIHarness(HarnessBackend):
         body = re.sub(r"^---\n.*?\n---\n", "", raw, flags=re.DOTALL).strip()
         return f"[Skill context]\n{body}\n[End skill context]\n\n{prompt}"
 
-    def _run_api(self, prompt: str, model: str, timeout: int) -> tuple[str, int, str | None]:
+    def _run_api(
+        self, prompt: str, model: str, timeout: int
+    ) -> tuple[str, int, str | None]:
         try:
             import anthropic
         except ImportError:
@@ -68,7 +72,9 @@ class ClaudeAPIHarness(HarnessBackend):
                 messages=[{"role": "user", "content": prompt}],
             )
             content = "".join(
-                block.text for block in response.content if getattr(block, "type", None) == "text"
+                block.text
+                for block in response.content
+                if getattr(block, "type", None) == "text"
             )
             return content.strip(), 0, None
         except Exception as exc:

@@ -31,7 +31,9 @@ class OpenAIAPIHarness(HarnessBackend):
         start = time.monotonic()
         output, exit_code, error = self._run_api(full_prompt, effective_model, timeout)
         duration = time.monotonic() - start
-        transcript = [ConversationTurn(role="assistant", content=output)] if output else []
+        transcript = (
+            [ConversationTurn(role="assistant", content=output)] if output else []
+        )
         return AttemptResult(
             task_id=task_id,
             attempt=attempt,
@@ -43,11 +45,17 @@ class OpenAIAPIHarness(HarnessBackend):
             timed_out=exit_code == 124 and error == "timeout",
         )
 
-    def _run_api(self, prompt: str, model: str, timeout: int) -> tuple[str, int, str | None]:
+    def _run_api(
+        self, prompt: str, model: str, timeout: int
+    ) -> tuple[str, int, str | None]:
         try:
             from openai import OpenAI
         except ImportError:
-            return "", 1, "openai package not installed; run: pip install caliper[openai]"
+            return (
+                "",
+                1,
+                "openai package not installed; run: pip install caliper[openai]",
+            )
 
         try:
             client = OpenAI()

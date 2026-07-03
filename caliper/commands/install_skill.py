@@ -38,7 +38,9 @@ def install_skill_cmd(
     normalized = target.strip().lower()
     if normalized not in TARGETS:
         valid = ", ".join(sorted(TARGETS))
-        raise typer.BadParameter(f"unsupported target '{target}'. Choose one of: {valid}")
+        raise typer.BadParameter(
+            f"unsupported target '{target}'. Choose one of: {valid}"
+        )
 
     destination = Path.home() / TARGETS[normalized]
     skill_text = load_packaged_skill()

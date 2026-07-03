@@ -101,7 +101,12 @@ def test_pi_json_stream_captures_tool_calls(monkeypatch, tmp_path) -> None:
                 "toolCallId": "toolu_1",
                 "toolName": "write",
                 "result": {
-                    "content": [{"type": "text", "text": "Successfully wrote 5 bytes to notes.txt"}]
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Successfully wrote 5 bytes to notes.txt",
+                        }
+                    ]
                 },
                 "isError": False,
             },

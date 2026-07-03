@@ -53,7 +53,9 @@ class TaskSpec(BaseModel):
     @model_validator(mode="after")
     def require_at_least_one_check(self) -> "TaskSpec":
         if not self.expect and not self.assert_script:
-            raise ValueError(f"Task '{self.name}' must have at least one of: expect, assert")
+            raise ValueError(
+                f"Task '{self.name}' must have at least one of: expect, assert"
+            )
         return self
 
 

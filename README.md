@@ -495,9 +495,12 @@ Before opening a pull request:
 ```bash
 pip install -e ".[dev,openai]"
 pytest
+ruff format --check .
 ruff check .
 caliper validate skills/evaluate-skill/evaluate-skill.eval.yaml
 ```
+
+Formatting is enforced by CI on every PR. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the formatter convention, the pinned ruff version, and the one-time `pre-commit install` step.
 
 When changing behavior, include a test or an eval fixture that demonstrates the expected outcome. Keep backend-specific logic isolated to the relevant module under `caliper/harness/` or `caliper/judge/`.
 

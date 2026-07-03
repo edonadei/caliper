@@ -23,7 +23,9 @@ def test_update_cli_check_prints_versions(monkeypatch, tmp_path) -> None:
 
     def fake_run(cmd, **kwargs):
         if cmd == [str(codex), "--version"]:
-            return subprocess.CompletedProcess(cmd, 0, stdout="codex-cli 0.132.0\n", stderr="")
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="codex-cli 0.132.0\n", stderr=""
+            )
         if cmd == ["npm", "view", "@openai/codex", "version"]:
             return subprocess.CompletedProcess(cmd, 0, stdout="0.133.0\n", stderr="")
         if cmd == ["npm", "view", "@anthropic-ai/claude-code", "version"]:
@@ -31,7 +33,9 @@ def test_update_cli_check_prints_versions(monkeypatch, tmp_path) -> None:
         raise AssertionError(cmd)
 
     monkeypatch.setattr("caliper.commands.update_cli.shutil.which", fake_which)
-    monkeypatch.setattr("caliper.commands.update_cli.CODEX_APP_CLI", tmp_path / "missing-codex")
+    monkeypatch.setattr(
+        "caliper.commands.update_cli.CODEX_APP_CLI", tmp_path / "missing-codex"
+    )
     monkeypatch.setattr("caliper.commands.update_cli.subprocess.run", fake_run)
 
     result = runner.invoke(app, ["update-cli", "codex", "--check"])
@@ -65,11 +69,15 @@ def test_update_cli_updates_with_npm_when_confirmed(monkeypatch, tmp_path) -> No
         if cmd == ["npm", "install", "-g", "@openai/codex"]:
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         if cmd == [str(codex), "--version"]:
-            return subprocess.CompletedProcess(cmd, 0, stdout="codex-cli 0.133.0\n", stderr="")
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="codex-cli 0.133.0\n", stderr=""
+            )
         raise AssertionError(cmd)
 
     monkeypatch.setattr("caliper.commands.update_cli.shutil.which", fake_which)
-    monkeypatch.setattr("caliper.commands.update_cli.CODEX_APP_CLI", tmp_path / "missing-codex")
+    monkeypatch.setattr(
+        "caliper.commands.update_cli.CODEX_APP_CLI", tmp_path / "missing-codex"
+    )
     monkeypatch.setattr("caliper.commands.update_cli.subprocess.run", fake_run)
 
     result = runner.invoke(app, ["update-cli", "codex", "--yes"])

@@ -11,6 +11,7 @@ def get_harness(backend: str, model: str | None = None) -> HarnessBackend:
             return ClaudeCodeHarness(model=model)
         case "codex":
             from caliper.harness.codex import CodexHarness
+
             return CodexHarness(model=model)
         case "claude-api":
             return ClaudeAPIHarness(model=model)
@@ -18,6 +19,7 @@ def get_harness(backend: str, model: str | None = None) -> HarnessBackend:
             return OpenAIAPIHarness(model=model)
         case "pi":
             from caliper.harness.pi import PiHarness
+
             return PiHarness(model=model)
         case _:
             raise ValueError(f"Unknown backend: {backend!r}")
