@@ -228,6 +228,12 @@ class RunResults(BaseModel):
     aggregate: AggregateScore
     baseline: AggregateScore | None = None
     delta: DeltaReport | None = None
+    # The no-skill run's usage totals, kept only when ``--baseline`` ran. The
+    # with-skill totals are derived from ``task_results`` at render time, but the
+    # baseline's raw attempts are not retained (``baseline`` is a pass@k-only
+    # ``AggregateScore``), so this compact roll-up is stored to let the report show
+    # a skill-vs-no-skill token/wall delta. Optional so old JSON still loads.
+    baseline_usage: UsageTotals | None = None
 
 
 class TaskComparison(BaseModel):

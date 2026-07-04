@@ -24,6 +24,7 @@ from caliper.schema.results import (
     RunResults,
     SkillSnapshot,
     TaskResult,
+    UsageTotals,
 )
 from caliper.schema.spec import DEFAULT_BACKEND, EvalSpec, TaskSpec, spec_name
 from caliper.scoring import aggregate_scores, compute_delta, pass_at_k
@@ -137,6 +138,7 @@ def run(
 
     agg_without: AggregateScore | None = None
     delta: DeltaReport | None = None
+    baseline_usage: UsageTotals | None = None
     if baseline and task_results_without:
         pass_counts_without = {
             r.task_id: (r.task_name, r.successes, len(r.attempts) - r.unusable, k)
@@ -144,6 +146,9 @@ def run(
         }
         agg_without = aggregate_scores(pass_counts_without)
         delta = compute_delta(agg_with, agg_without)
+        # The no-skill attempts are otherwise discarded (baseline keeps only its
+        # pass@k aggregate), so roll up their usage now for the report's delta.
+        baseline_usage = UsageTotals.from_task_results(task_results_without)
 
     return RunResults(
         run=RunMeta(
@@ -166,6 +171,7 @@ def run(
         aggregate=agg_with,
         baseline=agg_without,
         delta=delta,
+        baseline_usage=baseline_usage,
     )
 
 

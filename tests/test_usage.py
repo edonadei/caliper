@@ -362,6 +362,31 @@ def test_print_results_renders_per_task_tokens_and_wall(capsys) -> None:
     assert "24s" in out  # per-task wall total in the row
 
 
+def test_print_results_renders_baseline_usage_delta(capsys) -> None:
+    from caliper.schema.results import DeltaReport
+
+    results = _run([_task_with_tokens("alpha", 1000, 10.0)])  # 2000 tokens, 20s
+    # Attach a cheaper no-skill baseline: 1200 tokens, 12s.
+    base = _run([_task_with_tokens("alpha", 600, 6.0)])
+    results.baseline = base.aggregate
+    results.baseline_usage = UsageTotals.from_task_results(base.task_results)
+    results.delta = DeltaReport(
+        with_skill=results.aggregate, without_skill=base.aggregate, delta=0.0
+    )
+    print_results(results)
+    out = capsys.readouterr().out
+    assert "vs no skill" in out
+    # Skill is 2000 vs baseline 1200 → +67% tokens (skill is costlier).
+    assert "+67%" in out
+
+
+def test_no_baseline_usage_delta_without_baseline(capsys) -> None:
+    results = _run([_task_with_tokens("alpha", 1000, 10.0)])
+    print_results(results)
+    out = capsys.readouterr().out
+    assert "vs no skill" not in out
+
+
 def test_print_results_per_task_tokens_dash_when_unreported(capsys) -> None:
     task = TaskResult(
         task_id="task-001",

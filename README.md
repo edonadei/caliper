@@ -29,7 +29,12 @@ With skill     98%    ###################-
 No skill       55%    ###########---------
 Delta          +43%   up
 Tokens   1.2M in / 3.4K out   ·   Wall 41s (avg 6.8s/usable)
+vs no skill   Tokens +860K (+253%)   ·   Wall +29s (+242%)
 ```
+
+That last line is the point of `--baseline` for cost: the skill is **+43% more
+reliable**, but it costs **~3.5× the tokens and time**. Worth seeing before you
+ship — a run without `--baseline` shows the absolute `Tokens`/`Wall` only.
 
 ---
 
@@ -567,9 +572,15 @@ them up per run:
 - **Dollar cost is deliberately not tracked** — it is inconsistent across
   backends and would need a maintained price table. Tokens are the volume signal;
   a dollar figure can be derived downstream if needed.
+- **With `--baseline`**, the report adds a `vs no skill` token/wall delta line
+  (green = the skill is cheaper) so you can see whether the skill made the agent
+  cheaper or more expensive than the base agent — not just more reliable. The
+  baseline's usage totals are retained on `RunResults.baseline_usage` for this
+  (the no-skill attempts are otherwise discarded).
 - `report --format json` includes a derived `usage_totals` block; the saved
   results JSON keeps only the raw per-attempt `usage` (totals are derived, never
-  persisted). `compare` surfaces token/wall deltas — see above.
+  persisted) plus `baseline_usage` when `--baseline` ran. `compare` surfaces
+  token/wall deltas across two saved runs — see above.
 
 ---
 
