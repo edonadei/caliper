@@ -13,6 +13,7 @@ from caliper.harness.base import (
     ProcessResult,
     RunContext,
 )
+from caliper.schema.results import TokenUsage
 
 
 class PiHarness(CliHarness):
@@ -87,6 +88,43 @@ class PiHarness(CliHarness):
     def _cli_available(self) -> bool:
         pi = self._pi_command()
         return pi is not None and self._version_ok(pi, timeout=10)
+
+    def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
+        """Sum per-assistant-message usage across the stream.
+
+        pi reports usage on each ``message_end``; summing the assistant messages'
+        usage (each carries its own turn's counts) gives the run total. pi's
+        ``input`` is already non-cached, so ``cacheRead``/``cacheWrite`` map
+        straight onto the disjoint cache fields.
+        """
+        totals = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+        seen = False
+        for line in proc.stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "message_end":
+                continue
+            message = event.get("message")
+            if not isinstance(message, dict) or message.get("role") != "assistant":
+                continue
+            usage = message.get("usage")
+            if not isinstance(usage, dict):
+                continue
+            seen = True
+            for key in totals:
+                value = usage.get(key)
+                if isinstance(value, int):
+                    totals[key] += value
+        if not seen:
+            return None
+        return TokenUsage(
+            input_tokens=totals["input"],
+            output_tokens=totals["output"],
+            cache_read_tokens=totals["cacheRead"],
+            cache_creation_tokens=totals["cacheWrite"],
+        )
 
     def _parse_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:
         transcript: list[ConversationTurn] = []

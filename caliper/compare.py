@@ -12,6 +12,7 @@ from caliper.schema.results import (
     RunResults,
     TaskComparison,
     TaskResult,
+    UsageTotals,
 )
 
 
@@ -109,4 +110,8 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         k_mismatch=k_mismatch,
         spec_mismatch=spec_mismatch,
         warnings=warnings,
+        # Token/wall totals over each whole run. Shown alongside pass@k but never
+        # folded into has_regression — a token drop is a win, not a regression.
+        a_usage=UsageTotals.from_task_results(a.task_results),
+        b_usage=UsageTotals.from_task_results(b.task_results),
     )

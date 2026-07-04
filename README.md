@@ -457,6 +457,8 @@ flags — pin a historical run by naming its JSON path.
 ╰──────────────────┴──────────┴──────────┴────────┴─────────┴─────────╯
 
  A 90.0%   B 70.0%   Δ (matched) -20.0% ↓
+ Tokens  A 1.2M  B 0.7M   Δ -42% (-500K)
+ Wall    A 6m 18s  B 3m 40s   Δ -42% (-2m 38s)
  ⚠ 1 regression: handles conflict
  ⊘ 1 unmeasured (excluded from Δ): pushes upstream
  unmatched — only in A: flaky task   only in B: new task
@@ -475,13 +477,21 @@ How the diff reads:
   counted as a regression — infra noise can't fake a loss.
 - **The headline `Δ (matched)`** averages each side over only the tasks measured
   on **both** sides, so it is strictly like-for-like.
+- **Token and wall-clock deltas** sit under the headline as *secondary* signals:
+  a drop renders green (cheaper), a rise red (costlier). They are **never** a
+  regression — a token drop at flat pass@k is the win an ablation is looking for,
+  and a rise is a trade-off to weigh, not a failure. Only pass@k feeds
+  `has_regression`. The token row is shown only when both runs reported tokens;
+  wall time is always shown. Dollar cost is deliberately not tracked (tokens are
+  the volume signal).
 - **Guards** for a `k` mismatch or different spec names print as warnings in the
   header *and* in `--format json` (`k_mismatch`, `spec_mismatch`, `warnings`), so
   an agent driving `compare` sees them too.
 
 The `--format json` output serializes the full comparison (per-task scores,
-deltas, `regression`/`has_regression` flags, unmatched task lists, and the
-warnings) for scripting.
+deltas, `regression`/`has_regression` flags, unmatched task lists, the warnings,
+and per-side usage totals `a_usage`/`b_usage` with `token_delta`/`wall_delta`)
+for scripting.
 
 ---
 
@@ -521,6 +531,41 @@ The default `0` keeps the historical behavior and runs all k attempts. An
 early-stopped task is shown as `ABORTED` in the report; if every completed
 attempt was unusable, its `pass_at_k` remains `null` and it is skipped in the
 aggregate score.
+
+---
+
+## Token & wall-clock usage
+
+Pass@k tells you *whether* a skill works; usage tells you what it **costs** to
+get there. Two runs can have identical pass@k while one burns twice the tokens.
+Caliper records **token volume** and **wall-clock time** per attempt and rolls
+them up per run:
+
+```
+ With skill    100.0%  ████████████████████
+ Tokens   1.2M in / 340K out   ·   Wall 6m 18s (avg 12.6s/usable)
+ ⊘ unusable spend: 180K tokens · 42s  (2 attempts, excluded from avg)
+```
+
+- Each `AttemptRecord` carries an optional `usage` object with `input_tokens`
+  (non-cached prompt), `output_tokens`, `cache_read_tokens`,
+  `cache_creation_tokens`, and a computed `total_tokens`. The four token fields
+  are **disjoint** — `input_tokens` excludes cache — so `total_tokens` never
+  double-counts. `duration_seconds` (already recorded) is the wall-clock half.
+- **`in` = input + cache_read + cache_creation; `out` = output.** Every attempt
+  counts toward the run total; the **unusable** slice (timeout / infra / judge
+  error) is broken out separately so wasted spend is visible without distorting
+  the per-usable-attempt average.
+- All usage fields are **optional** — a backend that can't report them leaves
+  them `null` and the line renders `—`. Support: `claude-code`, `codex`, `pi`,
+  and `hermes` all report token usage; `codex` uses OpenAI semantics (its
+  `input_tokens` includes cache) so it is normalized to the non-cached contract.
+- **Dollar cost is deliberately not tracked** — it is inconsistent across
+  backends and would need a maintained price table. Tokens are the volume signal;
+  a dollar figure can be derived downstream if needed.
+- `report --format json` includes a derived `usage_totals` block; the saved
+  results JSON keeps only the raw per-attempt `usage` (totals are derived, never
+  persisted). `compare` surfaces token/wall deltas — see above.
 
 ---
 

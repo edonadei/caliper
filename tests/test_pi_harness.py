@@ -148,6 +148,74 @@ def test_pi_json_stream_captures_tool_calls(monkeypatch, tmp_path) -> None:
     assert "Successfully wrote 5 bytes" in result.transcript[1].tool_output
 
 
+def test_pi_run_captures_token_usage_end_to_end(monkeypatch, tmp_path) -> None:
+    """Smoke test: a full pi run parses per-message usage into AttemptResult.usage.
+
+    The stream shape (``message_end`` assistant events carrying
+    ``usage{input,output,cacheRead,cacheWrite}``) mirrors real ``pi --mode json``
+    output captured from the live CLI; pi's ``input`` is already non-cached.
+    """
+
+    def assistant_msg(text, inp, out, cache_read, cache_write):
+        return {
+            "type": "message_end",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": text}],
+                "api": "anthropic-messages",
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-6",
+                "usage": {
+                    "input": inp,
+                    "output": out,
+                    "cacheRead": cache_read,
+                    "cacheWrite": cache_write,
+                    "totalTokens": inp + out + cache_read + cache_write,
+                    "cost": {"total": 0.01},
+                },
+            },
+        }
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1:] == ["--version"]:
+            return _version(cmd)
+        events = [
+            {"type": "session", "version": 3, "id": "abc", "cwd": "/tmp"},
+            {"type": "agent_start"},
+            {"type": "turn_start"},
+            {"type": "message_end", "message": {"role": "user", "content": []}},
+            # Two assistant turns; usage is summed across them.
+            assistant_msg("Working on it.", 1200, 15, 100, 0),
+            assistant_msg("Wrote hello to the file.", 300, 25, 0, 0),
+            {"type": "turn_end"},
+            {"type": "agent_end", "messages": []},
+        ]
+        stdout = "\n".join(json.dumps(e) for e in events)
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr("caliper.harness.pi.shutil.which", lambda _n: "pi")
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+
+    result = PiHarness().run(
+        task_id="task-001",
+        attempt=1,
+        prompt="Write hello to a file",
+        skill_path=None,
+        model=None,
+        timeout=12,
+        isolated_home=str(tmp_path),
+    )
+
+    assert result.final_output == "Wrote hello to the file."
+    assert result.usage is not None
+    assert result.usage.input_tokens == 1500  # 1200 + 300, non-cached
+    assert result.usage.output_tokens == 40  # 15 + 25
+    assert result.usage.cache_read_tokens == 100
+    assert result.usage.cache_creation_tokens == 0
+    # Disjoint fields: total never double-counts cache.
+    assert result.usage.total_tokens == 1640
+
+
 def test_pi_missing_cli_raises_configuration_error(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("caliper.harness.pi.shutil.which", lambda _n: None)
     monkeypatch.delenv("PI_CLI_PATH", raising=False)

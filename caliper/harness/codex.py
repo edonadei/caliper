@@ -15,6 +15,7 @@ from caliper.harness.base import (
     ProcessResult,
     RunContext,
 )
+from caliper.schema.results import TokenUsage
 
 CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
 
@@ -78,6 +79,40 @@ class CodexHarness(CliHarness):
     def _cli_available(self) -> bool:
         codex = self._codex_command()
         return codex is not None and self._version_ok(codex, timeout=5)
+
+    def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
+        """Read the last ``turn.completed`` event's ``usage``.
+
+        Codex uses OpenAI semantics where ``input_tokens`` *includes*
+        ``cached_input_tokens``, so we subtract to keep ``input_tokens``
+        non-cached (the disjoint-fields contract). Codex has no cache-creation
+        notion, and ``reasoning_output_tokens`` is already folded into
+        ``output_tokens``.
+        """
+        latest: dict | None = None
+        for line in proc.stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "turn.completed":
+                continue
+            usage = event.get("usage")
+            if isinstance(usage, dict):
+                latest = usage
+        if latest is None:
+            return None
+        raw_input = latest.get("input_tokens")
+        cached = latest.get("cached_input_tokens")
+        non_cached = None
+        if raw_input is not None:
+            non_cached = raw_input - (cached or 0)
+        return TokenUsage(
+            input_tokens=non_cached,
+            output_tokens=latest.get("output_tokens"),
+            cache_read_tokens=cached,
+            cache_creation_tokens=None,
+        )
 
     def _parse_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:
         transcript: list[ConversationTurn] = []

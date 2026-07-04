@@ -21,6 +21,7 @@ from caliper.schema.results import (
     RunResults,
     TaskComparison,
     TaskResult,
+    UsageTotals,
 )
 
 console = Console()
@@ -29,6 +30,25 @@ console = Console()
 def _supports_unicode() -> bool:
     encoding = getattr(console.file, "encoding", None) or ""
     return "utf" in encoding.lower()
+
+
+def _fmt_tokens(n: int) -> str:
+    """Compact token count: 1_200_000 -> '1.2M', 340_000 -> '340K'."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.0f}K"
+    return str(n)
+
+
+def _fmt_duration(seconds: float) -> str:
+    """Wall-clock time: '42s', '6m 18s', '1h 2m'."""
+    total = int(round(seconds))
+    if total < 60:
+        return f"{total}s"
+    if total < 3600:
+        return f"{total // 60}m {total % 60}s"
+    return f"{total // 3600}h {(total % 3600) // 60}m"
 
 
 _UNICODE = _supports_unicode()
@@ -249,6 +269,7 @@ def _print_aggregate(results: RunResults) -> None:
         )
 
     _print_unusable_summary(results)
+    _print_usage_summary(UsageTotals.from_task_results(results.task_results))
     console.print()
 
 
@@ -269,6 +290,40 @@ def _print_unusable_summary(results: RunResults) -> None:
         f" [yellow]{_UNUSABLE} {total} unusable[/yellow]  [dim]({breakdown}) "
         f"— excluded from pass@k[/dim]"
     )
+
+
+def _print_usage_summary(totals: UsageTotals) -> None:
+    """One compact cost/latency line: tokens + wall time, with the unusable slice
+    broken out. Cost/latency is a first-class axis (CONTEXT.md → Run usage totals);
+    dollar cost is deliberately out of scope (docs/adr/0006)."""
+    if totals.attempts == 0:
+        return
+    if totals.tokens_reported:
+        tokens_part = (
+            f"[bold]Tokens[/bold]   {_fmt_tokens(totals.prompt_tokens)} in / "
+            f"{_fmt_tokens(totals.output_tokens)} out"
+        )
+    else:
+        tokens_part = f"[bold]Tokens[/bold]   [dim]{_RULE}[/dim]"
+
+    wall_part = f"[bold]Wall[/bold] {_fmt_duration(totals.wall_seconds)}"
+    if totals.usable_attempts > 0:
+        avg = totals.usable_wall_seconds / totals.usable_attempts
+        wall_part += f" [dim](avg {avg:.1f}s/usable)[/dim]"
+
+    console.print(f" {tokens_part}   {_SEP}   {wall_part}")
+
+    if totals.unusable_attempts > 0:
+        pieces = []
+        if totals.tokens_reported:
+            pieces.append(f"{_fmt_tokens(totals.unusable_tokens)} tokens")
+        pieces.append(_fmt_duration(totals.unusable_wall_seconds))
+        detail = f" {_SEP} ".join(pieces)
+        plural = "s" if totals.unusable_attempts > 1 else ""
+        console.print(
+            f" [yellow]{_UNUSABLE} unusable spend:[/yellow] [dim]{detail}  "
+            f"({totals.unusable_attempts} attempt{plural}, excluded from avg)[/dim]"
+        )
 
 
 _OUTPUT_TRUNCATE_AT = 500
@@ -296,9 +351,10 @@ def _print_task_detail(tr: TaskResult, k: int) -> None:
             if attempt.outcome.is_usable
             else f"  [yellow]{attempt.outcome.value}[/yellow]"
         )
-        lines.append(
-            f"  Attempt {attempt.attempt}  {prefix}{label}  ({attempt.duration_seconds:.1f}s)"
-        )
+        meta = f"{attempt.duration_seconds:.1f}s"
+        if attempt.usage is not None and attempt.usage.total_tokens is not None:
+            meta += f" {_SEP} {_fmt_tokens(attempt.usage.total_tokens)} tok"
+        lines.append(f"  Attempt {attempt.attempt}  {prefix}{label}  ({meta})")
         if attempt.cheated:
             for ev in attempt.cheat_evidence:
                 lines.append(f"    [yellow]cheat:[/yellow] {ev}")
@@ -417,6 +473,8 @@ def _print_comparison_summary(comp: RunComparison) -> None:
         f"[{color}]{sign}{comp.aggregate_delta * 100:.1f}%[/{color}] {arrow}"
     )
 
+    _print_comparison_usage(comp)
+
     regressions = [tc.task_name for tc in comp.matched if tc.regression]
     if regressions:
         console.print(
@@ -441,6 +499,36 @@ def _print_comparison_summary(comp: RunComparison) -> None:
             f" [dim]unmatched — only in A: {only_a}   only in B: {only_b}[/dim]"
         )
     console.print()
+
+
+def _usage_delta(label: str, a_val: float, b_val: float, fmt) -> str:
+    """One `label  A x  B y  Δ ±p% (±abs)` row. Green when B is cheaper (a win),
+    red when costlier — but this NEVER flips has_regression (CONTEXT.md →
+    Regression). Dim when equal or A has no baseline to compute a percentage."""
+    delta = b_val - a_val
+    row = f" [bold]{label}[/bold]  A {fmt(a_val)}  B {fmt(b_val)}   {_delta_symbol()} "
+    if delta == 0:
+        return row + f"[dim]{_RULE}[/dim]"
+    color = "green" if delta < 0 else "red"
+    sign = "+" if delta > 0 else "-"
+    abs_part = fmt(abs(delta))
+    if a_val > 0:
+        pct = delta / a_val * 100
+        return row + f"[{color}]{sign}{abs(pct):.0f}% ({sign}{abs_part})[/{color}]"
+    return row + f"[{color}]{sign}{abs_part}[/{color}]"
+
+
+def _print_comparison_usage(comp: RunComparison) -> None:
+    """Token + wall-clock delta rows under the pass@k headline. Secondary signals:
+    a token/time drop is a win, not a regression — see CONTEXT.md → Regression."""
+    a, b = comp.a_usage, comp.b_usage
+    if a.tokens_reported and b.tokens_reported:
+        console.print(
+            _usage_delta(
+                "Tokens", a.total_tokens, b.total_tokens, lambda n: _fmt_tokens(int(n))
+            )
+        )
+    console.print(_usage_delta("Wall  ", a.wall_seconds, b.wall_seconds, _fmt_duration))
 
 
 def results_to_json(results: RunResults) -> str:

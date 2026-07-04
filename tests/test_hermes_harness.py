@@ -227,6 +227,63 @@ def test_hermes_parses_export_trajectory(monkeypatch, tmp_path) -> None:
     assert result.resolved_model == "stepfun/step-3.7-flash:free"
 
 
+def test_hermes_run_captures_token_usage_end_to_end(monkeypatch, tmp_path) -> None:
+    """Smoke test: a full hermes run reads the export record's session-total token
+    fields into AttemptResult.usage.
+
+    Hermes aggregates usage per session, exposing flat top-level ``input_tokens``
+    / ``output_tokens`` / ``cache_read_tokens`` / ``cache_write_tokens`` on the
+    export record — the shape captured from a real ``hermes sessions export``.
+    """
+    home = _fake_home(tmp_path)
+    iso = tmp_path / "iso"
+    iso.mkdir()
+
+    export = {
+        "id": "20260704_000000_xyz",
+        "source": "cli",
+        "model": "claude-sonnet-4-6",
+        "input_tokens": 800,
+        "output_tokens": 60,
+        "cache_read_tokens": 25,
+        "cache_write_tokens": 10,
+        "reasoning_tokens": 5,
+        "actual_cost_usd": None,
+        "messages": [
+            {"role": "user", "content": "Write hello.", "tool_calls": None},
+            {"role": "assistant", "content": "Wrote hello.", "tool_calls": None},
+        ],
+    }
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1:] == ["--version"]:
+            return _version(cmd)
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(export), stderr="Wrote hello."
+        )
+
+    _install(monkeypatch, home, fake_run)
+
+    result = HermesHarness().run(
+        task_id="task-001",
+        attempt=1,
+        prompt="Write hello to a file",
+        skill_path=None,
+        model=None,
+        timeout=30,
+        isolated_home=str(iso),
+    )
+
+    assert result.final_output == "Wrote hello."
+    assert result.usage is not None
+    assert result.usage.input_tokens == 800  # non-cached
+    assert result.usage.output_tokens == 60
+    assert result.usage.cache_read_tokens == 25
+    assert result.usage.cache_creation_tokens == 10  # from cache_write_tokens
+    # reasoning_tokens has no TokenUsage field; total is the four disjoint fields.
+    assert result.usage.total_tokens == 895
+
+
 def test_hermes_missing_cli_raises_configuration_error(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("caliper.harness.hermes.shutil.which", lambda _n: None)
     monkeypatch.delenv("HERMES_CLI_PATH", raising=False)

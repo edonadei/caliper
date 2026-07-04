@@ -114,6 +114,7 @@ trajectory by running `hermes -z` then `hermes sessions export`.
 - **baseline** — runs each task without the skill to compute a delta score
 - **judge** — the spec drives evaluation: `expect:` triggers an LLM verdict (which may generate a Python assertion script); `assert:` runs a deterministic Python script; both can be combined and both must pass
 - **cheat detection** — transcript is scanned for reads of forbidden files (spec, results)
+- **token & wall-clock usage** — each attempt records an optional `usage` (`input_tokens` non-cached, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, computed `total_tokens`; the four token fields are disjoint) plus its `duration_seconds`. `report` shows a per-run `Tokens … in / … out · Wall …` line (unusable spend broken out separately); `compare` shows token/wall deltas (green = cheaper) that are **never** a regression — only pass@k is. All usage fields are optional (`null` → renders `—`); `claude-code`, `codex`, `pi`, `hermes` all report tokens. **Dollar cost is deliberately not tracked** (inconsistent across backends; tokens are the volume signal).
 - **isolation** — each attempt runs in a fresh temp HOME with no session history
 - **engine as a runtime axis** — backend + model are not spec fields; they are chosen per run and recorded in `RunMeta` (skill `backend`/`model` **and** `judge_backend`/`judge_model`), so the same spec can target any agent and never ages when a model goes stale. A default-model run records the concrete model the agent resolved wherever the backend reports it (skill model from hermes' export, `judge_model` from the claude-code judge's JSON), not a bare "default"; `judge_model` is empty for an assert-only run where no LLM judge fired
 - **`--model TARGET`** — select the skill engine at run time (default `claude-code`); accepts `backend:model`, bare backend (`codex`), or bare model name
@@ -124,9 +125,12 @@ trajectory by running `hermes -z` then `hermes sessions export`.
 Results are saved automatically to `.caliper/results/<spec-name>/<timestamp>.json`
 alongside the spec file. Each result includes a full skill snapshot (content + git SHA
 of the skill file and any referenced scripts) for reproducibility. Each attempt
-records its `outcome` (see above) and per-task results include an `unusable` count;
-a task with no usable attempts has `pass_at_k: null`. When `--fail-fast N` stops
-a task early, that task may contain fewer than k attempt records.
+records its `outcome` (see above), an optional `usage` block (token counts), and
+per-task results include an `unusable` count; a task with no usable attempts has
+`pass_at_k: null`. When `--fail-fast N` stops a task early, that task may contain
+fewer than k attempt records. Run-level usage totals are **derived** at render
+time, not persisted — the saved JSON holds only per-attempt `usage`, while
+`report --format json` adds a computed `usage_totals` block.
 
 ## Designing good evals — full guidance
 

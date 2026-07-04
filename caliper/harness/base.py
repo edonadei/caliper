@@ -7,6 +7,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Callable
 
+from caliper.schema.results import TokenUsage
+
 
 class HarnessConfigurationError(RuntimeError):
     """Raised when a harness cannot run because local configuration is invalid."""
@@ -38,6 +40,9 @@ class AttemptResult:
     # run record the real model even when none was passed and the CLI's own
     # default was used. ``None`` when the backend cannot report it.
     resolved_model: str | None = None
+    # Token accounting for this attempt, when the backend can extract it from its
+    # own output. ``None`` when the backend cannot report it (see ``_usage``).
+    usage: TokenUsage | None = None
 
 
 @dataclass
@@ -172,6 +177,7 @@ class CliHarness(HarnessBackend):
             error=self._error_field(proc, final_output),
             timed_out=proc.timed_out,
             resolved_model=self._resolved_model(proc, ctx),
+            usage=self._safe_usage(proc, ctx),
         )
 
     # --- hooks a backend implements ---------------------------------------
@@ -228,6 +234,29 @@ class CliHarness(HarnessBackend):
         the resolved model in its output overrides this.
         """
         return ctx.model
+
+    def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
+        """The token accounting for this attempt, if the backend can report it.
+
+        Default: ``None`` (usage unavailable). A backend that emits token counts
+        in its stream/output overrides this to parse ``proc.stdout`` into a
+        normalized :class:`TokenUsage` (``input_tokens`` non-cached; see its
+        docstring for the disjoint-fields contract).
+        """
+        return None
+
+    def _safe_usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
+        """Extract usage, but never let a token-accounting failure sink an attempt.
+
+        Usage is optional (``None`` = unavailable, renders as "—"), so a malformed
+        or schema-changed usage payload must degrade to ``None`` rather than raise
+        and crash the whole eval. This is the single chokepoint every backend's
+        ``_usage`` passes through.
+        """
+        try:
+            return self._usage(proc, ctx)
+        except Exception:
+            return None
 
     # --- shared machinery -------------------------------------------------
 

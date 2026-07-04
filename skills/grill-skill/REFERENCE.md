@@ -32,7 +32,12 @@ caliper compare a.json b.json --format json     # per-task Δ, regression flags,
 `caliper compare <A> <B>` diffs two already-saved runs task by task: tasks are
 matched by name, `Δ = b − a`, a negative Δ flags a regression (any-below), and a
 side with no usable attempts shows `—` (unmeasured, never a regression) so
-infra/judge noise can't fake a loss.
+infra/judge noise can't fake a loss. Under the pass@k headline, `compare` also
+shows **token and wall-clock deltas** (green = cheaper) — the "same quality, 40%
+fewer tokens" signal an ablation looks for. These are secondary: a token/time
+change is **never** a regression (only pass@k is), and dollar cost is not tracked
+(tokens are the volume signal). Each attempt in the report also shows its tokens
+next to its duration under `--verbose`.
 
 ## Inspecting failures
 
