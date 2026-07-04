@@ -28,6 +28,7 @@ task-2  Generates a valid config file     2/3      96%     PASS
 With skill     98%    ###################-
 No skill       55%    ###########---------
 Delta          +43%   up
+Tokens   1.2M in / 3.4K out   ·   Wall 41s (avg 6.8s/usable)
 ```
 
 ---
