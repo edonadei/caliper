@@ -21,9 +21,9 @@ caliper run my-skill.eval.yaml --k 3 --baseline
 That command reads a spec: a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you. Caliper runs each task with and without the skill, then shows you the difference:
 
 ```text
-ID      Task                              k (3)   pass@k
-task-1  Writes a conventional commit msg  3/3     100%     PASS
-task-2  Generates a valid config file     2/3      96%     PASS
+ID      Task                              k (3)   pass@k   Tokens   Wall
+task-1  Writes a conventional commit msg  3/3     100%     620K     20s    PASS
+task-2  Generates a valid config file     2/3      96%     600K     21s    PASS
 
 With skill     98%    ###################-
 No skill       55%    ###########---------
@@ -548,6 +548,9 @@ them up per run:
  ⊘ unusable spend: 180K tokens · 42s  (2 attempts, excluded from avg)
 ```
 
+- The results table carries per-task `Tokens` (total) and `Wall` columns, so you
+  can see which task is the expensive one at a glance; the run summary line below
+  it aggregates across the whole run.
 - Each `AttemptRecord` carries an optional `usage` object with `input_tokens`
   (non-cached prompt), `output_tokens`, `cache_read_tokens`,
   `cache_creation_tokens`, and a computed `total_tokens`. The four token fields

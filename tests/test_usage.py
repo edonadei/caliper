@@ -353,6 +353,30 @@ def test_print_results_renders_token_line(capsys) -> None:
     assert "Wall" in out
 
 
+def test_print_results_renders_per_task_tokens_and_wall(capsys) -> None:
+    # Each task carries 2 attempts of 1M tokens / 12s → 2M total, 24s wall.
+    results = _run([_task_with_tokens("alpha", 1_000_000, 12.0)])
+    print_results(results)
+    out = capsys.readouterr().out
+    assert "2.0M" in out  # per-task token total in the row
+    assert "24s" in out  # per-task wall total in the row
+
+
+def test_print_results_per_task_tokens_dash_when_unreported(capsys) -> None:
+    task = TaskResult(
+        task_id="task-001",
+        task_name="alpha",
+        attempts=[_att(Outcome.PASS, 3.0, None)],
+        successes=1,
+        unusable=0,
+        pass_at_k=1.0,
+    )
+    print_results(_run([task]))
+    out = capsys.readouterr().out
+    # Wall still shows even with no token data.
+    assert "3s" in out
+
+
 def test_print_comparison_renders_usage_rows(capsys) -> None:
     a = _run([_task_with_tokens("alpha", 1000, 10.0)])
     b = _run([_task_with_tokens("alpha", 600, 6.0)])

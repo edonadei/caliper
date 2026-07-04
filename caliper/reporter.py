@@ -186,17 +186,26 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     table.add_column("Task")
     table.add_column(f"k ({k})", justify="center")
     table.add_column("pass@k", justify="right")
+    table.add_column("Tokens", justify="right", style="dim")
+    table.add_column("Wall", justify="right", style="dim")
     table.add_column("", justify="center")
 
     for tr in results.task_results:
         cheated_count = sum(1 for a in tr.attempts if a.cheated)
         status_text = _status_cell(tr, k, cheated_count > 0)
         pass_at_k = "—" if tr.pass_at_k is None else f"{tr.pass_at_k * 100:.1f}%"
+        totals = UsageTotals.from_task_results([tr])
+        tokens_cell = (
+            _fmt_tokens(totals.total_tokens) if totals.tokens_reported else _RULE
+        )
+        wall_cell = _fmt_duration(totals.wall_seconds)
         table.add_row(
             tr.task_id,
             tr.task_name,
             f"{tr.successes}/{k}",
             pass_at_k,
+            tokens_cell,
+            wall_cell,
             status_text,
         )
 
