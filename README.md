@@ -21,9 +21,9 @@ caliper run my-skill.eval.yaml --k 3 --baseline
 That command reads a spec: a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you. Caliper runs each task with and without the skill, then shows you the difference:
 
 ```text
-ID      Task                              k (3)   pass@k   Tokens   Wall
-task-1  Writes a conventional commit msg  3/3     100%     620K     20s    PASS
-task-2  Generates a valid config file     2/3      96%     600K     21s    PASS
+Task                              k (3)   pass@k   Tokens   Wall
+Writes a conventional commit msg  3/3     100%     620K     20s    PASS
+Generates a valid config file     2/3      96%     600K     21s    PASS
 
 With skill     98%    ###################-
 No skill       55%    ###########---------

@@ -182,7 +182,6 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     table = Table(
         box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False
     )
-    table.add_column("ID", style="dim", no_wrap=True)
     table.add_column("Task")
     table.add_column(f"k ({k})", justify="center")
     table.add_column("pass@k", justify="right")
@@ -200,7 +199,6 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
         )
         wall_cell = _fmt_duration(totals.wall_seconds)
         table.add_row(
-            tr.task_id,
             tr.task_name,
             f"{tr.successes}/{k}",
             pass_at_k,
@@ -418,7 +416,7 @@ def _print_task_detail(tr: TaskResult, k: int) -> None:
     console.print(
         Panel(
             "\n".join(lines),
-            title=f"[bold]{tr.task_id}[/bold] {tr.task_name}",
+            title=f"[bold]{tr.task_name}[/bold]",
             border_style="dim",
         )
     )
