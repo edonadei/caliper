@@ -579,15 +579,14 @@ them up per run:
 - **Dollar cost is deliberately not tracked** — it is inconsistent across
   backends and would need a maintained price table. Tokens are the volume signal;
   a dollar figure can be derived downstream if needed.
-- **With `--baseline`**, the report adds a `vs no skill` token/wall delta line
-  (green = the skill is cheaper) so you can see whether the skill made the agent
-  cheaper or more expensive than the base agent — not just more reliable. The
-  baseline's usage totals are retained on `RunResults.baseline_usage` for this
-  (the no-skill attempts are otherwise discarded).
+- **With `--baseline`**, the whole no-skill run is retained
+  (`RunResults.baseline_task_results`) and the report renders as a `compare` view
+  — the same table, attempt strips, and token/wall deltas — so the skill-vs-bare-
+  agent difference is shown side by side (see the quickstart at the top).
 - `report --format json` includes a derived `usage_totals` block; the saved
-  results JSON keeps only the raw per-attempt `usage` (totals are derived, never
-  persisted) plus `baseline_usage` when `--baseline` ran. `compare` surfaces
-  token/wall deltas across two saved runs — see above.
+  results JSON keeps the raw per-attempt `usage` (totals are derived, never
+  persisted), plus the full `baseline_task_results` when `--baseline` ran.
+  `compare` surfaces token/wall deltas across two runs — see above.
 
 ---
 

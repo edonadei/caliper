@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from caliper.schema.results import AggregateScore, DeltaReport, TaskScore
+from caliper.schema.results import AggregateScore, TaskScore
 
 
 def pass_at_k(successes: int, k: int) -> float:
@@ -36,13 +36,3 @@ def aggregate_scores(
     scored = [t.score for t in per_task if t.score is not None]
     avg = sum(scored) / len(scored) if scored else 0.0
     return AggregateScore(avg_pass_at_k=avg, per_task=per_task)
-
-
-def compute_delta(
-    with_skill: AggregateScore, without_skill: AggregateScore
-) -> DeltaReport:
-    return DeltaReport(
-        with_skill=with_skill,
-        without_skill=without_skill,
-        delta=with_skill.avg_pass_at_k - without_skill.avg_pass_at_k,
-    )

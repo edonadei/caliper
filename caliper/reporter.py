@@ -163,6 +163,14 @@ def update_progress(
 
 
 def print_results(results: RunResults, verbose: bool = False) -> None:
+    # A --baseline run is a two-run diff (no skill vs with skill), so render it
+    # through the exact same comparison view as `caliper compare`.
+    if results.baseline_task_results is not None:
+        from caliper.compare import diff_baseline
+
+        print_comparison(diff_baseline(results))
+        return
+
     spec = results.run.spec
     backend = results.run.backend
     model = results.run.model or ""
@@ -257,28 +265,12 @@ def _print_aggregate(results: RunResults) -> None:
         )
 
     console.print(
-        f" [bold]With skill[/bold]    [cyan]{agg.avg_pass_at_k * 100:.1f}%[/cyan]  {score_bar(agg.avg_pass_at_k)}"
+        f" [bold]Score[/bold]   [cyan]{agg.avg_pass_at_k * 100:.1f}%[/cyan]  {score_bar(agg.avg_pass_at_k)}"
     )
 
-    if results.baseline:
-        base = results.baseline
-        console.print(
-            f" [dim]No skill[/dim]      [dim]{base.avg_pass_at_k * 100:.1f}%[/dim]  {score_bar(base.avg_pass_at_k)}"
-        )
-
-    if results.delta:
-        delta = results.delta.delta
-        sign = "+" if delta >= 0 else ""
-        color = "green" if delta >= 0 else "red"
-        arrow = _UP if delta >= 0 else _DOWN
-        console.print(
-            f" [bold]Delta[/bold]        [{color}]{sign}{delta * 100:.1f}%[/{color}]  {arrow}"
-        )
-
     _print_unusable_summary(results)
-    with_totals = UsageTotals.from_task_results(results.task_results)
     console.print()
-    _print_usage_summary(with_totals, results.baseline_usage)
+    _print_usage_summary(UsageTotals.from_task_results(results.task_results))
     console.print()
 
 
@@ -301,37 +293,17 @@ def _print_unusable_summary(results: RunResults) -> None:
     )
 
 
-def _usage_delta_cell(skill_val: float, base_val: float) -> str:
-    """A tidy `+305% vs no skill` cell. Green when the skill is *cheaper* (uses
-    less), red when costlier — same convention as ``compare``, never a pass/fail
-    signal. Percent only; the absolute totals are already in the value column."""
-    delta = skill_val - base_val
-    if delta == 0:
-        return f"[dim]{_RULE} vs no skill[/dim]"
-    color = "green" if delta < 0 else "red"
-    sign = "+" if delta > 0 else "-"
-    pct = (
-        f"{abs(delta / base_val * 100):.0f}%"
-        if base_val > 0
-        else _fmt_tokens(int(abs(delta)))
-    )
-    return f"[{color}]{sign}{pct}[/{color}] [dim]vs no skill[/dim]"
-
-
-def _print_usage_summary(totals: UsageTotals, baseline: UsageTotals | None) -> None:
-    """The cost block: tokens + wall time as an aligned grid under the pass@k
-    bars, with an optional `vs no skill` delta column. Cost/latency is a
-    first-class axis (CONTEXT.md → Run usage totals); dollar cost is deliberately
-    out of scope."""
+def _print_usage_summary(totals: UsageTotals) -> None:
+    """The cost block for a single run: tokens + wall time as an aligned grid.
+    (A --baseline run renders the skill-vs-no-skill token/wall delta through the
+    `compare` view instead.) Cost/latency is a first-class axis (CONTEXT.md → Run
+    usage totals); dollar cost is deliberately out of scope."""
     if totals.attempts == 0:
         return
 
-    show_delta = baseline is not None and baseline.attempts > 0
     grid = Table.grid(padding=(0, 3))
     grid.add_column(style="bold")  # metric
     grid.add_column()  # value
-    if show_delta:
-        grid.add_column()  # vs no skill
 
     if totals.tokens_reported:
         tokens_val = (
@@ -346,22 +318,8 @@ def _print_usage_summary(totals: UsageTotals, baseline: UsageTotals | None) -> N
         avg = totals.usable_wall_seconds / totals.usable_attempts
         wall_val += f"  [dim]{avg:.1f}s per attempt[/dim]"
 
-    if show_delta:
-        tokens_delta = (
-            _usage_delta_cell(totals.total_tokens, baseline.total_tokens)
-            if totals.tokens_reported and baseline.tokens_reported
-            else ""
-        )
-        grid.add_row(" Tokens", tokens_val, tokens_delta)
-        grid.add_row(
-            " Wall",
-            wall_val,
-            _usage_delta_cell(totals.wall_seconds, baseline.wall_seconds),
-        )
-    else:
-        grid.add_row(" Tokens", tokens_val)
-        grid.add_row(" Wall", wall_val)
-
+    grid.add_row(" Tokens", tokens_val)
+    grid.add_row(" Wall", wall_val)
     console.print(grid)
 
     if totals.unusable_attempts > 0:
@@ -469,11 +427,19 @@ def print_comparison(comp: RunComparison) -> None:
         f"{_BANNER}  {_RULE}  compare  {_RULE}  [bold]{comp.a.spec}[/bold]",
         style="cyan",
     )
-    a_engine = _engine_label(comp.a.backend, comp.a.model)
-    b_engine = _engine_label(comp.b.backend, comp.b.model)
+    # Each side is titled by its explicit label (a --baseline diff sets "no skill"
+    # / "with skill") or, for a plain compare, its timestamp + engine.
+    a_desc = (
+        comp.a_label
+        or f"{a_ts} ([cyan]{_engine_label(comp.a.backend, comp.a.model)}[/cyan])"
+    )
+    b_desc = (
+        comp.b_label
+        or f"{b_ts} ([cyan]{_engine_label(comp.b.backend, comp.b.model)}[/cyan])"
+    )
     console.print(
-        f"    [bold]A[/bold] {a_ts} ([cyan]{a_engine}[/cyan])   {_SEP}"
-        f"   [bold]B[/bold] {b_ts} ([cyan]{b_engine}[/cyan])   {_SEP}"
+        f"    [bold]A[/bold] {a_desc}   {_SEP}"
+        f"   [bold]B[/bold] {b_desc}   {_SEP}"
         f"   k=[cyan]{comp.a.k}[/cyan]"
         + (f"/[cyan]{comp.b.k}[/cyan]" if comp.k_mismatch else "")
     )

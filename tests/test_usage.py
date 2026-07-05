@@ -362,29 +362,27 @@ def test_print_results_renders_per_task_tokens_and_wall(capsys) -> None:
     assert "24s" in out  # per-task wall total in the row
 
 
-def test_print_results_renders_baseline_usage_delta(capsys) -> None:
-    from caliper.schema.results import DeltaReport
-
-    results = _run([_task_with_tokens("alpha", 1000, 10.0)])  # 2000 tokens, 20s
-    # Attach a cheaper no-skill baseline: 1200 tokens, 12s.
-    base = _run([_task_with_tokens("alpha", 600, 6.0)])
-    results.baseline = base.aggregate
-    results.baseline_usage = UsageTotals.from_task_results(base.task_results)
-    results.delta = DeltaReport(
-        with_skill=results.aggregate, without_skill=base.aggregate, delta=0.0
-    )
+def test_baseline_run_renders_as_compare(capsys) -> None:
+    # A --baseline run (baseline_task_results present) renders through the compare
+    # view: labelled sides, both usage totals, and a token/wall delta.
+    results = _run([_task_with_tokens("alpha", 1000, 10.0)])  # with skill: 2000 tok
+    base = _run([_task_with_tokens("alpha", 600, 6.0)])  # no skill: 1200 tok
+    results.baseline_task_results = base.task_results
     print_results(results)
     out = capsys.readouterr().out
-    assert "vs no skill" in out
-    # Skill is 2000 vs baseline 1200 → +67% tokens (skill is costlier).
-    assert "+67%" in out
+    assert "compare" in out
+    assert "no skill" in out and "with skill" in out
+    # Token delta B(with) 2000 vs A(no skill) 1200 → +67% (skill costlier).
+    assert "Tokens" in out and "+67%" in out
 
 
-def test_no_baseline_usage_delta_without_baseline(capsys) -> None:
+def test_non_baseline_run_renders_single_report(capsys) -> None:
     results = _run([_task_with_tokens("alpha", 1000, 10.0)])
     print_results(results)
     out = capsys.readouterr().out
-    assert "vs no skill" not in out
+    # No comparison view for a plain run.
+    assert "no skill" not in out
+    assert "Score" in out
 
 
 def test_print_results_per_task_tokens_dash_when_unreported(capsys) -> None:

@@ -215,25 +215,17 @@ class AggregateScore(BaseModel):
     per_task: list[TaskScore]
 
 
-class DeltaReport(BaseModel):
-    with_skill: AggregateScore
-    without_skill: AggregateScore
-    delta: float
-
-
 class RunResults(BaseModel):
     run: RunMeta
     skill_snapshot: SkillSnapshot
     task_results: list[TaskResult]
     aggregate: AggregateScore
-    baseline: AggregateScore | None = None
-    delta: DeltaReport | None = None
-    # The no-skill run's usage totals, kept only when ``--baseline`` ran. The
-    # with-skill totals are derived from ``task_results`` at render time, but the
-    # baseline's raw attempts are not retained (``baseline`` is a pass@k-only
-    # ``AggregateScore``), so this compact roll-up is stored to let the report show
-    # a skill-vs-no-skill token/wall delta. Optional so old JSON still loads.
-    baseline_usage: UsageTotals | None = None
+    # The **full** no-skill run, kept only when ``--baseline`` ran. Retaining the
+    # whole run (not just a pass@k aggregate) lets a ``--baseline`` report render
+    # through the very same ``compare`` machinery — same table, same strips, same
+    # token/wall deltas — instead of a bespoke renderer. Optional so old JSON (and
+    # non-baseline runs) still load.
+    baseline_task_results: list[TaskResult] | None = None
 
 
 class TaskComparison(BaseModel):
@@ -264,6 +256,11 @@ class RunComparison(BaseModel):
 
     a: RunMeta
     b: RunMeta
+    # How each side is titled in the header. ``None`` → the run's timestamp+engine
+    # (the default for ``compare`` of two saved runs); a ``--baseline`` diff sets
+    # them to "no skill" / "with skill" since both sides share one RunMeta.
+    a_label: str | None = None
+    b_label: str | None = None
     matched: list[TaskComparison]
     unmatched_a: list[str]
     unmatched_b: list[str]

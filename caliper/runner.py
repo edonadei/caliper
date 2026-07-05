@@ -15,19 +15,16 @@ from caliper.harness.base import ConversationTurn, HarnessBackend
 from caliper.judge.base import Judge
 from caliper.outcome import classify_outcome, classify_pre_judge
 from caliper.schema.results import (
-    AggregateScore,
     AttemptRecord,
-    DeltaReport,
     FileSnapshot,
     Outcome,
     RunMeta,
     RunResults,
     SkillSnapshot,
     TaskResult,
-    UsageTotals,
 )
 from caliper.schema.spec import DEFAULT_BACKEND, EvalSpec, TaskSpec, spec_name
-from caliper.scoring import aggregate_scores, compute_delta, pass_at_k
+from caliper.scoring import aggregate_scores, pass_at_k
 
 _FAIL_FAST_OUTCOMES = {Outcome.INFRA_ERROR, Outcome.TIMEOUT}
 
@@ -136,19 +133,11 @@ def run(
     }
     agg_with = aggregate_scores(pass_counts_with)
 
-    agg_without: AggregateScore | None = None
-    delta: DeltaReport | None = None
-    baseline_usage: UsageTotals | None = None
-    if baseline and task_results_without:
-        pass_counts_without = {
-            r.task_id: (r.task_name, r.successes, len(r.attempts) - r.unusable, k)
-            for r in task_results_without
-        }
-        agg_without = aggregate_scores(pass_counts_without)
-        delta = compute_delta(agg_with, agg_without)
-        # The no-skill attempts are otherwise discarded (baseline keeps only its
-        # pass@k aggregate), so roll up their usage now for the report's delta.
-        baseline_usage = UsageTotals.from_task_results(task_results_without)
+    # Keep the whole no-skill run so the report can render it through the same
+    # ``compare`` path as any other two-run diff (see reporter.diff_baseline).
+    baseline_task_results = (
+        task_results_without if baseline and task_results_without else None
+    )
 
     return RunResults(
         run=RunMeta(
@@ -169,9 +158,7 @@ def run(
         skill_snapshot=skill_snapshot,
         task_results=task_results_with,
         aggregate=agg_with,
-        baseline=agg_without,
-        delta=delta,
-        baseline_usage=baseline_usage,
+        baseline_task_results=baseline_task_results,
     )
 
 
