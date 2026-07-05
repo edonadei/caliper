@@ -15,28 +15,31 @@ npx skills@latest add edonadei/caliper
 **Or run it yourself:**
 
 ```bash
-caliper run my-skill.eval.yaml --k 3 --baseline
+caliper compare bare-agent commit-commands
 ```
 
-That command reads a spec: a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you. Caliper runs each task with and without the skill, then shows you the difference:
+You write a spec — a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you — run it with and without the skill, and diff the two runs task by task:
 
 ```text
-Task                              k (3)   pass@k   Tokens   Wall
-Writes a conventional commit msg  3/3     100%      90K     22s    PASS
-Generates a valid config file     3/3     100%      90K     20s    PASS
+─────────────────── CALIPER  —  compare  —  commit-commands ───────────────────
+    A bare agent   ·   B with skill   ·   k=3
 
-With skill    100%    ####################
-No skill       72%    ##############------
-Delta         +28%    up
+╭───────────────────────┬──────────┬──────────┬────────┬─────────┬─────────╮
+│ Task                  │ A pass@k │ B pass@k │      Δ │ A strip │ B strip │
+├───────────────────────┼──────────┼──────────┼────────┼─────────┼─────────┤
+│ Commits a new feature │    70.4% │   100.0% │ +29.6% │ ✓✗✗     │ ✓✓✓     │
+│ Commits a bug fix     │    70.4% │   100.0% │ +29.6% │ ✗✓✗     │ ✓✓✓     │
+╰───────────────────────┴──────────┴──────────┴────────┴─────────┴─────────╯
 
-Tokens   176K in / 4K out            -38% vs no skill
-Wall     42s   7.0s per attempt      -31% vs no skill
+ A 70.4%   B 100.0%   Δ (matched) +29.6% ↑
+ Tokens  A 290K  B 180K   Δ -38% (-110K)
+ Wall    A 1m 1s  B 42s   Δ -31% (-19s)
 ```
 
-That cost block is the point of `--baseline`: this skill is **+28% more reliable**
-than the bare agent **and** gets there on **38% fewer tokens and 31% less
-wall-clock time** — the guidance keeps the agent from flailing. Green means the
-skill is *cheaper*; a skill that regresses cost renders red.
+Every task got more reliable, and `commit-commands` got there on **38% fewer
+tokens** and **31% less wall-clock time**. Both `A strip` and `B strip` show every
+attempt (`✓`/`✗`), so the bare agent's failures are right there — not hidden in an
+average.
 
 ---
 
