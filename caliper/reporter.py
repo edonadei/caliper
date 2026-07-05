@@ -169,7 +169,7 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     if results.baseline_task_results is not None:
         from caliper.compare import diff_baseline
 
-        print_comparison(diff_baseline(results))
+        print_comparison(diff_baseline(results), verbose=verbose)
         # The compare table shows *which* attempts failed (the strips); the panels
         # below show *why* (output, assert evidence, autorater reasoning) for the
         # with-skill run — the strips alone don't, and there's no separate run to
@@ -198,7 +198,10 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     )
     table.add_column("Task")
     table.add_column(f"k ({k})", justify="center")
-    table.add_column("pass@k", justify="right")
+    table.add_column("success", justify="right")
+    if verbose:
+        table.add_column("pass@k", justify="right", style="dim")
+        table.add_column("pass^k", justify="right", style="dim")
     table.add_column("Tokens", justify="right", style="dim")
     table.add_column("Wall", justify="right", style="dim")
     table.add_column("", justify="center")
@@ -206,20 +209,16 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     for tr in results.task_results:
         cheated_count = sum(1 for a in tr.attempts if a.cheated)
         status_text = _status_cell(tr, k, cheated_count > 0)
-        pass_at_k = "—" if tr.pass_at_k is None else f"{tr.pass_at_k * 100:.1f}%"
         totals = UsageTotals.from_task_results([tr])
         tokens_cell = (
             _fmt_tokens(totals.total_tokens) if totals.tokens_reported else _RULE
         )
         wall_cell = _fmt_duration(totals.wall_seconds)
-        table.add_row(
-            tr.task_name,
-            f"{tr.successes}/{k}",
-            pass_at_k,
-            tokens_cell,
-            wall_cell,
-            status_text,
-        )
+        row = [tr.task_name, f"{tr.successes}/{k}", _fmt_score(tr.score)]
+        if verbose:
+            row += [_fmt_score(tr.pass_at_k), _fmt_score(tr.pass_hat_k)]
+        row += [tokens_cell, wall_cell, status_text]
+        table.add_row(*row)
 
     console.print(table)
     console.print()
@@ -234,7 +233,7 @@ def _print_task_details(task_results: list[TaskResult], k: int, verbose: bool) -
     tasks_to_detail = (
         task_results
         if verbose
-        else [tr for tr in task_results if tr.pass_at_k is None or tr.pass_at_k < 1.0]
+        else [tr for tr in task_results if tr.score is None or tr.score < 1.0]
     )
     if tasks_to_detail:
         console.print()
@@ -245,12 +244,12 @@ def _print_task_details(task_results: list[TaskResult], k: int, verbose: bool) -
 def _status_cell(tr: TaskResult, k: int, any_cheat: bool) -> Text:
     if any_cheat:
         return Text(f"{_WARN} CHEAT", style="bold yellow")
-    if len(tr.attempts) < k and tr.pass_at_k is None:
+    if len(tr.attempts) < k and tr.score is None:
         return Text(f"{_UNUSABLE} ABORTED", style="bold yellow")
-    if tr.pass_at_k is None:
+    if tr.score is None:
         return Text(f"{_UNUSABLE} UNUSABLE", style="bold yellow")
     suffix = f" ({tr.unusable} {_UNUSABLE})" if tr.unusable else ""
-    if tr.pass_at_k >= 0.99:
+    if tr.score >= 0.99:
         return Text(f"{_CHECK} PASS{suffix}", style="bold green")
     elif tr.successes == 0:
         return Text(f"{_CROSS} FAIL{suffix}", style="bold red")
@@ -272,7 +271,7 @@ def _print_aggregate(results: RunResults) -> None:
         )
 
     console.print(
-        f" [bold]Score[/bold]   [cyan]{agg.avg_pass_at_k * 100:.1f}%[/cyan]  {score_bar(agg.avg_pass_at_k)}"
+        f" [bold]Score[/bold]   [cyan]{agg.avg_score * 100:.1f}%[/cyan]  {score_bar(agg.avg_score)}"
     )
 
     _print_unusable_summary(results)
@@ -296,7 +295,7 @@ def _print_unusable_summary(results: RunResults) -> None:
     )
     console.print(
         f" [yellow]{_UNUSABLE} {total} unusable[/yellow]  [dim]({breakdown}) "
-        f"— excluded from pass@k[/dim]"
+        f"— excluded from the score[/dim]"
     )
 
 
@@ -357,7 +356,7 @@ def _format_output(output: str) -> str:
 
 def _print_task_detail(tr: TaskResult, k: int) -> None:
     lines: list[str] = []
-    if len(tr.attempts) < k and tr.pass_at_k is None:
+    if len(tr.attempts) < k and tr.score is None:
         lines.append(
             f"  [yellow]ABORTED[/yellow] after {len(tr.attempts)}/{k} attempts"
         )
@@ -424,7 +423,7 @@ def _delta_cell(tc: TaskComparison) -> Text:
     return Text(f"{sign}{tc.delta * 100:.1f}%", style=style)
 
 
-def print_comparison(comp: RunComparison) -> None:
+def print_comparison(comp: RunComparison, verbose: bool = False) -> None:
     """Render a two-run diff. A thin shell over ``diff_runs`` — no logic here."""
     a_ts = comp.a.timestamp.strftime("%Y-%m-%dT%H-%M-%SZ")
     b_ts = comp.b.timestamp.strftime("%Y-%m-%dT%H-%M-%SZ")
@@ -459,22 +458,33 @@ def print_comparison(comp: RunComparison) -> None:
         box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False
     )
     table.add_column("Task")
-    table.add_column("pass@k", justify="right")
+    table.add_column("success", justify="right")
     table.add_column(f"{_delta_symbol()}", justify="right")
+    if verbose:
+        table.add_column("pass@k", justify="center", style="dim")
+        table.add_column("pass^k", justify="center", style="dim")
     table.add_column("attempts")
 
     for tc in comp.matched:
         unmeasured = tc.a_score is None or tc.b_score is None
         name = Text(tc.task_name, style="dim" if unmeasured else "")
-        table.add_row(name, _passk_cell(tc), _delta_cell(tc), _attempts_cell(tc))
+        row = [name, _score_cell(tc), _delta_cell(tc)]
+        if verbose:
+            row += [
+                _alt_metric_cell(tc, "pass_at_k"),
+                _alt_metric_cell(tc, "pass_hat_k"),
+            ]
+        row.append(_attempts_cell(tc))
+        table.add_row(*row)
 
     console.print(table)
     console.print()
     _print_comparison_summary(comp)
 
 
-def _passk_cell(tc: TaskComparison) -> Text:
-    """`a% → b%`; the 'after' is green on improvement, red on regression."""
+def _score_cell(tc: TaskComparison) -> Text:
+    """`a% → b%` raw success rate; the 'after' is green on improvement, red on
+    regression."""
     unmeasured = tc.a_score is None or tc.b_score is None
     after = "dim"
     if not unmeasured:
@@ -483,6 +493,26 @@ def _passk_cell(tc: TaskComparison) -> Text:
     cell.append(_fmt_score(tc.a_score), style="dim" if unmeasured else "")
     cell.append(f" {_TO} ", style="dim")
     cell.append(_fmt_score(tc.b_score), style=after)
+    return cell
+
+
+def _alt_metric_cell(tc: TaskComparison, metric: str) -> Text:
+    """`x% → y%` for a secondary metric (pass@k / pass^k), derived from the stored
+    per-attempt outcomes so no extra fields are needed on the model."""
+    from caliper.scoring import pass_at_k, pass_hat_k
+
+    fn = pass_at_k if metric == "pass_at_k" else pass_hat_k
+
+    def val(outcomes: list[Outcome]) -> float | None:
+        usable = sum(1 for o in outcomes if o.is_usable)
+        if usable == 0:
+            return None
+        return fn(sum(1 for o in outcomes if o == Outcome.PASS), usable)
+
+    cell = Text()
+    cell.append(_fmt_score(val(tc.a_outcomes)))
+    cell.append(f" {_TO} ")
+    cell.append(_fmt_score(val(tc.b_outcomes)))
     return cell
 
 

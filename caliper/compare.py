@@ -33,8 +33,8 @@ def _group_by_name(tasks: list[TaskResult]) -> dict[str, list[TaskResult]]:
 
 
 def _compare_task(name: str, a: TaskResult, b: TaskResult) -> TaskComparison:
-    a_score = a.pass_at_k
-    b_score = b.pass_at_k
+    a_score = a.score
+    b_score = b.score
     both_measured = a_score is not None and b_score is not None
     return TaskComparison(
         task_name=name,

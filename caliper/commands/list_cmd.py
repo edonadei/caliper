@@ -52,7 +52,7 @@ def _list_specs(results_dir: Path) -> None:
         try:
             results = RunResults.model_validate_json(latest_file.read_text())
             ts = results.run.timestamp.strftime("%Y-%m-%d %H:%M")
-            score = f"{results.aggregate.avg_pass_at_k * 100:.1f}%"
+            score = f"{results.aggregate.avg_score * 100:.1f}%"
         except Exception:
             ts = latest_file.stem
             score = "?"
@@ -86,7 +86,7 @@ def _list_runs(spec_dir: Path, spec_name: str) -> None:
         try:
             results = RunResults.model_validate_json(f.read_text())
             ts = results.run.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-            score = f"{results.aggregate.avg_pass_at_k * 100:.1f}%"
+            score = f"{results.aggregate.avg_score * 100:.1f}%"
             k = str(results.run.k)
             n_tasks = str(len(results.task_results))
         except Exception:

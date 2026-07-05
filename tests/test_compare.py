@@ -13,7 +13,7 @@ from caliper.schema.results import (
     TaskResult,
     TaskScore,
 )
-from caliper.scoring import pass_at_k
+from caliper.scoring import pass_at_k, success_rate
 
 
 def _attempt(i: int, outcome: Outcome) -> AttemptRecord:
@@ -56,7 +56,7 @@ def _run(tasks: list[TaskResult], *, spec: str = "demo", k: int = 5) -> RunResul
         skill_snapshot=SkillSnapshot(path="/fake/SKILL.md"),
         task_results=tasks,
         aggregate=AggregateScore(
-            avg_pass_at_k=sum(scored) / len(scored) if scored else 0.0,
+            avg_score=sum(scored) / len(scored) if scored else 0.0,
             per_task=per_task,
         ),
     )
@@ -152,15 +152,15 @@ def test_matching_is_by_name_not_positional_id() -> None:
 
 def test_lower_raw_score_from_unusable_attempts_is_not_a_regression() -> None:
     # A: 4/5 pass. B: same 4 usable passes but its "misses" are infra_errors,
-    # excluded from the denominator -> B's pass@k is *higher*, not a regression.
+    # excluded from the denominator -> B's raw rate is *higher*, not a regression.
     a = _run([_task("alpha", [P, P, P, P, F])])
     b = _run([_task("alpha", [P, P, P, P, INF])])
 
     comp = diff_runs(a, b)
     tc = comp.matched[0]
     assert not tc.regression
-    assert tc.b_score == pass_at_k(4, 4)  # over 4 usable, not 5
-    assert tc.a_score == pass_at_k(4, 5)
+    assert tc.b_score == success_rate(4, 4) == 1.0  # over 4 usable, not 5
+    assert tc.a_score == success_rate(4, 5) == 0.8
 
 
 def test_fully_unusable_side_is_unmeasured_never_a_regression() -> None:

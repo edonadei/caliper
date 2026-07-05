@@ -46,7 +46,7 @@ tasks:
             ),
             skill_snapshot=SkillSnapshot(path=""),
             task_results=[],
-            aggregate=AggregateScore(avg_pass_at_k=0.0, per_task=[]),
+            aggregate=AggregateScore(avg_score=0.0, per_task=[]),
         )
 
     monkeypatch.setattr(
@@ -115,7 +115,7 @@ def test_run_cli_resolves_backend_and_judge_model_targets(
             ),
             skill_snapshot=SkillSnapshot(path=""),
             task_results=[],
-            aggregate=AggregateScore(avg_pass_at_k=0.0, per_task=[]),
+            aggregate=AggregateScore(avg_score=0.0, per_task=[]),
         )
 
     def fake_get_harness(backend, model):

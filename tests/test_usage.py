@@ -299,7 +299,7 @@ def _run(tasks: list[TaskResult], spec: str = "demo", k: int = 2) -> RunResults:
         skill_snapshot=SkillSnapshot(path="/fake/SKILL.md"),
         task_results=tasks,
         aggregate=AggregateScore(
-            avg_pass_at_k=sum(scored) / len(scored) if scored else 0.0, per_task=[]
+            avg_score=sum(scored) / len(scored) if scored else 0.0, per_task=[]
         ),
     )
 

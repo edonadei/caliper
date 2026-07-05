@@ -37,10 +37,13 @@ def compare_cmd(
     fmt: Annotated[
         str, typer.Option("--format", "-f", help="Output format: table | json")
     ] = "table",
+    verbose: Annotated[
+        bool, typer.Option("--verbose", "-v", help="Also show pass@k and pass^k")
+    ] = False,
 ) -> None:
     comparison = diff_runs(_load_run(a), _load_run(b))
 
     if fmt == "json":
         console.print_json(comparison_to_json(comparison))
     else:
-        print_comparison(comparison)
+        print_comparison(comparison, verbose=verbose)

@@ -114,8 +114,31 @@ class TaskResult(BaseModel):
     attempts: list[AttemptRecord]
     successes: int
     unusable: int = 0
-    # None when every attempt was unusable — the task was never fairly measured.
+    # pass@k (P(≥1 of k pass)) — kept as a secondary, retry-friendly view. The
+    # *primary* metric is ``score`` (raw success rate) below. None when every
+    # attempt was unusable — the task was never fairly measured.
     pass_at_k: float | None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def usable(self) -> int:
+        """Attempts that got a fair shot (the pass@k / rate denominator)."""
+        return len(self.attempts) - self.unusable
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def score(self) -> float | None:
+        """The **raw success rate** over usable attempts — Caliper's primary
+        metric. ``None`` when no attempt was fairly measured."""
+        return self.successes / self.usable if self.usable > 0 else None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def pass_hat_k(self) -> float | None:
+        """pass^k: P(all usable attempts pass) — the strict consistency view."""
+        if self.usable <= 0:
+            return None
+        return (self.successes / self.usable) ** self.usable
 
 
 class UsageTotals(BaseModel):
@@ -206,12 +229,14 @@ class TaskScore(BaseModel):
     task_name: str
     k: int
     successes: int
-    # None when every attempt was unusable (excluded from the aggregate average).
+    # The raw success rate (Caliper's primary metric). None when every attempt was
+    # unusable (excluded from the aggregate average).
     score: float | None
 
 
 class AggregateScore(BaseModel):
-    avg_pass_at_k: float
+    # Average raw success rate over measured tasks (the primary aggregate).
+    avg_score: float
     per_task: list[TaskScore]
 
 
