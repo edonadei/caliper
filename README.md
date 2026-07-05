@@ -15,14 +15,14 @@ npx skills@latest add edonadei/caliper
 **Or run it yourself:**
 
 ```bash
-caliper compare bare-agent commit-commands
+caliper run commit-commands.eval.yaml --k 3 --baseline
 ```
 
-You write a spec — a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you — run it with and without the skill, and diff the two runs task by task:
+You write a spec — a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you. With `--baseline`, Caliper runs each task with and without the skill and diffs the two runs task by task:
 
 ```text
 ─────────────────── CALIPER  —  compare  —  commit-commands ───────────────────
-    A bare agent   ·   B with skill   ·   k=3
+    A no skill   ·   B with skill   ·   k=3
 
 ╭───────────────────────┬──────────┬──────────┬────────┬─────────┬─────────╮
 │ Task                  │ A pass@k │ B pass@k │      Δ │ A strip │ B strip │
