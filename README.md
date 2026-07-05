@@ -15,26 +15,28 @@ npx skills@latest add edonadei/caliper
 **Or run it yourself:**
 
 ```bash
-caliper run my-skill.eval.yaml --k 3 --baseline
+caliper run commit.eval.yaml --k 3 --baseline
 ```
 
-That command reads a spec: a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you. Caliper runs each task with and without the skill, then shows you the difference:
+That command reads a spec: a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you. Here's a real run of the popular [`commit-commands`](examples/commit-commands) skill (~14k installs) on two commit tasks — Caliper runs each task with and without the skill, then shows you the difference:
 
 ```text
-Task                              k (3)   pass@k   Tokens   Wall
-Writes a conventional commit msg  3/3     100%     620K     20s    PASS
-Generates a valid config file     2/3      96%     600K     21s    PASS
+Task                   k (3)   pass@k   Tokens   Wall
+Commits a new feature  3/3     100%     236K     38s    PASS
+Commits a bug fix      3/3     100%     236K     39s    PASS
 
-With skill     98%    ###################-
-No skill       55%    ###########---------
-Delta          +43%   up
-Tokens   1.2M in / 3.4K out   ·   Wall 41s (avg 6.8s/usable)
-vs no skill   Tokens +860K (+253%)   ·   Wall +29s (+242%)
+With skill    100%    ####################
+No skill       85%    #################---
+Delta         +15%    up
+Tokens   466K in / 5K out   ·   Wall 1m 17s (avg 12.9s/usable)
+vs no skill   Tokens +355K (+305%)   ·   Wall +50s (+189%)
 ```
 
-That last line is the point of `--baseline` for cost: the skill is **+43% more
-reliable**, but it costs **~3.5× the tokens and time**. Worth seeing before you
-ship — a run without `--baseline` shows the absolute `Tokens`/`Wall` only.
+That last line is the point of `--baseline` for cost: the `/commit` skill is
+**+15% more reliable** than the bare agent here, but it costs **~4× the tokens
+and time** — it front-loads `git status`, `git diff`, and `git log` into context
+on every run. Worth seeing before you ship. Full example:
+[`examples/commit-commands`](examples/commit-commands).
 
 ---
 
