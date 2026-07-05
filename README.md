@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Skills](https://skills.sh/b/edonadei/caliper)](https://skills.sh/edonadei/caliper)
 
-Know whether your skill actually works. Write a short spec of what "good" looks like, run it _k_ times, and get a pass@k score you can track. Caliper also runs the tasks without the skill, so you can see whether it's the skill or the base agent doing the work. Works with the agent you already use: Claude Code, Codex, Pi, or Hermes.
+Know whether your skill actually works. Write a short spec of what "good" looks like, run it _k_ times, and get a **success rate** you can track. Caliper also runs the tasks without the skill, so you can see whether it's the skill or the base agent doing the work. Works with the agent you already use: Claude Code, Codex, Pi, or Hermes.
 
 **Teach your agent to evaluate:**
 
@@ -24,14 +24,14 @@ You write a spec — a few lines of YAML describing what "working" means, which 
 ─────────────────── CALIPER  —  compare  —  commit-commands ────────────────────
     no skill → with skill   ·   k=3
 
-╭───────────────────────┬────────────────┬────────┬───────────╮
-│ Task                  │         pass@k │      Δ │ attempts  │
-├───────────────────────┼────────────────┼────────┼───────────┤
-│ Commits a new feature │ 70.4% → 100.0% │ +29.6% │ ✓✗✗ → ✓✓✓ │
-│ Commits a bug fix     │ 70.4% → 100.0% │ +29.6% │ ✗✓✗ → ✓✓✓ │
-╰───────────────────────┴────────────────┴────────┴───────────╯
+╭───────────────────────┬─────────────────┬────────┬───────────╮
+│ Task                  │         success │      Δ │ attempts  │
+├───────────────────────┼─────────────────┼────────┼───────────┤
+│ Commits a new feature │  33.3% → 100.0% │ +66.7% │ ✓✗✗ → ✓✓✓ │
+│ Commits a bug fix     │  33.3% → 100.0% │ +66.7% │ ✗✓✗ → ✓✓✓ │
+╰───────────────────────┴─────────────────┴────────┴───────────╯
 
- Overall  70.4% → 100.0%   Δ (matched) +29.6% ↑
+ Overall  33.3% → 100.0%   Δ (matched) +66.7% ↑
  Tokens  290K → 180K   Δ -38% (-110K)
  Wall    1m 1s → 42s   Δ -31% (-19s)
 ```
@@ -43,7 +43,7 @@ not hidden in an average.
 
 ---
 
-Agent skills are hard to test. A skill that works on your machine, on this prompt, today, might fail tomorrow after a model update or a one-line prompt edit. Caliper makes reliability measurable: define what success looks like, run the skill repeatedly, and get a pass@k score you can track over time.
+Agent skills are hard to test. A skill that works on your machine, on this prompt, today, might fail tomorrow after a model update or a one-line prompt edit. Caliper makes reliability measurable: define what success looks like, run the skill repeatedly, and get a success rate you can track over time.
 
 Use Caliper to answer questions like:
 
@@ -129,24 +129,30 @@ The spec never names an engine — the skill and judge default to `claude-code`,
 **3. Run it**
 
 ```bash
-caliper run my-skill.eval.yaml --k 3 --baseline
+caliper run my-skill.eval.yaml --k 3          # add --baseline to diff vs the bare agent
 ```
 
 **4. Read the output**
 
 ```text
-CALIPER  -  my-skill  -  k=3  -  claude-code
+─────────── CALIPER  —  my-skill  (claude-code)  —  2026-06-19 14:23 ───────────
 
-ID      Task                              k (3)   pass@k
-task-1  Writes a conventional commit msg  3/3     100%     PASS
-task-2  Generates a valid config file     2/3      96%     PASS
+╭──────────────────────────────────┬───────┬─────────┬────────┬──────┬───────────╮
+│ Task                             │ k (3) │ success │ Tokens │ Wall │           │
+├──────────────────────────────────┼───────┼─────────┼────────┼──────┼───────────┤
+│ Writes a conventional commit msg │  3/3  │  100.0% │    79K │  27s │  ✓ PASS   │
+│ Generates a valid config file    │  2/3  │   66.7% │    82K │  33s │ ~ PARTIAL │
+╰──────────────────────────────────┴───────┴─────────┴────────┴──────┴───────────╯
 
-With skill     98%    ###################-
-No skill       55%    ###########---------
-Delta          +43%   up
+ Score   83.3%  █████████████████░░░
+
+ Tokens   159K in / 2K out
+ Wall     1m 0s  10.0s per attempt
 
 Results saved to .caliper/results/my-skill/2026-06-19T14-23-01Z.json
 ```
+
+`--verbose` adds `pass@k` and `pass^k` columns (both derived from the raw rate).
 
 ### Not sure what to put in a spec?
 
@@ -170,7 +176,7 @@ commented lines.
    Judge   ──── LLM autorater and/or deterministic Python assertions
       │
       ▼
-  pass@k score + saved transcript
+  success rate + saved transcript
 ```
 
 Each attempt runs in an isolated temporary home with no session history. Results are saved as JSON you can inspect and diff later.
@@ -227,7 +233,7 @@ If an `.eval.yaml` already exists next to your skill, `grill-skill` reads the ex
 | **Spec** | A `.eval.yaml` file that describes the skill, judge, and tasks to run |
 | **Backend** | The CLI agent that executes the skill (`claude-code`, `codex`, `pi`, `hermes`) |
 | **Judge** | What decides pass/fail — an LLM reading the transcript (`expect:`), Python assertions (`assert:`), or both |
-| **pass@k** | Reliability score: run k times, measure how often the skill succeeds |
+| **success rate** | The primary score: run k times, measure how often a single run works (`pass@k`/`pass^k` are secondary views, under `--verbose`) |
 | **Baseline** | Re-run the same tasks without the skill to prove the skill is doing the work |
 | **Attempt** | One isolated run of a single task — fresh temporary home, no session history |
 
@@ -287,7 +293,7 @@ curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
 hermes login   # authenticate; pick a default model/provider you have credits for
 ```
 
-Hermes is a stateful, always-on agent (persistent memory, a persona, auto-generated skills), so Caliper **normalizes it to a neutral agent** to keep its pass@k apples-to-apples with the other backends: every attempt runs in an isolated `HERMES_HOME` seeded with your `~/.hermes` auth/config only (never `SOUL.md`/`MEMORY.md`) and with `--ignore-rules`, and the skill-under-test is staged as the sole local skill. `--model hermes` runs `hermes -z` (oneshot) then `hermes sessions export` to recover the full tool-call trajectory; `--model hermes:<provider>/<model>` (e.g. `hermes:anthropic/claude-sonnet-4.6`) selects the model, otherwise your `~/.hermes/config.yaml` default is used — point it at a provider you have credits for. Set `HERMES_CLI_PATH` to force a specific binary. Hermes updates itself (`hermes update`), so it is not part of `caliper update-cli`.
+Hermes is a stateful, always-on agent (persistent memory, a persona, auto-generated skills), so Caliper **normalizes it to a neutral agent** to keep its score apples-to-apples with the other backends: every attempt runs in an isolated `HERMES_HOME` seeded with your `~/.hermes` auth/config only (never `SOUL.md`/`MEMORY.md`) and with `--ignore-rules`, and the skill-under-test is staged as the sole local skill. `--model hermes` runs `hermes -z` (oneshot) then `hermes sessions export` to recover the full tool-call trajectory; `--model hermes:<provider>/<model>` (e.g. `hermes:anthropic/claude-sonnet-4.6`) selects the model, otherwise your `~/.hermes/config.yaml` default is used — point it at a provider you have credits for. Set `HERMES_CLI_PATH` to force a specific binary. Hermes updates itself (`hermes update`), so it is not part of `caliper update-cli`.
 
 Check installed CLI versions:
 
@@ -460,14 +466,14 @@ flags — pin a historical run by naming its JSON path.
     2026-07-01T10-00-00Z (claude-code) → 2026-07-02T09-00-00Z (claude-code)   ·   k=5
 
 ╭──────────────────┬─────────────────┬────────┬───────────────╮
-│ Task             │          pass@k │      Δ │ attempts      │
+│ Task             │         success │      Δ │ attempts      │
 ├──────────────────┼─────────────────┼────────┼───────────────┤
 │ commits cleanly  │ 100.0% → 100.0% │      — │ ✓✓✓✓✓ → ✓✓✓✓✓ │
-│ handles conflict │  100.0% → 67.2% │ -32.8% │ ✓✓✓✓✓ → ✓✗✗✗✗ │
-│ pushes upstream  │      100.0% → — │      — │ ✓✓✓✓✗ → ⊘⊘⊘⊘⊘ │
+│ handles conflict │  100.0% → 20.0% │ -80.0% │ ✓✓✓✓✓ → ✓✗✗✗✗ │
+│ pushes upstream  │       80.0% → — │      — │ ✓✓✓✓✗ → ⊘⊘⊘⊘⊘ │
 ╰──────────────────┴─────────────────┴────────┴───────────────╯
 
- Overall  100.0% → 83.6%   Δ (matched) -16.4% ↓
+ Overall  100.0% → 60.0%   Δ (matched) -40.0% ↓
  Tokens  1.2M → 700K   Δ -42% (-500K)
  Wall    6m 18s → 3m 40s   Δ -42% (-2m 38s)
  ⚠ 1 regression: handles conflict
@@ -485,7 +491,7 @@ How the diff reads:
   run is listed as **unmatched** and left out of the delta.
 - **`Δ` is `after − before`.** A negative Δ renders red and flags the task as a
   **regression** (any-below rule: the after side below the before side).
-- **pass@k excludes unusable attempts.** The `attempts` column reuses the run
+- **The score excludes unusable attempts.** The `attempts` column reuses the run
   report's glyphs; `⊘` marks an unusable attempt (rate-limit / timeout / judge
   error). A side with *no* usable attempts shows `—` (unmeasured) and is never
   counted as a regression — infra noise can't fake a loss.
@@ -493,8 +499,8 @@ How the diff reads:
   on **both** sides, so it is strictly like-for-like.
 - **Token and wall-clock deltas** sit under the headline as *secondary* signals:
   a drop renders green (cheaper), a rise red (costlier). They are **never** a
-  regression — a token drop at flat pass@k is the win an ablation is looking for,
-  and a rise is a trade-off to weigh, not a failure. Only pass@k feeds
+  regression — a token drop at a flat score is the win an ablation is looking for,
+  and a rise is a trade-off to weigh, not a failure. Only the score feeds
   `has_regression`. The token row is shown only when both runs reported tokens;
   wall time is always shown. Dollar cost is deliberately not tracked (tokens are
   the volume signal).
@@ -514,7 +520,7 @@ for scripting.
 Every attempt carries a typed **outcome**, so infrastructure and judge noise are
 not scored as task failure:
 
-| Outcome | Meaning | Counts toward pass@k? |
+| Outcome | Meaning | Counts toward the score? |
 | --- | --- | --- |
 | `pass` | satisfied the task's judge(s) | ✅ success |
 | `task_fail` | the skill genuinely failed the task | ✅ attempt |
@@ -525,25 +531,35 @@ not scored as task failure:
 
 `passed` is retained in the JSON as a convenience, equal to `outcome == pass`.
 
-For each task, pass@k is computed over the **usable** attempts (those that got a
-fair shot); unusable attempts leave the denominator and are reported as a
-separate "N unusable" count:
+The primary metric is the **raw success rate** — how often a *single* run works,
+computed over the **usable** attempts (those that got a fair shot); unusable
+attempts leave the denominator and are reported as a separate "N unusable" count:
 
 ```
 usable  = pass + task_fail + cheat
-pass@k  = 1 - (1 - successes / usable) ^ usable      # None if usable == 0
+score   = successes / usable                # raw rate; None if usable == 0
 ```
 
-The aggregate score is the average task pass@k, skipping tasks with no usable
-attempts. With `--baseline`, Caliper runs the same tasks without the skill and
-reports the delta. A throttled or judge-flaked run therefore no longer
-masquerades as a regression.
+Two secondary views are kept for anyone who wants them (shown under `--verbose`,
+and on every task in the JSON as `pass_at_k` / `pass_hat_k`):
+
+```
+pass@k  = 1 - (1 - score) ^ usable   # P(≥1 of k passes) — retry-optimistic
+pass^k  = score ^ usable             # P(all k pass)     — strict consistency
+```
+
+`pass@k` is the code-generation metric (generate k, keep the best); it flatters
+flaky skills (`1/3 → 70.4%`), so Caliper leads with the raw rate and treats
+`pass@k`/`pass^k` as alternate lenses. The aggregate is the average task success
+rate, skipping tasks with no usable attempts. With `--baseline`, Caliper runs the
+same tasks without the skill and reports the delta. A throttled or judge-flaked
+run no longer masquerades as a regression.
 
 For persistent infrastructure failures, `--fail-fast N` can stop scheduling new
 attempts for a task after N consecutive `infra_error` or `timeout` outcomes.
 The default `0` keeps the historical behavior and runs all k attempts. An
 early-stopped task is shown as `ABORTED` in the report; if every completed
-attempt was unusable, its `pass_at_k` remains `null` and it is skipped in the
+attempt was unusable, its `score` remains `null` and it is skipped in the
 aggregate score.
 
 ---
@@ -551,7 +567,7 @@ aggregate score.
 ## Token & wall-clock usage
 
 Pass@k tells you *whether* a skill works; usage tells you what it **costs** to
-get there. Two runs can have identical pass@k while one burns twice the tokens.
+get there. Two runs can have identical scores while one burns twice the tokens.
 Caliper records **token volume** and **wall-clock time** per attempt and rolls
 them up per run:
 
