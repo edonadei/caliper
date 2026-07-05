@@ -169,6 +169,11 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
         from caliper.compare import diff_baseline
 
         print_comparison(diff_baseline(results))
+        # The compare table shows *which* attempts failed (the strips); the panels
+        # below show *why* (output, assert evidence, autorater reasoning) for the
+        # with-skill run — the strips alone don't, and there's no separate run to
+        # `caliper report` for a --baseline diff.
+        _print_task_details(results.task_results, results.run.k, verbose)
         return
 
     spec = results.run.spec
@@ -219,15 +224,16 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     console.print()
 
     _print_aggregate(results)
+    _print_task_details(results.task_results, k, verbose)
 
+
+def _print_task_details(task_results: list[TaskResult], k: int, verbose: bool) -> None:
+    """Per-task failure panels: all tasks under ``--verbose``, else only the ones
+    that did not fully pass. Shared by the single-run and --baseline reports."""
     tasks_to_detail = (
-        results.task_results
+        task_results
         if verbose
-        else [
-            tr
-            for tr in results.task_results
-            if tr.pass_at_k is None or tr.pass_at_k < 1.0
-        ]
+        else [tr for tr in task_results if tr.pass_at_k is None or tr.pass_at_k < 1.0]
     )
     if tasks_to_detail:
         console.print()

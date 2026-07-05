@@ -385,6 +385,34 @@ def test_non_baseline_run_renders_single_report(capsys) -> None:
     assert "Score" in out
 
 
+def test_baseline_run_shows_with_skill_failure_details(capsys) -> None:
+    # The compare strips show WHICH attempts failed; the panels below must still
+    # show WHY (output + assert evidence) for the with-skill run.
+    fail = AttemptRecord(
+        attempt=2,
+        output="no staged changes",
+        duration_seconds=3.0,
+        outcome=Outcome.TASK_FAIL,
+        usage=TokenUsage(input_tokens=100),
+        assert_evidence="AssertionError: expected 2 commits, got 1",
+    )
+    with_task = TaskResult(
+        task_id="task-001",
+        task_name="alpha",
+        attempts=[_att(Outcome.PASS, 3.0, None), fail, _att(Outcome.PASS, 3.0, None)],
+        successes=2,
+        unusable=0,
+        pass_at_k=0.963,
+    )
+    results = _run([with_task], k=3)
+    results.baseline_task_results = _run(
+        [_task_with_tokens("alpha", 50, 3.0)]
+    ).task_results
+    print_results(results)
+    out = capsys.readouterr().out
+    assert "expected 2 commits, got 1" in out
+
+
 def test_print_results_per_task_tokens_dash_when_unreported(capsys) -> None:
     task = TaskResult(
         task_id="task-001",
