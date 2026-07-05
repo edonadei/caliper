@@ -277,9 +277,8 @@ def _print_aggregate(results: RunResults) -> None:
 
     _print_unusable_summary(results)
     with_totals = UsageTotals.from_task_results(results.task_results)
-    _print_usage_summary(with_totals)
-    if results.baseline_usage is not None:
-        _print_baseline_usage_delta(with_totals, results.baseline_usage)
+    console.print()
+    _print_usage_summary(with_totals, results.baseline_usage)
     console.print()
 
 
@@ -302,77 +301,81 @@ def _print_unusable_summary(results: RunResults) -> None:
     )
 
 
-def _print_usage_summary(totals: UsageTotals) -> None:
-    """One compact cost/latency line: tokens + wall time, with the unusable slice
-    broken out. Cost/latency is a first-class axis (CONTEXT.md → Run usage totals);
-    dollar cost is deliberately out of scope (docs/adr/0006)."""
+def _usage_delta_cell(skill_val: float, base_val: float) -> str:
+    """A tidy `+305% vs no skill` cell. Green when the skill is *cheaper* (uses
+    less), red when costlier — same convention as ``compare``, never a pass/fail
+    signal. Percent only; the absolute totals are already in the value column."""
+    delta = skill_val - base_val
+    if delta == 0:
+        return f"[dim]{_RULE} vs no skill[/dim]"
+    color = "green" if delta < 0 else "red"
+    sign = "+" if delta > 0 else "-"
+    pct = (
+        f"{abs(delta / base_val * 100):.0f}%"
+        if base_val > 0
+        else _fmt_tokens(int(abs(delta)))
+    )
+    return f"[{color}]{sign}{pct}[/{color}] [dim]vs no skill[/dim]"
+
+
+def _print_usage_summary(totals: UsageTotals, baseline: UsageTotals | None) -> None:
+    """The cost block: tokens + wall time as an aligned grid under the pass@k
+    bars, with an optional `vs no skill` delta column. Cost/latency is a
+    first-class axis (CONTEXT.md → Run usage totals); dollar cost is deliberately
+    out of scope."""
     if totals.attempts == 0:
         return
+
+    show_delta = baseline is not None and baseline.attempts > 0
+    grid = Table.grid(padding=(0, 3))
+    grid.add_column(style="bold")  # metric
+    grid.add_column()  # value
+    if show_delta:
+        grid.add_column()  # vs no skill
+
     if totals.tokens_reported:
-        tokens_part = (
-            f"[bold]Tokens[/bold]   {_fmt_tokens(totals.prompt_tokens)} in / "
+        tokens_val = (
+            f"{_fmt_tokens(totals.prompt_tokens)} in / "
             f"{_fmt_tokens(totals.output_tokens)} out"
         )
     else:
-        tokens_part = f"[bold]Tokens[/bold]   [dim]{_RULE}[/dim]"
+        tokens_val = f"[dim]{_RULE}[/dim]"
 
-    wall_part = f"[bold]Wall[/bold] {_fmt_duration(totals.wall_seconds)}"
+    wall_val = _fmt_duration(totals.wall_seconds)
     if totals.usable_attempts > 0:
         avg = totals.usable_wall_seconds / totals.usable_attempts
-        wall_part += f" [dim](avg {avg:.1f}s/usable)[/dim]"
+        wall_val += f"  [dim]{avg:.1f}s per attempt[/dim]"
 
-    console.print(f" {tokens_part}   {_SEP}   {wall_part}")
+    if show_delta:
+        tokens_delta = (
+            _usage_delta_cell(totals.total_tokens, baseline.total_tokens)
+            if totals.tokens_reported and baseline.tokens_reported
+            else ""
+        )
+        grid.add_row(" Tokens", tokens_val, tokens_delta)
+        grid.add_row(
+            " Wall",
+            wall_val,
+            _usage_delta_cell(totals.wall_seconds, baseline.wall_seconds),
+        )
+    else:
+        grid.add_row(" Tokens", tokens_val)
+        grid.add_row(" Wall", wall_val)
+
+    console.print(grid)
 
     if totals.unusable_attempts > 0:
         pieces = []
         if totals.tokens_reported:
             pieces.append(f"{_fmt_tokens(totals.unusable_tokens)} tokens")
         pieces.append(_fmt_duration(totals.unusable_wall_seconds))
-        detail = f" {_SEP} ".join(pieces)
+        detail = ", ".join(pieces)
         plural = "s" if totals.unusable_attempts > 1 else ""
         console.print(
             f" [yellow]{_UNUSABLE} unusable spend:[/yellow] [dim]{detail}  "
-            f"({totals.unusable_attempts} attempt{plural}, excluded from avg)[/dim]"
+            f"({totals.unusable_attempts} attempt{plural}, not counted in the "
+            f"average)[/dim]"
         )
-
-
-def _usage_delta_fragment(label: str, skill_val: float, base_val: float, fmt) -> str:
-    """A `label ±abs (±pct)` fragment for the skill-vs-no-skill usage delta.
-
-    Green when the skill is *cheaper* (uses less), red when costlier — the same
-    convention as ``compare``. Never a pass/fail signal; purely informational."""
-    delta = skill_val - base_val
-    if delta == 0:
-        return f"[bold]{label}[/bold] [dim]{_RULE}[/dim]"
-    color = "green" if delta < 0 else "red"
-    sign = "+" if delta > 0 else "-"
-    body = f"{sign}{fmt(abs(delta))}"
-    if base_val > 0:
-        body += f" ({sign}{abs(delta / base_val * 100):.0f}%)"
-    return f"[bold]{label}[/bold] [{color}]{body}[/{color}]"
-
-
-def _print_baseline_usage_delta(skill: UsageTotals, base: UsageTotals) -> None:
-    """`vs no skill` token/wall delta line under the pass@k Delta, for a
-    ``--baseline`` run: did the skill make the agent cheaper or more expensive?"""
-    if base.attempts == 0:
-        return
-    parts = []
-    if skill.tokens_reported and base.tokens_reported:
-        parts.append(
-            _usage_delta_fragment(
-                "Tokens",
-                skill.total_tokens,
-                base.total_tokens,
-                lambda n: _fmt_tokens(int(n)),
-            )
-        )
-    parts.append(
-        _usage_delta_fragment(
-            "Wall", skill.wall_seconds, base.wall_seconds, _fmt_duration
-        )
-    )
-    console.print(" [dim]vs no skill[/dim]   " + f"   {_SEP}   ".join(parts))
 
 
 _OUTPUT_TRUNCATE_AT = 500

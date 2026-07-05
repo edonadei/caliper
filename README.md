@@ -28,8 +28,9 @@ Commits a bug fix      3/3     100%     236K     39s    PASS
 With skill    100%    ####################
 No skill       85%    #################---
 Delta         +15%    up
-Tokens   466K in / 5K out   ·   Wall 1m 17s (avg 12.9s/usable)
-vs no skill   Tokens +355K (+305%)   ·   Wall +50s (+189%)
+
+Tokens   466K in / 5K out             +305% vs no skill
+Wall     1m 17s  12.9s per attempt    +189% vs no skill
 ```
 
 That last line is the point of `--baseline` for cost: the `/commit` skill is
@@ -551,8 +552,10 @@ them up per run:
 
 ```
  With skill    100.0%  ████████████████████
- Tokens   1.2M in / 340K out   ·   Wall 6m 18s (avg 12.6s/usable)
- ⊘ unusable spend: 180K tokens · 42s  (2 attempts, excluded from avg)
+
+ Tokens   1.2M in / 340K out
+ Wall     6m 18s  12.6s per attempt
+ ⊘ unusable spend: 180K tokens, 42s  (2 attempts, not counted in the average)
 ```
 
 - The results table carries per-task `Tokens` (total) and `Wall` columns, so you
