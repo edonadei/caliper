@@ -6,8 +6,8 @@ import typer
 from rich.console import Console
 
 from caliper.commands._addressing import resolve_run_path
-from caliper.reporter import print_results, results_to_json
-from caliper.schema.results import RunResults
+from caliper.reporter import print_results
+from caliper.schema.results import RunResults, UsageTotals
 
 console = Console()
 
@@ -38,6 +38,13 @@ def report_cmd(
         raise typer.Exit(1)
 
     if fmt == "json":
-        console.print_json(results_to_json(results))
+        # Derive the run usage totals on the fly (never persisted on RunResults —
+        # see CONTEXT.md → Run usage totals); the saved file keeps only the raw
+        # per-attempt usage.
+        data = results.model_dump(mode="json")
+        data["usage_totals"] = UsageTotals.from_task_results(
+            results.task_results
+        ).model_dump(mode="json")
+        console.print_json(data=data)
     else:
         print_results(results, verbose=verbose)

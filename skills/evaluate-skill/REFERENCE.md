@@ -108,12 +108,13 @@ trajectory by running `hermes -z` then `hermes sessions export`.
 
 ## Key concepts
 
-- **pass@k** — probability that at least 1 of k attempts passes (default k=3), computed over the *usable* attempts only
-- **outcome** — each attempt is typed `pass`, `task_fail`, `cheat`, `infra_error`, `timeout`, or `judge_error`; the last three are *unusable* (infrastructure/judge noise) and are excluded from the pass@k denominator and reported as a separate "N unusable" count, so a throttled or judge-flaked run is not mistaken for a regression. `passed` in the JSON equals `outcome == pass`.
-- **`--fail-fast N`** — optional run control that stops scheduling new attempts for a task after N consecutive `infra_error`/`timeout` outcomes; `0` disables it. Early-stopped tasks report as `ABORTED`, and tasks with no usable attempts keep `pass_at_k: null`.
+- **success rate** — the primary score: `successes / usable` (how often a *single* run works), computed over the usable attempts only. Two secondary views (on every task in the JSON as `pass_at_k`/`pass_hat_k`, and under `--verbose`) reframe it for how the skill is used: **pass@k** = `1−(1−p)^k` = P(≥1 of k pass) — the retry / "eventual success" lens, **≥** the rate, for when a failure is cheap to retry and you keep the good run; **pass^k** = `p^k` = P(all k pass) — the strict / "must never fail" lens, **≤** the rate, for when the skill runs unattended or as one link in a chain. When in doubt use the raw rate — pass@k is the code-gen metric and flatters flaky skills (`1/3 → 70.4%`)
+- **outcome** — each attempt is typed `pass`, `task_fail`, `cheat`, `infra_error`, `timeout`, or `judge_error`; the last three are *unusable* (infrastructure/judge noise) and are excluded from the score denominator and reported as a separate "N unusable" count, so a throttled or judge-flaked run is not mistaken for a regression. `passed` in the JSON equals `outcome == pass`.
+- **`--fail-fast N`** — optional run control that stops scheduling new attempts for a task after N consecutive `infra_error`/`timeout` outcomes; `0` disables it. Early-stopped tasks report as `ABORTED`, and tasks with no usable attempts keep `score: null`.
 - **baseline** — runs each task without the skill to compute a delta score
 - **judge** — the spec drives evaluation: `expect:` triggers an LLM verdict (which may generate a Python assertion script); `assert:` runs a deterministic Python script; both can be combined and both must pass
 - **cheat detection** — transcript is scanned for reads of forbidden files (spec, results)
+- **token & wall-clock usage** — each attempt records an optional `usage` (`input_tokens` non-cached, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, computed `total_tokens`; the four token fields are disjoint) plus its `duration_seconds`. `report` shows per-task `Tokens`/`Wall` columns in the results table plus a per-run `Tokens … in / … out · Wall …` line (unusable spend broken out separately); a `--baseline` run retains the full no-skill run (`RunResults.baseline_task_results`) and renders through the same `compare` view (side-by-side table + token/wall deltas); `compare` deltas (green = cheaper) are **never** a regression — only the score is. All usage fields are optional (`null` → renders `—`); `claude-code`, `codex`, `pi`, `hermes` all report tokens. **Dollar cost is deliberately not tracked** (inconsistent across backends; tokens are the volume signal).
 - **isolation** — each attempt runs in a fresh temp HOME with no session history
 - **engine as a runtime axis** — backend + model are not spec fields; they are chosen per run and recorded in `RunMeta` (skill `backend`/`model` **and** `judge_backend`/`judge_model`), so the same spec can target any agent and never ages when a model goes stale. A default-model run records the concrete model the agent resolved wherever the backend reports it (skill model from hermes' export, `judge_model` from the claude-code judge's JSON), not a bare "default"; `judge_model` is empty for an assert-only run where no LLM judge fired
 - **`--model TARGET`** — select the skill engine at run time (default `claude-code`); accepts `backend:model`, bare backend (`codex`), or bare model name
@@ -124,9 +125,12 @@ trajectory by running `hermes -z` then `hermes sessions export`.
 Results are saved automatically to `.caliper/results/<spec-name>/<timestamp>.json`
 alongside the spec file. Each result includes a full skill snapshot (content + git SHA
 of the skill file and any referenced scripts) for reproducibility. Each attempt
-records its `outcome` (see above) and per-task results include an `unusable` count;
-a task with no usable attempts has `pass_at_k: null`. When `--fail-fast N` stops
-a task early, that task may contain fewer than k attempt records.
+records its `outcome` (see above), an optional `usage` block (token counts), and
+per-task results include an `unusable` count; a task with no usable attempts has
+`score: null`. When `--fail-fast N` stops a task early, that task may contain
+fewer than k attempt records. Run-level usage totals are **derived** at render
+time, not persisted — the saved JSON holds only per-attempt `usage`, while
+`report --format json` adds a computed `usage_totals` block.
 
 ## Designing good evals — full guidance
 

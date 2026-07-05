@@ -14,6 +14,7 @@ from caliper.harness.base import (
     ProcessResult,
     RunContext,
 )
+from caliper.schema.results import TokenUsage
 
 # Config files copied verbatim into the isolated HERMES_HOME so the agent can
 # authenticate. Deliberately excludes SOUL.md (persona) and MEMORY.md/USER.md:
@@ -208,6 +209,27 @@ class HermesHarness(CliHarness):
                     break
 
         return transcript, final_output
+
+    def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
+        """Read the session export record's flat top-level token totals.
+
+        Hermes aggregates usage per session, so the record carries session totals
+        directly (no per-message summing). Its ``input_tokens`` is non-cached, so
+        ``cache_read_tokens``/``cache_write_tokens`` map onto the disjoint cache
+        fields.
+        """
+        record = self._load_export(proc.stdout)
+        if record is None:
+            return None
+        fields = {
+            "input_tokens": record.get("input_tokens"),
+            "output_tokens": record.get("output_tokens"),
+            "cache_read_tokens": record.get("cache_read_tokens"),
+            "cache_creation_tokens": record.get("cache_write_tokens"),
+        }
+        if all(v is None for v in fields.values()):
+            return None
+        return TokenUsage(**fields)
 
     def _load_export(self, stdout: str) -> dict | None:
         """Return the export record, tolerating extra non-JSON lines."""

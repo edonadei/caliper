@@ -118,7 +118,7 @@ def _make_results(task_results: list[TaskResult]) -> RunResults:
         skill_snapshot=SkillSnapshot(path="/fake/SKILL.md"),
         task_results=task_results,
         aggregate=AggregateScore(
-            avg_pass_at_k=sum(tr.pass_at_k for tr in task_results) / len(task_results),
+            avg_score=sum(tr.pass_at_k for tr in task_results) / len(task_results),
             per_task=scores,
         ),
     )
@@ -292,7 +292,7 @@ def test_aborted_unusable_task_is_reported_as_aborted() -> None:
         skill_snapshot=SkillSnapshot(path="/fake/SKILL.md"),
         task_results=[task],
         aggregate=AggregateScore(
-            avg_pass_at_k=0.0,
+            avg_score=0.0,
             per_task=[
                 TaskScore(
                     task_id=task.task_id,
@@ -351,7 +351,7 @@ def test_early_stopped_task_with_usable_pass_is_not_reported_as_aborted() -> Non
         skill_snapshot=SkillSnapshot(path="/fake/SKILL.md"),
         task_results=[task],
         aggregate=AggregateScore(
-            avg_pass_at_k=1.0,
+            avg_score=1.0,
             per_task=[
                 TaskScore(
                     task_id=task.task_id,

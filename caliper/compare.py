@@ -1,21 +1,25 @@
-"""Pure comparison of two saved runs — the ablation reporting primitive.
+"""Pure comparison of two runs — the ablation reporting primitive.
 
 ``diff_runs(a, b)`` is the whole of ``caliper compare``'s logic; the CLI command
-and ``--format json`` are thin shells over it. See CONTEXT.md (Run comparison,
-Task identity, Regression) for the domain terms.
+and ``--format json`` are thin shells over it. ``diff_baseline`` reuses the exact
+same machinery for a ``--baseline`` run (no skill vs with skill), so there is one
+comparison path, not two. See CONTEXT.md (Run comparison, Task identity,
+Regression) for the domain terms.
 """
 
 from __future__ import annotations
 
 from caliper.schema.results import (
     RunComparison,
+    RunMeta,
     RunResults,
     TaskComparison,
     TaskResult,
+    UsageTotals,
 )
 
 
-def _group_by_name(results: RunResults) -> dict[str, list[TaskResult]]:
+def _group_by_name(tasks: list[TaskResult]) -> dict[str, list[TaskResult]]:
     """Tasks keyed by their stable identity, ``task_name``, preserving order.
 
     ``task_id`` is only positional (see CONTEXT.md → Task identity), so it is not
@@ -23,14 +27,14 @@ def _group_by_name(results: RunResults) -> dict[str, list[TaskResult]]:
     the order they appear here.
     """
     grouped: dict[str, list[TaskResult]] = {}
-    for tr in results.task_results:
+    for tr in tasks:
         grouped.setdefault(tr.task_name, []).append(tr)
     return grouped
 
 
 def _compare_task(name: str, a: TaskResult, b: TaskResult) -> TaskComparison:
-    a_score = a.pass_at_k
-    b_score = b.pass_at_k
+    a_score = a.score
+    b_score = b.score
     both_measured = a_score is not None and b_score is not None
     return TaskComparison(
         task_name=name,
@@ -44,33 +48,76 @@ def _compare_task(name: str, a: TaskResult, b: TaskResult) -> TaskComparison:
     )
 
 
-def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
+def diff_runs(
+    a: RunResults,
+    b: RunResults,
+    *,
+    a_label: str | None = None,
+    b_label: str | None = None,
+) -> RunComparison:
     """Diff two already-saved runs of (nominally) the same eval, A vs B.
 
     Matches tasks by ``task_name``; tasks present on only one side are surfaced
     as unmatched. The headline aggregate is computed over the *fully-comparable*
     set — tasks measured on both sides — so the delta is strictly like-for-like.
     """
-    a_by_name = _group_by_name(a)
-    b_by_name = _group_by_name(b)
+    return _diff(
+        a.run,
+        a.task_results,
+        b.run,
+        b.task_results,
+        a_label=a_label,
+        b_label=b_label,
+    )
+
+
+def diff_baseline(results: RunResults) -> RunComparison:
+    """The no-skill-vs-with-skill diff of a ``--baseline`` run.
+
+    Both sides share the run's single ``RunMeta`` (same spec, k, engine), so it
+    routes through the same ``_diff`` as ``compare`` and just labels the sides.
+    Assumes ``results.baseline_task_results`` is present (the caller checks).
+    """
+    assert results.baseline_task_results is not None
+    return _diff(
+        results.run,
+        results.baseline_task_results,
+        results.run,
+        results.task_results,
+        a_label="no skill",
+        b_label="with skill",
+    )
+
+
+def _diff(
+    a_run: RunMeta,
+    a_tasks: list[TaskResult],
+    b_run: RunMeta,
+    b_tasks: list[TaskResult],
+    *,
+    a_label: str | None,
+    b_label: str | None,
+) -> RunComparison:
+    a_by_name = _group_by_name(a_tasks)
+    b_by_name = _group_by_name(b_tasks)
 
     matched: list[TaskComparison] = []
     unmatched_a: list[str] = []
 
     # Walk A's order; pair each name positionally against B's tasks of that name.
-    for name, a_tasks in a_by_name.items():
-        b_tasks = b_by_name.get(name, [])
-        pairs = min(len(a_tasks), len(b_tasks))
+    for name, a_group in a_by_name.items():
+        b_group = b_by_name.get(name, [])
+        pairs = min(len(a_group), len(b_group))
         for i in range(pairs):
-            matched.append(_compare_task(name, a_tasks[i], b_tasks[i]))
+            matched.append(_compare_task(name, a_group[i], b_group[i]))
         # A-side tasks with no B counterpart (name absent or fewer in B).
-        unmatched_a.extend(name for _ in a_tasks[pairs:])
+        unmatched_a.extend(name for _ in a_group[pairs:])
 
     # B-side leftovers: names absent from A, plus surplus duplicates of a shared name.
     unmatched_b: list[str] = []
-    for name, b_tasks in b_by_name.items():
-        matched_count = min(len(a_by_name.get(name, [])), len(b_tasks))
-        unmatched_b.extend(name for _ in b_tasks[matched_count:])
+    for name, b_group in b_by_name.items():
+        matched_count = min(len(a_by_name.get(name, [])), len(b_group))
+        unmatched_b.extend(name for _ in b_group[matched_count:])
 
     # Headline aggregate over tasks measured on both sides only.
     comparable = [
@@ -83,22 +130,24 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         sum(tc.b_score for tc in comparable) / len(comparable) if comparable else 0.0
     )
 
-    spec_mismatch = a.run.spec != b.run.spec
-    k_mismatch = a.run.k != b.run.k
+    spec_mismatch = a_run.spec != b_run.spec
+    k_mismatch = a_run.k != b_run.k
     warnings: list[str] = []
     if spec_mismatch:
         warnings.append(
-            f"comparing different specs: {a.run.spec} vs {b.run.spec} "
+            f"comparing different specs: {a_run.spec} vs {b_run.spec} "
             f"— verify this is intentional"
         )
     if k_mismatch:
         warnings.append(
-            f"A ran k={a.run.k}, B ran k={b.run.k} — pass@k not directly comparable"
+            f"A ran k={a_run.k}, B ran k={b_run.k} — pass@k not directly comparable"
         )
 
     return RunComparison(
-        a=a.run,
-        b=b.run,
+        a=a_run,
+        b=b_run,
+        a_label=a_label,
+        b_label=b_label,
         matched=matched,
         unmatched_a=unmatched_a,
         unmatched_b=unmatched_b,
@@ -109,4 +158,8 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         k_mismatch=k_mismatch,
         spec_mismatch=spec_mismatch,
         warnings=warnings,
+        # Token/wall totals over each whole run. Shown alongside pass@k but never
+        # folded into has_regression — a token drop is a win, not a regression.
+        a_usage=UsageTotals.from_task_results(a_tasks),
+        b_usage=UsageTotals.from_task_results(b_tasks),
     )

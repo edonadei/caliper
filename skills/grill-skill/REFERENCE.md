@@ -32,7 +32,12 @@ caliper compare a.json b.json --format json     # per-task Δ, regression flags,
 `caliper compare <A> <B>` diffs two already-saved runs task by task: tasks are
 matched by name, `Δ = b − a`, a negative Δ flags a regression (any-below), and a
 side with no usable attempts shows `—` (unmeasured, never a regression) so
-infra/judge noise can't fake a loss.
+infra/judge noise can't fake a loss. Under the success-rate headline, `compare` also
+shows **token and wall-clock deltas** (green = cheaper) — the "same quality, 40%
+fewer tokens" signal an ablation looks for. These are secondary: a token/time
+change is **never** a regression (only the score is), and dollar cost is not tracked
+(tokens are the volume signal). Each attempt in the report also shows its tokens
+next to its duration under `--verbose`.
 
 ## Inspecting failures
 
@@ -40,7 +45,7 @@ After any `caliper run`, failed tasks are shown automatically with their output
 and `assert_evidence` — no extra command needed. Each attempt is tagged with an
 `outcome`: a real `task_fail` reads as `✗`, while *unusable* attempts
 (`infra_error` from a rate-limit / spending-cap, `timeout`, or `judge_error`)
-read as `⊘` and are excluded from the pass@k denominator, with a separate
+read as `⊘` and are excluded from the score denominator, with a separate
 "N unusable" count in the summary — so a throttled or judge-flaked run is not
 mistaken for a skill regression. If `caliper run --fail-fast N` stopped a task
 after repeated `infra_error` / `timeout` outcomes, the report marks it as

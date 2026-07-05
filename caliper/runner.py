@@ -15,9 +15,7 @@ from caliper.harness.base import ConversationTurn, HarnessBackend
 from caliper.judge.base import Judge
 from caliper.outcome import classify_outcome, classify_pre_judge
 from caliper.schema.results import (
-    AggregateScore,
     AttemptRecord,
-    DeltaReport,
     FileSnapshot,
     Outcome,
     RunMeta,
@@ -26,7 +24,7 @@ from caliper.schema.results import (
     TaskResult,
 )
 from caliper.schema.spec import DEFAULT_BACKEND, EvalSpec, TaskSpec, spec_name
-from caliper.scoring import aggregate_scores, compute_delta, pass_at_k
+from caliper.scoring import aggregate_scores, pass_at_k
 
 _FAIL_FAST_OUTCOMES = {Outcome.INFRA_ERROR, Outcome.TIMEOUT}
 
@@ -135,15 +133,11 @@ def run(
     }
     agg_with = aggregate_scores(pass_counts_with)
 
-    agg_without: AggregateScore | None = None
-    delta: DeltaReport | None = None
-    if baseline and task_results_without:
-        pass_counts_without = {
-            r.task_id: (r.task_name, r.successes, len(r.attempts) - r.unusable, k)
-            for r in task_results_without
-        }
-        agg_without = aggregate_scores(pass_counts_without)
-        delta = compute_delta(agg_with, agg_without)
+    # Keep the whole no-skill run so the report can render it through the same
+    # ``compare`` path as any other two-run diff (see reporter.diff_baseline).
+    baseline_task_results = (
+        task_results_without if baseline and task_results_without else None
+    )
 
     return RunResults(
         run=RunMeta(
@@ -164,8 +158,7 @@ def run(
         skill_snapshot=skill_snapshot,
         task_results=task_results_with,
         aggregate=agg_with,
-        baseline=agg_without,
-        delta=delta,
+        baseline_task_results=baseline_task_results,
     )
 
 
@@ -284,6 +277,7 @@ def _run_attempt(
                     output=attempt_result.final_output,
                     duration_seconds=attempt_result.duration_seconds,
                     outcome=pre_judge_outcome,
+                    usage=attempt_result.usage,
                     assert_evidence=evidence,
                 ),
                 task,
@@ -299,6 +293,7 @@ def _run_attempt(
                     output=attempt_result.final_output,
                     duration_seconds=attempt_result.duration_seconds,
                     outcome=outcome,
+                    usage=attempt_result.usage,
                     cheat_evidence=cheat_violations,
                 ),
                 task,
@@ -321,6 +316,7 @@ def _run_attempt(
                 output=attempt_result.final_output,
                 duration_seconds=attempt_result.duration_seconds,
                 outcome=outcome,
+                usage=attempt_result.usage,
                 assert_passed=judge_result.assert_passed,
                 assert_evidence=judge_result.assert_evidence,
                 autorater_passed=judge_result.autorater_passed,

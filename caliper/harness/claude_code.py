@@ -15,6 +15,7 @@ from caliper.harness.base import (
     ProcessResult,
     RunContext,
 )
+from caliper.schema.results import TokenUsage
 
 
 def preferred_nvm_node_bin() -> str | None:
@@ -287,6 +288,30 @@ class ClaudeCodeHarness(CliHarness):
                     env[key] = os.environ[key]
 
         return env
+
+    def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
+        """Read the ``result`` event's ``usage``. Claude's ``input_tokens`` is
+        already non-cached, so the mapping is direct."""
+        for line in proc.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") != "result":
+                continue
+            usage = event.get("usage")
+            if not isinstance(usage, dict):
+                return None
+            return TokenUsage(
+                input_tokens=usage.get("input_tokens"),
+                output_tokens=usage.get("output_tokens"),
+                cache_read_tokens=usage.get("cache_read_input_tokens"),
+                cache_creation_tokens=usage.get("cache_creation_input_tokens"),
+            )
+        return None
 
     def _parse_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:
         transcript: list[ConversationTurn] = []
