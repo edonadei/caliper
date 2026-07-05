@@ -544,16 +544,31 @@ Two secondary views are kept for anyone who wants them (shown under `--verbose`,
 and on every task in the JSON as `pass_at_k` / `pass_hat_k`):
 
 ```
-pass@k  = 1 - (1 - score) ^ usable   # P(≥1 of k passes) — retry-optimistic
-pass^k  = score ^ usable             # P(all k pass)     — strict consistency
+pass@k  = 1 - (1 - score) ^ usable   # P(≥1 of k passes)
+pass^k  = score ^ usable             # P(all k pass)
 ```
 
-`pass@k` is the code-generation metric (generate k, keep the best); it flatters
-flaky skills (`1/3 → 70.4%`), so Caliper leads with the raw rate and treats
-`pass@k`/`pass^k` as alternate lenses. The aggregate is the average task success
-rate, skipping tasks with no usable attempts. With `--baseline`, Caliper runs the
-same tasks without the skill and reports the delta. A throttled or judge-flaked
-run no longer masquerades as a regression.
+**Which one to look at** depends on how the skill is actually used:
+
+| The question you're asking | Metric | For a `1/3` skill (k=3) |
+| --- | --- | --- |
+| How reliable is a **single** run? *(default)* | **success rate** | `33%` |
+| If I **retry** up to k times and keep any win, do I get one? | `pass@k` | `70%` |
+| Will it work on **every** run, no exceptions? | `pass^k` | `4%` |
+
+Reach for **`pass@k`** when a failure is cheap to retry and you can keep the good
+run (a human re-runs it, or you regenerate until it works) — it's the
+retry-optimistic, "eventual success" view, always **≥** the raw rate. Reach for
+**`pass^k`** when the skill runs unattended or as one link in a chain, where a
+single failure breaks the whole thing — it's the strict "must never fail" view,
+always **≤** the raw rate. When in doubt, the **success rate** is the honest
+middle: `pass@k` is the code-generation metric (generate k, keep the best) and
+flatters flaky skills (`1/3 → 70.4%`), which is why Caliper leads with the rate.
+
+The aggregate is the average task success rate, skipping tasks with no usable
+attempts. With `--baseline`, Caliper runs the same tasks without the skill and
+reports the delta. A throttled or judge-flaked run no longer masquerades as a
+regression.
 
 For persistent infrastructure failures, `--fail-fast N` can stop scheduling new
 attempts for a task after N consecutive `infra_error` or `timeout` outcomes.
