@@ -36,9 +36,8 @@ Wall     42s   7.0s per attempt      -31% vs no skill
 That cost block is the point of `--baseline`: this skill is **+28% more reliable**
 than the bare agent **and** gets there on **38% fewer tokens and 31% less
 wall-clock time** — the guidance keeps the agent from flailing. Green means the
-skill is *cheaper*; a skill that regresses cost renders red. (For a real,
-runnable example — where the skill actually costs *more* — see
-[`examples/commit-commands`](examples/commit-commands).)
+skill is *cheaper*; a skill that regresses cost renders red. (Numbers here are
+illustrative.)
 
 ---
 
