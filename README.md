@@ -15,29 +15,30 @@ npx skills@latest add edonadei/caliper
 **Or run it yourself:**
 
 ```bash
-caliper run commit.eval.yaml --k 3 --baseline
+caliper run my-skill.eval.yaml --k 3 --baseline
 ```
 
-That command reads a spec: a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you. Here's a real run of the popular [`commit-commands`](examples/commit-commands) skill (~14k installs) on two commit tasks — Caliper runs each task with and without the skill, then shows you the difference:
+That command reads a spec: a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you. Caliper runs each task with and without the skill, then shows you the difference:
 
 ```text
-Task                   k (3)   pass@k   Tokens   Wall
-Commits a new feature  3/3     100%     236K     38s    PASS
-Commits a bug fix      3/3     100%     236K     39s    PASS
+Task                              k (3)   pass@k   Tokens   Wall
+Writes a conventional commit msg  3/3     100%      90K     22s    PASS
+Generates a valid config file     3/3     100%      90K     20s    PASS
 
 With skill    100%    ####################
-No skill       85%    #################---
-Delta         +15%    up
+No skill       72%    ##############------
+Delta         +28%    up
 
-Tokens   466K in / 5K out             +305% vs no skill
-Wall     1m 17s  12.9s per attempt    +189% vs no skill
+Tokens   176K in / 4K out            -38% vs no skill
+Wall     42s   7.0s per attempt      -31% vs no skill
 ```
 
-That last line is the point of `--baseline` for cost: the `/commit` skill is
-**+15% more reliable** than the bare agent here, but it costs **~4× the tokens
-and time** — it front-loads `git status`, `git diff`, and `git log` into context
-on every run. Worth seeing before you ship. Full example:
-[`examples/commit-commands`](examples/commit-commands).
+That cost block is the point of `--baseline`: this skill is **+28% more reliable**
+than the bare agent **and** gets there on **38% fewer tokens and 31% less
+wall-clock time** — the guidance keeps the agent from flailing. Green means the
+skill is *cheaper*; a skill that regresses cost renders red. (For a real,
+runnable example — where the skill actually costs *more* — see
+[`examples/commit-commands`](examples/commit-commands).)
 
 ---
 
