@@ -440,10 +440,10 @@ Accepted backends: `claude-code`, `codex`, `pi`, `hermes` (alias: `claude` → `
 
 ## Comparing two runs (`caliper compare`)
 
-An **ablation** compares two runs of the *same* eval — a full skill vs. a
-shortened variant, or the same skill over time. `caliper compare <A> <B>` diffs
-two already-saved runs task by task, so you don't hand-write a JSON script to
-answer "did this change regress?".
+An **ablation** compares two runs of the *same* eval: a full skill against a
+shortened variant, or the same skill at two points in time. `caliper compare
+<A> <B>` diffs two already-saved runs task by task, so you don't have to
+hand-write a JSON script to answer "did this change regress?".
 
 ```bash
 # Latest run of each spec (a bare spec name resolves to its latest run)
@@ -458,8 +458,8 @@ caliper compare A B --format json
 ```
 
 Each positional (`A`, `B`) is addressed exactly like `report`'s argument: a spec
-name (→ its latest run) or a path to a results JSON. There are no `--run-a/-b`
-flags — pin a historical run by naming its JSON path.
+name (which resolves to its latest run) or a path to a results JSON. There are
+no `--run-a/-b` flags. To pin a historical run, name its JSON path.
 
 ```
 ──────────────────── CALIPER  —  compare  —  commit-simple ─────────────────────
@@ -483,35 +483,21 @@ flags — pin a historical run by naming its JSON path.
 
 How the diff reads:
 
-- **Each row reads `before → after`.** The two runs are named once in the header
-  (here, the two timestamps; a `--baseline` run says `no skill → with skill`), so
-  there's no A/B legend to decode.
-- **Tasks are matched by name.** `task_id` is only positional, so name is the
-  stable identity — reordered tasks still line up. A task present in only one
+- **Each row reads `before → after`.** The runs are named once in the header
+  (with `--baseline`, `no skill → with skill`), so there's no A/B legend.
+- **Tasks are matched by name**, so reordering doesn't matter. A task in only one
   run is listed as **unmatched** and left out of the delta.
-- **`Δ` is `after − before`.** A negative Δ renders red and flags the task as a
-  **regression** (any-below rule: the after side below the before side).
-- **The score excludes unusable attempts.** The `attempts` column reuses the run
-  report's glyphs; `⊘` marks an unusable attempt (rate-limit / timeout / judge
-  error). A side with *no* usable attempts shows `—` (unmeasured) and is never
-  counted as a regression — infra noise can't fake a loss.
-- **The headline `Δ (matched)`** averages each side over only the tasks measured
-  on **both** sides, so it is strictly like-for-like.
-- **Token and wall-clock deltas** sit under the headline as *secondary* signals:
-  a drop renders green (cheaper), a rise red (costlier). They are **never** a
-  regression — a token drop at a flat score is the win an ablation is looking for,
-  and a rise is a trade-off to weigh, not a failure. Only the score feeds
-  `has_regression`. The token row is shown only when both runs reported tokens;
-  wall time is always shown. Dollar cost is deliberately not tracked (tokens are
-  the volume signal).
-- **Guards** for a `k` mismatch or different spec names print as warnings in the
-  header *and* in `--format json` (`k_mismatch`, `spec_mismatch`, `warnings`), so
-  an agent driving `compare` sees them too.
+- **`Δ` is `after − before`**, and the headline `Δ (matched)` averages only the
+  tasks measured on both sides, so it stays strictly like-for-like. A negative Δ
+  renders red and flags a **regression**.
+- **Unusable attempts can't fake a loss.** A side with no usable attempts
+  (rate-limit / timeout / judge error) shows `—` and never counts as a regression.
+- **Token and wall-clock deltas are secondary** and never a regression: a drop is
+  green (cheaper), a rise red (a trade-off to weigh). Only the score feeds
+  `has_regression`.
 
-The `--format json` output serializes the full comparison (per-task scores,
-deltas, `regression`/`has_regression` flags, unmatched task lists, the warnings,
-and per-side usage totals `a_usage`/`b_usage` with `token_delta`/`wall_delta`)
-for scripting.
+`--format json` serializes the full comparison (per-task scores, deltas,
+regression flags, unmatched lists, warnings, and per-side usage) for scripting.
 
 ---
 
@@ -525,14 +511,12 @@ not scored as task failure:
 | `pass` | satisfied the task's judge(s) | ✅ success |
 | `task_fail` | the skill genuinely failed the task | ✅ attempt |
 | `cheat` | a forbidden-file read was detected | ✅ attempt |
-| `infra_error` | harness failure — nonzero exit, or a detected rate-limit / spending-cap | ❌ unusable |
+| `infra_error` | harness failure: nonzero exit, or a detected rate-limit / spending-cap | ❌ unusable |
 | `timeout` | exceeded the time budget with no result | ❌ unusable |
 | `judge_error` | the judge produced no verdict (unparseable / errored autorater) | ❌ unusable |
 
-`passed` is retained in the JSON as a convenience, equal to `outcome == pass`.
-
-The primary metric is the **raw success rate** — how often a *single* run works,
-computed over the **usable** attempts (those that got a fair shot); unusable
+The primary metric is the **raw success rate**: how often a *single* run works,
+computed over the **usable** attempts (the ones that got a fair shot). Unusable
 attempts leave the denominator and are reported as a separate "N unusable" count:
 
 ```
@@ -556,26 +540,20 @@ pass^k  = score ^ usable             # P(all k pass)
 | If I **retry** up to k times and keep any win, do I get one? | `pass@k` | `70%` |
 | Will it work on **every** run, no exceptions? | `pass^k` | `4%` |
 
-Reach for **`pass@k`** when a failure is cheap to retry and you can keep the good
-run (a human re-runs it, or you regenerate until it works) — it's the
-retry-optimistic, "eventual success" view, always **≥** the raw rate. Reach for
-**`pass^k`** when the skill runs unattended or as one link in a chain, where a
-single failure breaks the whole thing — it's the strict "must never fail" view,
-always **≤** the raw rate. When in doubt, the **success rate** is the honest
-middle: `pass@k` is the code-generation metric (generate k, keep the best) and
-flatters flaky skills (`1/3 → 70.4%`), which is why Caliper leads with the rate.
+Use **`pass@k`** when retrying is cheap and you keep the winning run; it's the
+optimistic view, always **≥** the raw rate. Use **`pass^k`** when the skill runs
+unattended and one failure breaks the chain; it's the strict view, always **≤**
+the raw rate. Caliper leads with the raw rate because `pass@k` flatters flaky
+skills (`1/3 → 70.4%`).
 
 The aggregate is the average task success rate, skipping tasks with no usable
 attempts. With `--baseline`, Caliper runs the same tasks without the skill and
-reports the delta. A throttled or judge-flaked run no longer masquerades as a
-regression.
+reports the delta.
 
-For persistent infrastructure failures, `--fail-fast N` can stop scheduling new
-attempts for a task after N consecutive `infra_error` or `timeout` outcomes.
-The default `0` keeps the historical behavior and runs all k attempts. An
-early-stopped task is shown as `ABORTED` in the report; if every completed
-attempt was unusable, its `score` remains `null` and it is skipped in the
-aggregate score.
+`--fail-fast N` stops scheduling new attempts for a task after N consecutive
+`infra_error` or `timeout` outcomes (default `0` runs all k). An early-stopped
+task shows as `ABORTED`; if every completed attempt was unusable, its `score`
+stays `null` and it's skipped in the aggregate.
 
 ---
 
@@ -594,33 +572,32 @@ them up per run:
  ⊘ unusable spend: 180K tokens, 42s  (2 attempts, not counted in the average)
 ```
 
-- The results table carries per-task `Tokens` (total) and `Wall` columns, so you
-  can see which task is the expensive one at a glance; the run summary line below
-  it aggregates across the whole run.
-- Each `AttemptRecord` carries an optional `usage` object with `input_tokens`
-  (non-cached prompt), `output_tokens`, `cache_read_tokens`,
-  `cache_creation_tokens`, and a computed `total_tokens`. The four token fields
-  are **disjoint** — `input_tokens` excludes cache — so `total_tokens` never
-  double-counts. `duration_seconds` (already recorded) is the wall-clock half.
-- **`in` = input + cache_read + cache_creation; `out` = output.** Every attempt
-  counts toward the run total; the **unusable** slice (timeout / infra / judge
-  error) is broken out separately so wasted spend is visible without distorting
-  the per-usable-attempt average.
-- All usage fields are **optional** — a backend that can't report them leaves
-  them `null` and the line renders `—`. Support: `claude-code`, `codex`, `pi`,
-  and `hermes` all report token usage; `codex` uses OpenAI semantics (its
-  `input_tokens` includes cache) so it is normalized to the non-cached contract.
-- **Dollar cost is deliberately not tracked** — it is inconsistent across
-  backends and would need a maintained price table. Tokens are the volume signal;
-  a dollar figure can be derived downstream if needed.
-- **With `--baseline`**, the whole no-skill run is retained
-  (`RunResults.baseline_task_results`) and the report renders as a `compare` view
-  — the same table, attempt strips, and token/wall deltas — so the skill-vs-bare-
-  agent difference is shown side by side (see the quickstart at the top).
-- `report --format json` includes a derived `usage_totals` block; the saved
-  results JSON keeps the raw per-attempt `usage` (totals are derived, never
-  persisted), plus the full `baseline_task_results` when `--baseline` ran.
-  `compare` surfaces token/wall deltas across two runs — see above.
+- The results table carries per-task `Tokens` and `Wall` columns, so you can spot
+  the expensive task at a glance; the summary line below aggregates the whole run.
+- Each `AttemptRecord` carries an optional `usage` object that splits tokens four
+  ways:
+    - `input_tokens`: prompt, excluding cache
+    - `output_tokens`: generated output
+    - `cache_read_tokens`: cache hits
+    - `cache_creation_tokens`: cache writes
+
+  Those four are **disjoint**, so the computed `total_tokens` never
+  double-counts. Wall-clock time comes from `duration_seconds`, which was already
+  recorded.
+- In the summary, **`in` = input + cache_read + cache_creation** and **`out` =
+  output**. The **unusable** slice (timeout / infra / judge error) is broken out
+  separately, so wasted spend stays visible without distorting the per-attempt
+  average.
+- **Support:** `claude-code`, `codex`, `pi`, and `hermes` all report usage; a
+  backend that can't leaves the fields `null` and renders `—`. `codex` includes
+  cache in its `input_tokens`, so it's normalized to the non-cached contract above.
+- **Dollar cost is deliberately not tracked**: it's inconsistent across backends.
+  Tokens are the volume signal, so derive a dollar figure downstream if you need one.
+- **With `--baseline`**, the no-skill run is kept and the report renders as a
+  `compare` view (same table, attempt strips, and token/wall deltas), showing the
+  skill-vs-bare-agent difference side by side.
+- `report --format json` adds a derived `usage_totals` block; the saved JSON keeps
+  the raw per-attempt `usage` (totals are always derived, never persisted).
 
 ---
 
