@@ -35,12 +35,6 @@ You write a spec — a few lines of YAML describing what "working" means, which 
  Tokens  290K → 180K   Δ -38% (-110K)
  Wall    1m 1s → 42s   Δ -31% (-19s)
 ```
-
-Every task got more reliable, and `commit-commands` got there on **38% fewer
-tokens** and **31% less wall-clock time**. The `attempts` column shows every
-attempt (`✓`/`✗`) before → after, so the bare agent's failures are right there —
-not hidden in an average.
-
 ---
 
 Agent skills are hard to test. A skill that works on your machine, on this prompt, today, might fail tomorrow after a model update or a one-line prompt edit. Caliper makes reliability measurable: define what success looks like, run the skill repeatedly, and get a success rate you can track over time.
