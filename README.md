@@ -21,25 +21,25 @@ caliper run commit-commands.eval.yaml --k 3 --baseline
 You write a spec — a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you. With `--baseline`, Caliper runs each task with and without the skill and diffs the two runs task by task:
 
 ```text
-─────────────────── CALIPER  —  compare  —  commit-commands ───────────────────
-    A no skill   ·   B with skill   ·   k=3
+─────────────────── CALIPER  —  compare  —  commit-commands ────────────────────
+    no skill → with skill   ·   k=3
 
-╭───────────────────────┬──────────┬──────────┬────────┬─────────┬─────────╮
-│ Task                  │ A pass@k │ B pass@k │      Δ │ A strip │ B strip │
-├───────────────────────┼──────────┼──────────┼────────┼─────────┼─────────┤
-│ Commits a new feature │    70.4% │   100.0% │ +29.6% │ ✓✗✗     │ ✓✓✓     │
-│ Commits a bug fix     │    70.4% │   100.0% │ +29.6% │ ✗✓✗     │ ✓✓✓     │
-╰───────────────────────┴──────────┴──────────┴────────┴─────────┴─────────╯
+╭───────────────────────┬────────────────┬────────┬───────────╮
+│ Task                  │         pass@k │      Δ │ attempts  │
+├───────────────────────┼────────────────┼────────┼───────────┤
+│ Commits a new feature │ 70.4% → 100.0% │ +29.6% │ ✓✗✗ → ✓✓✓ │
+│ Commits a bug fix     │ 70.4% → 100.0% │ +29.6% │ ✗✓✗ → ✓✓✓ │
+╰───────────────────────┴────────────────┴────────┴───────────╯
 
- A 70.4%   B 100.0%   Δ (matched) +29.6% ↑
- Tokens  A 290K  B 180K   Δ -38% (-110K)
- Wall    A 1m 1s  B 42s   Δ -31% (-19s)
+ Overall  70.4% → 100.0%   Δ (matched) +29.6% ↑
+ Tokens  290K → 180K   Δ -38% (-110K)
+ Wall    1m 1s → 42s   Δ -31% (-19s)
 ```
 
 Every task got more reliable, and `commit-commands` got there on **38% fewer
-tokens** and **31% less wall-clock time**. Both `A strip` and `B strip` show every
-attempt (`✓`/`✗`), so the bare agent's failures are right there — not hidden in an
-average.
+tokens** and **31% less wall-clock time**. The `attempts` column shows every
+attempt (`✓`/`✗`) before → after, so the bare agent's failures are right there —
+not hidden in an average.
 
 ---
 
@@ -457,19 +457,19 @@ flags — pin a historical run by naming its JSON path.
 
 ```
 ──────────────────── CALIPER  —  compare  —  commit-simple ─────────────────────
-    A 2026-07-01T10-00-00Z (claude-code)   ·   B 2026-07-02T09-00-00Z (claude-code)   ·   k=5
+    2026-07-01T10-00-00Z (claude-code) → 2026-07-02T09-00-00Z (claude-code)   ·   k=5
 
-╭──────────────────┬──────────┬──────────┬────────┬─────────┬─────────╮
-│ Task             │ A pass@k │ B pass@k │      Δ │ A strip │ B strip │
-├──────────────────┼──────────┼──────────┼────────┼─────────┼─────────┤
-│ commits cleanly  │   100.0% │   100.0% │      — │ ✓✓✓✓✓   │ ✓✓✓✓✓   │
-│ handles conflict │    80.0% │    40.0% │ -40.0% │ ✓✓✓✓✗   │ ✓✗✓✗✗   │
-│ pushes upstream  │    80.0% │        — │      — │ ✓✓✓✓✗   │ ⊘⊘⊘⊘⊘   │
-╰──────────────────┴──────────┴──────────┴────────┴─────────┴─────────╯
+╭──────────────────┬─────────────────┬────────┬───────────────╮
+│ Task             │          pass@k │      Δ │ attempts      │
+├──────────────────┼─────────────────┼────────┼───────────────┤
+│ commits cleanly  │ 100.0% → 100.0% │      — │ ✓✓✓✓✓ → ✓✓✓✓✓ │
+│ handles conflict │  100.0% → 67.2% │ -32.8% │ ✓✓✓✓✓ → ✓✗✗✗✗ │
+│ pushes upstream  │      100.0% → — │      — │ ✓✓✓✓✗ → ⊘⊘⊘⊘⊘ │
+╰──────────────────┴─────────────────┴────────┴───────────────╯
 
- A 90.0%   B 70.0%   Δ (matched) -20.0% ↓
- Tokens  A 1.2M  B 0.7M   Δ -42% (-500K)
- Wall    A 6m 18s  B 3m 40s   Δ -42% (-2m 38s)
+ Overall  100.0% → 83.6%   Δ (matched) -16.4% ↓
+ Tokens  1.2M → 700K   Δ -42% (-500K)
+ Wall    6m 18s → 3m 40s   Δ -42% (-2m 38s)
  ⚠ 1 regression: handles conflict
  ⊘ 1 unmeasured (excluded from Δ): pushes upstream
  unmatched — only in A: flaky task   only in B: new task
@@ -477,14 +477,17 @@ flags — pin a historical run by naming its JSON path.
 
 How the diff reads:
 
+- **Each row reads `before → after`.** The two runs are named once in the header
+  (here, the two timestamps; a `--baseline` run says `no skill → with skill`), so
+  there's no A/B legend to decode.
 - **Tasks are matched by name.** `task_id` is only positional, so name is the
   stable identity — reordered tasks still line up. A task present in only one
   run is listed as **unmatched** and left out of the delta.
-- **`Δ` is `b − a`.** A negative Δ renders red and flags the task as a
-  **regression** (any-below rule: B below A by any amount).
-- **pass@k excludes unusable attempts.** The strips reuse the run report's
-  glyphs; `⊘` marks an unusable attempt (rate-limit / timeout / judge error).
-  A task with *no* usable attempts on a side shows `—` (unmeasured) and is never
+- **`Δ` is `after − before`.** A negative Δ renders red and flags the task as a
+  **regression** (any-below rule: the after side below the before side).
+- **pass@k excludes unusable attempts.** The `attempts` column reuses the run
+  report's glyphs; `⊘` marks an unusable attempt (rate-limit / timeout / judge
+  error). A side with *no* usable attempts shows `—` (unmeasured) and is never
   counted as a regression — infra noise can't fake a loss.
 - **The headline `Δ (matched)`** averages each side over only the tasks measured
   on **both** sides, so it is strictly like-for-like.

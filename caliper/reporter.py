@@ -75,6 +75,7 @@ def _judge_suffix(backend: str | None, model: str | None) -> str:
 
 _UP = "↑" if _UNICODE else "up"
 _DOWN = "↓" if _UNICODE else "down"
+_TO = "→" if _UNICODE else "->"
 _BAR_FULL = "█" if _UNICODE else "#"
 _BAR_EMPTY = "░" if _UNICODE else "-"
 _UNUSABLE = "⊘" if _UNICODE else "o"
@@ -443,9 +444,10 @@ def print_comparison(comp: RunComparison) -> None:
         comp.b_label
         or f"{b_ts} ([cyan]{_engine_label(comp.b.backend, comp.b.model)}[/cyan])"
     )
+    # The two sides read as a transition (`before → after`), named once here, so
+    # the table needs no A/B legend lookup.
     console.print(
-        f"    [bold]A[/bold] {a_desc}   {_SEP}"
-        f"   [bold]B[/bold] {b_desc}   {_SEP}"
+        f"    {a_desc} {_TO} {b_desc}   {_SEP}"
         f"   k=[cyan]{comp.a.k}[/cyan]"
         + (f"/[cyan]{comp.b.k}[/cyan]" if comp.k_mismatch else "")
     )
@@ -457,29 +459,39 @@ def print_comparison(comp: RunComparison) -> None:
         box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False
     )
     table.add_column("Task")
-    table.add_column("A pass@k", justify="right")
-    table.add_column("B pass@k", justify="right")
+    table.add_column("pass@k", justify="right")
     table.add_column(f"{_delta_symbol()}", justify="right")
-    table.add_column("A strip")
-    table.add_column("B strip")
+    table.add_column("attempts")
 
     for tc in comp.matched:
         unmeasured = tc.a_score is None or tc.b_score is None
         name = Text(tc.task_name, style="dim" if unmeasured else "")
-        a_pk = Text(_fmt_score(tc.a_score), style="dim" if unmeasured else "")
-        b_pk = Text(_fmt_score(tc.b_score), style="dim" if unmeasured else "")
-        table.add_row(
-            name,
-            a_pk,
-            b_pk,
-            _delta_cell(tc),
-            _outcome_strip(tc.a_outcomes),
-            _outcome_strip(tc.b_outcomes),
-        )
+        table.add_row(name, _passk_cell(tc), _delta_cell(tc), _attempts_cell(tc))
 
     console.print(table)
     console.print()
     _print_comparison_summary(comp)
+
+
+def _passk_cell(tc: TaskComparison) -> Text:
+    """`a% → b%`; the 'after' is green on improvement, red on regression."""
+    unmeasured = tc.a_score is None or tc.b_score is None
+    after = "dim"
+    if not unmeasured:
+        after = "green" if tc.b_score > tc.a_score else "red" if tc.regression else ""
+    cell = Text()
+    cell.append(_fmt_score(tc.a_score), style="dim" if unmeasured else "")
+    cell.append(f" {_TO} ", style="dim")
+    cell.append(_fmt_score(tc.b_score), style=after)
+    return cell
+
+
+def _attempts_cell(tc: TaskComparison) -> Text:
+    """`✓✗✗ → ✓✓✓`: the before-strip, an arrow, then the after-strip."""
+    cell = _outcome_strip(tc.a_outcomes)
+    cell.append(f" {_TO} ", style="dim")
+    cell.append_text(_outcome_strip(tc.b_outcomes))
+    return cell
 
 
 def _delta_symbol() -> str:
@@ -487,14 +499,16 @@ def _delta_symbol() -> str:
 
 
 def _print_comparison_summary(comp: RunComparison) -> None:
-    arrow = _UP if comp.aggregate_delta >= 0 else _DOWN
-    sign = "+" if comp.aggregate_delta >= 0 else ""
-    color = "green" if comp.aggregate_delta >= 0 else "red"
+    delta = comp.aggregate_delta
+    arrow = _UP if delta >= 0 else _DOWN
+    sign = "+" if delta >= 0 else ""
+    color = "green" if delta >= 0 else "red"
+    after = "green" if delta > 0 else "red" if delta < 0 else "cyan"
     console.print(
-        f" [bold]A[/bold] [cyan]{comp.a_matched_avg * 100:.1f}%[/cyan]   "
-        f"[bold]B[/bold] [cyan]{comp.b_matched_avg * 100:.1f}%[/cyan]   "
+        f" [bold]Overall[/bold]  [cyan]{comp.a_matched_avg * 100:.1f}%[/cyan] {_TO} "
+        f"[{after}]{comp.b_matched_avg * 100:.1f}%[/{after}]   "
         f"[bold]{_delta_symbol()} (matched)[/bold] "
-        f"[{color}]{sign}{comp.aggregate_delta * 100:.1f}%[/{color}] {arrow}"
+        f"[{color}]{sign}{delta * 100:.1f}%[/{color}] {arrow}"
     )
 
     _print_comparison_usage(comp)
@@ -517,20 +531,23 @@ def _print_comparison_summary(comp: RunComparison) -> None:
         )
 
     if comp.unmatched_a or comp.unmatched_b:
+        a_name = comp.a_label or "A"
+        b_name = comp.b_label or "B"
         only_a = ", ".join(comp.unmatched_a) or "—"
         only_b = ", ".join(comp.unmatched_b) or "—"
         console.print(
-            f" [dim]unmatched — only in A: {only_a}   only in B: {only_b}[/dim]"
+            f" [dim]unmatched — only in {a_name}: {only_a}   "
+            f"only in {b_name}: {only_b}[/dim]"
         )
     console.print()
 
 
 def _usage_delta(label: str, a_val: float, b_val: float, fmt) -> str:
-    """One `label  A x  B y  Δ ±p% (±abs)` row. Green when B is cheaper (a win),
-    red when costlier — but this NEVER flips has_regression (CONTEXT.md →
-    Regression). Dim when equal or A has no baseline to compute a percentage."""
+    """One `label  x → y   Δ ±p% (±abs)` row. Green when the 'after' is cheaper (a
+    win), red when costlier — but this NEVER flips has_regression (CONTEXT.md →
+    Regression). Dim when equal or there is no baseline to compute a percentage."""
     delta = b_val - a_val
-    row = f" [bold]{label}[/bold]  A {fmt(a_val)}  B {fmt(b_val)}   {_delta_symbol()} "
+    row = f" [bold]{label}[/bold]  {fmt(a_val)} {_TO} {fmt(b_val)}   {_delta_symbol()} "
     if delta == 0:
         return row + f"[dim]{_RULE}[/dim]"
     color = "green" if delta < 0 else "red"
