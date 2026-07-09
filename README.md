@@ -358,7 +358,7 @@ Each task needs at least one of `expect` or `assert`. Task IDs are assigned auto
 
 ### MCP servers (`mcp:`)
 
-The optional `mcp:` block declares the [MCP](https://modelcontextprotocol.io) servers the agent-under-test may use — they are a *dependency of the skill*, so they live in the spec rather than behind a flag. It is a mapping keyed by server name; each server's tools appear in the transcript as `mcp__<server>__<tool>`, so an `expect:` judge can verify a tool was actually used.
+The optional `mcp:` block declares the [MCP](https://modelcontextprotocol.io) servers the agent-under-test may use — a capability granted to the agent for the eval, part of the run environment like `sandbox:`, so it lives in the spec rather than behind a flag. It is a top-level mapping keyed by server name (a sibling of `sandbox:`, not nested under `skill:` — it applies whether or not the eval uses a skill). Each server's tools appear in the transcript as `mcp__<server>__<tool>`, so an `expect:` judge can verify a tool was actually used.
 
 ```yaml
 mcp:

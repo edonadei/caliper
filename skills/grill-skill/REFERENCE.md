@@ -131,7 +131,7 @@ Add `assert:` when the outcome is a fact that an LLM judge might guess wrong:
 
 ## MCP servers (`mcp:`)
 
-If the skill under test needs MCP tools, declare them in a top-level `mcp:` block (a mapping keyed by server name) — they are a dependency of the skill, so they belong in the spec, not on the command line. This release supports **local stdio servers on the `claude-code` backend only**: each entry has a `command`, optional `args`, and optional `env`. A tool call appears in the transcript as `mcp__<server>__<tool>`, so an `expect:` criterion can check the skill actually used it. Put secrets in a host env var and reference it as `${VAR}` inside `env:` — it resolves from your shell at run time and never lands in the committed spec (an unset var fails the run). Running an `mcp:` spec on a non-`claude-code` backend is a hard error, not a silent no-op.
+If the skill under test needs MCP tools, declare them in a top-level `mcp:` block (a mapping keyed by server name) — a capability granted to the agent-under-test for the eval, part of the run environment like `sandbox:` (a sibling of it, not nested under `skill:`), so they belong in the spec, not on the command line. This release supports **local stdio servers on the `claude-code` backend only**: each entry has a `command`, optional `args`, and optional `env`. A tool call appears in the transcript as `mcp__<server>__<tool>`, so an `expect:` criterion can check the skill actually used it. Put secrets in a host env var and reference it as `${VAR}` inside `env:` — it resolves from your shell at run time and never lands in the committed spec (an unset var fails the run). Running an `mcp:` spec on a non-`claude-code` backend is a hard error, not a silent no-op.
 
 ## Backends
 
