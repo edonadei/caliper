@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 _VALID_BACKENDS: frozenset[str] = frozenset({"claude-code", "codex", "pi", "hermes"})
@@ -69,12 +70,51 @@ class SandboxConfig(BaseModel):
     extra_path: list[str] = []
 
 
+# A declared MCP server the agent-under-test may use. This slice supports only
+# *local stdio* servers: a `command` (with `args`) the harness spawns, plus an
+# `env` map whose values may reference host env vars as ``${VAR}`` so secrets
+# never live in the committed spec. Transport is inferred from shape (the
+# presence of `command` means stdio); a `type:` discriminator and remote/HTTP
+# servers are a later slice. See docs/adr/0008-mcp-servers-are-a-spec-field.md
+# and docs/adr/0009-mcp-secrets-interpolated-at-the-harness-boundary.md.
+class McpServer(BaseModel):
+    command: str
+    args: list[str] = []
+    env: dict[str, str] = {}
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("command")
+    @classmethod
+    def command_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("command must be a non-empty string")
+        return value
+
+
+# Server names become the ``mcp__<name>__<tool>`` handle in the transcript, so
+# they must be restricted to characters that keep that handle well-formed.
+_MCP_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
 class EvalSpec(BaseModel):
     skill: SkillConfig
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
+    mcp: dict[str, McpServer] = {}
     tasks: list[TaskSpec]
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("mcp")
+    @classmethod
+    def validate_server_names(cls, value: dict[str, McpServer]) -> dict[str, McpServer]:
+        for name in value:
+            if not _MCP_NAME_RE.match(name):
+                raise ValueError(
+                    f"invalid MCP server name '{name}': names must match "
+                    "[A-Za-z0-9_-]+ so the mcp__<name>__<tool> handle is well-formed"
+                )
+        return value
 
 
 # Keys removed in ADR 0004, mapped to the runtime flag that replaced them. Caught

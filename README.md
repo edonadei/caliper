@@ -338,6 +338,13 @@ sandbox:
     - ".*\\.eval\\.yaml$"       # prevents agent from reading the spec
     - "./.caliper/.*"           # prevents agent from reading saved results
 
+mcp:                            # optional — MCP servers the agent may use
+  weather:                      # server name → mcp__weather__<tool> in the transcript
+    command: python3            # a local stdio server the harness spawns
+    args: [./servers/weather.py]
+    env:
+      API_TOKEN: ${MCP_API_TOKEN}   # ${VAR} resolves from your shell at run time
+
 tasks:
   - name: Short task name
     setup: <shell command>      # optional, runs before each attempt
@@ -354,6 +361,25 @@ tasks:
 ```
 
 Each task needs at least one of `expect` or `assert`. Task IDs are assigned automatically as `task-001`, `task-002`, and so on.
+
+### MCP servers (`mcp:`)
+
+The optional `mcp:` block declares the [MCP](https://modelcontextprotocol.io) servers the agent-under-test may use — they are a *dependency of the skill*, so they live in the spec rather than behind a flag. It is a mapping keyed by server name; each server's tools appear in the transcript as `mcp__<server>__<tool>`, so an `expect:` judge can verify a tool was actually used.
+
+```yaml
+mcp:
+  weather:
+    command: python3            # required — the local stdio command to spawn
+    args: [./servers/weather.py]  # optional
+    env:                        # optional
+      API_TOKEN: ${MCP_API_TOKEN}
+```
+
+- **stdio only, `claude-code` only (for now).** This release wires local stdio servers on the `claude-code` backend. Running a spec that declares `mcp:` on another backend is a hard error rather than a silent no-op. Remote/HTTP servers and other backends land in later releases.
+- **Secrets stay out of the spec.** An `env:` value may reference a host environment variable as `${VAR}`; it is resolved from your shell at run time (never written into the committed spec), and an unset variable fails the run with a clear message. Interpolation applies only inside `env:` values.
+- **Server names** must match `[A-Za-z0-9_-]+` so the `mcp__<server>__<tool>` handle is well-formed.
+
+`caliper validate` checks the `mcp:` block and reports a malformed entry (bad name, unknown key, missing/blank `command`).
 
 ---
 

@@ -63,6 +63,12 @@ class RunContext:
     timeout: int
     isolated_home: str
     extra_path: list[str]
+    # Declared MCP servers (name -> McpServer) the agent-under-test may use. The
+    # literal ``${VAR}`` in each server's ``env`` is kept as authored; a backend
+    # that supports MCP interpolates and materializes it at run time. ``None``
+    # when the spec declares no ``mcp:`` block. Typed as ``dict`` to avoid a
+    # schema import in the harness layer.
+    mcp_servers: dict | None = None
     extras: dict = field(default_factory=dict)
 
 
@@ -95,6 +101,13 @@ class HarnessBackend(ABC):
     @abstractmethod
     def name(self) -> str: ...
 
+    # Whether this backend can materialize declared ``mcp:`` servers for the
+    # agent-under-test. Default ``False``: the run seam refuses to run a spec
+    # that declares ``mcp:`` on a backend that cannot honor it (rather than
+    # silently dropping the tools). A backend flips this to ``True`` when it
+    # wires MCP support; see docs/adr/0008-mcp-servers-are-a-spec-field.md.
+    supports_mcp: bool = False
+
     @abstractmethod
     def run(
         self,
@@ -107,6 +120,7 @@ class HarnessBackend(ABC):
         timeout: int,
         isolated_home: str,
         extra_path: list[str] | None = None,
+        mcp_servers: dict | None = None,
     ) -> AttemptResult: ...
 
 
@@ -132,6 +146,7 @@ class CliHarness(HarnessBackend):
         timeout: int,
         isolated_home: str,
         extra_path: list[str] | None = None,
+        mcp_servers: dict | None = None,
     ) -> AttemptResult:
         ctx = RunContext(
             task_id=task_id,
@@ -142,6 +157,7 @@ class CliHarness(HarnessBackend):
             timeout=timeout,
             isolated_home=isolated_home,
             extra_path=list(extra_path or []),
+            mcp_servers=mcp_servers,
         )
 
         self._ensure_ready(ctx)

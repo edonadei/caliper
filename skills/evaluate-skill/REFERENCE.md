@@ -58,6 +58,13 @@ sandbox:
   forbidden_files:
     - ".*\\.eval\\.yaml$"   # agent cannot read the spec
 
+mcp:                        # optional — MCP servers the agent may use
+  weather:                  # server name → mcp__weather__<tool> in the transcript
+    command: python3        # local stdio command the harness spawns
+    args: [./servers/weather.py]
+    env:
+      API_TOKEN: ${MCP_API_TOKEN}   # resolved from your shell at run time
+
 tasks:
   - id: task-001
     name: Short description of what success looks like
@@ -114,6 +121,7 @@ trajectory by running `hermes -z` then `hermes sessions export`.
 - **baseline** — runs each task without the skill to compute a delta score
 - **judge** — the spec drives evaluation: `expect:` triggers an LLM verdict (which may generate a Python assertion script); `assert:` runs a deterministic Python script; both can be combined and both must pass
 - **cheat detection** — transcript is scanned for reads of forbidden files (spec, results)
+- **MCP servers (`mcp:`)** — an optional top-level mapping (keyed by server name) declaring MCP servers the agent-under-test may use; they are a dependency of the skill, so they live in the spec, not behind a flag. This release supports **local stdio servers on the `claude-code` backend only** (`command`, `args`, `env`); a spec that declares `mcp:` on another backend is a hard error, not a silent no-op. An `env:` value may reference a host env var as `${VAR}` (resolved from your shell at run time so secrets stay out of the committed spec; an unset var fails the run). A tool call surfaces as `mcp__<server>__<tool>` in the transcript, so an `expect:` judge can check a tool was used. Server names must match `[A-Za-z0-9_-]+`; `caliper validate` reports a malformed entry
 - **token & wall-clock usage** — each attempt records an optional `usage` (`input_tokens` non-cached, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, computed `total_tokens`; the four token fields are disjoint) plus its `duration_seconds`. `report` shows per-task `Tokens`/`Wall` columns in the results table plus a per-run `Tokens … in / … out · Wall …` line (unusable spend broken out separately); a `--baseline` run retains the full no-skill run (`RunResults.baseline_task_results`) and renders through the same `compare` view (side-by-side table + token/wall deltas); `compare` deltas (green = cheaper) are **never** a regression — only the score is. All usage fields are optional (`null` → renders `—`); `claude-code`, `codex`, `pi`, `hermes` all report tokens. **Dollar cost is deliberately not tracked** (inconsistent across backends; tokens are the volume signal).
 - **isolation** — each attempt runs in a fresh temp HOME with no session history
 - **engine as a runtime axis** — backend + model are not spec fields; they are chosen per run and recorded in `RunMeta` (skill `backend`/`model` **and** `judge_backend`/`judge_model`), so the same spec can target any agent and never ages when a model goes stale. A default-model run records the concrete model the agent resolved wherever the backend reports it (skill model from hermes' export, `judge_model` from the claude-code judge's JSON), not a bare "default"; `judge_model` is empty for an assert-only run where no LLM judge fired

@@ -74,6 +74,14 @@ sandbox:
     - ".*\\.eval\\.yaml$"
     - "./.caliper/.*"
 
+# Optional — only if the skill needs MCP tools. stdio + claude-code only for now.
+mcp:
+  weather:                       # → mcp__weather__<tool> in the transcript
+    command: python3
+    args: [./servers/weather.py]
+    env:
+      API_TOKEN: ${MCP_API_TOKEN}   # resolved from your shell at run time
+
 tasks:
   - name: Happy path — <what success looks like>
     setup: <optional shell command>
@@ -120,6 +128,10 @@ Add `assert:` when the outcome is a fact that an LLM judge might guess wrong:
 - Git state (staged, committed, clean)
 - JSON schema or exact value
 - Test suite passes or fails
+
+## MCP servers (`mcp:`)
+
+If the skill under test needs MCP tools, declare them in a top-level `mcp:` block (a mapping keyed by server name) — they are a dependency of the skill, so they belong in the spec, not on the command line. This release supports **local stdio servers on the `claude-code` backend only**: each entry has a `command`, optional `args`, and optional `env`. A tool call appears in the transcript as `mcp__<server>__<tool>`, so an `expect:` criterion can check the skill actually used it. Put secrets in a host env var and reference it as `${VAR}` inside `env:` — it resolves from your shell at run time and never lands in the committed spec (an unset var fails the run). Running an `mcp:` spec on a non-`claude-code` backend is a hard error, not a silent no-op.
 
 ## Backends
 

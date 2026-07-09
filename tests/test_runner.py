@@ -23,6 +23,7 @@ class FailingHarness(HarnessBackend):
         timeout: int,
         isolated_home: str,
         extra_path: list[str] | None = None,
+        mcp_servers: dict | None = None,
     ) -> AttemptResult:
         return AttemptResult(
             task_id=task_id,
@@ -50,6 +51,7 @@ class InfraErrorHarness(FailingHarness):
         timeout: int,
         isolated_home: str,
         extra_path: list[str] | None = None,
+        mcp_servers: dict | None = None,
     ) -> AttemptResult:
         self.attempts.append(attempt)
         return super().run(
@@ -83,6 +85,7 @@ class MixedOutcomeHarness(HarnessBackend):
         timeout: int,
         isolated_home: str,
         extra_path: list[str] | None = None,
+        mcp_servers: dict | None = None,
     ) -> AttemptResult:
         self.attempts.append(attempt)
         if attempt in (1, 3):
@@ -334,6 +337,7 @@ class ResolvedModelHarness(HarnessBackend):
         timeout: int,
         isolated_home: str,
         extra_path: list[str] | None = None,
+        mcp_servers: dict | None = None,
     ) -> AttemptResult:
         return AttemptResult(
             task_id=task_id,
