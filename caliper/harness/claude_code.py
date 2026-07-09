@@ -19,8 +19,7 @@ from caliper.harness.base import (
 from caliper.schema.results import TokenUsage
 
 # A ``${VAR}`` reference in an MCP server's ``env`` value. Only this exact form
-# is honored, and only inside ``env`` values — see
-# docs/adr/0009-mcp-secrets-interpolated-at-the-harness-boundary.md.
+# is honored, and only inside ``env`` values.
 _ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
@@ -127,7 +126,7 @@ class ClaudeCodeHarness(CliHarness):
 
         ``${VAR}`` references in each server's ``env`` values are resolved here,
         from the real parent ``os.environ`` — the only point where secrets enter
-        the run, and never into the committed spec (ADR 0009). An unset var is a
+        the run, and never into the committed spec. An unset var is a
         configuration error, surfaced at this boundary rather than as an opaque
         failure inside the spawned MCP server.
         """

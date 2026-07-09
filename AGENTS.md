@@ -27,3 +27,5 @@ for details.
 ## Local-only decision docs (never commit)
 
 `CONTEXT.md` and everything under `docs/adr/` are local decision artifacts produced by grill-with-docs. They capture in-progress local decisions and must stay on the developer's machine — never stage, commit, or push them to the repo. Both are gitignored; do not remove them from `.gitignore`.
+
+Because they are gitignored, **never reference them from committed code, comments, docstrings, or committed docs** — no `See docs/adr/0008-...md`, no `(ADR 0009)`, no `CONTEXT.md → ...`. Such a pointer dangles for anyone who clones the repo. Make the committed comment self-contained: state the reasoning inline instead of linking to the local-only doc.

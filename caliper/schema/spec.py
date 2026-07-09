@@ -75,8 +75,7 @@ class SandboxConfig(BaseModel):
 # `env` map whose values may reference host env vars as ``${VAR}`` so secrets
 # never live in the committed spec. Transport is inferred from shape (the
 # presence of `command` means stdio); a `type:` discriminator and remote/HTTP
-# servers are a later slice. See docs/adr/0008-mcp-servers-are-a-spec-field.md
-# and docs/adr/0009-mcp-secrets-interpolated-at-the-harness-boundary.md.
+# servers are a later slice.
 class McpServer(BaseModel):
     command: str
     args: list[str] = []

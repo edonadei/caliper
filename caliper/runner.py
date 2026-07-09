@@ -57,8 +57,8 @@ def run(
     on_task_done: Callable[[TaskResult], None] | None = None,
     fail_fast_unusable: int = 0,
 ) -> RunResults:
-    # A spec's mcp: servers are a dependency of the skill (ADR 0008). If the
-    # chosen backend cannot materialize them, the declared tools would simply be
+    # A spec's mcp: servers are a dependency of the skill. If the chosen
+    # backend cannot materialize them, the declared tools would simply be
     # absent and every attempt would test something other than what the spec
     # claims — so refuse up front rather than silently drop them. This guard
     # relaxes automatically as each backend flips ``supports_mcp`` to True.
@@ -276,8 +276,8 @@ def _run_attempt(
             timeout=timeout,
             isolated_home=tmp_dir,
             extra_path=resolved_extra_path,
-            # Declared MCP servers are a dependency of the skill (ADR 0008); the
-            # backend materializes them. ``None`` when the spec declares none.
+            # Declared MCP servers are a dependency of the skill; the backend
+            # materializes them. ``None`` when the spec declares none.
             mcp_servers={n: s.model_dump() for n, s in spec.mcp.items()} or None,
         )
         if attempt_result.resolved_model:

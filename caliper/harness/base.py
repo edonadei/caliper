@@ -105,7 +105,7 @@ class HarnessBackend(ABC):
     # agent-under-test. Default ``False``: the run seam refuses to run a spec
     # that declares ``mcp:`` on a backend that cannot honor it (rather than
     # silently dropping the tools). A backend flips this to ``True`` when it
-    # wires MCP support; see docs/adr/0008-mcp-servers-are-a-spec-field.md.
+    # wires MCP support.
     supports_mcp: bool = False
 
     @abstractmethod
