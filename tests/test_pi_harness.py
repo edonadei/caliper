@@ -253,3 +253,13 @@ def test_pi_auth_failure_raises_configuration_error(monkeypatch, tmp_path) -> No
             timeout=12,
             isolated_home=str(tmp_path),
         )
+
+
+def test_pi_declares_mcp_unsupported_by_design() -> None:
+    # pi has no MCP support by design; the harness advertises that permanence via
+    # a hint (the run seam turns it into a tailored refusal) and never claims to
+    # support MCP.
+    harness = PiHarness()
+    assert harness.supports_mcp is False
+    assert harness.mcp_unsupported_hint is not None
+    assert "by design" in harness.mcp_unsupported_hint

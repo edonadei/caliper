@@ -108,6 +108,15 @@ class HarnessBackend(ABC):
     # wires MCP support.
     supports_mcp: bool = False
 
+    # Optional backend-specific guidance appended to the run seam's refusal when
+    # this backend cannot honor ``mcp:``. Left ``None`` by a backend whose lack
+    # of support is merely a not-yet-implemented slice (it gets the generic "not
+    # supported yet" message). A backend whose agent will *never* support MCP
+    # natively (a permanent, by-design stance) sets this to say so and point the
+    # spec author at an alternative, so the refusal reads as permanent rather
+    # than pending.
+    mcp_unsupported_hint: str | None = None
+
     @abstractmethod
     def run(
         self,

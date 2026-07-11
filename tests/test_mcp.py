@@ -169,6 +169,17 @@ class _NoMcpHarness(HarnessBackend):
         raise AssertionError("run() must not be reached when the guard fires")
 
 
+class _ByDesignNoMcpHarness(HarnessBackend):
+    mcp_unsupported_hint = "Expose it as a CLI tool the skill drives instead."
+
+    @property
+    def name(self) -> str:
+        return "bydesign"
+
+    def run(self, *args, **kwargs) -> AttemptResult:  # pragma: no cover - never runs
+        raise AssertionError("run() must not be reached when the guard fires")
+
+
 class _McpHarness(HarnessBackend):
     supports_mcp = True
 
@@ -209,7 +220,11 @@ def _spec_with_mcp() -> EvalSpec:
 def test_guard_refuses_mcp_spec_on_unsupported_backend(tmp_path) -> None:
     spec_path = tmp_path / "m.eval.yaml"
     spec_path.write_text("skill: {}\ntasks: []\n")
-    with pytest.raises(HarnessConfigurationError, match="does not support MCP"):
+    # A backend without a hint (a not-yet-implemented slice) gets the generic
+    # "not supported yet" message.
+    with pytest.raises(
+        HarnessConfigurationError, match="does not support MCP yet"
+    ) as exc:
         run(
             spec=_spec_with_mcp(),
             spec_path=spec_path,
@@ -220,6 +235,28 @@ def test_guard_refuses_mcp_spec_on_unsupported_backend(tmp_path) -> None:
             workers=1,
             timeout=30,
         )
+    assert "in this release" in str(exc.value)
+
+
+def test_guard_refusal_uses_backend_hint_when_present(tmp_path) -> None:
+    spec_path = tmp_path / "m.eval.yaml"
+    spec_path.write_text("skill: {}\ntasks: []\n")
+    # A backend whose lack of MCP is permanent-by-design supplies its own hint,
+    # which the refusal carries verbatim — and drops the misleading "yet".
+    with pytest.raises(HarnessConfigurationError) as exc:
+        run(
+            spec=_spec_with_mcp(),
+            spec_path=spec_path,
+            harness=_ByDesignNoMcpHarness(),
+            judge=_PassJudge(),
+            backend="bydesign",
+            k=1,
+            workers=1,
+            timeout=30,
+        )
+    message = str(exc.value)
+    assert "Expose it as a CLI tool the skill drives instead." in message
+    assert "does not support MCP yet" not in message
 
 
 def test_guard_allows_mcp_spec_on_supporting_backend(tmp_path) -> None:

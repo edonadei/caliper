@@ -64,6 +64,15 @@ def run(
     # claims — so refuse up front rather than silently drop them. This guard
     # relaxes automatically as each backend flips ``supports_mcp`` to True.
     if spec.mcp and not harness.supports_mcp:
+        # A backend whose lack of MCP is permanent-by-design supplies its own
+        # hint; the others get the generic "not yet" message. Either way we
+        # refuse before any attempt rather than run with the declared tools
+        # absent.
+        if harness.mcp_unsupported_hint:
+            raise HarnessConfigurationError(
+                f"This eval declares mcp: servers, but the '{backend}' backend "
+                "does not support MCP.\n\n" + harness.mcp_unsupported_hint
+            )
         raise HarnessConfigurationError(
             f"This eval declares mcp: servers, but the '{backend}' backend does "
             "not support MCP yet. Only the 'claude-code' backend implements mcp: "

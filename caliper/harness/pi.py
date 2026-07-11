@@ -28,6 +28,19 @@ class PiHarness(CliHarness):
     def __init__(self, model: str | None = None) -> None:
         self._model = model
 
+    # pi has no MCP support, and this is a deliberate stance of the tool (its
+    # README: "No MCP. Build a CLI tool with a README, or an extension that adds
+    # MCP support."), not a slice caliper hasn't wired yet. So ``supports_mcp``
+    # stays False and the refusal carries a permanent-by-design hint that points
+    # the spec author at pi's own escape hatch rather than implying a later slice.
+    mcp_unsupported_hint = (
+        "The pi agent has no MCP support, and this is by design — pi will not "
+        "honor an mcp: block natively. Instead of MCP, expose the same "
+        "capability as a CLI tool the skill drives (a skill with a README), or "
+        "build a pi extension that adds it. To measure MCP-based skills under "
+        "caliper, run them on the claude-code backend (--model claude-code)."
+    )
+
     @property
     def name(self) -> str:
         return "pi"
