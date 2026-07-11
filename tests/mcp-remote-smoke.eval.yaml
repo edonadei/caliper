@@ -1,0 +1,39 @@
+# End-to-end smoke eval for a remote (HTTP) MCP server on the `claude-code` backend.
+#
+# It declares DeepWiki's public, no-auth remote MCP server (Streamable HTTP at
+# https://mcp.deepwiki.com/mcp, which exposes read_wiki_structure /
+# read_wiki_contents / ask_question over public GitHub repos) and checks that
+# the agent actually gained a remote tool, called it, and reported what it
+# returned. The call surfaces in the transcript as `mcp__deepwiki__<tool>`.
+#
+# Unlike the stdio smoke (tests/mcp-smoke.eval.yaml, a bundled local server),
+# this one needs network access and a live external service — it is a manual
+# demo of the remote transport, not a hermetic CI test. DeepWiki needs no auth,
+# so no ${VAR} is required here; header/url interpolation from host env vars is
+# covered by the unit tests (tests/test_claude_harness.py).
+#
+# Run it (pass a model your account can use; the engine is a runtime axis):
+#   caliper run tests/mcp-remote-smoke.eval.yaml --k 1 --model claude-code:claude-sonnet-5
+#
+# http transport + claude-code backend (this is issue #48's slice).
+
+skill: {}
+
+mcp:
+  deepwiki:
+    type: http
+    url: https://mcp.deepwiki.com/mcp
+
+tasks:
+  - name: Uses the deepwiki remote MCP server
+    prompt: >
+      Use the "deepwiki" MCP server's tools to look up the public GitHub
+      repository "modelcontextprotocol/servers". Call read_wiki_structure (or
+      ask_question) on that repo, then tell me one documentation topic or fact
+      you got back. You must actually call the tool — do not answer from memory.
+    expect: >
+      The transcript shows the agent invoked a deepwiki remote MCP tool (a tool
+      named mcp__deepwiki__read_wiki_structure, mcp__deepwiki__ask_question, or
+      mcp__deepwiki__read_wiki_contents) against modelcontextprotocol/servers and
+      reported a topic or fact it returned. It did not fabricate the answer
+      without calling the tool.

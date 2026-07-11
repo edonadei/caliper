@@ -74,13 +74,18 @@ sandbox:
     - ".*\\.eval\\.yaml$"
     - "./.caliper/.*"
 
-# Optional — only if the skill needs MCP tools. stdio + claude-code only for now.
+# Optional — only if the skill needs MCP tools. claude-code only for now.
 mcp:
-  weather:                       # → mcp__weather__<tool> in the transcript
+  weather:                       # local stdio server → mcp__weather__<tool>
     command: python3
     args: [./servers/weather.py]
     env:
       API_TOKEN: ${MCP_API_TOKEN}   # resolved from your shell at run time
+  gdrive:                        # remote (hosted) server over HTTP/SSE
+    type: http                   # http or sse
+    url: https://mcp.example.com/gdrive
+    headers:
+      Authorization: Bearer ${GDRIVE_TOKEN}   # resolved from your shell at run time
 
 tasks:
   - name: Happy path — <what success looks like>
@@ -131,7 +136,7 @@ Add `assert:` when the outcome is a fact that an LLM judge might guess wrong:
 
 ## MCP servers (`mcp:`)
 
-If the skill under test needs MCP tools, declare them in a top-level `mcp:` block (a mapping keyed by server name) — a capability granted to the agent-under-test for the eval, part of the run environment like `sandbox:` (a sibling of it, not nested under `skill:`), so they belong in the spec, not on the command line. This release supports **local stdio servers on the `claude-code` backend only**: each entry has a `command`, optional `args`, and optional `env`. A tool call appears in the transcript as `mcp__<server>__<tool>`, so an `expect:` criterion can check the skill actually used it. Put secrets in a host env var and reference it as `${VAR}` inside `env:` — it resolves from your shell at run time and never lands in the committed spec (an unset var fails the run). Running an `mcp:` spec on a non-`claude-code` backend is a hard error, not a silent no-op.
+If the skill under test needs MCP tools, declare them in a top-level `mcp:` block (a mapping keyed by server name) — a capability granted to the agent-under-test for the eval, part of the run environment like `sandbox:` (a sibling of it, not nested under `skill:`), so they belong in the spec, not on the command line. A server is either **local stdio** (a `command`, optional `args`, optional `env`) or **remote** (`type: http`/`sse`, a `url`, optional `headers` for auth); the two field sets are mutually exclusive. Supported on the **`claude-code` backend only** for now. A tool call appears in the transcript as `mcp__<server>__<tool>`, so an `expect:` criterion can check the skill actually used it. Put secrets in a host env var and reference it as `${VAR}` inside a stdio `env:`, a remote `headers:`, or a remote `url:` — it resolves from your shell at run time and never lands in the committed spec (an unset var fails the run). Running an `mcp:` spec on a non-`claude-code` backend is a hard error, not a silent no-op.
 
 ## Backends
 

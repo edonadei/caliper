@@ -70,25 +70,82 @@ class SandboxConfig(BaseModel):
     extra_path: list[str] = []
 
 
-# A declared MCP server the agent-under-test may use. This slice supports only
-# *local stdio* servers: a `command` (with `args`) the harness spawns, plus an
-# `env` map whose values may reference host env vars as ``${VAR}`` so secrets
-# never live in the committed spec. Transport is inferred from shape (the
-# presence of `command` means stdio); a `type:` discriminator and remote/HTTP
-# servers are a later slice.
+# Remote transports reach a hosted MCP endpoint over the network; the default
+# (``stdio``) spawns a local process.
+_REMOTE_MCP_TYPES: frozenset[str] = frozenset({"http", "sse"})
+_VALID_MCP_TYPES: frozenset[str] = frozenset({"stdio"}) | _REMOTE_MCP_TYPES
+
+
+# A declared MCP server the agent-under-test may use. Two transports share one
+# model, discriminated by ``type`` (default ``stdio``):
+#
+#   - stdio (default): a local ``command`` (with ``args``) the harness spawns,
+#     plus an ``env`` map. This is the shape from #47.
+#   - remote (``type: http`` or ``sse``): a hosted endpoint at ``url`` with an
+#     optional ``headers`` map for auth.
+#
+# The two field sets are mutually exclusive (enforced below). Values in ``env``,
+# ``headers``, and a remote ``url`` may reference host env vars as ``${VAR}`` so
+# secrets never live in the committed spec — resolved by the backend at run time.
 class McpServer(BaseModel):
-    command: str
+    type: str = "stdio"
+    # stdio transport
+    command: str | None = None
     args: list[str] = []
     env: dict[str, str] = {}
+    # remote transport (type: http / sse)
+    url: str | None = None
+    headers: dict[str, str] = {}
 
     model_config = ConfigDict(extra="forbid")
 
-    @field_validator("command")
-    @classmethod
-    def command_not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("command must be a non-empty string")
-        return value
+    @property
+    def is_remote(self) -> bool:
+        return self.type in _REMOTE_MCP_TYPES
+
+    @model_validator(mode="after")
+    def check_transport(self) -> "McpServer":
+        if self.type not in _VALID_MCP_TYPES:
+            valid = ", ".join(sorted(_VALID_MCP_TYPES))
+            raise ValueError(
+                f"invalid MCP server type '{self.type}': must be one of {valid}"
+            )
+        if self.is_remote:
+            if not (self.url and self.url.strip()):
+                raise ValueError(
+                    f"remote MCP server (type: {self.type}) requires a non-empty url"
+                )
+            stray = [
+                field
+                for field, present in (
+                    ("command", self.command is not None),
+                    ("args", bool(self.args)),
+                    ("env", bool(self.env)),
+                )
+                if present
+            ]
+            if stray:
+                raise ValueError(
+                    f"remote MCP server (type: {self.type}) cannot set "
+                    f"{', '.join(stray)}: those are stdio-only fields"
+                )
+        else:
+            if not (self.command and self.command.strip()):
+                raise ValueError("stdio MCP server requires a non-empty command")
+            stray = [
+                field
+                for field, present in (
+                    ("url", self.url is not None),
+                    ("headers", bool(self.headers)),
+                )
+                if present
+            ]
+            if stray:
+                raise ValueError(
+                    f"stdio MCP server cannot set {', '.join(stray)}: those are "
+                    "remote-only (type: http / sse) fields"
+                )
+        return self
 
 
 # Server names become the ``mcp__<name>__<tool>`` handle in the transcript, so

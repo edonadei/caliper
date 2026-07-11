@@ -122,28 +122,48 @@ class ClaudeCodeHarness(CliHarness):
         return cmd, None, cleanup if staged else None
 
     def _materialize_mcp_config(self, ctx: RunContext) -> Path | None:
-        """Write the declared stdio MCP servers into ``.caliper-mcp.json`` for the run.
+        """Write the declared MCP servers into ``.caliper-mcp.json`` for the run.
 
-        ``${VAR}`` references in each server's ``env`` values are resolved here,
-        from the real parent ``os.environ`` — the only point where secrets enter
-        the run, and never into the committed spec. An unset var is a
-        configuration error, surfaced at this boundary rather than as an opaque
-        failure inside the spawned MCP server.
+        Both transports are emitted in Claude Code's ``mcpServers`` shape: a stdio
+        server as ``{command, args?, env?}``; a remote server as
+        ``{type, url, headers?}``. ``${VAR}`` references (in stdio ``env``, remote
+        ``headers``, and a remote ``url``) are resolved here, from the real parent
+        ``os.environ`` — the only point where secrets enter the run, and never
+        into the committed spec. An unset var is a configuration error, surfaced
+        at this boundary rather than as an opaque failure at connect time.
         """
         if not ctx.mcp_servers:
             return None
 
         servers: dict[str, dict] = {}
         for name, server in ctx.mcp_servers.items():
-            env = {
-                key: self._interpolate(value, server_name=name, env_key=key)
-                for key, value in server.env.items()
-            }
-            entry: dict = {"command": server.command}
-            if server.args:
-                entry["args"] = server.args
-            if env:
-                entry["env"] = env
+            if server.is_remote:
+                entry: dict = {
+                    "type": server.type,
+                    "url": self._interpolate(
+                        server.url, server_name=name, field_label="url"
+                    ),
+                }
+                headers = {
+                    key: self._interpolate(
+                        value, server_name=name, field_label=f"headers.{key}"
+                    )
+                    for key, value in server.headers.items()
+                }
+                if headers:
+                    entry["headers"] = headers
+            else:
+                env = {
+                    key: self._interpolate(
+                        value, server_name=name, field_label=f"env.{key}"
+                    )
+                    for key, value in server.env.items()
+                }
+                entry = {"command": server.command}
+                if server.args:
+                    entry["args"] = server.args
+                if env:
+                    entry["env"] = env
             servers[name] = entry
 
         config_path = Path(ctx.isolated_home) / ".caliper-mcp.json"
@@ -152,13 +172,13 @@ class ClaudeCodeHarness(CliHarness):
         return config_path
 
     @staticmethod
-    def _interpolate(value: str, *, server_name: str, env_key: str) -> str:
+    def _interpolate(value: str, *, server_name: str, field_label: str) -> str:
         def replace(match: re.Match[str]) -> str:
             var = match.group(1)
             if var not in os.environ:
                 raise HarnessConfigurationError(
                     f"MCP server '{server_name}' needs env var {var} (referenced "
-                    f"by env.{env_key}), but it is not set.\n\n"
+                    f"by {field_label}), but it is not set.\n\n"
                     f"export {var}=... and rerun caliper."
                 )
             return os.environ[var]

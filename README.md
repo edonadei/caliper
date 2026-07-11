@@ -338,6 +338,11 @@ mcp:                            # optional — MCP servers the agent may use
     args: [./servers/weather.py]
     env:
       API_TOKEN: ${MCP_API_TOKEN}   # ${VAR} resolves from your shell at run time
+  gdrive:                       # a remote (hosted) server reached over HTTP
+    type: http                  # http or sse
+    url: https://mcp.example.com/gdrive
+    headers:
+      Authorization: Bearer ${GDRIVE_TOKEN}   # ${VAR} resolves at run time
 
 tasks:
   - name: Short task name
@@ -360,20 +365,28 @@ Each task needs at least one of `expect` or `assert`. Task IDs are assigned auto
 
 The optional `mcp:` block declares the [MCP](https://modelcontextprotocol.io) servers the agent-under-test may use — a capability granted to the agent for the eval, part of the run environment like `sandbox:`, so it lives in the spec rather than behind a flag. It is a top-level mapping keyed by server name (a sibling of `sandbox:`, not nested under `skill:` — it applies whether or not the eval uses a skill). Each server's tools appear in the transcript as `mcp__<server>__<tool>`, so an `expect:` judge can verify a tool was actually used.
 
+A server is either **local (stdio)** — a `command` the harness spawns — or **remote (`type: http` or `sse`)** — a hosted endpoint at `url`, the shape most connectors (Google Drive, Notion, …) use:
+
 ```yaml
 mcp:
-  weather:
+  weather:                      # local stdio server (the default transport)
     command: python3            # required — the local stdio command to spawn
     args: [./servers/weather.py]  # optional
     env:                        # optional
       API_TOKEN: ${MCP_API_TOKEN}
+  gdrive:                       # remote server
+    type: http                  # required for remote — http or sse
+    url: https://mcp.example.com/gdrive   # required for remote
+    headers:                    # optional — usually auth
+      Authorization: Bearer ${GDRIVE_TOKEN}
 ```
 
-- **stdio only, `claude-code` only (for now).** This release wires local stdio servers on the `claude-code` backend. Running a spec that declares `mcp:` on another backend is a hard error rather than a silent no-op. Remote/HTTP servers and other backends land in later releases.
-- **Secrets stay out of the spec.** An `env:` value may reference a host environment variable as `${VAR}`; it is resolved from your shell at run time (never written into the committed spec), and an unset variable fails the run with a clear message. Interpolation applies only inside `env:` values.
+- **`claude-code` only (for now).** This release wires both stdio and remote (HTTP/SSE) servers on the `claude-code` backend. Running a spec that declares `mcp:` on another backend is a hard error rather than a silent no-op. Other backends land in later releases.
+- **Transport is set by `type:`** — omitted (or `stdio`) means a local `command`; `http`/`sse` means a remote `url`. The two field sets are mutually exclusive: a stdio server can't set `url`/`headers`, and a remote server can't set `command`/`args`/`env`.
+- **Secrets stay out of the spec.** A value in a stdio `env:`, a remote `headers:`, or a remote `url:` may reference a host environment variable as `${VAR}`; it is resolved from your shell at run time (never written into the committed spec), and an unset variable fails the run with a clear message.
 - **Server names** must match `[A-Za-z0-9_-]+` so the `mcp__<server>__<tool>` handle is well-formed.
 
-`caliper validate` checks the `mcp:` block and reports a malformed entry (bad name, unknown key, missing/blank `command`).
+`caliper validate` checks the `mcp:` block and reports a malformed entry (bad name, unknown key, unknown `type`, a stdio server missing/blank `command`, or a remote server missing `url`).
 
 ---
 

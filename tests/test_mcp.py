@@ -64,15 +64,75 @@ def test_mcp_rejects_bad_server_name(bad_name: str) -> None:
 
 
 def test_mcp_rejects_unknown_key() -> None:
-    # A not-yet-supported `url:` (remote transport) or a typo must error clearly.
+    # A typo or unsupported key must error clearly (extra="forbid").
     with pytest.raises(ValidationError):
         EvalSpec.model_validate(
             {
                 "skill": {},
-                "mcp": {"weather": {"command": "python3", "url": "http://x"}},
+                "mcp": {"weather": {"command": "python3", "bogus": "x"}},
                 "tasks": [{"name": "t", "prompt": "p", "expect": "e"}],
             }
         )
+
+
+# --- remote (http/sse) transport ------------------------------------------
+
+
+@pytest.mark.parametrize("transport", ["http", "sse"])
+def test_mcp_block_parses_remote_server(transport: str) -> None:
+    spec = EvalSpec.model_validate(
+        {
+            "skill": {},
+            "mcp": {
+                "gdrive": {
+                    "type": transport,
+                    "url": "https://mcp.example.com/gdrive",
+                    "headers": {"Authorization": "Bearer ${GDRIVE_TOKEN}"},
+                }
+            },
+            "tasks": [{"name": "t", "prompt": "p", "expect": "e"}],
+        }
+    )
+    server = spec.mcp["gdrive"]
+    assert server.is_remote
+    assert server.type == transport
+    assert server.url == "https://mcp.example.com/gdrive"
+    # ${VAR} is kept literal at load; it is resolved only at materialization.
+    assert server.headers == {"Authorization": "Bearer ${GDRIVE_TOKEN}"}
+
+
+def test_mcp_remote_defaults_empty_headers() -> None:
+    server = McpServer.model_validate({"type": "http", "url": "https://x/mcp"})
+    assert server.headers == {}
+    assert server.is_remote
+
+
+def test_mcp_stdio_is_default_and_not_remote() -> None:
+    server = McpServer.model_validate({"command": "python3"})
+    assert server.type == "stdio"
+    assert not server.is_remote
+
+
+def test_mcp_remote_requires_url() -> None:
+    with pytest.raises(ValidationError, match="requires a non-empty url"):
+        McpServer.model_validate({"type": "http"})
+
+
+def test_mcp_remote_rejects_stdio_fields() -> None:
+    with pytest.raises(ValidationError, match="stdio-only fields"):
+        McpServer.model_validate(
+            {"type": "http", "url": "https://x/mcp", "command": "python3"}
+        )
+
+
+def test_mcp_stdio_rejects_remote_fields() -> None:
+    with pytest.raises(ValidationError, match="remote-only"):
+        McpServer.model_validate({"command": "python3", "url": "https://x/mcp"})
+
+
+def test_mcp_rejects_unknown_transport_type() -> None:
+    with pytest.raises(ValidationError, match="invalid MCP server type"):
+        McpServer.model_validate({"type": "grpc", "url": "https://x/mcp"})
 
 
 def test_mcp_rejects_blank_command() -> None:
