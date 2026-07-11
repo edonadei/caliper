@@ -11,7 +11,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from caliper.harness.base import ConversationTurn, HarnessBackend
+from caliper.harness.base import (
+    ConversationTurn,
+    HarnessBackend,
+    HarnessConfigurationError,
+)
 from caliper.judge.base import Judge
 from caliper.outcome import classify_outcome, classify_pre_judge
 from caliper.schema.results import (
@@ -53,6 +57,21 @@ def run(
     on_task_done: Callable[[TaskResult], None] | None = None,
     fail_fast_unusable: int = 0,
 ) -> RunResults:
+    # A spec's mcp: servers configure the agent-under-test's tool environment
+    # for the eval (a run-environment concern, like sandbox:). If the chosen
+    # backend cannot materialize them, the declared tools would simply be
+    # absent and every attempt would test something other than what the spec
+    # claims — so refuse up front rather than silently drop them. This guard
+    # relaxes automatically as each backend flips ``supports_mcp`` to True.
+    if spec.mcp and not harness.supports_mcp:
+        raise HarnessConfigurationError(
+            f"This eval declares mcp: servers, but the '{backend}' backend does "
+            "not support MCP yet. Only the 'claude-code' backend implements mcp: "
+            "in this release.\n\n"
+            "Re-run with --model claude-code (the default engine), or remove the "
+            "mcp: block from the spec."
+        )
+
     skill_snapshot = _SkillSnapshotter().snapshot(_resolve_skill_path(spec, spec_path))
 
     auto_forbidden = [
@@ -258,6 +277,9 @@ def _run_attempt(
             timeout=timeout,
             isolated_home=tmp_dir,
             extra_path=resolved_extra_path,
+            # Declared MCP servers are the agent's tool environment for the
+            # eval; the backend materializes them. ``None`` when none declared.
+            mcp_servers=dict(spec.mcp) or None,
         )
         if attempt_result.resolved_model:
             resolved_models.append(attempt_result.resolved_model)

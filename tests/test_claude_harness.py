@@ -2,11 +2,28 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
 from caliper.harness.base import HarnessConfigurationError
 from caliper.harness.claude_code import ClaudeCodeHarness
+from caliper.schema.spec import McpServer
+
+
+def _ok_stream(cmd: list[str]) -> subprocess.CompletedProcess:
+    stdout = "\n".join(
+        [
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {"content": [{"type": "text", "text": "done"}]},
+                }
+            ),
+            json.dumps({"type": "result", "result": "done"}),
+        ]
+    )
+    return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
 
 def test_claude_harness_accepts_runner_contract_with_extra_path(
@@ -111,3 +128,118 @@ def test_claude_harness_prefers_even_major_nvm_node(monkeypatch, tmp_path) -> No
     )
 
     assert env["PATH"].split(":")[0] == str(node_22_bin)
+
+
+def test_claude_harness_materializes_mcp_config(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MCP_API_TOKEN", "sk-secret")
+    captured: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        # _prepare may shell out (e.g. macOS keychain); only inspect the agent spawn.
+        if cmd[0] != "claude":
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        captured["cmd"] = cmd
+        idx = cmd.index("--mcp-config")
+        path = Path(cmd[idx + 1])
+        captured["path"] = path
+        # The config exists while the agent runs and holds the resolved secret.
+        captured["config"] = json.loads(path.read_text())
+        return _ok_stream(cmd)
+
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    home = tmp_path / "home"
+    home.mkdir()
+
+    ClaudeCodeHarness().run(
+        task_id="task-001",
+        attempt=1,
+        prompt="p",
+        skill_path=None,
+        model=None,
+        timeout=30,
+        isolated_home=str(home),
+        extra_path=[],
+        mcp_servers={
+            "echo": McpServer(
+                command="python3",
+                args=["s.py"],
+                env={"API_TOKEN": "${MCP_API_TOKEN}"},
+            )
+        },
+    )
+
+    cmd = captured["cmd"]
+    # --strict-mcp-config so the attempt sees only the declared servers.
+    assert "--strict-mcp-config" in cmd
+    assert captured["config"] == {
+        "mcpServers": {
+            "echo": {
+                "command": "python3",
+                "args": ["s.py"],
+                "env": {"API_TOKEN": "sk-secret"},
+            }
+        }
+    }
+    # The secret-bearing config is removed once the attempt finishes.
+    assert not captured["path"].exists()
+
+
+def test_claude_harness_omits_mcp_flags_when_no_servers(monkeypatch, tmp_path) -> None:
+    captured: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        if cmd[0] != "claude":
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        captured["cmd"] = cmd
+        return _ok_stream(cmd)
+
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    home = tmp_path / "home"
+    home.mkdir()
+
+    ClaudeCodeHarness().run(
+        task_id="task-001",
+        attempt=1,
+        prompt="p",
+        skill_path=None,
+        model=None,
+        timeout=30,
+        isolated_home=str(home),
+        extra_path=[],
+    )
+
+    assert "--mcp-config" not in captured["cmd"]
+    assert "--strict-mcp-config" not in captured["cmd"]
+
+
+def test_claude_harness_errors_on_unset_mcp_env_var(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("MCP_API_TOKEN", raising=False)
+
+    def fake_run(cmd, **kwargs):
+        # _prepare may shell out before _command; the agent itself must not spawn.
+        if cmd[0] == "claude":
+            raise AssertionError("agent must not spawn when an MCP env var is unset")
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    home = tmp_path / "home"
+    home.mkdir()
+
+    with pytest.raises(HarnessConfigurationError, match="MCP_API_TOKEN"):
+        ClaudeCodeHarness().run(
+            task_id="task-001",
+            attempt=1,
+            prompt="p",
+            skill_path=None,
+            model=None,
+            timeout=30,
+            isolated_home=str(home),
+            extra_path=[],
+            mcp_servers={
+                "echo": McpServer(
+                    command="python3",
+                    args=[],
+                    env={"API_TOKEN": "${MCP_API_TOKEN}"},
+                )
+            },
+        )

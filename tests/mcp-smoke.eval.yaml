@@ -1,0 +1,36 @@
+# End-to-end smoke eval for a local stdio MCP server on the `claude-code` backend.
+#
+# It declares a trivial stdio MCP server (the bundled echo_server.py, which
+# exposes one tool: secret_word -> "caliper") and checks that the agent actually
+# gained the tool, called it, and reported what it returned. The `expect:` judge
+# reads the transcript, where the call surfaces as `mcp__echo__secret_word`.
+#
+# The MCP server's `command` runs from the agent's isolated working dir, so the
+# server script must be at an absolute path. `setup:` stages the fixture into a
+# fixed /tmp location (run this from the repo root so $PWD resolves); `cleanup:`
+# removes it.
+#
+# Run it:
+#   caliper run tests/mcp-smoke.eval.yaml --k 1
+#
+# stdio transport + claude-code backend only (this is issue #47's slice).
+
+skill: {}
+
+mcp:
+  echo:
+    command: python3
+    args: [/tmp/caliper-echo-mcp.py]
+
+tasks:
+  - name: Uses the echo MCP server's secret_word tool
+    setup: cp "$PWD/tests/fixtures/mcp/echo_server.py" /tmp/caliper-echo-mcp.py
+    cleanup: rm -f /tmp/caliper-echo-mcp.py
+    prompt: >
+      Call the "secret_word" tool provided by the "echo" MCP server, then tell me
+      the exact word it returns. Do not guess — you must call the tool.
+    expect: >
+      The transcript shows the agent invoked the echo server's secret_word MCP
+      tool (a tool named mcp__echo__secret_word), and the agent reports that the
+      secret word is "caliper". It did not fabricate the word without calling the
+      tool.
