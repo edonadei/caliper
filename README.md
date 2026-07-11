@@ -381,7 +381,7 @@ mcp:
       Authorization: Bearer ${GDRIVE_TOKEN}
 ```
 
-- **`claude-code` only (for now).** This release wires both stdio and remote (HTTP/SSE) servers on the `claude-code` backend. Running a spec that declares `mcp:` on another backend is a hard error rather than a silent no-op. Other backends land in later releases.
+- **`claude-code` only.** This release wires both stdio and remote (HTTP/SSE) servers on the `claude-code` backend. Running a spec that declares `mcp:` on another backend is a hard error rather than a silent no-op. `codex` support is a later slice. `pi` does **not** and **will not** honor `mcp:` natively — its agent has no MCP by design; instead of MCP, expose the capability as a CLI tool your skill drives (a skill with a README) or a pi extension, or run the eval on `claude-code`. Running an `mcp:` spec on `pi` fails with that guidance.
 - **Transport is set by `type:`** — omitted (or `stdio`) means a local `command`; `http`/`sse` means a remote `url`. The two field sets are mutually exclusive: a stdio server can't set `url`/`headers`, and a remote server can't set `command`/`args`/`env`.
 - **Secrets stay out of the spec.** A value in a stdio `env:`, a remote `headers:`, or a remote `url:` may reference a host environment variable as `${VAR}`; it is resolved from your shell at run time (never written into the committed spec), and an unset variable fails the run with a clear message.
 - **Server names** must match `[A-Za-z0-9_-]+` so the `mcp__<server>__<tool>` handle is well-formed.
