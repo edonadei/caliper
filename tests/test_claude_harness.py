@@ -184,6 +184,88 @@ def test_claude_harness_materializes_mcp_config(monkeypatch, tmp_path) -> None:
     assert not captured["path"].exists()
 
 
+def test_claude_harness_materializes_remote_mcp_config(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("GDRIVE_TOKEN", "ya29.secret")
+    captured: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        if cmd[0] != "claude":
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        idx = cmd.index("--mcp-config")
+        captured["path"] = Path(cmd[idx + 1])
+        captured["config"] = json.loads(captured["path"].read_text())
+        return _ok_stream(cmd)
+
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    home = tmp_path / "home"
+    home.mkdir()
+
+    ClaudeCodeHarness().run(
+        task_id="task-001",
+        attempt=1,
+        prompt="p",
+        skill_path=None,
+        model=None,
+        timeout=30,
+        isolated_home=str(home),
+        extra_path=[],
+        mcp_servers={
+            "gdrive": McpServer(
+                type="http",
+                url="https://mcp.example.com/gdrive",
+                headers={"Authorization": "Bearer ${GDRIVE_TOKEN}"},
+            )
+        },
+    )
+
+    # Emitted in Claude Code's remote shape, with the auth header resolved.
+    assert captured["config"] == {
+        "mcpServers": {
+            "gdrive": {
+                "type": "http",
+                "url": "https://mcp.example.com/gdrive",
+                "headers": {"Authorization": "Bearer ya29.secret"},
+            }
+        }
+    }
+    # The secret-bearing config is removed once the attempt finishes.
+    assert not captured["path"].exists()
+
+
+def test_claude_harness_errors_on_unset_remote_header_var(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.delenv("GDRIVE_TOKEN", raising=False)
+
+    def fake_run(cmd, **kwargs):
+        if cmd[0] == "claude":
+            raise AssertionError("agent must not spawn when an MCP env var is unset")
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    home = tmp_path / "home"
+    home.mkdir()
+
+    with pytest.raises(HarnessConfigurationError, match="GDRIVE_TOKEN"):
+        ClaudeCodeHarness().run(
+            task_id="task-001",
+            attempt=1,
+            prompt="p",
+            skill_path=None,
+            model=None,
+            timeout=30,
+            isolated_home=str(home),
+            extra_path=[],
+            mcp_servers={
+                "gdrive": McpServer(
+                    type="http",
+                    url="https://mcp.example.com/gdrive",
+                    headers={"Authorization": "Bearer ${GDRIVE_TOKEN}"},
+                )
+            },
+        )
+
+
 def test_claude_harness_omits_mcp_flags_when_no_servers(monkeypatch, tmp_path) -> None:
     captured: dict = {}
 
