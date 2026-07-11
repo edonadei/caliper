@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from caliper.schema.results import TokenUsage
+from caliper.schema.spec import McpServer
 
 
 class HarnessConfigurationError(RuntimeError):
@@ -66,9 +67,8 @@ class RunContext:
     # Declared MCP servers (name -> McpServer) the agent-under-test may use. The
     # literal ``${VAR}`` in each server's ``env`` is kept as authored; a backend
     # that supports MCP interpolates and materializes it at run time. ``None``
-    # when the spec declares no ``mcp:`` block. Typed as ``dict`` to avoid a
-    # schema import in the harness layer.
-    mcp_servers: dict | None = None
+    # when the spec declares no ``mcp:`` block.
+    mcp_servers: dict[str, McpServer] | None = None
     extras: dict = field(default_factory=dict)
 
 
@@ -120,7 +120,7 @@ class HarnessBackend(ABC):
         timeout: int,
         isolated_home: str,
         extra_path: list[str] | None = None,
-        mcp_servers: dict | None = None,
+        mcp_servers: dict[str, McpServer] | None = None,
     ) -> AttemptResult: ...
 
 
@@ -146,7 +146,7 @@ class CliHarness(HarnessBackend):
         timeout: int,
         isolated_home: str,
         extra_path: list[str] | None = None,
-        mcp_servers: dict | None = None,
+        mcp_servers: dict[str, McpServer] | None = None,
     ) -> AttemptResult:
         ctx = RunContext(
             task_id=task_id,

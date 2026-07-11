@@ -122,7 +122,7 @@ class ClaudeCodeHarness(CliHarness):
         return cmd, None, cleanup if staged else None
 
     def _materialize_mcp_config(self, ctx: RunContext) -> Path | None:
-        """Write the declared stdio MCP servers into a ``.mcp.json`` for the run.
+        """Write the declared stdio MCP servers into ``.caliper-mcp.json`` for the run.
 
         ``${VAR}`` references in each server's ``env`` values are resolved here,
         from the real parent ``os.environ`` — the only point where secrets enter
@@ -137,11 +137,11 @@ class ClaudeCodeHarness(CliHarness):
         for name, server in ctx.mcp_servers.items():
             env = {
                 key: self._interpolate(value, server_name=name, env_key=key)
-                for key, value in (server.get("env") or {}).items()
+                for key, value in server.env.items()
             }
-            entry: dict = {"command": server["command"]}
-            if server.get("args"):
-                entry["args"] = server["args"]
+            entry: dict = {"command": server.command}
+            if server.args:
+                entry["args"] = server.args
             if env:
                 entry["env"] = env
             servers[name] = entry

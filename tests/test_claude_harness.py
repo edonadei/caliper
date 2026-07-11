@@ -8,6 +8,7 @@ import pytest
 
 from caliper.harness.base import HarnessConfigurationError
 from caliper.harness.claude_code import ClaudeCodeHarness
+from caliper.schema.spec import McpServer
 
 
 def _ok_stream(cmd: list[str]) -> subprocess.CompletedProcess:
@@ -159,11 +160,11 @@ def test_claude_harness_materializes_mcp_config(monkeypatch, tmp_path) -> None:
         isolated_home=str(home),
         extra_path=[],
         mcp_servers={
-            "echo": {
-                "command": "python3",
-                "args": ["s.py"],
-                "env": {"API_TOKEN": "${MCP_API_TOKEN}"},
-            }
+            "echo": McpServer(
+                command="python3",
+                args=["s.py"],
+                env={"API_TOKEN": "${MCP_API_TOKEN}"},
+            )
         },
     )
 
@@ -235,10 +236,10 @@ def test_claude_harness_errors_on_unset_mcp_env_var(monkeypatch, tmp_path) -> No
             isolated_home=str(home),
             extra_path=[],
             mcp_servers={
-                "echo": {
-                    "command": "python3",
-                    "args": [],
-                    "env": {"API_TOKEN": "${MCP_API_TOKEN}"},
-                }
+                "echo": McpServer(
+                    command="python3",
+                    args=[],
+                    env={"API_TOKEN": "${MCP_API_TOKEN}"},
+                )
             },
         )

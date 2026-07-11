@@ -279,7 +279,7 @@ def _run_attempt(
             extra_path=resolved_extra_path,
             # Declared MCP servers are the agent's tool environment for the
             # eval; the backend materializes them. ``None`` when none declared.
-            mcp_servers={n: s.model_dump() for n, s in spec.mcp.items()} or None,
+            mcp_servers=dict(spec.mcp) or None,
         )
         if attempt_result.resolved_model:
             resolved_models.append(attempt_result.resolved_model)

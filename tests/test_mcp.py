@@ -176,5 +176,5 @@ def test_guard_allows_mcp_spec_on_supporting_backend(tmp_path) -> None:
         workers=1,
         timeout=30,
     )
-    # The runner threads the declared servers (as plain dicts) to the backend.
-    assert harness.seen == {"echo": {"command": "python3", "args": ["s.py"], "env": {}}}
+    # The runner threads the declared McpServer models straight to the backend.
+    assert harness.seen == {"echo": McpServer(command="python3", args=["s.py"])}
