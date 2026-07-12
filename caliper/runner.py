@@ -28,7 +28,7 @@ from caliper.schema.results import (
     TaskResult,
 )
 from caliper.schema.spec import DEFAULT_BACKEND, EvalSpec, TaskSpec, spec_name
-from caliper.scoring import aggregate_scores, pass_at_k
+from caliper.scoring import aggregate_scores, score_outcomes
 
 _FAIL_FAST_OUTCOMES = {Outcome.INFRA_ERROR, Outcome.TIMEOUT}
 
@@ -156,8 +156,7 @@ def run(
     task_results_without.sort(key=lambda r: r.task_id)
 
     pass_counts_with = {
-        r.task_id: (r.task_name, r.successes, len(r.attempts) - r.unusable, k)
-        for r in task_results_with
+        r.task_id: (r.task_name, r.successes, r.usable, k) for r in task_results_with
     }
     agg_with = aggregate_scores(pass_counts_with)
 
@@ -234,16 +233,14 @@ def _run_task(
         ):
             break
 
-    successes = sum(1 for a in attempts if a.outcome == Outcome.PASS)
-    usable = sum(1 for a in attempts if a.outcome.is_usable)
-    unusable = len(attempts) - usable
+    scores = score_outcomes(a.outcome for a in attempts)
     result = TaskResult(
         task_id=task.id,
         task_name=task.name,
         attempts=attempts,
-        successes=successes,
-        unusable=unusable,
-        pass_at_k=pass_at_k(successes, usable) if usable > 0 else None,
+        successes=scores.successes,
+        unusable=scores.unusable,
+        pass_at_k=scores.pass_at_k,
     )
     if on_task_done and len(attempts) < k:
         on_task_done(result)

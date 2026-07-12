@@ -130,15 +130,19 @@ class TaskResult(BaseModel):
     def score(self) -> float | None:
         """The **raw success rate** over usable attempts — Caliper's primary
         metric. ``None`` when no attempt was fairly measured."""
-        return self.successes / self.usable if self.usable > 0 else None
+        # Deferred import: caliper.scoring imports this module, and the formulas
+        # deliberately live there — the one place the usable denominator is set.
+        from caliper.scoring import success_rate
+
+        return success_rate(self.successes, self.usable)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def pass_hat_k(self) -> float | None:
         """pass^k: P(all usable attempts pass) — the strict consistency view."""
-        if self.usable <= 0:
-            return None
-        return (self.successes / self.usable) ** self.usable
+        from caliper.scoring import pass_hat_k
+
+        return pass_hat_k(self.successes, self.usable)
 
 
 class UsageTotals(BaseModel):

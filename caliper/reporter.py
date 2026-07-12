@@ -499,15 +499,11 @@ def _score_cell(tc: TaskComparison) -> Text:
 def _alt_metric_cell(tc: TaskComparison, metric: str) -> Text:
     """`x% → y%` for a secondary metric (pass@k / pass^k), derived from the stored
     per-attempt outcomes so no extra fields are needed on the model."""
-    from caliper.scoring import pass_at_k, pass_hat_k
-
-    fn = pass_at_k if metric == "pass_at_k" else pass_hat_k
+    from caliper.scoring import score_outcomes
 
     def val(outcomes: list[Outcome]) -> float | None:
-        usable = sum(1 for o in outcomes if o.is_usable)
-        if usable == 0:
-            return None
-        return fn(sum(1 for o in outcomes if o == Outcome.PASS), usable)
+        # score_outcomes owns the usable-denominator rule; render its result.
+        return getattr(score_outcomes(outcomes), metric)
 
     cell = Text()
     cell.append(_fmt_score(val(tc.a_outcomes)))
