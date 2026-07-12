@@ -15,7 +15,7 @@ from caliper.harness.base import (
     ProcessResult,
     RunContext,
 )
-from caliper.harness.mcp import interpolate
+from caliper.harness.mcp import resolve_servers
 from caliper.schema.results import TokenUsage
 
 
@@ -120,42 +120,21 @@ class ClaudeCodeHarness(CliHarness):
     def _materialize_mcp_config(self, ctx: RunContext) -> Path | None:
         """Write the declared MCP servers into ``.caliper-mcp.json`` for the run.
 
-        Both transports are emitted in Claude Code's ``mcpServers`` shape: a stdio
-        server as ``{command, args?, env?}``; a remote server as
-        ``{type, url, headers?}``. ``${VAR}`` references (in stdio ``env``, remote
-        ``headers``, and a remote ``url``) are resolved here, from the real parent
-        ``os.environ`` — the only point where secrets enter the run, and never
-        into the committed spec. An unset var is a configuration error, surfaced
-        at this boundary rather than as an opaque failure at connect time.
+        Both transports are emitted in Claude Code's ``mcpServers`` shape: the
+        common rendering from ``resolve_servers`` (which already interpolated
+        every ``${VAR}`` at the harness boundary), plus Claude Code's one
+        spelling difference — a remote server names its transport explicitly via
+        ``type``. The file may hold resolved secrets, so it lives in the 0700
+        run tempdir and is kept ``0600``.
         """
         if not ctx.mcp_servers:
             return None
 
         servers: dict[str, dict] = {}
-        for name, server in ctx.mcp_servers.items():
-            if server.is_remote:
-                entry: dict = {
-                    "type": server.type,
-                    "url": interpolate(server.url, server_name=name, field_label="url"),
-                }
-                headers = {
-                    key: interpolate(
-                        value, server_name=name, field_label=f"headers.{key}"
-                    )
-                    for key, value in server.headers.items()
-                }
-                if headers:
-                    entry["headers"] = headers
-            else:
-                env = {
-                    key: interpolate(value, server_name=name, field_label=f"env.{key}")
-                    for key, value in server.env.items()
-                }
-                entry = {"command": server.command}
-                if server.args:
-                    entry["args"] = server.args
-                if env:
-                    entry["env"] = env
+        for name, resolved in resolve_servers(ctx.mcp_servers).items():
+            entry = resolved.entry()
+            if resolved.is_remote:
+                entry = {"type": resolved.type, **entry}
             servers[name] = entry
 
         config_path = Path(ctx.isolated_home) / ".caliper-mcp.json"

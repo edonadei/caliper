@@ -17,7 +17,7 @@ from caliper.harness.base import (
     ProcessResult,
     RunContext,
 )
-from caliper.harness.mcp import interpolate
+from caliper.harness.mcp import resolve_servers
 from caliper.schema.results import TokenUsage
 
 CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
@@ -320,38 +320,20 @@ class CodexHarness(CliHarness):
     def _translate_mcp_servers(self, ctx: RunContext) -> dict[str, dict]:
         """Translate the declared ``mcp:`` servers into codex's ``mcp_servers`` shape.
 
-        A stdio server becomes ``{command, args?, env?}``; a remote server becomes
-        ``{url, http_headers?}`` (codex infers its one streamable-HTTP transport
-        from ``url``, so caliper's ``type`` is dropped, and remote ``OAuth`` — which
-        caliper's spec cannot express — is out of reach). ``${VAR}`` references in
-        ``env``/``headers``/``url`` are resolved from the host env at this boundary
-        into literal values — never the committed spec, never the child env — so an
-        unset var fails loudly here rather than opaquely at connect time.
+        The common rendering from ``resolve_servers`` (every ``${VAR}`` already
+        interpolated at the harness boundary), plus codex's one spelling
+        difference: a remote server's ``headers`` map is written as
+        ``http_headers`` — static literal values, per
+        docs/adr/0011-codex-remote-mcp-uses-static-http-headers-not-env-indirection.md.
+        Codex infers its one streamable-HTTP transport from ``url``, so caliper's
+        ``type`` is dropped (remote OAuth — which caliper's spec cannot express —
+        is out of reach).
         """
         servers: dict[str, dict] = {}
-        for name, server in (ctx.mcp_servers or {}).items():
-            if server.is_remote:
-                entry: dict = {
-                    "url": interpolate(server.url, server_name=name, field_label="url")
-                }
-                headers = {
-                    key: interpolate(
-                        value, server_name=name, field_label=f"headers.{key}"
-                    )
-                    for key, value in server.headers.items()
-                }
-                if headers:
-                    entry["http_headers"] = headers
-            else:
-                entry = {"command": server.command}
-                if server.args:
-                    entry["args"] = list(server.args)
-                env = {
-                    key: interpolate(value, server_name=name, field_label=f"env.{key}")
-                    for key, value in server.env.items()
-                }
-                if env:
-                    entry["env"] = env
+        for name, resolved in resolve_servers(ctx.mcp_servers).items():
+            entry = resolved.entry()
+            if "headers" in entry:
+                entry["http_headers"] = entry.pop("headers")
             servers[name] = entry
         return servers
 
