@@ -405,6 +405,24 @@ def _fmt_score(score: float | None) -> str:
     return _RULE if score is None else f"{score * 100:.1f}%"
 
 
+# Width of the widest score string ("100.0%"). The two operands of a `before →
+# after` cell are padded to this so the arrows form a clean vertical column and
+# the before/after values align across rows — the before-value left-aligned, the
+# after-value right-aligned (a missing "—" then sits at the right, under the
+# after column). A rate never exceeds 1.0, so 6 always fits.
+_SCORE_W = len("100.0%")
+
+
+def _score_pair(left: str, right: str, left_style: str, right_style: str) -> Text:
+    """`left → right` with each side padded into a fixed sub-column so a stack of
+    these cells aligns on the arrow and on both value columns."""
+    cell = Text()
+    cell.append(left.ljust(_SCORE_W), style=left_style)
+    cell.append(f" {_TO} ", style="dim")
+    cell.append(right.rjust(_SCORE_W), style=right_style)
+    return cell
+
+
 def _outcome_strip(outcomes: list[Outcome]) -> Text:
     strip = Text()
     for oc in outcomes:
@@ -458,7 +476,9 @@ def print_comparison(comp: RunComparison, verbose: bool = False) -> None:
         box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False
     )
     table.add_column("Task")
-    table.add_column("success", justify="right")
+    # Cells are fixed-width `before → after` pairs (see _score_pair), so they
+    # already align internally; centering just sits the label over the block.
+    table.add_column("success", justify="center")
     table.add_column(f"{_delta_symbol()}", justify="right")
     if verbose:
         table.add_column("pass@k", justify="center", style="dim")
@@ -489,11 +509,12 @@ def _score_cell(tc: TaskComparison) -> Text:
     after = "dim"
     if not unmeasured:
         after = "green" if tc.b_score > tc.a_score else "red" if tc.regression else ""
-    cell = Text()
-    cell.append(_fmt_score(tc.a_score), style="dim" if unmeasured else "")
-    cell.append(f" {_TO} ", style="dim")
-    cell.append(_fmt_score(tc.b_score), style=after)
-    return cell
+    return _score_pair(
+        _fmt_score(tc.a_score),
+        _fmt_score(tc.b_score),
+        "dim" if unmeasured else "",
+        after,
+    )
 
 
 def _alt_metric_cell(tc: TaskComparison, metric: str) -> Text:
@@ -505,11 +526,9 @@ def _alt_metric_cell(tc: TaskComparison, metric: str) -> Text:
         # score_outcomes owns the usable-denominator rule; render its result.
         return getattr(score_outcomes(outcomes), metric)
 
-    cell = Text()
-    cell.append(_fmt_score(val(tc.a_outcomes)))
-    cell.append(f" {_TO} ")
-    cell.append(_fmt_score(val(tc.b_outcomes)))
-    return cell
+    return _score_pair(
+        _fmt_score(val(tc.a_outcomes)), _fmt_score(val(tc.b_outcomes)), "", ""
+    )
 
 
 def _attempts_cell(tc: TaskComparison) -> Text:
