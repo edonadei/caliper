@@ -233,6 +233,28 @@ class PiHarness(CliHarness):
             return configured
         return shutil.which("pi")
 
+    # --- bare prompt call (the judge's half of the seam) -------------------
+
+    def _prompt_command(
+        self, prompt: str, model: str | None, extras: dict
+    ) -> tuple[list[str], str | None, Callable[[], None] | None]:
+        pi = self._pi_command()
+        if not pi:
+            raise HarnessConfigurationError("pi CLI not found")
+
+        cmd = [pi, "--print", "--mode", "json", "--no-session", "--approve"]
+        if model:
+            cmd += ["--model", model]
+        cmd.append(prompt)
+        # stdin None → the template closes it (DEVNULL): in --print mode pi
+        # otherwise blocks reading stdin and hangs until timeout.
+        return cmd, None, None
+
+    def _prompt_text(self, proc: ProcessResult) -> str:
+        # The answer is the last assistant message of pi's JSON event stream —
+        # the same stream _parse_stream already reads for attempt runs.
+        return self._parse_stream(proc.stdout)[1]
+
     def _copy_pi_config(self, isolated_home: str) -> Path:
         agent_dir = Path(isolated_home) / ".pi" / "agent"
         real_agent_dir = Path.home() / ".pi" / "agent"

@@ -8,6 +8,7 @@ from caliper.harness.base import (
     HarnessBackend,
     HarnessConfigurationError,
 )
+from caliper.harness.mcp import resolve_servers
 from caliper.judge.base import Judge, JudgeResult
 from caliper.runner import run
 from caliper.schema.spec import EvalSpec, McpServer, SkillConfig, TaskSpec
@@ -155,6 +156,78 @@ def test_mcp_rejects_missing_command() -> None:
                 "tasks": [{"name": "t", "prompt": "p", "expect": "e"}],
             }
         )
+
+
+# --- shared resolution (harness/mcp.py) ------------------------------------
+
+
+def test_resolve_servers_interpolates_stdio_env(monkeypatch) -> None:
+    monkeypatch.setenv("MCP_API_TOKEN", "sk-secret")
+    declared = {
+        "weather": McpServer(
+            command="python3", args=["server.py"], env={"API_TOKEN": "${MCP_API_TOKEN}"}
+        )
+    }
+
+    resolved = resolve_servers(declared)["weather"]
+
+    assert not resolved.is_remote
+    assert resolved.command == "python3"
+    assert resolved.args == ["server.py"]
+    assert resolved.env == {"API_TOKEN": "sk-secret"}
+    assert resolved.entry() == {
+        "command": "python3",
+        "args": ["server.py"],
+        "env": {"API_TOKEN": "sk-secret"},
+    }
+
+
+def test_resolve_servers_interpolates_remote_url_and_headers(monkeypatch) -> None:
+    monkeypatch.setenv("GDRIVE_TOKEN", "tok-123")
+    monkeypatch.setenv("GDRIVE_HOST", "mcp.example.com")
+    declared = {
+        "gdrive": McpServer(
+            type="sse",
+            url="https://${GDRIVE_HOST}/gdrive",
+            headers={"Authorization": "Bearer ${GDRIVE_TOKEN}"},
+        )
+    }
+
+    resolved = resolve_servers(declared)["gdrive"]
+
+    assert resolved.is_remote
+    assert resolved.type == "sse"
+    assert resolved.entry() == {
+        "url": "https://mcp.example.com/gdrive",
+        "headers": {"Authorization": "Bearer tok-123"},
+    }
+
+
+def test_resolve_servers_entry_omits_empty_optionals() -> None:
+    declared = {
+        "bare": McpServer(command="python3"),
+        "remote": McpServer(type="http", url="https://x/mcp"),
+    }
+
+    entries = {name: r.entry() for name, r in resolve_servers(declared).items()}
+
+    assert entries["bare"] == {"command": "python3"}
+    assert entries["remote"] == {"url": "https://x/mcp"}
+
+
+def test_resolve_servers_unset_var_fails_at_the_boundary(monkeypatch) -> None:
+    monkeypatch.delenv("MCP_MISSING_TOKEN", raising=False)
+    declared = {
+        "weather": McpServer(command="python3", env={"TOKEN": "${MCP_MISSING_TOKEN}"})
+    }
+
+    with pytest.raises(HarnessConfigurationError, match="MCP_MISSING_TOKEN"):
+        resolve_servers(declared)
+
+
+def test_resolve_servers_handles_no_declaration() -> None:
+    assert resolve_servers(None) == {}
+    assert resolve_servers({}) == {}
 
 
 # --- run-seam capability guard --------------------------------------------

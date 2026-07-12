@@ -6,9 +6,10 @@ import sys
 import tempfile
 from pathlib import Path
 
+from caliper.harness import get_harness
 from caliper.harness.base import ConversationTurn
 from caliper.judge.base import Judge, JudgeResult
-from caliper.schema.spec import DEFAULT_BACKEND, normalize_backend, TaskSpec
+from caliper.schema.spec import DEFAULT_BACKEND, TaskSpec
 
 _SYSTEM = """\
 You are an evaluation judge for an AI assistant. You will be shown a conversation \
@@ -42,6 +43,14 @@ _USER_TMPL = """\
 
 Evaluate the transcript. Respond with JSON.
 """
+
+
+def _strip_markdown_fence(raw: str) -> str:
+    raw = raw.strip()
+    if not raw.startswith("```"):
+        return raw
+    lines = raw.splitlines()
+    return "\n".join(line for line in lines if not line.startswith("```")).strip()
 
 
 def _format_transcript(turns: list[ConversationTurn]) -> str:
@@ -194,42 +203,24 @@ class EvalJudge(Judge):
     def _llm_evaluate(
         self, task: TaskSpec, transcript: list[ConversationTurn], spec_dir: str
     ) -> tuple[bool, str, bool, str | None]:
-        match normalize_backend(self._backend):
-            case "codex":
-                from caliper.judge.codex_judge import evaluate_with_codex
+        # An autorater is one bare prompt through a CLI agent — the same
+        # backend adapters that run attempts also answer the judge, via the
+        # ``run_prompt`` half of the backend seam.
+        try:
+            harness = get_harness(self._backend, self._model)
+        except ValueError:
+            return False, f"Unknown judge backend: {self._backend!r}", True, None
 
-                return evaluate_with_codex(
-                    expect=task.expect,
-                    transcript=transcript,
-                    model=self._model,
-                    cwd=spec_dir,
-                )
-            case "claude-code":
-                from caliper.judge.claude_code_judge import evaluate_with_claude_code
+        user_msg = _USER_TMPL.format(
+            expect=task.expect,
+            transcript=_format_transcript(transcript),
+        )
+        prompt = f"{_SYSTEM}\n\n{user_msg}"
 
-                return evaluate_with_claude_code(
-                    expect=task.expect,
-                    transcript=transcript,
-                    model=self._model,
-                    spec_dir=spec_dir,
-                )
-            case "pi":
-                from caliper.judge.pi_judge import evaluate_with_pi
-
-                return evaluate_with_pi(
-                    expect=task.expect,
-                    transcript=transcript,
-                    model=self._model,
-                    spec_dir=spec_dir,
-                )
-            case "hermes":
-                from caliper.judge.hermes_judge import evaluate_with_hermes
-
-                return evaluate_with_hermes(
-                    expect=task.expect,
-                    transcript=transcript,
-                    model=self._model,
-                    spec_dir=spec_dir,
-                )
-            case _:
-                return False, f"Unknown judge backend: {self._backend!r}", True, None
+        result = harness.run_prompt(prompt, cwd=spec_dir, timeout=60)
+        if result.error:
+            return False, result.error, True, result.resolved_model
+        passed, reasoning, errored = _parse_rich_response(
+            _strip_markdown_fence(result.text), spec_dir
+        )
+        return passed, reasoning, errored, result.resolved_model

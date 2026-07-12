@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Callable
 
@@ -15,9 +16,10 @@ from caliper.harness.base import (
     CliHarness,
     HarnessConfigurationError,
     ProcessResult,
+    PromptResult,
     RunContext,
 )
-from caliper.harness.mcp import interpolate
+from caliper.harness.mcp import resolve_servers
 from caliper.schema.results import TokenUsage
 
 CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
@@ -270,6 +272,58 @@ class CodexHarness(CliHarness):
             return str(CODEX_APP_CLI)
         return shutil.which("codex")
 
+    # --- bare prompt call (the judge's half of the seam) -------------------
+
+    def _prompt_command(
+        self, prompt: str, model: str | None, extras: dict
+    ) -> tuple[list[str], str | None, Callable[[], None] | None]:
+        codex = self._codex_command()
+        if not codex:
+            raise HarnessConfigurationError("codex CLI not found")
+
+        # `--output-last-message` writes the final answer to a file, which is
+        # the only clean channel: codex's stdout is a noisy session log. The
+        # file outlives the process so _prompt_output can read it; it is
+        # deleted there, not via the post-exec cleanup hook.
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as output_file:
+            extras["output_path"] = output_file.name
+
+        cmd = [
+            codex,
+            "exec",
+            "--skip-git-repo-check",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--color",
+            "never",
+            "--output-last-message",
+            extras["output_path"],
+            "-",
+        ]
+        if model:
+            cmd[2:2] = ["--model", model]
+        return cmd, prompt, None
+
+    def _prompt_output(
+        self, proc: ProcessResult, model: str | None, extras: dict
+    ) -> PromptResult:
+        output_path = Path(extras["output_path"])
+        try:
+            raw = output_path.read_text().strip() if output_path.exists() else ""
+        finally:
+            output_path.unlink(missing_ok=True)
+
+        raw = raw or proc.stdout.strip()
+        if proc.returncode != 0:
+            detail = _extract_codex_error(proc.stderr) or _extract_codex_error(raw)
+            return PromptResult(
+                text=raw,
+                resolved_model=model,
+                error=detail or f"codex judge exited {proc.returncode}",
+            )
+        # Codex doesn't surface the resolved model in this mode, so we can only
+        # report the one that was requested (None when its own default ran).
+        return PromptResult(text=raw, resolved_model=model, error=None)
+
     def _copy_codex_config(self, ctx: RunContext) -> None:
         codex_home = Path(ctx.isolated_home) / ".codex"
         real_codex_home = Path.home() / ".codex"
@@ -320,38 +374,20 @@ class CodexHarness(CliHarness):
     def _translate_mcp_servers(self, ctx: RunContext) -> dict[str, dict]:
         """Translate the declared ``mcp:`` servers into codex's ``mcp_servers`` shape.
 
-        A stdio server becomes ``{command, args?, env?}``; a remote server becomes
-        ``{url, http_headers?}`` (codex infers its one streamable-HTTP transport
-        from ``url``, so caliper's ``type`` is dropped, and remote ``OAuth`` — which
-        caliper's spec cannot express — is out of reach). ``${VAR}`` references in
-        ``env``/``headers``/``url`` are resolved from the host env at this boundary
-        into literal values — never the committed spec, never the child env — so an
-        unset var fails loudly here rather than opaquely at connect time.
+        The common rendering from ``resolve_servers`` (every ``${VAR}`` already
+        interpolated at the harness boundary), plus codex's one spelling
+        difference: a remote server's ``headers`` map is written as
+        ``http_headers`` — static literal values, per
+        docs/adr/0011-codex-remote-mcp-uses-static-http-headers-not-env-indirection.md.
+        Codex infers its one streamable-HTTP transport from ``url``, so caliper's
+        ``type`` is dropped (remote OAuth — which caliper's spec cannot express —
+        is out of reach).
         """
         servers: dict[str, dict] = {}
-        for name, server in (ctx.mcp_servers or {}).items():
-            if server.is_remote:
-                entry: dict = {
-                    "url": interpolate(server.url, server_name=name, field_label="url")
-                }
-                headers = {
-                    key: interpolate(
-                        value, server_name=name, field_label=f"headers.{key}"
-                    )
-                    for key, value in server.headers.items()
-                }
-                if headers:
-                    entry["http_headers"] = headers
-            else:
-                entry = {"command": server.command}
-                if server.args:
-                    entry["args"] = list(server.args)
-                env = {
-                    key: interpolate(value, server_name=name, field_label=f"env.{key}")
-                    for key, value in server.env.items()
-                }
-                if env:
-                    entry["env"] = env
+        for name, resolved in resolve_servers(ctx.mcp_servers).items():
+            entry = resolved.entry()
+            if "headers" in entry:
+                entry["http_headers"] = entry.pop("headers")
             servers[name] = entry
         return servers
 
@@ -473,3 +509,33 @@ class CodexHarness(CliHarness):
         if useful:
             return "\n  ".join(useful[:5])
         return text[:500]
+
+
+def _extract_codex_error(output: str) -> str | None:
+    """Pull a readable failure message out of codex's noisy CLI output."""
+    for line in reversed(output.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("ERROR:"):
+            candidate = line.removeprefix("ERROR:").strip()
+            message = _error_message_from_json(candidate)
+            return f"codex judge failed: {message or candidate}"
+        message = _error_message_from_json(line)
+        if message:
+            return f"codex judge failed: {message}"
+    return None
+
+
+def _error_message_from_json(candidate: str) -> str | None:
+    try:
+        payload = json.loads(candidate)
+    except json.JSONDecodeError:
+        return None
+
+    error = payload.get("error")
+    if isinstance(error, dict):
+        message = error.get("message")
+        if isinstance(message, str) and message:
+            return message
+    return None

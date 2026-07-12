@@ -16,7 +16,7 @@ from caliper.harness.base import (
     ProcessResult,
     RunContext,
 )
-from caliper.harness.mcp import interpolate
+from caliper.harness.mcp import resolve_servers
 from caliper.schema.results import TokenUsage
 
 # Config files copied verbatim into the isolated HERMES_HOME so the agent can
@@ -118,39 +118,18 @@ class HermesHarness(CliHarness):
     def _translate_mcp_servers(self, ctx: RunContext) -> dict[str, dict]:
         """Translate the declared ``mcp:`` servers into Hermes' ``mcp_servers`` shape.
 
-        A stdio server becomes ``{command, args?, env?}``; a remote server becomes
-        ``{url, headers?}`` (Hermes infers the HTTP/SSE transport from the URL, so
-        caliper's ``type`` is dropped). Remote ``OAuth`` is unreachable here — it
+        Hermes takes the common rendering from ``resolve_servers`` unchanged
+        (every ``${VAR}`` already interpolated at the harness boundary): a stdio
+        server as ``{command, args?, env?}``, a remote server as
+        ``{url, headers?}`` — Hermes infers the HTTP/SSE transport from the URL,
+        so caliper's ``type`` is dropped. Remote OAuth is unreachable here — it
         needs an interactive browser flow the harness cannot drive — so only
-        header-auth remotes are expressible, via the ``headers`` map. ``${VAR}``
-        references in ``env``/``headers``/``url`` are resolved from the host env.
+        header-auth remotes are expressible, via the ``headers`` map.
         """
-        servers: dict[str, dict] = {}
-        for name, server in (ctx.mcp_servers or {}).items():
-            if server.is_remote:
-                entry: dict = {
-                    "url": interpolate(server.url, server_name=name, field_label="url")
-                }
-                headers = {
-                    key: interpolate(
-                        value, server_name=name, field_label=f"headers.{key}"
-                    )
-                    for key, value in server.headers.items()
-                }
-                if headers:
-                    entry["headers"] = headers
-            else:
-                entry = {"command": server.command}
-                if server.args:
-                    entry["args"] = list(server.args)
-                env = {
-                    key: interpolate(value, server_name=name, field_label=f"env.{key}")
-                    for key, value in server.env.items()
-                }
-                if env:
-                    entry["env"] = env
-            servers[name] = entry
-        return servers
+        return {
+            name: resolved.entry()
+            for name, resolved in resolve_servers(ctx.mcp_servers).items()
+        }
 
     def _stage_skill(self, ctx: RunContext, hermes_home: Path) -> str | None:
         """Copy the already-staged skill into ``HERMES_HOME/skills/<name>``.
@@ -241,6 +220,24 @@ class HermesHarness(CliHarness):
         if configured and Path(configured).exists():
             return configured
         return shutil.which("hermes")
+
+    # --- bare prompt call (the judge's half of the seam) -------------------
+
+    def _prompt_command(
+        self, prompt: str, model: str | None, extras: dict
+    ) -> tuple[list[str], str | None, Callable[[], None] | None]:
+        hermes = self._hermes_command()
+        if not hermes:
+            raise HarnessConfigurationError("hermes CLI not found")
+
+        # A bare prompt is a single call: `hermes -z` prints only the final
+        # response text. --ignore-rules keeps persona/memory out of the answer;
+        # unlike an attempt run there is no isolated HERMES_HOME — the call
+        # deliberately reuses the developer's real ~/.hermes.
+        cmd = [hermes, "-z", prompt, "--ignore-rules"]
+        if model:
+            cmd[2:2] = ["--model", model]
+        return cmd, None, None
 
     def _parse_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:
         """Parse a `hermes sessions export` record into turns.

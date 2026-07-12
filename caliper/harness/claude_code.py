@@ -13,9 +13,10 @@ from caliper.harness.base import (
     ConversationTurn,
     CliHarness,
     ProcessResult,
+    PromptResult,
     RunContext,
 )
-from caliper.harness.mcp import interpolate
+from caliper.harness.mcp import resolve_servers
 from caliper.schema.results import TokenUsage
 
 
@@ -120,42 +121,21 @@ class ClaudeCodeHarness(CliHarness):
     def _materialize_mcp_config(self, ctx: RunContext) -> Path | None:
         """Write the declared MCP servers into ``.caliper-mcp.json`` for the run.
 
-        Both transports are emitted in Claude Code's ``mcpServers`` shape: a stdio
-        server as ``{command, args?, env?}``; a remote server as
-        ``{type, url, headers?}``. ``${VAR}`` references (in stdio ``env``, remote
-        ``headers``, and a remote ``url``) are resolved here, from the real parent
-        ``os.environ`` — the only point where secrets enter the run, and never
-        into the committed spec. An unset var is a configuration error, surfaced
-        at this boundary rather than as an opaque failure at connect time.
+        Both transports are emitted in Claude Code's ``mcpServers`` shape: the
+        common rendering from ``resolve_servers`` (which already interpolated
+        every ``${VAR}`` at the harness boundary), plus Claude Code's one
+        spelling difference — a remote server names its transport explicitly via
+        ``type``. The file may hold resolved secrets, so it lives in the 0700
+        run tempdir and is kept ``0600``.
         """
         if not ctx.mcp_servers:
             return None
 
         servers: dict[str, dict] = {}
-        for name, server in ctx.mcp_servers.items():
-            if server.is_remote:
-                entry: dict = {
-                    "type": server.type,
-                    "url": interpolate(server.url, server_name=name, field_label="url"),
-                }
-                headers = {
-                    key: interpolate(
-                        value, server_name=name, field_label=f"headers.{key}"
-                    )
-                    for key, value in server.headers.items()
-                }
-                if headers:
-                    entry["headers"] = headers
-            else:
-                env = {
-                    key: interpolate(value, server_name=name, field_label=f"env.{key}")
-                    for key, value in server.env.items()
-                }
-                entry = {"command": server.command}
-                if server.args:
-                    entry["args"] = server.args
-                if env:
-                    entry["env"] = env
+        for name, resolved in resolve_servers(ctx.mcp_servers).items():
+            entry = resolved.entry()
+            if resolved.is_remote:
+                entry = {"type": resolved.type, **entry}
             servers[name] = entry
 
         config_path = Path(ctx.isolated_home) / ".caliper-mcp.json"
@@ -246,6 +226,33 @@ class ClaudeCodeHarness(CliHarness):
         if proc.returncode != 0 and not final_output:
             return proc.stderr or None
         return None
+
+    # --- bare prompt call (the judge's half of the seam) -------------------
+
+    def _prompt_command(
+        self, prompt: str, model: str | None, extras: dict
+    ) -> tuple[list[str], str | None, Callable[[], None] | None]:
+        # JSON output (over plain text) so we can read the *concrete* model
+        # Claude used — the answer lives in `.result`, the model in `.modelUsage`.
+        cmd = ["claude", "-p", prompt, "--output-format", "json"]
+        if model:
+            cmd += ["--model", model]
+        return cmd, None, None
+
+    def _prompt_environment(self) -> dict[str, str]:
+        env = dict(os.environ)
+        nvm_bin = preferred_nvm_node_bin()
+        if nvm_bin:
+            env["PATH"] = nvm_bin + os.pathsep + env.get("PATH", "")
+        return env
+
+    def _prompt_output(
+        self, proc: ProcessResult, model: str | None, extras: dict
+    ) -> PromptResult:
+        # No returncode gate on purpose: a failed call yields empty/garbage text,
+        # which the caller's verdict parse reports as an unusable response.
+        text, resolved = _extract_verdict_and_model(proc.stdout, model)
+        return PromptResult(text=text, resolved_model=resolved, error=None)
 
     def _looks_like_cli_startup_crash(self, text: str, lowered: str) -> bool:
         return (
@@ -433,3 +440,28 @@ class ClaudeCodeHarness(CliHarness):
                     break
 
         return transcript, final_output
+
+
+def _extract_verdict_and_model(
+    stdout: str, requested_model: str | None
+) -> tuple[str, str | None]:
+    """Pull the answer text and concrete model from Claude's JSON envelope.
+
+    Falls back to treating stdout as the raw answer (and the requested model)
+    if the envelope is missing or unparseable, so a CLI change can't break the
+    caller outright.
+    """
+    stripped = stdout.strip()
+    try:
+        envelope = json.loads(stripped)
+    except json.JSONDecodeError:
+        return stripped, requested_model
+    if not isinstance(envelope, dict):
+        return stripped, requested_model
+
+    verdict = str(envelope.get("result", "")).strip() or stripped
+    model_usage = envelope.get("modelUsage")
+    resolved = None
+    if isinstance(model_usage, dict) and model_usage:
+        resolved = next(iter(model_usage))
+    return verdict, resolved or requested_model
