@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
-"""Render the README's `caliper compare` example outputs to SVG.
+"""Render the README's sample terminal outputs to SVG.
 
 The README shows sample terminal output. Hand-drawn ASCII-box tables drift out
 of alignment in any renderer that draws the ambiguous-width glyphs (✓ ✗ ⊘ → Δ)
 wider than one cell, which is font-dependent — so the same block looks broken on
 some screens and fine on others. Instead we render the *real* reporter output
-(caliper.reporter.print_comparison) into a recording rich Console and export it
-as SVG: a vector image that looks like a terminal and is pixel-identical
-everywhere, because it no longer depends on the reader's font.
+(caliper.reporter.print_results / print_comparison) into a recording rich Console
+and export it as SVG: a vector image that looks like a terminal and is
+pixel-identical everywhere, because it no longer depends on the reader's font.
 
 These SVGs are committed and embedded in README.md. Regenerate them whenever the
-compare view changes:
+run or compare views change:
 
     python docs/render_readme_samples.py
 
-The two comparisons below are illustrative fixtures, not real runs; they exist
-only to reproduce the numbers the README prose explains. Keep them in sync with
-that prose.
+The fixtures below are illustrative, not real runs; they exist only to reproduce
+the numbers the README prose explains. Keep them in sync with that prose.
 """
 
 from __future__ import annotations
@@ -28,11 +27,18 @@ from pathlib import Path
 from rich.console import Console
 
 import caliper.reporter as reporter
-from caliper.reporter import print_comparison
+from caliper.reporter import print_comparison, print_results
 from caliper.schema.results import (
+    AggregateScore,
+    AttemptRecord,
     Outcome,
     RunComparison,
     RunMeta,
+    RunResults,
+    SkillSnapshot,
+    TaskResult,
+    TaskScore,
+    TokenUsage,
     UsageTotals,
 )
 
@@ -155,13 +161,99 @@ def _compare_example() -> RunComparison:
     )
 
 
-def _render(comp: RunComparison, out_name: str, title: str) -> Path:
+def _att(
+    attempt: int,
+    outcome: Outcome,
+    seconds: float,
+    tokens: TokenUsage,
+    output: str,
+    assert_evidence: str | None = None,
+) -> AttemptRecord:
+    return AttemptRecord(
+        attempt=attempt,
+        output=output,
+        duration_seconds=seconds,
+        outcome=outcome,
+        usage=tokens,
+        assert_passed=None if assert_evidence is None else outcome is P,
+        assert_evidence=assert_evidence,
+    )
+
+
+def _run_example() -> RunResults:
+    """A single `caliper run … --k 3` of the two tasks in the README's spec: a
+    clean-passing autorater task and a script-assertion task that fails once (so
+    the report shows a PASS row, a PARTIAL row, and the failure panel that
+    explains *why*). Token/wall figures are chosen to sum to the summary line."""
+    run = RunMeta(
+        spec="my-skill",
+        timestamp=datetime(2026, 6, 19, 14, 23, 0),
+        k=3,
+        backend="claude-code",
+        judge_backend="claude-code",
+    )
+    # 26_000 in + 350 out per attempt → 79K over three; 9s each → 27s.
+    commit_usage = TokenUsage(input_tokens=26_000, output_tokens=350)
+    commit = TaskResult(
+        task_id="writes-a-conventional-commit-message",
+        task_name="Writes a conventional commit message",
+        attempts=[
+            _att(i, P, 9.0, commit_usage, "feat(auth): add token refresh\n\n…")
+            for i in (1, 2, 3)
+        ],
+        successes=3,
+        unusable=0,
+        pass_at_k=1.0,
+    )
+    # 27_000 in + 350 out per attempt → 82K over three; 11s each → 33s.
+    config_usage = TokenUsage(input_tokens=27_000, output_tokens=350)
+    config = TaskResult(
+        task_id="generates-a-valid-config-file",
+        task_name="Generates a valid config file",
+        attempts=[
+            _att(1, P, 11.0, config_usage, "Wrote /tmp/app.config.json"),
+            _att(2, P, 11.0, config_usage, "Wrote /tmp/app.config.json"),
+            _att(
+                3,
+                F,
+                11.0,
+                config_usage,
+                "Wrote /tmp/app.config.json",
+                assert_evidence="AssertionError: data['port'] == 8080 (got 3000)",
+            ),
+        ],
+        successes=2,
+        unusable=0,
+        pass_at_k=1.0,
+    )
+    task_results = [commit, config]
+    return RunResults(
+        run=run,
+        skill_snapshot=SkillSnapshot(path="./SKILL.md"),
+        task_results=task_results,
+        aggregate=AggregateScore(
+            avg_score=sum(tr.score for tr in task_results) / len(task_results),
+            per_task=[
+                TaskScore(
+                    task_id=tr.task_id,
+                    task_name=tr.task_name,
+                    k=run.k,
+                    successes=tr.successes,
+                    score=tr.score,
+                )
+                for tr in task_results
+            ],
+        ),
+    )
+
+
+def _record_svg(render, out_name: str, title: str) -> Path:
     """Drive the real reporter into a recording console and export SVG."""
     rec = Console(record=True, width=_WIDTH, file=io.StringIO())
     original = reporter.console
     reporter.console = rec
     try:
-        print_comparison(comp)
+        render()
     finally:
         reporter.console = original
     _ASSETS.mkdir(parents=True, exist_ok=True)
@@ -172,8 +264,21 @@ def _render(comp: RunComparison, out_name: str, title: str) -> Path:
 
 def main() -> None:
     for path in (
-        _render(_baseline_example(), "compare-baseline.svg", "caliper compare"),
-        _render(_compare_example(), "compare-runs.svg", "caliper compare"),
+        _record_svg(
+            lambda: print_comparison(_baseline_example()),
+            "compare-baseline.svg",
+            "caliper compare",
+        ),
+        _record_svg(
+            lambda: print_comparison(_compare_example()),
+            "compare-runs.svg",
+            "caliper compare",
+        ),
+        _record_svg(
+            lambda: print_results(_run_example()),
+            "run-output.svg",
+            "caliper run",
+        ),
     ):
         print(f"wrote {path}")
 
