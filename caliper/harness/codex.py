@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Callable
 
@@ -15,6 +16,7 @@ from caliper.harness.base import (
     CliHarness,
     HarnessConfigurationError,
     ProcessResult,
+    PromptResult,
     RunContext,
 )
 from caliper.harness.mcp import interpolate
@@ -270,6 +272,58 @@ class CodexHarness(CliHarness):
             return str(CODEX_APP_CLI)
         return shutil.which("codex")
 
+    # --- bare prompt call (the judge's half of the seam) -------------------
+
+    def _prompt_command(
+        self, prompt: str, model: str | None, extras: dict
+    ) -> tuple[list[str], str | None, Callable[[], None] | None]:
+        codex = self._codex_command()
+        if not codex:
+            raise HarnessConfigurationError("codex CLI not found")
+
+        # `--output-last-message` writes the final answer to a file, which is
+        # the only clean channel: codex's stdout is a noisy session log. The
+        # file outlives the process so _prompt_output can read it; it is
+        # deleted there, not via the post-exec cleanup hook.
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as output_file:
+            extras["output_path"] = output_file.name
+
+        cmd = [
+            codex,
+            "exec",
+            "--skip-git-repo-check",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--color",
+            "never",
+            "--output-last-message",
+            extras["output_path"],
+            "-",
+        ]
+        if model:
+            cmd[2:2] = ["--model", model]
+        return cmd, prompt, None
+
+    def _prompt_output(
+        self, proc: ProcessResult, model: str | None, extras: dict
+    ) -> PromptResult:
+        output_path = Path(extras["output_path"])
+        try:
+            raw = output_path.read_text().strip() if output_path.exists() else ""
+        finally:
+            output_path.unlink(missing_ok=True)
+
+        raw = raw or proc.stdout.strip()
+        if proc.returncode != 0:
+            detail = _extract_codex_error(proc.stderr) or _extract_codex_error(raw)
+            return PromptResult(
+                text=raw,
+                resolved_model=model,
+                error=detail or f"codex judge exited {proc.returncode}",
+            )
+        # Codex doesn't surface the resolved model in this mode, so we can only
+        # report the one that was requested (None when its own default ran).
+        return PromptResult(text=raw, resolved_model=model, error=None)
+
     def _copy_codex_config(self, ctx: RunContext) -> None:
         codex_home = Path(ctx.isolated_home) / ".codex"
         real_codex_home = Path.home() / ".codex"
@@ -473,3 +527,33 @@ class CodexHarness(CliHarness):
         if useful:
             return "\n  ".join(useful[:5])
         return text[:500]
+
+
+def _extract_codex_error(output: str) -> str | None:
+    """Pull a readable failure message out of codex's noisy CLI output."""
+    for line in reversed(output.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("ERROR:"):
+            candidate = line.removeprefix("ERROR:").strip()
+            message = _error_message_from_json(candidate)
+            return f"codex judge failed: {message or candidate}"
+        message = _error_message_from_json(line)
+        if message:
+            return f"codex judge failed: {message}"
+    return None
+
+
+def _error_message_from_json(candidate: str) -> str | None:
+    try:
+        payload = json.loads(candidate)
+    except json.JSONDecodeError:
+        return None
+
+    error = payload.get("error")
+    if isinstance(error, dict):
+        message = error.get("message")
+        if isinstance(message, str) and message:
+            return message
+    return None
