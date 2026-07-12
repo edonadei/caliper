@@ -20,21 +20,11 @@ caliper run commit-commands.eval.yaml --k 3 --baseline
 
 You write a spec — a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you. With `--baseline`, Caliper runs each task with and without the skill and diffs the two runs task by task:
 
-```text
-─────────────────── CALIPER  —  compare  —  commit-commands ────────────────────
-    no skill → with skill   ·   k=3
+<!-- Terminal output of `caliper compare`, rendered to SVG so the box-drawing
+     table stays aligned on every screen. Regenerate with:
+       python docs/render_readme_samples.py -->
+![caliper compare, no skill vs with skill on commit-commands: both tasks go 33.3% to 100.0% (+66.7%); tokens 290K to 180K, wall 1m 1s to 42s](docs/assets/compare-baseline.svg)
 
-╭───────────────────────┬─────────────────┬────────┬───────────╮
-│ Task                  │         success │      Δ │ attempts  │
-├───────────────────────┼─────────────────┼────────┼───────────┤
-│ Commits a new feature │  33.3% → 100.0% │ +66.7% │ ✓✗✗ → ✓✓✓ │
-│ Commits a bug fix     │  33.3% → 100.0% │ +66.7% │ ✗✓✗ → ✓✓✓ │
-╰───────────────────────┴─────────────────┴────────┴───────────╯
-
- Overall  33.3% → 100.0%   Δ (matched) +66.7% ↑
- Tokens  290K → 180K   Δ -38% (-110K)
- Wall    1m 1s → 42s   Δ -31% (-19s)
-```
 ---
 
 Agent skills are hard to test. A skill that works on your machine, on this prompt, today, might fail tomorrow after a model update or a one-line prompt edit. Caliper makes reliability measurable: define what success looks like, run the skill repeatedly, and get a success rate you can track over time.
@@ -495,25 +485,10 @@ Each positional (`A`, `B`) is addressed exactly like `report`'s argument: a spec
 name (which resolves to its latest run) or a path to a results JSON. There are
 no `--run-a/-b` flags. To pin a historical run, name its JSON path.
 
-```
-──────────────────── CALIPER  —  compare  —  commit-simple ─────────────────────
-    2026-07-01T10-00-00Z (claude-code) → 2026-07-02T09-00-00Z (claude-code)   ·   k=5
-
-╭──────────────────┬─────────────────┬────────┬───────────────╮
-│ Task             │         success │      Δ │ attempts      │
-├──────────────────┼─────────────────┼────────┼───────────────┤
-│ commits cleanly  │ 100.0% → 100.0% │      — │ ✓✓✓✓✓ → ✓✓✓✓✓ │
-│ handles conflict │  100.0% → 20.0% │ -80.0% │ ✓✓✓✓✓ → ✓✗✗✗✗ │
-│ pushes upstream  │       80.0% → — │      — │ ✓✓✓✓✗ → ⊘⊘⊘⊘⊘ │
-╰──────────────────┴─────────────────┴────────┴───────────────╯
-
- Overall  100.0% → 60.0%   Δ (matched) -40.0% ↓
- Tokens  1.2M → 700K   Δ -42% (-500K)
- Wall    6m 18s → 3m 40s   Δ -42% (-2m 38s)
- ⚠ 1 regression: handles conflict
- ⊘ 1 unmeasured (excluded from Δ): pushes upstream
- unmatched — only in A: flaky task   only in B: new task
-```
+<!-- Terminal output of `caliper compare`, rendered to SVG so the box-drawing
+     table stays aligned on every screen. Regenerate with:
+       python docs/render_readme_samples.py -->
+![caliper compare of two commit-simple runs: commits cleanly holds at 100%, handles conflict regresses 100.0% to 20.0% (-80.0%), pushes upstream becomes unmeasured; 1 regression, 1 unmeasured, and unmatched tasks on each side](docs/assets/compare-runs.svg)
 
 How the diff reads:
 
