@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from caliper.harness.base import AttemptResult, HarnessBackend
+from caliper.harness.base import AttemptResult, ConversationTurn, HarnessBackend
 from caliper.judge.base import JudgeResult
 from caliper.runner import _stage_skill_directory, run
 from caliper.schema.results import Outcome
@@ -422,3 +422,67 @@ def test_runmeta_prefers_explicit_model_over_resolved(tmp_path) -> None:
     )
 
     assert results.run.model == "anthropic/claude-sonnet-4.6"
+
+
+class TranscriptHarness(HarnessBackend):
+    @property
+    def name(self) -> str:
+        return "transcript"
+
+    def run(
+        self,
+        task_id: str,
+        attempt: int,
+        prompt: str,
+        *,
+        skill_path: str | None,
+        model: str | None,
+        timeout: int,
+        isolated_home: str,
+        extra_path: list[str] | None = None,
+        mcp_servers: dict | None = None,
+    ) -> AttemptResult:
+        return AttemptResult(
+            task_id=task_id,
+            attempt=attempt,
+            transcript=[
+                ConversationTurn(role="assistant", content="calling tool"),
+                ConversationTurn(
+                    role="tool_use",
+                    content="[tool: mcp__wiki__read]",
+                    tool_name="mcp__wiki__read",
+                    tool_input={"page": "home"},
+                ),
+                ConversationTurn(
+                    role="tool_result",
+                    content="ok",
+                    tool_name="mcp__wiki__read",
+                    tool_output="ok",
+                ),
+            ],
+            final_output="done",
+            exit_code=0,
+            duration_seconds=0.2,
+        )
+
+
+def test_runner_persists_attempt_transcript(tmp_path) -> None:
+    spec_path = tmp_path / "transcript.eval.yaml"
+    spec_path.write_text("skill: {}\ntasks: []\n")
+
+    results = run(
+        spec=_one_task_spec(),
+        spec_path=spec_path,
+        harness=TranscriptHarness(),
+        judge=RecordingJudge(),
+        k=1,
+        workers=1,
+        timeout=30,
+    )
+
+    attempt = results.task_results[0].attempts[0]
+    assert attempt.transcript is not None
+    assert len(attempt.transcript) == 3
+    assert attempt.transcript[1].tool_name == "mcp__wiki__read"
+    assert attempt.transcript[1].tool_input == {"page": "home"}
+    assert attempt.transcript[2].tool_output == "ok"

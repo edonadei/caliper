@@ -577,6 +577,10 @@ them up per run:
   Those four are **disjoint**, so the computed `total_tokens` never
   double-counts. Wall-clock time comes from `duration_seconds`, which was already
   recorded.
+- Each `AttemptRecord` also carries an optional `transcript` array of ordered
+  turns (`role`, `content`, and tool `tool_name`/`tool_input`/`tool_output` when
+  present). This preserves the full tool-call trace in saved results for later
+  inspection; older JSON without the field still loads (`transcript` is `null`).
 - In the summary, **`in` = input + cache_read + cache_creation** and **`out` =
   output**. The **unusable** slice (timeout / infra / judge error) is broken out
   separately, so wasted spend stays visible without distorting the per-attempt

@@ -138,11 +138,12 @@ trajectory by running `hermes -z` then `hermes sessions export`.
 Results are saved automatically to `.caliper/results/<spec-name>/<timestamp>.json`
 alongside the spec file. Each result includes a full skill snapshot (content + git SHA
 of the skill file and any referenced scripts) for reproducibility. Each attempt
-records its `outcome` (see above), an optional `usage` block (token counts), and
-per-task results include an `unusable` count; a task with no usable attempts has
-`score: null`. When `--fail-fast N` stops a task early, that task may contain
-fewer than k attempt records. Run-level usage totals are **derived** at render
-time, not persisted — the saved JSON holds only per-attempt `usage`, while
+records its `outcome` (see above), an optional `usage` block (token counts), an
+optional `transcript` array (ordered turns with `tool_name`/`tool_input`/`tool_output`
+when present), and per-task results include an `unusable` count; a task with no usable
+attempts has `score: null`. When `--fail-fast N` stops a task early, that task may
+contain fewer than k attempt records. Run-level usage totals are **derived** at
+render time, not persisted — the saved JSON holds only per-attempt `usage`, while
 `report --format json` adds a computed `usage_totals` block.
 
 ## Designing good evals — full guidance

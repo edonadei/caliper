@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -26,6 +26,7 @@ from caliper.schema.results import (
     RunResults,
     SkillSnapshot,
     TaskResult,
+    TranscriptTurn,
 )
 from caliper.schema.spec import DEFAULT_BACKEND, EvalSpec, TaskSpec, spec_name
 from caliper.scoring import aggregate_scores, score_outcomes
@@ -247,6 +248,12 @@ def _run_task(
     return result
 
 
+def _persist_transcript(
+    turns: list[ConversationTurn],
+) -> list[TranscriptTurn]:
+    return [TranscriptTurn(**asdict(turn)) for turn in turns]
+
+
 def _run_attempt(
     task: TaskSpec,
     attempt: int,
@@ -306,6 +313,7 @@ def _run_attempt(
                     duration_seconds=attempt_result.duration_seconds,
                     outcome=pre_judge_outcome,
                     usage=attempt_result.usage,
+                    transcript=_persist_transcript(attempt_result.transcript),
                     assert_evidence=evidence,
                 ),
                 task,
@@ -322,6 +330,7 @@ def _run_attempt(
                     duration_seconds=attempt_result.duration_seconds,
                     outcome=outcome,
                     usage=attempt_result.usage,
+                    transcript=_persist_transcript(attempt_result.transcript),
                     cheat_evidence=cheat_violations,
                 ),
                 task,
@@ -345,6 +354,7 @@ def _run_attempt(
                 duration_seconds=attempt_result.duration_seconds,
                 outcome=outcome,
                 usage=attempt_result.usage,
+                transcript=_persist_transcript(attempt_result.transcript),
                 assert_passed=judge_result.assert_passed,
                 assert_evidence=judge_result.assert_evidence,
                 autorater_passed=judge_result.autorater_passed,
