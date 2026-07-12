@@ -137,8 +137,6 @@ def _run_assert_from_task(task: TaskSpec, spec_dir: str) -> tuple[bool, str] | N
 class EvalJudge(Judge):
     """Universal judge: runs the static assert script and/or calls an LLM to evaluate."""
 
-    strategy = "script"
-
     def __init__(
         self, backend: str = DEFAULT_BACKEND, model: str | None = None
     ) -> None:

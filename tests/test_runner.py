@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from caliper.harness.base import AttemptResult, HarnessBackend
-from caliper.judge.base import Judge, JudgeResult
+from caliper.judge.base import JudgeResult
 from caliper.runner import _stage_skill_directory, run
 from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, SkillConfig, TaskSpec
@@ -108,7 +108,7 @@ class MixedOutcomeHarness(HarnessBackend):
         )
 
 
-class RecordingJudge(Judge):
+class RecordingJudge:
     def __init__(self) -> None:
         self.calls = 0
 
@@ -117,7 +117,7 @@ class RecordingJudge(Judge):
         return JudgeResult(passed=True, reasoning="should not run")
 
 
-class JudgeErrorThenPass(Judge):
+class JudgeErrorThenPass:
     def __init__(self) -> None:
         self.calls = 0
 
@@ -350,7 +350,7 @@ class ResolvedModelHarness(HarnessBackend):
         )
 
 
-class ModelReportingJudge(Judge):
+class ModelReportingJudge:
     """A judge that reports the concrete model its autorater resolved."""
 
     def __init__(self, resolved_model: str) -> None:

@@ -9,7 +9,7 @@ from caliper.harness.base import (
     HarnessConfigurationError,
 )
 from caliper.harness.mcp import resolve_servers
-from caliper.judge.base import Judge, JudgeResult
+from caliper.judge.base import JudgeResult
 from caliper.runner import run
 from caliper.schema.spec import EvalSpec, McpServer, SkillConfig, TaskSpec
 
@@ -275,7 +275,7 @@ class _McpHarness(HarnessBackend):
         )
 
 
-class _PassJudge(Judge):
+class _PassJudge:
     def evaluate(self, task, transcript, final_output, spec_dir) -> JudgeResult:
         return JudgeResult(passed=True, reasoning="ok")
 
