@@ -11,7 +11,7 @@ def success_rate(successes: int, usable: int) -> float | None:
 
 def pass_at_k(successes: int, k: int) -> float:
     """P(at least one of k attempts passes) at the observed rate. A secondary,
-    retry-friendly view — see CONTEXT.md → Success rate."""
+    retry-friendly view — see docs/CONTEXT.md → Success rate."""
     if k == 0:
         return 0.0
     p = successes / k

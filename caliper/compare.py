@@ -3,7 +3,7 @@
 ``diff_runs(a, b)`` is the whole of ``caliper compare``'s logic; the CLI command
 and ``--format json`` are thin shells over it. ``diff_baseline`` reuses the exact
 same machinery for a ``--baseline`` run (no skill vs with skill), so there is one
-comparison path, not two. See CONTEXT.md (Run comparison, Task identity,
+comparison path, not two. See docs/CONTEXT.md (Run comparison, Task identity,
 Regression) for the domain terms.
 """
 
@@ -22,7 +22,7 @@ from caliper.schema.results import (
 def _group_by_name(tasks: list[TaskResult]) -> dict[str, list[TaskResult]]:
     """Tasks keyed by their stable identity, ``task_name``, preserving order.
 
-    ``task_id`` is only positional (see CONTEXT.md → Task identity), so it is not
+    ``task_id`` is only positional (see docs/CONTEXT.md → Task identity), so it is not
     an identity across runs; duplicate names are disambiguated positionally by
     the order they appear here.
     """

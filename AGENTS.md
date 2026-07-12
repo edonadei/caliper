@@ -1,5 +1,9 @@
 # Caliper — agent instructions
 
+> Contributor setup, formatting, and linting details live in
+> **`.github/CONTRIBUTING.md`** — GitHub's conventional location, not the repo
+> root. Read it there.
+
 ## Updating docs after API changes
 
 When any of the following change, update all three locations before marking the task done:
@@ -21,11 +25,22 @@ When any of the following change, update all three locations before marking the 
 `ruff==0.13.0`. Run `ruff format .` and `ruff check .` before finishing. Never
 hand-reformat lines outside the scope of your change — the formatter is the
 only style authority, and manual reflow inflates diffs. CI enforces
-`ruff format --check .` and `ruff check .` on every PR. See `CONTRIBUTING.md`
-for details.
+`ruff format --check .` and `ruff check .` on every PR. See
+`.github/CONTRIBUTING.md` for details.
 
-## Local-only decision docs (never commit)
+## Decision docs
 
-`CONTEXT.md` and everything under `docs/adr/` are local decision artifacts produced by grill-with-docs. They capture in-progress local decisions and must stay on the developer's machine — never stage, commit, or push them to the repo. Both are gitignored; do not remove them from `.gitignore`.
+This repo keeps its domain model and design decisions **in version control**:
 
-Because they are gitignored, **never reference them from committed code, comments, docstrings, or committed docs** — no `See docs/adr/0008-...md`, no `(ADR 0009)`, no `CONTEXT.md → ...`. Such a pointer dangles for anyone who clones the repo. Make the committed comment self-contained: state the reasoning inline instead of linking to the local-only doc.
+- `docs/CONTEXT.md` — the glossary / ubiquitous language. A glossary only: no
+  implementation details, no specs, no scratch notes. This is where the
+  grill-with-docs and domain-modeling skills read and write terms. In this repo
+  it lives at `docs/CONTEXT.md`, **not** the repo root — look there.
+- `docs/adr/` — Architecture Decision Records (`0001-*.md`, …), one short entry
+  per hard-to-reverse, non-obvious, real-trade-off decision.
+
+Both are committed and ship with the repo. **Reference them freely** from code
+comments, docstrings, and docs — e.g. `see docs/CONTEXT.md → Regression` or
+`docs/adr/0001-attempt-outcome-taxonomy.md`. Because the files clone with the
+repo, these links resolve for everyone. Prefer a short comment that links the
+record over re-explaining the decision inline.

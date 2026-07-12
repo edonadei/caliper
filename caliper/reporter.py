@@ -302,7 +302,7 @@ def _print_unusable_summary(results: RunResults) -> None:
 def _print_usage_summary(totals: UsageTotals) -> None:
     """The cost block for a single run: tokens + wall time as an aligned grid.
     (A --baseline run renders the skill-vs-no-skill token/wall delta through the
-    `compare` view instead.) Cost/latency is a first-class axis (CONTEXT.md → Run
+    `compare` view instead.) Cost/latency is a first-class axis (docs/CONTEXT.md → Run
     usage totals); dollar cost is deliberately out of scope."""
     if totals.attempts == 0:
         return
@@ -574,7 +574,7 @@ def _print_comparison_summary(comp: RunComparison) -> None:
 
 def _usage_delta(label: str, a_val: float, b_val: float, fmt) -> str:
     """One `label  x → y   Δ ±p% (±abs)` row. Green when the 'after' is cheaper (a
-    win), red when costlier — but this NEVER flips has_regression (CONTEXT.md →
+    win), red when costlier — but this NEVER flips has_regression (docs/CONTEXT.md →
     Regression). Dim when equal or there is no baseline to compute a percentage."""
     delta = b_val - a_val
     row = f" [bold]{label}[/bold]  {fmt(a_val)} {_TO} {fmt(b_val)}   {_delta_symbol()} "
@@ -591,7 +591,7 @@ def _usage_delta(label: str, a_val: float, b_val: float, fmt) -> str:
 
 def _print_comparison_usage(comp: RunComparison) -> None:
     """Token + wall-clock delta rows under the pass@k headline. Secondary signals:
-    a token/time drop is a win, not a regression — see CONTEXT.md → Regression."""
+    a token/time drop is a win, not a regression — see docs/CONTEXT.md → Regression."""
     a, b = comp.a_usage, comp.b_usage
     if a.tokens_reported and b.tokens_reported:
         console.print(

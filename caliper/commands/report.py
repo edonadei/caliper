@@ -39,7 +39,7 @@ def report_cmd(
 
     if fmt == "json":
         # Derive the run usage totals on the fly (never persisted on RunResults —
-        # see CONTEXT.md → Run usage totals); the saved file keeps only the raw
+        # see docs/CONTEXT.md → Run usage totals); the saved file keeps only the raw
         # per-attempt usage.
         data = results.model_dump(mode="json")
         data["usage_totals"] = UsageTotals.from_task_results(

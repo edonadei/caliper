@@ -11,7 +11,7 @@ class Outcome(str, Enum):
 
     Usable outcomes got a fair shot at the task and count toward pass@k;
     the unusable ones are infrastructure/judge noise and are excluded from
-    the denominator. See CONTEXT.md and docs/adr/0001-attempt-outcome-taxonomy.md.
+    the denominator. See docs/CONTEXT.md and docs/adr/0001-attempt-outcome-taxonomy.md.
     """
 
     PASS = "pass"
@@ -36,7 +36,7 @@ class TokenUsage(BaseModel):
     ``cache_read_tokens``/``cache_creation_tokens`` — so ``total_tokens`` (their
     sum) never double-counts. Backends are normalized into this contract (codex
     subtracts its cached tokens from ``input_tokens``). Dollar cost is deliberately
-    out of scope; see docs/adr/0006 and CONTEXT.md → Attempt usage.
+    out of scope; see docs/adr/0006 and docs/CONTEXT.md → Attempt usage.
     """
 
     input_tokens: int | None = None
@@ -145,7 +145,7 @@ class UsageTotals(BaseModel):
     """Run-level roll-up of per-attempt token usage + wall-clock time.
 
     Always **derived** from the attempt records (``from_task_results``), never
-    persisted on ``RunResults`` — see CONTEXT.md → Run usage totals. Every attempt
+    persisted on ``RunResults`` — see docs/CONTEXT.md → Run usage totals. Every attempt
     counts toward the totals (the tokens/time were really spent), and the
     unusable-attempt subset is tracked separately so wasted spend is visible
     without distorting the per-usable-attempt average. Used by both the single-run
@@ -301,7 +301,7 @@ class RunComparison(BaseModel):
     warnings: list[str]
     # Run usage totals per side (all tasks, not just matched). Token/wall deltas
     # are shown alongside pass@k but NEVER feed has_regression — a token drop is a
-    # win, not a failure (CONTEXT.md → Regression).
+    # win, not a failure (docs/CONTEXT.md → Regression).
     a_usage: UsageTotals
     b_usage: UsageTotals
 

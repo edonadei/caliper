@@ -9,6 +9,31 @@
 - improve result reporting and summaries
 - document common setup problems for Claude Code and Codex
 
+## Agent skills (recommended)
+
+This repo is built to be worked with [Matt Pocock's engineering
+skills](https://github.com/mattpocock/skills), and we **strongly recommend**
+using them. Install once with:
+
+```bash
+npx skills@latest add mattpocock/skills
+```
+
+Pick the skills and your coding agent, then run the `/setup-matt-pocock-skills`
+skill once to wire the pack into this repo. Re-run the same `add` command to
+update — the pack changes often, so treat its own docs as the source of truth
+rather than anything pinned here.
+
+The rough lifecycle the pack encourages: **grill** the plan first
+(`/grill-with-docs`), break it into tickets, build test-first (`/tdd`), and
+`/code-review` before committing. Don't over-index on the exact list; run
+`/find-skills` (or read the repo) for the current set.
+
+Why it matters here: by default the pack reads and writes `docs/CONTEXT.md`
+(the domain glossary) and `docs/adr/` (decision records) — both committed in
+this repo — so agents pick up durable domain context and design rationale
+instead of rediscovering it each session.
+
 ## Formatting and linting
 
 Caliper uses [**ruff**](https://docs.astral.sh/ruff/) as the single authority

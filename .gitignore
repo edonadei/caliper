@@ -10,7 +10,3 @@ venv/
 *.json
 !examples/*.json
 .env
-
-# Local-only grill-with-docs artifacts (decisions kept local, never committed)
-CONTEXT.md
-docs/adr/
