@@ -70,6 +70,16 @@ class SkillSnapshot(BaseModel):
     files: dict[str, FileSnapshot] = Field(default_factory=dict)
 
 
+class TranscriptTurn(BaseModel):
+    """One turn in an attempt's conversation, including tool calls when present."""
+
+    role: str
+    content: str
+    tool_name: str | None = None
+    tool_input: dict | None = None
+    tool_output: str | None = None
+
+
 class RunMeta(BaseModel):
     spec: str
     timestamp: datetime
@@ -90,6 +100,9 @@ class AttemptRecord(BaseModel):
     # Token accounting for this attempt, when the backend reports it. Optional so
     # results saved before usage tracking still load (they render as "—").
     usage: TokenUsage | None = None
+    # Ordered conversation turns, including tool_use/tool_result when present.
+    # Optional so results saved before transcript persistence still load.
+    transcript: list[TranscriptTurn] | None = None
     cheat_evidence: list[str] = Field(default_factory=list)
     assert_passed: bool | None = None
     assert_evidence: str | None = None

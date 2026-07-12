@@ -150,3 +150,12 @@ If the skill under test needs MCP tools, declare them in a top-level `mcp:` bloc
 The skill engine (`--model`) and judge engine (`--judge-model`) are chosen independently at run time. Every backend is a CLI agent; for API billing, configure a CLI with an API key rather than selecting a separate backend.
 
 `hermes` is a stateful agent (persistent memory + persona), so Caliper strips it to a neutral agent per attempt — isolated `HERMES_HOME`, no `SOUL.md`/`MEMORY.md`, `--ignore-rules`, skill-under-test staged as the only local skill — and recovers the full trajectory via `hermes sessions export` after the `hermes -z` run.
+
+## Results storage
+
+Results are saved automatically to `.caliper/results/<spec-name>/<timestamp>.json`
+alongside the spec file. Each attempt records its `outcome`, optional `usage`, and
+optional `transcript` (ordered turns with `tool_name`/`tool_input`/`tool_output` when present)
+so saved runs remain inspectable after the fact — including which MCP tools fired.
+Older JSON without `transcript` still loads (`null`). `report` and `compare` do not
+render the transcript; it is stored for later analysis.
