@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tomllib
 
 import pytest
 
-from caliper.harness.base import HarnessConfigurationError
+from caliper.harness.base import HarnessConfigurationError, RunContext
 from caliper.harness.codex import CodexHarness
+from caliper.schema.spec import McpServer
 
 
 def test_codex_cli_receives_injected_skill_on_stdin(monkeypatch, tmp_path) -> None:
@@ -239,7 +241,18 @@ def test_codex_config_copy_strips_top_level_model(monkeypatch, tmp_path) -> None
     isolated_home = tmp_path / "isolated"
     monkeypatch.setattr("caliper.harness.codex.Path.home", lambda: real_home)
 
-    CodexHarness()._copy_codex_config(str(isolated_home))
+    ctx = RunContext(
+        task_id="task-001",
+        attempt=1,
+        prompt="Hello",
+        skill_path=None,
+        model=None,
+        timeout=12,
+        isolated_home=str(isolated_home),
+        extra_path=[],
+        mcp_servers=None,
+    )
+    CodexHarness()._copy_codex_config(ctx)
 
     copied = (isolated_home / ".codex" / "config.toml").read_text()
     assert 'model = "gpt-5.5"' not in copied
@@ -314,3 +327,217 @@ def test_codex_fails_clearly_when_cli_requires_newer_version(
     assert "requested model" in message
     assert "upgrade the Codex app or CLI" in message
     assert "Hello" not in message
+
+
+_AMBIENT_CONFIG = (
+    'model = "gpt-5"\n'
+    'approval_policy = "never"\n'
+    "\n"
+    "[mcp_servers.personal]\n"
+    'command = "my-private-server"\n'
+    "\n"
+    "[mcp_servers.personal.env]\n"
+    'TOKEN = "abc"\n'
+    "\n"
+    "[history]\n"
+    'persistence = "none"\n'
+)
+
+
+def _fake_codex_home(tmp_path, config_text: str | None):
+    """A fake ~/.codex with auth and (optionally) a config carrying user MCP state."""
+    real = tmp_path / "realhome" / ".codex"
+    real.mkdir(parents=True)
+    (real / "auth.json").write_text("{}")
+    if config_text is not None:
+        (real / "config.toml").write_text(config_text)
+    return tmp_path / "realhome"
+
+
+def _run_codex_mcp(monkeypatch, tmp_path, mcp_servers, *, home=None):
+    """Seed an attempt with declared mcp_servers; return the seeded config.toml path."""
+    home = home if home is not None else _fake_codex_home(tmp_path, _AMBIENT_CONFIG)
+    iso = tmp_path / "iso"
+    iso.mkdir()
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1:] == ["--version"]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="codex-cli 0.142.0\n", stderr=""
+            )
+        return subprocess.CompletedProcess(cmd, 0, stdout="OK\n", stderr="")
+
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("CODEX_CLI_PATH", raising=False)
+    monkeypatch.setattr("caliper.harness.codex.shutil.which", lambda _n: "codex")
+    monkeypatch.setattr(
+        "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
+    )
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+
+    CodexHarness().run(
+        task_id="task-001",
+        attempt=1,
+        prompt="Hello",
+        skill_path=None,
+        model=None,
+        timeout=30,
+        isolated_home=str(iso),
+        mcp_servers=mcp_servers,
+    )
+    return iso / ".codex" / "config.toml"
+
+
+def test_codex_supports_mcp() -> None:
+    assert CodexHarness.supports_mcp is True
+
+
+def test_codex_translates_stdio_and_strips_ambient_servers(
+    monkeypatch, tmp_path
+) -> None:
+    seeded = _run_codex_mcp(
+        monkeypatch,
+        tmp_path,
+        {
+            "echo": McpServer(
+                command="python3", args=["/tmp/echo.py"], env={"DEBUG": "1"}
+            )
+        },
+    )
+    config = tomllib.loads(seeded.read_text())
+    # The declared server replaces the user's ambient `personal` server wholesale.
+    assert config["mcp_servers"] == {
+        "echo": {"command": "python3", "args": ["/tmp/echo.py"], "env": {"DEBUG": "1"}}
+    }
+    assert "personal" not in config["mcp_servers"]
+    # Non-MCP config survives the strip, but the top-level model pin is dropped.
+    assert config["approval_policy"] == "never"
+    assert config["history"] == {"persistence": "none"}
+    assert "model" not in config
+
+
+def test_codex_translates_remote_header_auth_and_interpolates(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("MCP_TOKEN", "s3cr3t")
+    seeded = _run_codex_mcp(
+        monkeypatch,
+        tmp_path,
+        {
+            "gdrive": McpServer(
+                type="http",
+                url="https://mcp.example.com/gdrive",
+                headers={"Authorization": "Bearer ${MCP_TOKEN}"},
+            )
+        },
+    )
+    config = tomllib.loads(seeded.read_text())
+    # Remote becomes {url, http_headers} (no `transport`, which codex infers from
+    # url); the secret is resolved at the boundary so a literal token lands here.
+    assert config["mcp_servers"] == {
+        "gdrive": {
+            "url": "https://mcp.example.com/gdrive",
+            "http_headers": {"Authorization": "Bearer s3cr3t"},
+        }
+    }
+
+
+def test_codex_removes_ambient_servers_when_spec_declares_none(
+    monkeypatch, tmp_path
+) -> None:
+    seeded = _run_codex_mcp(monkeypatch, tmp_path, None)
+    config = tomllib.loads(seeded.read_text())
+    # A no-MCP eval must not inherit the user's personal servers, but keeps the rest.
+    assert "mcp_servers" not in config
+    assert config["approval_policy"] == "never"
+
+
+def test_codex_writes_config_when_user_has_none(monkeypatch, tmp_path) -> None:
+    home = _fake_codex_home(tmp_path, None)  # auth.json only, no config.toml
+    seeded = _run_codex_mcp(
+        monkeypatch, tmp_path, {"echo": McpServer(command="python3")}, home=home
+    )
+    config = tomllib.loads(seeded.read_text())
+    assert config["mcp_servers"] == {"echo": {"command": "python3"}}
+
+
+def test_codex_errors_on_unset_mcp_env_var(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("MCP_TOKEN", raising=False)
+    with pytest.raises(HarnessConfigurationError, match="MCP_TOKEN"):
+        _run_codex_mcp(
+            monkeypatch,
+            tmp_path,
+            {
+                "gdrive": McpServer(
+                    type="http",
+                    url="https://mcp.example.com/gdrive",
+                    headers={"Authorization": "Bearer ${MCP_TOKEN}"},
+                )
+            },
+        )
+
+
+def test_codex_secret_config_is_locked_down(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MCP_TOKEN", "s3cr3t")
+    seeded = _run_codex_mcp(
+        monkeypatch,
+        tmp_path,
+        {
+            "gdrive": McpServer(
+                type="http",
+                url="https://mcp.example.com/gdrive",
+                headers={"Authorization": "Bearer ${MCP_TOKEN}"},
+            )
+        },
+    )
+    # The config now holds a resolved secret, so it must not be world/group-readable.
+    assert (seeded.stat().st_mode & 0o077) == 0
+
+
+def test_codex_parses_mcp_tool_call_as_doubled_underscore_name() -> None:
+    # The exact event shape codex exec --json emits for an MCP tool call: an
+    # item.started then item.completed of type mcp_tool_call carrying server/tool
+    # and a structured `result`. Only the completed item is turned into turns.
+    stream = "\n".join(
+        [
+            json.dumps({"item": {"type": "agent_message", "text": "looking it up"}}),
+            json.dumps(
+                {
+                    "type": "item.started",
+                    "item": {
+                        "type": "mcp_tool_call",
+                        "server": "echo",
+                        "tool": "secret_word",
+                        "arguments": {},
+                        "result": None,
+                        "status": "in_progress",
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "type": "mcp_tool_call",
+                        "server": "echo",
+                        "tool": "secret_word",
+                        "arguments": {},
+                        "result": {
+                            "content": [{"type": "text", "text": "caliper"}],
+                            "structured_content": None,
+                        },
+                        "error": None,
+                        "status": "completed",
+                    },
+                }
+            ),
+            json.dumps({"item": {"type": "agent_message", "text": "done"}}),
+        ]
+    )
+    transcript, final = CodexHarness()._parse_stream(stream)
+    tool_names = [t.tool_name for t in transcript if t.role == "tool_use"]
+    # The in-progress item.started must not produce a second, duplicate turn.
+    assert tool_names.count("mcp__echo__secret_word") == 1
+    outputs = [t.tool_output for t in transcript if t.role == "tool_result"]
+    assert any("caliper" in (o or "") for o in outputs)
+    assert final == "done"
