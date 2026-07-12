@@ -405,9 +405,31 @@ def _fmt_score(score: float | None) -> str:
     return _RULE if score is None else f"{score * 100:.1f}%"
 
 
+# Width of the widest score string ("100.0%"). The two operands of a `before →
+# after` cell are padded to this so the arrows form a clean vertical column and
+# the before/after values align across rows — the before-value left-aligned, the
+# after-value right-aligned (a missing "—" then sits at the right, under the
+# after column). A rate never exceeds 1.0, so 6 always fits.
+_SCORE_W = len("100.0%")
+
+
+def _score_pair(left: str, right: str, left_style: str, right_style: str) -> Text:
+    """`left → right` with each side padded into a fixed sub-column so a stack of
+    these cells aligns on the arrow and on both value columns."""
+    cell = Text()
+    cell.append(left.ljust(_SCORE_W), style=left_style)
+    cell.append(f" {_TO} ", style="dim")
+    cell.append(right.rjust(_SCORE_W), style=right_style)
+    return cell
+
+
 def _outcome_strip(outcomes: list[Outcome]) -> Text:
+    # A space between glyphs so a symbol drawn wider than its one-cell slot
+    # (notably ⊘) can't collide with its neighbour, and the strip stays legible.
     strip = Text()
-    for oc in outcomes:
+    for i, oc in enumerate(outcomes):
+        if i:
+            strip.append(" ")
         glyph, style = _OUTCOME_STYLE.get(oc, (_CROSS, "red"))
         strip.append(glyph, style=style)
     return strip
@@ -458,12 +480,14 @@ def print_comparison(comp: RunComparison, verbose: bool = False) -> None:
         box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False
     )
     table.add_column("Task")
-    table.add_column("success", justify="right")
-    table.add_column(f"{_delta_symbol()}", justify="right")
+    # Cells are fixed-width `before → after` pairs (see _score_pair), so they
+    # already align internally; centering just sits the label over the block.
+    table.add_column("success", justify="center")
+    table.add_column(f"{_delta_symbol()}", justify="center")
     if verbose:
         table.add_column("pass@k", justify="center", style="dim")
         table.add_column("pass^k", justify="center", style="dim")
-    table.add_column("attempts")
+    table.add_column("attempts", justify="center")
 
     for tc in comp.matched:
         unmeasured = tc.a_score is None or tc.b_score is None
@@ -489,11 +513,12 @@ def _score_cell(tc: TaskComparison) -> Text:
     after = "dim"
     if not unmeasured:
         after = "green" if tc.b_score > tc.a_score else "red" if tc.regression else ""
-    cell = Text()
-    cell.append(_fmt_score(tc.a_score), style="dim" if unmeasured else "")
-    cell.append(f" {_TO} ", style="dim")
-    cell.append(_fmt_score(tc.b_score), style=after)
-    return cell
+    return _score_pair(
+        _fmt_score(tc.a_score),
+        _fmt_score(tc.b_score),
+        "dim" if unmeasured else "",
+        after,
+    )
 
 
 def _alt_metric_cell(tc: TaskComparison, metric: str) -> Text:
@@ -505,11 +530,9 @@ def _alt_metric_cell(tc: TaskComparison, metric: str) -> Text:
         # score_outcomes owns the usable-denominator rule; render its result.
         return getattr(score_outcomes(outcomes), metric)
 
-    cell = Text()
-    cell.append(_fmt_score(val(tc.a_outcomes)))
-    cell.append(f" {_TO} ")
-    cell.append(_fmt_score(val(tc.b_outcomes)))
-    return cell
+    return _score_pair(
+        _fmt_score(val(tc.a_outcomes)), _fmt_score(val(tc.b_outcomes)), "", ""
+    )
 
 
 def _attempts_cell(tc: TaskComparison) -> Text:
@@ -524,20 +547,59 @@ def _delta_symbol() -> str:
     return "Δ" if _UNICODE else "delta"
 
 
+def _usage_cells(a_val: float, b_val: float, fmt) -> tuple[str, str, str]:
+    """The (before, after, `Δ …`) markup for one usage row. Green when the 'after'
+    is cheaper (a win), red when costlier — but this NEVER flips has_regression
+    (docs/CONTEXT.md → Regression). Dim when equal or there is no baseline to
+    compute a percentage."""
+    delta = b_val - a_val
+    before, after = fmt(a_val), fmt(b_val)
+    if delta == 0:
+        note = f"[dim]{_RULE}[/dim]"
+    else:
+        color = "green" if delta < 0 else "red"
+        sign = "+" if delta > 0 else "-"
+        abs_part = fmt(abs(delta))
+        if a_val > 0:
+            note = f"[{color}]{sign}{abs(delta / a_val * 100):.0f}% ({sign}{abs_part})[/{color}]"
+        else:
+            note = f"[{color}]{sign}{abs_part}[/{color}]"
+    return before, after, f"{_delta_symbol()} {note}"
+
+
 def _print_comparison_summary(comp: RunComparison) -> None:
     delta = comp.aggregate_delta
     arrow = _UP if delta >= 0 else _DOWN
     sign = "+" if delta >= 0 else ""
     color = "green" if delta >= 0 else "red"
     after = "green" if delta > 0 else "red" if delta < 0 else "cyan"
-    console.print(
-        f" [bold]Overall[/bold]  [cyan]{comp.a_matched_avg * 100:.1f}%[/cyan] {_TO} "
-        f"[{after}]{comp.b_matched_avg * 100:.1f}%[/{after}]   "
-        f"[bold]{_delta_symbol()} (matched)[/bold] "
-        f"[{color}]{sign}{delta * 100:.1f}%[/{color}] {arrow}"
-    )
 
-    _print_comparison_usage(comp)
+    # One aligned grid so the metric labels, the `before → after` transition, and
+    # the Δ notes each line up in a column instead of drifting with value length.
+    _to = f"[dim]{_TO}[/dim]"
+    grid = Table.grid(padding=(0, 1))
+    grid.add_column(style="bold")  # metric label (leading space = indent)
+    grid.add_column(justify="right")  # before
+    grid.add_column()  # arrow
+    grid.add_column(justify="left")  # after
+    grid.add_column()  # Δ note
+    grid.add_row(
+        " Overall",
+        f"[cyan]{comp.a_matched_avg * 100:.1f}%[/cyan]",
+        _to,
+        f"[{after}]{comp.b_matched_avg * 100:.1f}%[/{after}]",
+        f"[bold]{_delta_symbol()} (matched)[/bold] "
+        f"[{color}]{sign}{delta * 100:.1f}%[/{color}] {arrow}",
+    )
+    a, b = comp.a_usage, comp.b_usage
+    if a.tokens_reported and b.tokens_reported:
+        tb, ta, td = _usage_cells(
+            a.total_tokens, b.total_tokens, lambda n: _fmt_tokens(int(n))
+        )
+        grid.add_row(" Tokens", tb, _to, ta, td)
+    wb, wa, wd = _usage_cells(a.wall_seconds, b.wall_seconds, _fmt_duration)
+    grid.add_row(" Wall", wb, _to, wa, wd)
+    console.print(grid)
 
     regressions = [tc.task_name for tc in comp.matched if tc.regression]
     if regressions:
@@ -566,36 +628,6 @@ def _print_comparison_summary(comp: RunComparison) -> None:
             f"only in {b_name}: {only_b}[/dim]"
         )
     console.print()
-
-
-def _usage_delta(label: str, a_val: float, b_val: float, fmt) -> str:
-    """One `label  x → y   Δ ±p% (±abs)` row. Green when the 'after' is cheaper (a
-    win), red when costlier — but this NEVER flips has_regression (docs/CONTEXT.md →
-    Regression). Dim when equal or there is no baseline to compute a percentage."""
-    delta = b_val - a_val
-    row = f" [bold]{label}[/bold]  {fmt(a_val)} {_TO} {fmt(b_val)}   {_delta_symbol()} "
-    if delta == 0:
-        return row + f"[dim]{_RULE}[/dim]"
-    color = "green" if delta < 0 else "red"
-    sign = "+" if delta > 0 else "-"
-    abs_part = fmt(abs(delta))
-    if a_val > 0:
-        pct = delta / a_val * 100
-        return row + f"[{color}]{sign}{abs(pct):.0f}% ({sign}{abs_part})[/{color}]"
-    return row + f"[{color}]{sign}{abs_part}[/{color}]"
-
-
-def _print_comparison_usage(comp: RunComparison) -> None:
-    """Token + wall-clock delta rows under the pass@k headline. Secondary signals:
-    a token/time drop is a win, not a regression — see docs/CONTEXT.md → Regression."""
-    a, b = comp.a_usage, comp.b_usage
-    if a.tokens_reported and b.tokens_reported:
-        console.print(
-            _usage_delta(
-                "Tokens", a.total_tokens, b.total_tokens, lambda n: _fmt_tokens(int(n))
-            )
-        )
-    console.print(_usage_delta("Wall  ", a.wall_seconds, b.wall_seconds, _fmt_duration))
 
 
 def results_to_json(results: RunResults) -> str:
