@@ -89,12 +89,28 @@ class ProcessResult:
         return self.stderr or None
 
 
-class HarnessBackend(ABC):
-    """The narrow seam the runner depends on: run one attempt, report a name.
+@dataclass
+class PromptResult:
+    """The outcome of running one bare prompt through a CLI agent.
 
-    Deliberately small — a test double or a future non-CLI backend only has to
-    satisfy these two members. The shared CLI-agent lifecycle lives in
-    :class:`CliHarness`, not here.
+    The judge's half of the backend seam: ``text`` is the agent's final answer,
+    ``resolved_model`` the concrete model when the backend can report it (else
+    the requested one, ``None`` on an unobserved CLI default), and ``error`` a
+    human-readable reason when no answer was produced at all.
+    """
+
+    text: str
+    resolved_model: str | None = None
+    error: str | None = None
+
+
+class HarnessBackend(ABC):
+    """The narrow seam the runner and judge depend on.
+
+    Two capabilities: run one eval attempt (``run``), and run one bare prompt
+    for an autorater-style call (``run_prompt``). Deliberately small — a test
+    double or a future non-CLI backend only has to satisfy these members. The
+    shared CLI-agent lifecycle lives in :class:`CliHarness`, not here.
     """
 
     @property
@@ -131,6 +147,25 @@ class HarnessBackend(ABC):
         extra_path: list[str] | None = None,
         mcp_servers: dict[str, McpServer] | None = None,
     ) -> AttemptResult: ...
+
+    def run_prompt(
+        self,
+        prompt: str,
+        *,
+        model: str | None = None,
+        cwd: str,
+        timeout: int = 60,
+    ) -> PromptResult:
+        """Run one bare prompt through the agent and return its final text.
+
+        Default: unsupported. :class:`CliHarness` provides the real template;
+        a non-CLI backend that cannot answer a bare prompt inherits this.
+        """
+        return PromptResult(
+            text="",
+            resolved_model=model,
+            error=f"backend {self.name!r} cannot run a bare prompt",
+        )
 
 
 class CliHarness(HarnessBackend):
@@ -204,6 +239,50 @@ class CliHarness(HarnessBackend):
             resolved_model=self._resolved_model(proc, ctx),
             usage=self._safe_usage(proc, ctx),
         )
+
+    def run_prompt(
+        self,
+        prompt: str,
+        *,
+        model: str | None = None,
+        cwd: str,
+        timeout: int = 60,
+    ) -> PromptResult:
+        """Run one bare prompt through the CLI agent; the judge's template method.
+
+        Unlike ``run`` there is no isolated home, no skill staging, and no MCP:
+        the call runs in the caller's real environment (a judge deliberately
+        reuses the developer's own auth/config). A backend fills in the argv
+        (``_prompt_command``) and how to read the answer out of its output
+        (``_prompt_output``); spawning, timeout, and error normalization live
+        here.
+        """
+        model = model or self._model
+        extras: dict = {}
+        try:
+            cmd, stdin, cleanup = self._prompt_command(prompt, model, extras)
+        except HarnessConfigurationError as exc:
+            return PromptResult(text="", resolved_model=model, error=str(exc))
+
+        try:
+            proc = self._execute(
+                cmd,
+                env=self._prompt_environment(),
+                cwd=cwd,
+                timeout=timeout,
+                stdin=stdin,
+            )
+        finally:
+            if cleanup is not None:
+                cleanup()
+
+        if proc.timed_out:
+            return PromptResult(
+                text="",
+                resolved_model=model,
+                error=f"{self.name} prompt call timed out after {timeout}s",
+            )
+        return self._prompt_output(proc, model, extras)
 
     # --- hooks a backend implements ---------------------------------------
 
@@ -282,6 +361,40 @@ class CliHarness(HarnessBackend):
             return self._usage(proc, ctx)
         except Exception:
             return None
+
+    def _prompt_command(
+        self, prompt: str, model: str | None, extras: dict
+    ) -> tuple[list[str], str | None, Callable[[], None] | None]:
+        """Return ``(argv, stdin_payload, cleanup)`` for a bare prompt call.
+
+        Raise ``HarnessConfigurationError`` when the CLI is missing. ``extras``
+        is scratch state shared with ``_prompt_output`` (e.g. an output-file
+        path the command writes and the output hook reads).
+        """
+        raise NotImplementedError(f"{self.name} does not implement _prompt_command")
+
+    def _prompt_environment(self) -> dict[str, str]:
+        """The env for a bare prompt call. Default: the caller's real environment."""
+        return dict(os.environ)
+
+    def _prompt_output(
+        self, proc: ProcessResult, model: str | None, extras: dict
+    ) -> PromptResult:
+        """Read the agent's final answer out of a finished prompt call."""
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout).strip()
+            return PromptResult(
+                text="",
+                resolved_model=model,
+                error=f"{self.name} judge exited {proc.returncode}: {detail[:200]}",
+            )
+        return PromptResult(
+            text=self._prompt_text(proc), resolved_model=model, error=None
+        )
+
+    def _prompt_text(self, proc: ProcessResult) -> str:
+        """The final answer text on a clean exit. Default: raw stdout."""
+        return proc.stdout.strip()
 
     # --- shared machinery -------------------------------------------------
 

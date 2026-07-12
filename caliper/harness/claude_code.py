@@ -13,6 +13,7 @@ from caliper.harness.base import (
     ConversationTurn,
     CliHarness,
     ProcessResult,
+    PromptResult,
     RunContext,
 )
 from caliper.harness.mcp import resolve_servers
@@ -226,6 +227,33 @@ class ClaudeCodeHarness(CliHarness):
             return proc.stderr or None
         return None
 
+    # --- bare prompt call (the judge's half of the seam) -------------------
+
+    def _prompt_command(
+        self, prompt: str, model: str | None, extras: dict
+    ) -> tuple[list[str], str | None, Callable[[], None] | None]:
+        # JSON output (over plain text) so we can read the *concrete* model
+        # Claude used — the answer lives in `.result`, the model in `.modelUsage`.
+        cmd = ["claude", "-p", prompt, "--output-format", "json"]
+        if model:
+            cmd += ["--model", model]
+        return cmd, None, None
+
+    def _prompt_environment(self) -> dict[str, str]:
+        env = dict(os.environ)
+        nvm_bin = preferred_nvm_node_bin()
+        if nvm_bin:
+            env["PATH"] = nvm_bin + os.pathsep + env.get("PATH", "")
+        return env
+
+    def _prompt_output(
+        self, proc: ProcessResult, model: str | None, extras: dict
+    ) -> PromptResult:
+        # No returncode gate on purpose: a failed call yields empty/garbage text,
+        # which the caller's verdict parse reports as an unusable response.
+        text, resolved = _extract_verdict_and_model(proc.stdout, model)
+        return PromptResult(text=text, resolved_model=resolved, error=None)
+
     def _looks_like_cli_startup_crash(self, text: str, lowered: str) -> bool:
         return (
             "typeerror:" in lowered
@@ -412,3 +440,28 @@ class ClaudeCodeHarness(CliHarness):
                     break
 
         return transcript, final_output
+
+
+def _extract_verdict_and_model(
+    stdout: str, requested_model: str | None
+) -> tuple[str, str | None]:
+    """Pull the answer text and concrete model from Claude's JSON envelope.
+
+    Falls back to treating stdout as the raw answer (and the requested model)
+    if the envelope is missing or unparseable, so a CLI change can't break the
+    caller outright.
+    """
+    stripped = stdout.strip()
+    try:
+        envelope = json.loads(stripped)
+    except json.JSONDecodeError:
+        return stripped, requested_model
+    if not isinstance(envelope, dict):
+        return stripped, requested_model
+
+    verdict = str(envelope.get("result", "")).strip() or stripped
+    model_usage = envelope.get("modelUsage")
+    resolved = None
+    if isinstance(model_usage, dict) and model_usage:
+        resolved = next(iter(model_usage))
+    return verdict, resolved or requested_model
