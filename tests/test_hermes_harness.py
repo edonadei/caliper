@@ -4,9 +4,11 @@ import json
 import subprocess
 
 import pytest
+import yaml
 
 from caliper.harness.base import HarnessConfigurationError
 from caliper.harness.hermes import HermesHarness
+from caliper.schema.spec import McpServer
 
 
 def _version(cmd):
@@ -150,6 +152,186 @@ def test_hermes_no_skills_flag_without_skill(monkeypatch, tmp_path) -> None:
     script = result_calls[1][0][2]
     assert "--skills" not in script
     assert "CALIPER_SKILL" not in result_calls[1][1]["env"]
+
+
+def _fake_home_with_user_mcp(tmp_path):
+    """A fake ~/.hermes whose config already carries the user's own MCP state."""
+    home = _fake_home(tmp_path)
+    config = {
+        "model": {"provider": "anthropic"},
+        "mcp_servers": {"personal": {"command": "my-private-server"}},
+        "inherit_mcp_toolsets": True,
+    }
+    (home / ".hermes" / "config.yaml").write_text(yaml.safe_dump(config))
+    return home
+
+
+def _run_hermes_mcp(monkeypatch, tmp_path, mcp_servers, *, home=None):
+    """Run the harness with declared mcp_servers and return the seeded config."""
+    home = home or _fake_home_with_user_mcp(tmp_path)
+    iso = tmp_path / "iso"
+    iso.mkdir()
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1:] == ["--version"]:
+            return _version(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    _install(monkeypatch, home, fake_run)
+    HermesHarness().run(
+        task_id="task-001",
+        attempt=1,
+        prompt="Hello",
+        skill_path=None,
+        model=None,
+        timeout=30,
+        isolated_home=str(iso),
+        mcp_servers=mcp_servers,
+    )
+    seeded = iso / ".hermes" / "config.yaml"
+    return yaml.safe_load(seeded.read_text()), seeded
+
+
+def test_hermes_translates_stdio_mcp_and_overwrites_user_servers(
+    monkeypatch, tmp_path
+) -> None:
+    config, _ = _run_hermes_mcp(
+        monkeypatch,
+        tmp_path,
+        {
+            "echo": McpServer(
+                command="python3", args=["/tmp/echo.py"], env={"DEBUG": "1"}
+            )
+        },
+    )
+    # The declared server replaces the user's ambient server wholesale, and the
+    # toolset-inheritance flag is scrubbed — the neutral tool environment.
+    assert config["mcp_servers"] == {
+        "echo": {"command": "python3", "args": ["/tmp/echo.py"], "env": {"DEBUG": "1"}}
+    }
+    assert "personal" not in config["mcp_servers"]
+    assert "inherit_mcp_toolsets" not in config
+
+
+def test_hermes_translates_remote_header_auth_and_interpolates(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("MCP_TOKEN", "s3cr3t")
+    config, _ = _run_hermes_mcp(
+        monkeypatch,
+        tmp_path,
+        {
+            "gdrive": McpServer(
+                type="http",
+                url="https://mcp.example.com/gdrive",
+                headers={"Authorization": "Bearer ${MCP_TOKEN}"},
+            )
+        },
+    )
+    # Remote becomes {url, headers} (no caliper `type`); the secret is resolved at
+    # the boundary so a literal token — never ${MCP_TOKEN} — lands in the config.
+    assert config["mcp_servers"] == {
+        "gdrive": {
+            "url": "https://mcp.example.com/gdrive",
+            "headers": {"Authorization": "Bearer s3cr3t"},
+        }
+    }
+
+
+def test_hermes_removes_mcp_servers_when_spec_declares_none(
+    monkeypatch, tmp_path
+) -> None:
+    config, _ = _run_hermes_mcp(monkeypatch, tmp_path, None)
+    # A no-MCP eval must not inherit the user's personal servers.
+    assert "mcp_servers" not in config
+    assert "inherit_mcp_toolsets" not in config
+
+
+def test_hermes_errors_on_unset_mcp_env_var(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("MCP_TOKEN", raising=False)
+    with pytest.raises(HarnessConfigurationError, match="MCP_TOKEN"):
+        _run_hermes_mcp(
+            monkeypatch,
+            tmp_path,
+            {
+                "gdrive": McpServer(
+                    type="http",
+                    url="https://mcp.example.com/gdrive",
+                    headers={"Authorization": "Bearer ${MCP_TOKEN}"},
+                )
+            },
+        )
+
+
+def test_hermes_secret_config_is_locked_down(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MCP_TOKEN", "s3cr3t")
+    _, seeded = _run_hermes_mcp(
+        monkeypatch,
+        tmp_path,
+        {
+            "gdrive": McpServer(
+                type="http",
+                url="https://mcp.example.com/gdrive",
+                headers={"Authorization": "Bearer ${MCP_TOKEN}"},
+            )
+        },
+    )
+    # The config now holds a resolved secret, so it must not be world-readable.
+    assert (seeded.stat().st_mode & 0o077) == 0
+
+
+def test_hermes_passes_yolo_to_bypass_approval(monkeypatch, tmp_path) -> None:
+    home = _fake_home(tmp_path)
+    iso = tmp_path / "iso"
+    iso.mkdir()
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        if cmd[1:] == ["--version"]:
+            return _version(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    _install(monkeypatch, home, fake_run)
+    HermesHarness().run(
+        task_id="task-001",
+        attempt=1,
+        prompt="Hello",
+        skill_path=None,
+        model=None,
+        timeout=30,
+        isolated_home=str(iso),
+    )
+    assert "--yolo" in calls[1][0][2]
+
+
+def test_hermes_diagnoses_model_selection_error(monkeypatch, tmp_path) -> None:
+    home = _fake_home(tmp_path)
+    iso = tmp_path / "iso"
+    iso.mkdir()
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1:] == ["--version"]:
+            return _version(cmd)
+        return subprocess.CompletedProcess(
+            cmd,
+            1,
+            stdout="",
+            stderr="hermes -z: agent failed: No access token found for "
+            "Nous Portal login.",
+        )
+
+    _install(monkeypatch, home, fake_run)
+    with pytest.raises(HarnessConfigurationError, match="hermes model"):
+        HermesHarness().run(
+            task_id="task-001",
+            attempt=1,
+            prompt="Hello",
+            skill_path=None,
+            model=None,
+            timeout=12,
+            isolated_home=str(iso),
+        )
 
 
 def test_hermes_parses_export_trajectory(monkeypatch, tmp_path) -> None:

@@ -7,6 +7,8 @@ import shutil
 from pathlib import Path
 from typing import Callable
 
+import yaml
+
 from caliper.harness.base import (
     ConversationTurn,
     CliHarness,
@@ -14,6 +16,7 @@ from caliper.harness.base import (
     ProcessResult,
     RunContext,
 )
+from caliper.harness.mcp import interpolate
 from caliper.schema.results import TokenUsage
 
 # Config files copied verbatim into the isolated HERMES_HOME so the agent can
@@ -39,6 +42,8 @@ class HermesHarness(CliHarness):
     ``--ignore-rules`` on the command, so the only skill in play is the
     skill-under-test staged into ``HERMES_HOME/skills/<name>``.
     """
+
+    supports_mcp = True
 
     def __init__(self, model: str | None = None) -> None:
         self._model = model
@@ -71,9 +76,81 @@ class HermesHarness(CliHarness):
                 shutil.copy2(src, hermes_home / filename)
         ctx.extras["hermes_home"] = str(hermes_home)
 
+        self._configure_mcp(ctx, hermes_home)
+
         skill_name = self._stage_skill(ctx, hermes_home)
         if skill_name:
             ctx.extras["skill_name"] = skill_name
+
+    def _configure_mcp(self, ctx: RunContext, hermes_home: Path) -> None:
+        """Normalize the seeded config's ``mcp_servers`` to exactly the declared set.
+
+        Hermes reads MCP servers from ``config.yaml``'s ``mcp_servers`` key, and
+        the seeded config is copied verbatim from the user's real ``~/.hermes``
+        — which may carry the user's *own* MCP servers. Overwriting the key
+        wholesale (and dropping ``inherit_mcp_toolsets``) is the tool-environment
+        half of Hermes' neutralization: an attempt sees only the spec's declared
+        servers, never ambient user state. When the spec declares no ``mcp:``
+        block the key is removed, so a no-MCP eval runs with zero MCP servers.
+        Secrets are resolved here at the harness boundary from the host env (an
+        unset var fails loudly), so literal credentials — never ``${VAR}`` — land
+        in the config; the file may now hold them, so it is kept ``0600``.
+        """
+        servers = self._translate_mcp_servers(ctx)
+        config_path = hermes_home / "config.yaml"
+
+        if config_path.exists():
+            loaded = yaml.safe_load(config_path.read_text())
+            config = loaded if isinstance(loaded, dict) else {}
+            if servers:
+                config["mcp_servers"] = servers
+            else:
+                config.pop("mcp_servers", None)
+            config.pop("inherit_mcp_toolsets", None)
+            config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+        elif servers:
+            config_path.write_text(
+                yaml.safe_dump({"mcp_servers": servers}, sort_keys=False)
+            )
+        if config_path.exists():
+            config_path.chmod(0o600)
+
+    def _translate_mcp_servers(self, ctx: RunContext) -> dict[str, dict]:
+        """Translate the declared ``mcp:`` servers into Hermes' ``mcp_servers`` shape.
+
+        A stdio server becomes ``{command, args?, env?}``; a remote server becomes
+        ``{url, headers?}`` (Hermes infers the HTTP/SSE transport from the URL, so
+        caliper's ``type`` is dropped). Remote ``OAuth`` is unreachable here — it
+        needs an interactive browser flow the harness cannot drive — so only
+        header-auth remotes are expressible, via the ``headers`` map. ``${VAR}``
+        references in ``env``/``headers``/``url`` are resolved from the host env.
+        """
+        servers: dict[str, dict] = {}
+        for name, server in (ctx.mcp_servers or {}).items():
+            if server.is_remote:
+                entry: dict = {
+                    "url": interpolate(server.url, server_name=name, field_label="url")
+                }
+                headers = {
+                    key: interpolate(
+                        value, server_name=name, field_label=f"headers.{key}"
+                    )
+                    for key, value in server.headers.items()
+                }
+                if headers:
+                    entry["headers"] = headers
+            else:
+                entry = {"command": server.command}
+                if server.args:
+                    entry["args"] = list(server.args)
+                env = {
+                    key: interpolate(value, server_name=name, field_label=f"env.{key}")
+                    for key, value in server.env.items()
+                }
+                if env:
+                    entry["env"] = env
+            servers[name] = entry
+        return servers
 
     def _stage_skill(self, ctx: RunContext, hermes_home: Path) -> str | None:
         """Copy the already-staged skill into ``HERMES_HOME/skills/<name>``.
@@ -123,8 +200,13 @@ class HermesHarness(CliHarness):
         # oneshot's exit code so a failed run is classified as infra_error.
         skill = ctx.extras.get("skill_name")
         skills_arg = ' --skills "$CALIPER_SKILL"' if skill else ""
+        # --yolo bypasses interactive approval prompts (the hermes analog of
+        # claude-code's --dangerously-skip-permissions and pi's --approve): the
+        # neutral-agent harness runs non-interactively with stdin closed, so an
+        # approval gate — e.g. before an MCP tool call — would hang until timeout.
         script = (
-            f'"$CALIPER_HERMES" -z "$CALIPER_PROMPT"{skills_arg} --ignore-rules 1>&2\n'
+            f'"$CALIPER_HERMES" -z "$CALIPER_PROMPT"{skills_arg} --yolo '
+            "--ignore-rules 1>&2\n"
             "rc=$?\n"
             '"$CALIPER_HERMES" sessions export --source cli - 2>/dev/null\n'
             "exit $rc\n"
@@ -307,6 +389,31 @@ class HermesHarness(CliHarness):
         if not text:
             return None
         lowered = text.lower()
+
+        # No model/provider is selected or its login has lapsed — distinct from a
+        # bad/absent API key below: the remedy is to pick and authenticate a model
+        # with `hermes model` (e.g. Nous Portal), not to export a key. Checked
+        # first so the actionable `hermes model` guidance wins for these signals.
+        model_selection_markers = (
+            "no access token found",
+            "nous portal login",
+            "relogin",
+            "no active model",
+            "no model selected",
+            "no default model",
+            "no anthropic credentials found",
+        )
+        if any(marker in lowered for marker in model_selection_markers):
+            return (
+                "hermes has no usable model/provider configured for the eval.\n\n"
+                "Caliper copies your `~/.hermes` auth and config into an isolated "
+                "home and runs `hermes -z`. The hermes CLI returned:\n"
+                f"  {text[:500]}\n\n"
+                "Select and authenticate a model provider with `hermes model` "
+                "(pick your model and complete its login), verify `hermes -z "
+                "'Reply OK'` works in your normal shell, then rerun caliper. Pass "
+                "`--model hermes:<model>` to override the default for one run."
+            )
 
         provider_markers = (
             "no api key",

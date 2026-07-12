@@ -1,19 +1,22 @@
-# End-to-end smoke eval for a local stdio MCP server on the `claude-code` backend.
+# End-to-end smoke eval for a local stdio MCP server. Backend-neutral: the
+# engine is a runtime axis, so the same spec runs under any --model that honors
+# mcp: (claude-code and hermes today).
 #
 # It declares a trivial stdio MCP server (the bundled echo_server.py, which
 # exposes one tool: secret_word -> "caliper") and checks that the agent actually
 # gained the tool, called it, and reported what it returned. The `expect:` judge
-# reads the transcript, where the call surfaces as `mcp__echo__secret_word`.
+# reads the transcript. The call's tool name is backend-specific (claude-code
+# spells it mcp__echo__secret_word, hermes mcp_echo_secret_word), so the check
+# below is worded around the tool's *behavior*, never one backend's spelling.
 #
 # The MCP server's `command` runs from the agent's isolated working dir, so the
 # server script must be at an absolute path. `setup:` stages the fixture into a
 # fixed /tmp location (run this from the repo root so $PWD resolves); `cleanup:`
 # removes it.
 #
-# Run it:
-#   caliper run tests/mcp-smoke.eval.yaml --k 1
-#
-# stdio transport + claude-code backend only (this is issue #47's slice).
+# Run it (pick the engine when you run):
+#   caliper run tests/mcp-smoke.eval.yaml --k 1                 # claude-code
+#   caliper run tests/mcp-smoke.eval.yaml --k 1 --model hermes  # hermes
 
 skill: {}
 
@@ -30,7 +33,7 @@ tasks:
       Call the "secret_word" tool provided by the "echo" MCP server, then tell me
       the exact word it returns. Do not guess — you must call the tool.
     expect: >
-      The transcript shows the agent invoked the echo server's secret_word MCP
-      tool (a tool named mcp__echo__secret_word), and the agent reports that the
-      secret word is "caliper". It did not fabricate the word without calling the
-      tool.
+      The transcript shows the agent invoked the "echo" MCP server's secret_word
+      tool (the tool call's name contains both "echo" and "secret_word"), and the
+      agent reports that the secret word is "caliper". It did not fabricate the
+      word without calling the tool.

@@ -1,0 +1,47 @@
+# End-to-end smoke eval for a remote (HTTP) MCP server with BEARER-HEADER AUTH.
+# Backend-neutral: runs under any --model that honors remote mcp: (claude-code
+# and hermes today).
+#
+# Unlike tests/mcp-remote-smoke.eval.yaml (public, no-auth DeepWiki), this one
+# actually exercises the header-auth path: setup: starts the bundled
+# echo_http_server.py locally, which returns 401 unless the request carries
+# `Authorization: Bearer <token>`. So a *passing* run proves the declared
+# headers: were interpolated from the host env and transmitted end-to-end — a
+# missing or wrong header would 401 and the agent could not report the word.
+#
+# The token is supplied once, on the host, as $MCP_ECHO_TOKEN: setup: hands it to
+# the server (as ECHO_MCP_TOKEN) and the spec references it as ${MCP_ECHO_TOKEN}
+# in the header, which caliper resolves at the harness boundary. Hermetic apart
+# from the localhost server, but it binds a fixed port (8765), so it is a manual
+# demo, not a parallel CI test.
+#
+# Run it (export the token first; pick the engine when you run):
+#   export MCP_ECHO_TOKEN=s3cr3t
+#   caliper run tests/mcp-header-smoke.eval.yaml --k 1                 # claude-code
+#   caliper run tests/mcp-header-smoke.eval.yaml --k 1 --model hermes  # hermes
+
+skill: {}
+
+mcp:
+  echo:
+    type: http
+    url: http://127.0.0.1:8765/mcp
+    headers:
+      Authorization: Bearer ${MCP_ECHO_TOKEN}
+
+tasks:
+  - name: Uses the header-authed echo remote MCP server
+    setup: >
+      ECHO_MCP_TOKEN="$MCP_ECHO_TOKEN"
+      python3 "$PWD/tests/fixtures/mcp/echo_http_server.py" 8765
+      >/tmp/caliper-echo-http.log 2>&1 &
+      echo $! > /tmp/caliper-echo-http.pid; sleep 1
+    cleanup: kill "$(cat /tmp/caliper-echo-http.pid)" 2>/dev/null; rm -f /tmp/caliper-echo-http.pid
+    prompt: >
+      Call the "secret_word" tool provided by the "echo" MCP server, then tell me
+      the exact word it returns. Do not guess — you must call the tool.
+    expect: >
+      The transcript shows the agent invoked the "echo" MCP server's secret_word
+      tool (the tool call's name contains both "echo" and "secret_word") over its
+      authenticated remote HTTP connection, and the agent reports that the secret
+      word is "caliper". It did not fabricate the word without calling the tool.

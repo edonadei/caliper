@@ -74,7 +74,7 @@ sandbox:
     - ".*\\.eval\\.yaml$"
     - "./.caliper/.*"
 
-# Optional — only if the skill needs MCP tools. claude-code backend only.
+# Optional — only if the skill needs MCP tools. claude-code and hermes backends.
 mcp:
   weather:                       # local stdio server → mcp__weather__<tool>
     command: python3
@@ -136,7 +136,7 @@ Add `assert:` when the outcome is a fact that an LLM judge might guess wrong:
 
 ## MCP servers (`mcp:`)
 
-If the skill under test needs MCP tools, declare them in a top-level `mcp:` block (a mapping keyed by server name) — a capability granted to the agent-under-test for the eval, part of the run environment like `sandbox:` (a sibling of it, not nested under `skill:`), so they belong in the spec, not on the command line. A server is either **local stdio** (a `command`, optional `args`, optional `env`) or **remote** (`type: http`/`sse`, a `url`, optional `headers` for auth); the two field sets are mutually exclusive. Supported on the **`claude-code` backend only**. A tool call appears in the transcript as `mcp__<server>__<tool>`, so an `expect:` criterion can check the skill actually used it. Put secrets in a host env var and reference it as `${VAR}` inside a stdio `env:`, a remote `headers:`, or a remote `url:` — it resolves from your shell at run time and never lands in the committed spec (an unset var fails the run). Running an `mcp:` spec on a non-`claude-code` backend is a hard error, not a silent no-op: `codex` is a later slice, while `pi` has no MCP by design and will not honor `mcp:` natively — expose the capability as a CLI tool the skill drives or a pi extension, or run the eval on `claude-code`.
+If the skill under test needs MCP tools, declare them in a top-level `mcp:` block (a mapping keyed by server name) — a capability granted to the agent-under-test for the eval, part of the run environment like `sandbox:` (a sibling of it, not nested under `skill:`), so they belong in the spec, not on the command line. A server is either **local stdio** (a `command`, optional `args`, optional `env`) or **remote** (`type: http`/`sse`, a `url`, optional `headers` for auth); the two field sets are mutually exclusive. Supported on **`claude-code`** (stdio + remote HTTP/SSE) and **`hermes`** (stdio + remote header-auth; not remote OAuth). A tool call appears in the transcript as a namespaced name — `mcp__<server>__<tool>` on `claude-code`, `mcp_<server>_<tool>` on `hermes` — so an `expect:` criterion can check the skill actually used it; word it around behaviour, not one backend's spelling, if the spec runs under more than one engine. Put secrets in a host env var and reference it as `${VAR}` inside a stdio `env:`, a remote `headers:`, or a remote `url:` — it resolves at the harness boundary from your shell at run time and never lands in the committed spec (an unset var fails the run). Running an `mcp:` spec on a backend that can't honor it is a hard error, not a silent no-op: `codex` is a later slice, while `pi` has no MCP by design and will not honor `mcp:` natively — expose the capability as a CLI tool the skill drives or a pi extension, or run the eval on `claude-code`/`hermes`.
 
 ## Backends
 

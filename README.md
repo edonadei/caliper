@@ -284,10 +284,11 @@ pi   # then authenticate (e.g. /login for a subscription provider, or set the pr
 
 ```bash
 curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
-hermes login   # authenticate; pick a default model/provider you have credits for
+hermes login   # authenticate
+hermes model   # pick a default model/provider you have credits for
 ```
 
-Hermes is a stateful, always-on agent (persistent memory, a persona, auto-generated skills), so Caliper **normalizes it to a neutral agent** to keep its score apples-to-apples with the other backends: every attempt runs in an isolated `HERMES_HOME` seeded with your `~/.hermes` auth/config only (never `SOUL.md`/`MEMORY.md`) and with `--ignore-rules`, and the skill-under-test is staged as the sole local skill. `--model hermes` runs `hermes -z` (oneshot) then `hermes sessions export` to recover the full tool-call trajectory; `--model hermes:<provider>/<model>` (e.g. `hermes:anthropic/claude-sonnet-4.6`) selects the model, otherwise your `~/.hermes/config.yaml` default is used — point it at a provider you have credits for. Set `HERMES_CLI_PATH` to force a specific binary. Hermes updates itself (`hermes update`), so it is not part of `caliper update-cli`.
+Hermes is a stateful, always-on agent (persistent memory, a persona, auto-generated skills), so Caliper **normalizes it to a neutral agent** to keep its score apples-to-apples with the other backends: every attempt runs in an isolated `HERMES_HOME` seeded with your `~/.hermes` auth/config only (never `SOUL.md`/`MEMORY.md`), with `--ignore-rules` and `--yolo` (so an approval prompt can't hang the non-interactive oneshot), and the skill-under-test is staged as the sole local skill. `--model hermes` runs `hermes -z` (oneshot) then `hermes sessions export` to recover the full tool-call trajectory; `--model hermes:<provider>/<model>` (e.g. `hermes:anthropic/claude-sonnet-4.6`) selects the model, otherwise your `~/.hermes/config.yaml` default is used — point it at a provider you have credits for. If a run fails because no model is selected or a provider login lapsed, Caliper tells you to run `hermes model`. Set `HERMES_CLI_PATH` to force a specific binary. Hermes updates itself (`hermes update`), so it is not part of `caliper update-cli`.
 
 Check installed CLI versions:
 
@@ -333,7 +334,7 @@ sandbox:
     - "./.caliper/.*"           # prevents agent from reading saved results
 
 mcp:                            # optional — MCP servers the agent may use
-  weather:                      # server name → mcp__weather__<tool> in the transcript
+  weather:                      # server name → a mcp__weather__<tool> call in the transcript
     command: python3            # a local stdio server the harness spawns
     args: [./servers/weather.py]
     env:
@@ -363,7 +364,7 @@ Each task needs at least one of `expect` or `assert`. Task IDs are assigned auto
 
 ### MCP servers (`mcp:`)
 
-The optional `mcp:` block declares the [MCP](https://modelcontextprotocol.io) servers the agent-under-test may use — a capability granted to the agent for the eval, part of the run environment like `sandbox:`, so it lives in the spec rather than behind a flag. It is a top-level mapping keyed by server name (a sibling of `sandbox:`, not nested under `skill:` — it applies whether or not the eval uses a skill). Each server's tools appear in the transcript as `mcp__<server>__<tool>`, so an `expect:` judge can verify a tool was actually used.
+The optional `mcp:` block declares the [MCP](https://modelcontextprotocol.io) servers the agent-under-test may use — a capability granted to the agent for the eval, part of the run environment like `sandbox:`, so it lives in the spec rather than behind a flag. It is a top-level mapping keyed by server name (a sibling of `sandbox:`, not nested under `skill:` — it applies whether or not the eval uses a skill). Each server's tools appear in the transcript as a namespaced call an `expect:` judge can verify — `mcp__<server>__<tool>` on `claude-code`, `mcp_<server>_<tool>` on `hermes` — so word an `expect:` around the tool's behaviour, not one backend's exact spelling, if the spec is meant to run under more than one engine.
 
 A server is either **local (stdio)** — a `command` the harness spawns — or **remote (`type: http` or `sse`)** — a hosted endpoint at `url`, the shape most connectors (Google Drive, Notion, …) use:
 
@@ -381,10 +382,10 @@ mcp:
       Authorization: Bearer ${GDRIVE_TOKEN}
 ```
 
-- **`claude-code` only.** This release wires both stdio and remote (HTTP/SSE) servers on the `claude-code` backend. Running a spec that declares `mcp:` on another backend is a hard error rather than a silent no-op. `codex` support is a later slice. `pi` does **not** and **will not** honor `mcp:` natively — its agent has no MCP by design; instead of MCP, expose the capability as a CLI tool your skill drives (a skill with a README) or a pi extension, or run the eval on `claude-code`. Running an `mcp:` spec on `pi` fails with that guidance.
+- **`claude-code` and `hermes`.** Both wire `mcp:` through: `claude-code` honors stdio and remote (HTTP/SSE); `hermes` honors stdio and remote **header-auth** (it translates the block into its native `mcp_servers` config inside the isolated `HERMES_HOME`, resolving `${VAR}` at the harness boundary and overwriting any of your personal servers so an attempt sees only the declared set). Remote **OAuth** on `hermes` is not supported — it needs an interactive browser flow the harness can't drive. Running a spec that declares `mcp:` on a backend that can't honor it is a hard error rather than a silent no-op. `codex` support is a later slice. `pi` does **not** and **will not** honor `mcp:` natively — its agent has no MCP by design; instead of MCP, expose the capability as a CLI tool your skill drives (a skill with a README) or a pi extension, or run the eval on `claude-code`/`hermes`. Running an `mcp:` spec on `pi` fails with that guidance.
 - **Transport is set by `type:`** — omitted (or `stdio`) means a local `command`; `http`/`sse` means a remote `url`. The two field sets are mutually exclusive: a stdio server can't set `url`/`headers`, and a remote server can't set `command`/`args`/`env`.
 - **Secrets stay out of the spec.** A value in a stdio `env:`, a remote `headers:`, or a remote `url:` may reference a host environment variable as `${VAR}`; it is resolved from your shell at run time (never written into the committed spec), and an unset variable fails the run with a clear message.
-- **Server names** must match `[A-Za-z0-9_-]+` so the `mcp__<server>__<tool>` handle is well-formed.
+- **Server names** must match `[A-Za-z0-9_-]+` so the backend's namespaced tool handle (`mcp__<server>__<tool>` / `mcp_<server>_<tool>`) is well-formed.
 
 `caliper validate` checks the `mcp:` block and reports a malformed entry (bad name, unknown key, unknown `type`, a stdio server missing/blank `command`, or a remote server missing `url`).
 
