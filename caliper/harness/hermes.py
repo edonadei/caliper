@@ -242,6 +242,24 @@ class HermesHarness(CliHarness):
             return configured
         return shutil.which("hermes")
 
+    # --- bare prompt call (the judge's half of the seam) -------------------
+
+    def _prompt_command(
+        self, prompt: str, model: str | None, extras: dict
+    ) -> tuple[list[str], str | None, Callable[[], None] | None]:
+        hermes = self._hermes_command()
+        if not hermes:
+            raise HarnessConfigurationError("hermes CLI not found")
+
+        # A bare prompt is a single call: `hermes -z` prints only the final
+        # response text. --ignore-rules keeps persona/memory out of the answer;
+        # unlike an attempt run there is no isolated HERMES_HOME — the call
+        # deliberately reuses the developer's real ~/.hermes.
+        cmd = [hermes, "-z", prompt, "--ignore-rules"]
+        if model:
+            cmd[2:2] = ["--model", model]
+        return cmd, None, None
+
     def _parse_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:
         """Parse a `hermes sessions export` record into turns.
 
