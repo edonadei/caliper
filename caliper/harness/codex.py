@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Callable
 
+import tomli_w
+
 from caliper.harness.base import (
     ConversationTurn,
     CliHarness,
@@ -15,6 +17,7 @@ from caliper.harness.base import (
     ProcessResult,
     RunContext,
 )
+from caliper.harness.mcp import interpolate
 from caliper.schema.results import TokenUsage
 
 CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
@@ -23,6 +26,8 @@ CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
 class CodexHarness(CliHarness):
     def __init__(self, model: str | None = None) -> None:
         self._model = model
+
+    supports_mcp = True
 
     @property
     def name(self) -> str:
@@ -39,7 +44,7 @@ class CodexHarness(CliHarness):
             )
 
     def _prepare(self, ctx: RunContext) -> None:
-        self._copy_codex_config(ctx.isolated_home)
+        self._copy_codex_config(ctx)
 
     def _command(
         self, ctx: RunContext
@@ -172,6 +177,10 @@ class CodexHarness(CliHarness):
                 )
                 continue
 
+            if self._is_mcp_tool_call(item):
+                transcript.extend(self._mcp_tool_turns(item))
+                continue
+
             item_type = str(item.get("type") or "tool")
             transcript.append(
                 ConversationTurn(
@@ -189,6 +198,58 @@ class CodexHarness(CliHarness):
                     break
 
         return transcript, final_output
+
+    @staticmethod
+    def _is_mcp_tool_call(item: dict) -> bool:
+        """True when a completed item is an MCP tool invocation we can name.
+
+        Detected *structurally* — a ``server`` plus a ``tool``/``tool_name`` (the
+        fields codex's ``McpToolCall`` carries) — rather than by the type label, so
+        the qualified name is recoverable across codex builds. An ``mcp_tool_call``
+        item lacking those fields falls through to the generic tool branch.
+        """
+        tool = item.get("tool") or item.get("tool_name")
+        return bool(item.get("server") and tool)
+
+    def _mcp_tool_turns(self, item: dict) -> list[ConversationTurn]:
+        """Render an MCP tool call as claude-code-parity ``mcp__<server>__<tool>``.
+
+        Emits a ``tool_use`` turn named ``mcp__<server>__<tool>`` (the doubled-
+        underscore form codex shares with claude-code) so a backend-agnostic
+        ``expect:``/``assert:`` on that name matches, plus a ``tool_result`` turn
+        carrying any output/error/status the item reported.
+        """
+        server = item.get("server")
+        tool = item.get("tool") or item.get("tool_name")
+        qualified = f"mcp__{server}__{tool}"
+        args = item.get("arguments")
+        turns = [
+            ConversationTurn(
+                role="tool_use",
+                content=f"[tool: {qualified}]",
+                tool_name=qualified,
+                tool_input=args if isinstance(args, dict) else item,
+            )
+        ]
+
+        result = item.get("result")
+        if result is None:
+            result = item.get("output")
+        parts: list[str] = []
+        if result is not None:
+            parts.append(result if isinstance(result, str) else json.dumps(result))
+        error = item.get("error")
+        if error:
+            parts.append(error if isinstance(error, str) else json.dumps(error))
+        status = item.get("status")
+        if status:
+            parts.append(f"status={status}")
+        if parts:
+            output = "\n".join(parts)
+            turns.append(
+                ConversationTurn(role="tool_result", content=output, tool_output=output)
+            )
+        return turns
 
     def _build_env(self, isolated_home: str, extra_path: list[str]) -> dict[str, str]:
         path = os.environ.get("PATH", "")
@@ -209,31 +270,123 @@ class CodexHarness(CliHarness):
             return str(CODEX_APP_CLI)
         return shutil.which("codex")
 
-    def _copy_codex_config(self, isolated_home: str) -> None:
-        home = Path(isolated_home)
-        codex_home = home / ".codex"
+    def _copy_codex_config(self, ctx: RunContext) -> None:
+        codex_home = Path(ctx.isolated_home) / ".codex"
         real_codex_home = Path.home() / ".codex"
-        for filename in ("auth.json", "config.toml"):
-            src = real_codex_home / filename
-            if src.exists():
-                codex_home.mkdir(parents=True, exist_ok=True)
-                dst = codex_home / filename
-                if filename == "config.toml":
-                    dst.write_text(self._strip_top_level_model_config(src.read_text()))
-                else:
-                    shutil.copy2(src, dst)
 
-    def _strip_top_level_model_config(self, config: str) -> str:
+        auth_src = real_codex_home / "auth.json"
+        if auth_src.exists():
+            codex_home.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(auth_src, codex_home / "auth.json")
+
+        self._materialize_config(ctx, codex_home, real_codex_home / "config.toml")
+
+    def _materialize_config(
+        self, ctx: RunContext, codex_home: Path, real_config: Path
+    ) -> None:
+        """Seed the isolated ``config.toml``: stripped user config + declared MCP.
+
+        The user's real config is copied minus its top-level ``model =`` line and
+        minus any ``[mcp_servers*]`` tables it carries; the declared ``mcp:``
+        servers are then serialized as a fresh ``[mcp_servers.*]`` block. Rewriting
+        the section wholesale is the tool-environment normalization: an attempt
+        sees only the spec's servers, never the user's ambient personal ones — even
+        though codex is otherwise stateless, because the leak comes from seeding the
+        real config. When neither a real config nor a declared server exists,
+        nothing is written (the CLI falls back to its own defaults). The file may
+        now hold resolved secrets, so it is kept ``0600``.
+        """
+        base = ""
+        real_exists = real_config.exists()
+        if real_exists:
+            base = self._strip_seeded_config(real_config.read_text())
+        servers = self._translate_mcp_servers(ctx)
+
+        if not real_exists and not servers:
+            return
+
+        parts: list[str] = []
+        if base.strip():
+            parts.append(base.rstrip("\n"))
+        if servers:
+            parts.append(tomli_w.dumps({"mcp_servers": servers}).rstrip("\n"))
+        content = "\n\n".join(parts) + "\n" if parts else ""
+
+        codex_home.mkdir(parents=True, exist_ok=True)
+        dst = codex_home / "config.toml"
+        dst.write_text(content)
+        dst.chmod(0o600)
+
+    def _translate_mcp_servers(self, ctx: RunContext) -> dict[str, dict]:
+        """Translate the declared ``mcp:`` servers into codex's ``mcp_servers`` shape.
+
+        A stdio server becomes ``{command, args?, env?}``; a remote server becomes
+        ``{url, http_headers?}`` (codex infers its one streamable-HTTP transport
+        from ``url``, so caliper's ``type`` is dropped, and remote ``OAuth`` — which
+        caliper's spec cannot express — is out of reach). ``${VAR}`` references in
+        ``env``/``headers``/``url`` are resolved from the host env at this boundary
+        into literal values — never the committed spec, never the child env — so an
+        unset var fails loudly here rather than opaquely at connect time.
+        """
+        servers: dict[str, dict] = {}
+        for name, server in (ctx.mcp_servers or {}).items():
+            if server.is_remote:
+                entry: dict = {
+                    "url": interpolate(server.url, server_name=name, field_label="url")
+                }
+                headers = {
+                    key: interpolate(
+                        value, server_name=name, field_label=f"headers.{key}"
+                    )
+                    for key, value in server.headers.items()
+                }
+                if headers:
+                    entry["http_headers"] = headers
+            else:
+                entry = {"command": server.command}
+                if server.args:
+                    entry["args"] = list(server.args)
+                env = {
+                    key: interpolate(value, server_name=name, field_label=f"env.{key}")
+                    for key, value in server.env.items()
+                }
+                if env:
+                    entry["env"] = env
+            servers[name] = entry
+        return servers
+
+    def _strip_seeded_config(self, config: str) -> str:
+        """Drop the top-level ``model =`` line and every ``[mcp_servers*]`` table.
+
+        The model line is stripped so the seeded config never pins a model over the
+        caliper invocation; the ``mcp_servers`` tables are stripped so the user's
+        ambient personal servers are replaced (in ``_materialize_config``) by
+        exactly the declared set. Line-based on purpose: it needs no TOML *reader*
+        (unavailable on the 3.10 floor) and mirrors codex's own table layout.
+        """
         filtered: list[str] = []
         in_table = False
+        dropping_mcp = False
         for line in config.splitlines():
             stripped = line.strip()
             if stripped.startswith("["):
                 in_table = True
+                dropping_mcp = self._is_mcp_servers_header(stripped)
+            if dropping_mcp:
+                continue
             if not in_table and stripped.startswith("model ="):
                 continue
             filtered.append(line)
         return "\n".join(filtered) + ("\n" if config.endswith("\n") else "")
+
+    @staticmethod
+    def _is_mcp_servers_header(stripped: str) -> bool:
+        """True for a ``[mcp_servers]``/``[mcp_servers.x]``/``[[mcp_servers…]]`` header."""
+        return (
+            stripped == "[mcp_servers]"
+            or stripped.startswith("[mcp_servers.")
+            or stripped.startswith("[[mcp_servers")
+        )
 
     def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
         if proc.returncode == 0:

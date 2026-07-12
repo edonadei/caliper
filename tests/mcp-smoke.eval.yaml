@@ -1,13 +1,13 @@
 # End-to-end smoke eval for a local stdio MCP server. Backend-neutral: the
 # engine is a runtime axis, so the same spec runs under any --model that honors
-# mcp: (claude-code and hermes today).
+# mcp: (claude-code, hermes, and codex today).
 #
 # It declares a trivial stdio MCP server (the bundled echo_server.py, which
 # exposes one tool: secret_word -> "caliper") and checks that the agent actually
 # gained the tool, called it, and reported what it returned. The `expect:` judge
-# reads the transcript. The call's tool name is backend-specific (claude-code
-# spells it mcp__echo__secret_word, hermes mcp_echo_secret_word), so the check
-# below is worded around the tool's *behavior*, never one backend's spelling.
+# reads the transcript. The call's tool name is backend-specific (claude-code and
+# codex both spell it mcp__echo__secret_word, hermes mcp_echo_secret_word), so the
+# check below is worded around the tool's *behavior*, never one backend's spelling.
 #
 # The MCP server's `command` runs from the agent's isolated working dir, so the
 # server script must be at an absolute path. `setup:` stages the fixture into a
@@ -17,6 +17,7 @@
 # Run it (pick the engine when you run):
 #   caliper run tests/mcp-smoke.eval.yaml --k 1                 # claude-code
 #   caliper run tests/mcp-smoke.eval.yaml --k 1 --model hermes  # hermes
+#   caliper run tests/mcp-smoke.eval.yaml --k 1 --model codex   # codex
 
 skill: {}
 
