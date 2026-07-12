@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Protocol
 
 from caliper.harness.base import ConversationTurn
 from caliper.schema.spec import TaskSpec
@@ -25,10 +25,14 @@ class JudgeResult:
     resolved_model: str | None = None
 
 
-class Judge(ABC):
-    strategy: str = "autorater"
+class Judge(Protocol):
+    """The judge contract: what the runner depends on to grade an attempt.
 
-    @abstractmethod
+    A structural seam, not a family — there is one production implementation
+    (``EvalJudge``); test doubles conform by shape. Backend variation lives in
+    ``HarnessBackend.run_prompt`` (see PR #61), not here.
+    """
+
     def evaluate(
         self,
         task: TaskSpec,
