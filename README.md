@@ -1,10 +1,10 @@
-# Caliper — Reliability testing for agent skills
+# Caliper: Know if your agent skill actually works
 
 [![PyPI](https://img.shields.io/pypi/v/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Python](https://img.shields.io/pypi/pyversions/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Skills](https://skills.sh/b/edonadei/caliper)](https://skills.sh/edonadei/caliper)
 
-Know whether your skill actually works. Write a short spec of what "good" looks like, run it _k_ times, and get a **success rate** you can track. Caliper also runs the tasks without the skill, so you can see whether it's the skill or the base agent doing the work. Works with the agent you already use: Claude Code, Codex, Pi, or Hermes.
+Caliper is a lightweight evaluation harness for agent skills. Write a short spec of what "good" looks like, run it again and again, and get a **success rate** you can track. It also runs every task _without_ the skill, so you learn whether the skill is doing the work or the base agent would have passed anyway. Works with the agent you already use: Claude Code, Codex, Pi, or Hermes.
 
 **Teach your agent to evaluate:**
 
@@ -18,7 +18,7 @@ npx skills@latest add edonadei/caliper
 caliper run commit-commands.eval.yaml --k 3 --baseline
 ```
 
-You write a spec — a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you. With `--baseline`, Caliper runs each task with and without the skill and diffs the two runs task by task:
+You write a spec, a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you. With `--baseline`, Caliper runs each task with and without the skill and diffs the two runs task by task:
 
 <!-- Terminal output of `caliper compare`, rendered to SVG so the box-drawing
      table stays aligned on every screen. Regenerate with:
@@ -34,13 +34,13 @@ Use Caliper to answer questions like:
 - Did my prompt edit actually improve the skill?
 - Is the skill doing the work, or would the base agent pass without it?
 - Does it still pass the workflows it passed last week?
-- Which agent — Claude Code, Codex, Pi, or Hermes — runs this skill more reliably?
+- Which agent (Claude Code, Codex, Pi, or Hermes) runs this skill more reliably?
 
 ---
 
 ## Quick start
 
-### Path A — Agentic (let your agent drive)
+### Path A: Agentic (let your agent drive)
 
 **1. Install the skills**
 
@@ -71,7 +71,7 @@ Browse past runs:
 /evaluate-skill report my-skill
 ```
 
-### Path B — CLI (run it yourself)
+### Path B: CLI (run it yourself)
 
 **1. Install the CLI**
 
@@ -87,7 +87,7 @@ skill:
   path: ./SKILL.md
 
 tasks:
-  # Autorater — the LLM judge reads the transcript and decides
+  # Autorater: the LLM judge reads the transcript and decides
   - name: Writes a conventional commit message
     prompt: "Summarize the staged git diff as a commit message."
     expect: >
@@ -95,7 +95,7 @@ tasks:
       line under 72 characters, followed by a body explaining why the
       change was made, not just what changed.
 
-  # Script execution — a deterministic Python assertion
+  # Script execution: a deterministic Python assertion
   - name: Generates a valid config file
     cleanup: rm -f /tmp/app.config.json
     prompt: "Generate a config at /tmp/app.config.json with a 'port' of 8080."
@@ -108,7 +108,7 @@ tasks:
 
 `expect:` is graded by the judge LLM; `assert:` runs locally as Python. Use either or both.
 
-The spec never names an engine — the skill and judge default to `claude-code`, and you pick a different agent/model at run time with `--model` / `--judge-model` (see [Choosing an engine](#choosing-an-engine)).
+The spec never names an engine. The skill and judge default to `claude-code`, and you pick a different agent/model at run time with `--model` / `--judge-model` (see [Choosing an engine](#choosing-an-engine)).
 
 **3. Run it**
 
@@ -120,7 +120,7 @@ caliper run my-skill.eval.yaml --k 3          # add --baseline to diff vs the ba
 
 ![caliper run of my-skill at k=3: 'Writes a conventional commit message' passes 3/3 (100.0%), 'Generates a valid config file' 2/3 (66.7%, PARTIAL); overall Score 83.3%, 159K in / 2K out, 1m 0s wall at 10.0s per attempt, with a failure panel showing the failing attempt's assertion error](docs/assets/run-output.svg)
 
-The report ends with the per-task failure panels — for each attempt that didn't pass, the output plus the assertion or autorater reason *why*. Full results are also saved as JSON under `.caliper/results/<spec>/` for you to inspect or `caliper compare` later. `--verbose` adds `pass@k` and `pass^k` columns (both derived from the raw rate) and a panel for every task.
+The report ends with the per-task failure panels: for each attempt that didn't pass, the output plus the assertion or autorater reason *why*. Full results are also saved as JSON under `.caliper/results/<spec>/` for you to inspect or `caliper compare` later. `--verbose` adds `pass@k` and `pass^k` columns (both derived from the raw rate) and a panel for every task.
 
 ### Not sure what to put in a spec?
 
@@ -138,7 +138,7 @@ commented lines.
 .eval.yaml spec
       │
       ▼
-  Harness  ──── runs your skill against the agent (Claude Code / Codex / Pi)
+  Harness  ──── runs your skill against the agent (Claude Code / Codex / Pi / Hermes)
       │
       ▼
    Judge   ──── LLM autorater and/or deterministic Python assertions
@@ -159,9 +159,9 @@ The repo ships two agent skills. Install both with:
 npx skills@latest add edonadei/caliper
 ```
 
-### `evaluate-skill` — run and manage evals
+### `evaluate-skill`: run and manage evals
 
-Create, validate, run, and summarize evals from inside your normal workflow — no separate terminal needed. The skill installs Caliper automatically if it's missing.
+Create, validate, run, and summarize evals from inside your normal workflow, with no separate terminal needed. The skill installs Caliper automatically if it's missing.
 
 Then use it in Claude Code:
 
@@ -176,9 +176,9 @@ Or in Codex:
 Use the evaluate-skill skill to run my-skill.eval.yaml with k=3 and summarize the result.
 ```
 
-### `grill-skill` — create evals interactively
+### `grill-skill`: create evals interactively
 
-Don't have evals yet? `grill-skill` guides you through creating them. It reads your `SKILL.md`, interviews you about what good behavior looks like, and generates a 3-task spec (happy path, edge case, adversarial). Then it runs the eval and loops — k=1 to validate, k=3 to measure, baseline before you commit.
+Don't have evals yet? `grill-skill` guides you through creating them. It reads your `SKILL.md`, interviews you about what good behavior looks like, and generates a 3-task spec (happy path, edge case, adversarial). Then it runs the eval and loops: k=1 to validate, k=3 to measure, baseline before you commit.
 
 ```text
 /grill-skill ./my-skill/SKILL.md
@@ -200,16 +200,16 @@ If an `.eval.yaml` already exists next to your skill, `grill-skill` reads the ex
 |---|---|
 | **Spec** | A `.eval.yaml` file that describes the skill, judge, and tasks to run |
 | **Backend** | The CLI agent that executes the skill (`claude-code`, `codex`, `pi`, `hermes`) |
-| **Judge** | What decides pass/fail — an LLM reading the transcript (`expect:`), Python assertions (`assert:`), or both |
+| **Judge** | What decides pass/fail: an LLM reading the transcript (`expect:`), Python assertions (`assert:`), or both |
 | **success rate** | The primary score: run k times, measure how often a single run works (`pass@k`/`pass^k` are secondary views, under `--verbose`) |
 | **Baseline** | Re-run the same tasks without the skill to prove the skill is doing the work |
-| **Attempt** | One isolated run of a single task — fresh temporary home, no session history |
+| **Attempt** | One isolated run of a single task (fresh temporary home, no session history) |
 
 ---
 
 ## Choosing an engine
 
-The engine (backend + model) is a **runtime axis, not a spec field** — the spec
+The engine (backend + model) is a **runtime axis, not a spec field**. The spec
 describes *what* is tested and *how* success is judged, and you pick the agent
 that runs and grades it at invocation. Both default to `claude-code`; select a
 different one with `--model` / `--judge-model`:
@@ -217,7 +217,7 @@ different one with `--model` / `--judge-model`:
 ```bash
 caliper run my-skill.eval.yaml                          # claude-code (default)
 caliper run my-skill.eval.yaml --model codex            # codex, its default model
-caliper run my-skill.eval.yaml --model codex:gpt-5-codex
+caliper run my-skill.eval.yaml --model codex:gpt-5.6-sol
 caliper run my-skill.eval.yaml --model pi --judge-model claude-code
 ```
 
@@ -228,13 +228,13 @@ caliper run my-skill.eval.yaml --model pi --judge-model claude-code
 | `pi` | pi CLI installed (`npm install -g @earendil-works/pi-coding-agent`) and authenticated | Testing pi skills (agentskills.io) |
 | `hermes` | Hermes Agent CLI installed and authenticated (Nous Research) | Testing skills on Hermes; `hermes:<provider>/<model>` selects the model |
 
-Caliper runs skills only through CLI agents — every backend can actually load and run a skill. There is no direct-API backend: to run against API-priced billing, configure one of these CLIs with an API key (e.g. `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) rather than selecting a separate backend.
+Caliper runs skills only through CLI agents, so every backend can actually load and run a skill. There is no direct-API backend: to run against API-priced billing, configure one of these CLIs with an API key (e.g. `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) rather than selecting a separate backend.
 
-The skill engine and judge engine are independent — you can test a Codex skill with a Claude judge, or any other combination, by pairing `--model` with `--judge-model`.
+The skill engine and judge engine are independent: you can test a Codex skill with a Claude judge, or any other combination, by pairing `--model` with `--judge-model`.
 
 ### Claude Code setup
 
-Install and authenticate the `claude` CLI. `--model claude-code` uses your existing Claude Code auth — no extra configuration needed.
+Install and authenticate the `claude` CLI. `--model claude-code` uses your existing Claude Code auth, with no extra configuration needed.
 
 ### Codex setup
 
@@ -252,7 +252,7 @@ npm install -g @earendil-works/pi-coding-agent
 pi   # then authenticate (e.g. /login for a subscription provider, or set the provider API key)
 ```
 
-`--model pi` runs `pi --print --mode json` and loads the skill natively via pi's `--skill` flag (the agentskills.io standard). It reuses your `~/.pi/agent` auth and settings — the `:model` half of `--model pi:<model>` overrides pi's configured default when set. Set `PI_CLI_PATH` to force a specific binary. Note: pi's built-in default provider is `google`, so running `--model pi` with no model relies on your pi config to resolve a provider you are authenticated for.
+`--model pi` runs `pi --print --mode json` and loads the skill natively via pi's `--skill` flag (the agentskills.io standard). It reuses your `~/.pi/agent` auth and settings; the `:model` half of `--model pi:<model>` overrides pi's configured default when set. Set `PI_CLI_PATH` to force a specific binary. Note: pi's built-in default provider is `google`, so running `--model pi` with no model relies on your pi config to resolve a provider you are authenticated for.
 
 ### Hermes setup
 
@@ -262,7 +262,7 @@ hermes login   # authenticate
 hermes model   # pick a default model/provider you have credits for
 ```
 
-Hermes is a stateful, always-on agent (persistent memory, a persona, auto-generated skills), so Caliper **normalizes it to a neutral agent** to keep its score apples-to-apples with the other backends: every attempt runs in an isolated `HERMES_HOME` seeded with your `~/.hermes` auth/config only (never `SOUL.md`/`MEMORY.md`), with `--ignore-rules` and `--yolo` (so an approval prompt can't hang the non-interactive oneshot), and the skill-under-test is staged as the sole local skill. `--model hermes` runs `hermes -z` (oneshot) then `hermes sessions export` to recover the full tool-call trajectory; `--model hermes:<provider>/<model>` (e.g. `hermes:anthropic/claude-sonnet-4.6`) selects the model, otherwise your `~/.hermes/config.yaml` default is used — point it at a provider you have credits for. If a run fails because no model is selected or a provider login lapsed, Caliper tells you to run `hermes model`. Set `HERMES_CLI_PATH` to force a specific binary. Hermes updates itself (`hermes update`), so it is not part of `caliper update-cli`.
+Hermes is a stateful, always-on agent (persistent memory, a persona, auto-generated skills), so Caliper **normalizes it to a neutral agent** to keep its score apples-to-apples with the other backends: every attempt runs in an isolated `HERMES_HOME` seeded with your `~/.hermes` auth/config only (never `SOUL.md`/`MEMORY.md`), with `--ignore-rules` and `--yolo` (so an approval prompt can't hang the non-interactive oneshot), and the skill-under-test is staged as the sole local skill. `--model hermes` runs `hermes -z` (oneshot) then `hermes sessions export` to recover the full tool-call trajectory; `--model hermes:<provider>/<model>` (e.g. `hermes:anthropic/claude-opus-4-8`) selects the model, otherwise your `~/.hermes/config.yaml` default is used. Point it at a provider you have credits for. If a run fails because no model is selected or a provider login lapsed, Caliper tells you to run `hermes model`. Set `HERMES_CLI_PATH` to force a specific binary. Hermes updates itself (`hermes update`), so it is not part of `caliper update-cli`.
 
 Check installed CLI versions:
 
@@ -289,8 +289,8 @@ caliper update-cli --check
 
 ## Spec format
 
-To scaffold a spec, use the [`evaluate-skill`](#evaluate-skill--run-and-manage-evals)
-or [`grill-skill`](#grill-skill--create-evals-interactively) skill, or hand-write
+To scaffold a spec, use the [`evaluate-skill`](#evaluate-skill-run-and-manage-evals)
+or [`grill-skill`](#grill-skill-create-evals-interactively) skill, or hand-write
 the YAML below.
 
 ```yaml
@@ -298,7 +298,7 @@ skill:
   path: ./SKILL.md              # path to the skill file (optional for baseline-only runs)
 
 # Note: there is no `backend`/`model` or `judge:` block. The engine is a runtime
-# axis — pass `--model` / `--judge-model` at run time (default: claude-code).
+# axis: pass `--model` / `--judge-model` at run time (default: claude-code).
 
 sandbox:
   extra_path:
@@ -307,7 +307,7 @@ sandbox:
     - ".*\\.eval\\.yaml$"       # prevents agent from reading the spec
     - "./.caliper/.*"           # prevents agent from reading saved results
 
-mcp:                            # optional — MCP servers the agent may use
+mcp:                            # optional: MCP servers the agent may use
   weather:                      # server name → a mcp__weather__<tool> call in the transcript
     command: python3            # a local stdio server the harness spawns
     args: [./servers/weather.py]
@@ -338,26 +338,26 @@ Each task needs at least one of `expect` or `assert`. Task IDs are assigned auto
 
 ### MCP servers (`mcp:`)
 
-The optional `mcp:` block declares the [MCP](https://modelcontextprotocol.io) servers the agent-under-test may use — a capability granted to the agent for the eval, part of the run environment like `sandbox:`, so it lives in the spec rather than behind a flag. It is a top-level mapping keyed by server name (a sibling of `sandbox:`, not nested under `skill:` — it applies whether or not the eval uses a skill). Each server's tools appear in the transcript as a namespaced call an `expect:` judge can verify — `mcp__<server>__<tool>` on `claude-code` and `codex`, `mcp_<server>_<tool>` on `hermes` — so word an `expect:` around the tool's behaviour, not one backend's exact spelling, if the spec is meant to run under more than one engine.
+The optional `mcp:` block declares the [MCP](https://modelcontextprotocol.io) servers the agent-under-test may use. It is a capability granted to the agent for the eval, part of the run environment like `sandbox:`, so it lives in the spec rather than behind a flag. It is a top-level mapping keyed by server name (a sibling of `sandbox:`, not nested under `skill:`, and it applies whether or not the eval uses a skill). Each server's tools appear in the transcript as a namespaced call an `expect:` judge can verify (`mcp__<server>__<tool>` on `claude-code` and `codex`, `mcp_<server>_<tool>` on `hermes`), so word an `expect:` around the tool's behavior, not one backend's exact spelling, if the spec is meant to run under more than one engine.
 
-A server is either **local (stdio)** — a `command` the harness spawns — or **remote (`type: http` or `sse`)** — a hosted endpoint at `url`, the shape most connectors (Google Drive, Notion, …) use:
+A server is either **local (stdio)**, a `command` the harness spawns, or **remote (`type: http` or `sse`)**, a hosted endpoint at `url`, the shape most connectors (Google Drive, Notion, and so on) use:
 
 ```yaml
 mcp:
   weather:                      # local stdio server (the default transport)
-    command: python3            # required — the local stdio command to spawn
+    command: python3            # required: the local stdio command to spawn
     args: [./servers/weather.py]  # optional
     env:                        # optional
       API_TOKEN: ${MCP_API_TOKEN}
   gdrive:                       # remote server
-    type: http                  # required for remote — http or sse
+    type: http                  # required for remote: http or sse
     url: https://mcp.example.com/gdrive   # required for remote
-    headers:                    # optional — usually auth
+    headers:                    # optional: usually auth
       Authorization: Bearer ${GDRIVE_TOKEN}
 ```
 
-- **`claude-code`, `hermes`, and `codex`.** All three wire `mcp:` through: `claude-code` honors stdio and remote (HTTP/SSE); `hermes` honors stdio and remote **header-auth** (it translates the block into its native `mcp_servers` config inside the isolated `HERMES_HOME`, resolving `${VAR}` at the harness boundary and overwriting any of your personal servers so an attempt sees only the declared set); `codex` honors stdio and remote **header-auth** the same way — it translates the block into `[mcp_servers.*]` tables in the isolated `~/.codex/config.toml` (stdio as `command`/`args`/`env`, remote as `url` + a static `http_headers` map of boundary-resolved literals; codex infers its one streamable-HTTP transport from `url`, so `http`/`sse` collapse onto it), resolving `${VAR}` at the boundary and replacing any personal servers from your real config so an attempt sees only the declared set. Remote **OAuth** is not supported on `hermes` or `codex` — it needs an interactive browser flow the harness can't drive. Running a spec that declares `mcp:` on a backend that can't honor it is a hard error rather than a silent no-op. `pi` does **not** and **will not** honor `mcp:` natively — its agent has no MCP by design; instead of MCP, expose the capability as a CLI tool your skill drives (a skill with a README) or a pi extension, or run the eval on `claude-code`/`hermes`/`codex`. Running an `mcp:` spec on `pi` fails with that guidance.
-- **Transport is set by `type:`** — omitted (or `stdio`) means a local `command`; `http`/`sse` means a remote `url`. The two field sets are mutually exclusive: a stdio server can't set `url`/`headers`, and a remote server can't set `command`/`args`/`env`.
+- **`claude-code`, `hermes`, and `codex`.** All three wire `mcp:` through: `claude-code` honors stdio and remote (HTTP/SSE); `hermes` honors stdio and remote **header-auth** (it translates the block into its native `mcp_servers` config inside the isolated `HERMES_HOME`, resolving `${VAR}` at the harness boundary and overwriting any of your personal servers so an attempt sees only the declared set); `codex` honors stdio and remote **header-auth** the same way, translating the block into `[mcp_servers.*]` tables in the isolated `~/.codex/config.toml` (stdio as `command`/`args`/`env`, remote as `url` + a static `http_headers` map of boundary-resolved literals; codex infers its one streamable-HTTP transport from `url`, so `http`/`sse` collapse onto it), resolving `${VAR}` at the boundary and replacing any personal servers from your real config so an attempt sees only the declared set. Remote **OAuth** is not supported on `hermes` or `codex`, since it needs an interactive browser flow the harness can't drive. Running a spec that declares `mcp:` on a backend that can't honor it is a hard error rather than a silent no-op. `pi` does **not** and **will not** honor `mcp:` natively: its agent has no MCP by design. Instead of MCP, expose the capability as a CLI tool your skill drives (a skill with a README) or a pi extension, or run the eval on `claude-code`/`hermes`/`codex`. Running an `mcp:` spec on `pi` fails with that guidance.
+- **Transport is set by `type:`.** Omitted (or `stdio`) means a local `command`; `http`/`sse` means a remote `url`. The two field sets are mutually exclusive: a stdio server can't set `url`/`headers`, and a remote server can't set `command`/`args`/`env`.
 - **Secrets stay out of the spec.** A value in a stdio `env:`, a remote `headers:`, or a remote `url:` may reference a host environment variable as `${VAR}`; it is resolved from your shell at run time (never written into the committed spec), and an unset variable fails the run with a clear message.
 - **Server names** must match `[A-Za-z0-9_-]+` so the backend's namespaced tool handle (`mcp__<server>__<tool>` / `mcp_<server>_<tool>`) is well-formed.
 
@@ -369,7 +369,7 @@ mcp:
 
 ### LLM autorater (`expect:`)
 
-The judge engine reads the full attempt transcript and decides whether the `expect` condition was met. When the backend captures tool-call traces (Claude Code, Codex, pi, Hermes), those traces are included — the judge can verify things like "the agent used tool X" without relying on the final text alone.
+The judge engine reads the full attempt transcript and decides whether the `expect` condition was met. When the backend captures tool-call traces (Claude Code, Codex, pi, Hermes), those traces are included, so the judge can verify things like "the agent used tool X" without relying on the final text alone.
 
 The judge engine is chosen at run time and defaults to `claude-code`; point it at a different agent with `--judge-model` (e.g. `--judge-model codex`), independently of the skill's `--model`.
 
@@ -419,30 +419,30 @@ When both `expect` and `assert` are present, both must pass.
 | `--workers INT` | `4` | Parallel task workers |
 | `--timeout INT` | `120` | Seconds per attempt |
 | `--fail-fast INT` | `0` | Stop a task after N consecutive `infra_error`/`timeout` attempts (`0` disables) |
-| `--model TARGET` | `claude-code` | Skill engine — backend and/or model (see below) |
-| `--judge-model TARGET` | `claude-code` | Judge engine — backend and/or model (see below) |
+| `--model TARGET` | `claude-code` | Skill engine: backend and/or model (see below) |
+| `--judge-model TARGET` | `claude-code` | Judge engine: backend and/or model (see below) |
 | `--verbose` | off | Show per-attempt judge reasoning |
 | `--output PATH` | — | Also save results JSON to a specific path |
 
 #### `--model` and `--judge-model` syntax
 
-The engine is not stored in the spec — these flags select it, defaulting to `claude-code` when omitted. Both accept a `backend:model` compound value, a bare backend name, or a bare model name:
+The engine is not stored in the spec; these flags select it, defaulting to `claude-code` when omitted. Both accept a `backend:model` compound value, a bare backend name, or a bare model name:
 
 ```bash
 # Backend and model together
-caliper run my-skill.eval.yaml --model codex:gpt-5-codex
+caliper run my-skill.eval.yaml --model codex:gpt-5.6-sol
 
 # Backend only (that backend's default model)
 caliper run my-skill.eval.yaml --model codex
 
 # Model only (backend stays claude-code)
-caliper run my-skill.eval.yaml --model claude-sonnet-4-6
+caliper run my-skill.eval.yaml --model claude-fable-5
 
 # Select the judge engine independently
 caliper run my-skill.eval.yaml --model codex --judge-model claude-code:claude-haiku-4-5-20251001
 ```
 
-Accepted backends: `claude-code`, `codex`, `pi`, `hermes` (alias: `claude` → `claude-code`). The actual engine used is recorded in each saved run's `RunMeta` — the skill `backend`/`model`, and the `judge_backend`/`judge_model` that graded it — so results stay traceable even though the spec doesn't pin it. When you don't name a model and the CLI uses its own default, `RunMeta` records the concrete model the agent resolved rather than a bare "default", wherever the backend reports it — the skill model from hermes' session export, and the `judge_model` from the `claude-code` judge's JSON output. `judge_model` stays empty for an `assert:`-only run, where no LLM judge fired.
+Accepted backends: `claude-code`, `codex`, `pi`, `hermes` (alias: `claude` → `claude-code`). The actual engine used is recorded in each saved run's `RunMeta` (the skill `backend`/`model`, and the `judge_backend`/`judge_model` that graded it), so results stay traceable even though the spec doesn't pin it. When you don't name a model and the CLI uses its own default, `RunMeta` records the concrete model the agent resolved rather than a bare "default", wherever the backend reports it: the skill model from hermes' session export, and the `judge_model` from the `claude-code` judge's JSON output. `judge_model` stays empty for an `assert:`-only run, where no LLM judge fired.
 
 ---
 
@@ -550,7 +550,7 @@ stays `null` and it's skipped in the aggregate.
 
 ---
 
-## Token & wall-clock usage
+## Token and time usage
 
 Pass@k tells you *whether* a skill works; usage tells you what it **costs** to
 get there. Two runs can have identical scores while one burns twice the tokens.
@@ -594,23 +594,6 @@ them up per run:
 
 ---
 
-## Project layout
-
-```text
-caliper/
-  commands/       CLI command implementations
-  harness/        Agent execution backends (Claude Code, Codex, pi, Hermes)
-  judge/          LLM and script judging implementations
-  schema/         Eval spec and result models
-  runner.py       Evaluation orchestration
-skills/
-  evaluate-skill/ Agent skill for running Caliper from Claude Code or Codex
-  grill-skill/    Agent skill for creating and iterating on evals interactively
-tests/            Pytest coverage for harnesses, judges, and runner behavior
-```
-
----
-
 ## Contributing
 
 Contributions are welcome. See [`CONTRIBUTING.md`](.github/CONTRIBUTING.md) for good first areas, the pre-PR checklist, the ruff formatting convention and pinned version, and the one-time `pre-commit install` step.
@@ -621,15 +604,6 @@ Contributions are welcome. See [`CONTRIBUTING.md`](.github/CONTRIBUTING.md) for 
 
 **`codex judge failed: model ... is not supported`**
 The model name is not available to your Codex account. Use a model that `codex exec --model <name>` accepts.
-
-**`codex CLI not found`**
-
-```bash
-npm install -g @openai/codex
-```
-
-**`claude` command not found**
-Install and authenticate Claude Code, or switch the backend to `codex` or `pi`.
 
 **A task passes only because of `assert:`**
 When a task has only `assert:`, no LLM judge runs. Add `expect:` if you also want an LLM to evaluate the transcript.
