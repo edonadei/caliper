@@ -118,25 +118,9 @@ caliper run my-skill.eval.yaml --k 3          # add --baseline to diff vs the ba
 
 **4. Read the output**
 
-```text
-─────────── CALIPER  —  my-skill  (claude-code)  —  2026-06-19 14:23 ───────────
+![caliper run of my-skill at k=3: 'Writes a conventional commit message' passes 3/3 (100.0%), 'Generates a valid config file' 2/3 (66.7%, PARTIAL); overall Score 83.3%, 159K in / 2K out, 1m 0s wall at 10.0s per attempt, with a failure panel showing the failing attempt's assertion error](docs/assets/run-output.svg)
 
-╭──────────────────────────────────┬───────┬─────────┬────────┬──────┬───────────╮
-│ Task                             │ k (3) │ success │ Tokens │ Wall │           │
-├──────────────────────────────────┼───────┼─────────┼────────┼──────┼───────────┤
-│ Writes a conventional commit msg │  3/3  │  100.0% │    79K │  27s │  ✓ PASS   │
-│ Generates a valid config file    │  2/3  │   66.7% │    82K │  33s │ ~ PARTIAL │
-╰──────────────────────────────────┴───────┴─────────┴────────┴──────┴───────────╯
-
- Score   83.3%  █████████████████░░░
-
- Tokens   159K in / 2K out
- Wall     1m 0s  10.0s per attempt
-
-Results saved to .caliper/results/my-skill/2026-06-19T14-23-01Z.json
-```
-
-`--verbose` adds `pass@k` and `pass^k` columns (both derived from the raw rate).
+The report ends with the per-task failure panels — for each attempt that didn't pass, the output plus the assertion or autorater reason *why*. Full results are also saved as JSON under `.caliper/results/<spec>/` for you to inspect or `caliper compare` later. `--verbose` adds `pass@k` and `pass^k` columns (both derived from the raw rate) and a panel for every task.
 
 ### Not sure what to put in a spec?
 
