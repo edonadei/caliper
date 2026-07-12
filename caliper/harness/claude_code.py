@@ -12,15 +12,11 @@ from typing import Callable
 from caliper.harness.base import (
     ConversationTurn,
     CliHarness,
-    HarnessConfigurationError,
     ProcessResult,
     RunContext,
 )
+from caliper.harness.mcp import interpolate
 from caliper.schema.results import TokenUsage
-
-# A ``${VAR}`` reference in an MCP server's ``env`` value. Only this exact form
-# is honored, and only inside ``env`` values.
-_ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 def preferred_nvm_node_bin() -> str | None:
@@ -140,12 +136,10 @@ class ClaudeCodeHarness(CliHarness):
             if server.is_remote:
                 entry: dict = {
                     "type": server.type,
-                    "url": self._interpolate(
-                        server.url, server_name=name, field_label="url"
-                    ),
+                    "url": interpolate(server.url, server_name=name, field_label="url"),
                 }
                 headers = {
-                    key: self._interpolate(
+                    key: interpolate(
                         value, server_name=name, field_label=f"headers.{key}"
                     )
                     for key, value in server.headers.items()
@@ -154,9 +148,7 @@ class ClaudeCodeHarness(CliHarness):
                     entry["headers"] = headers
             else:
                 env = {
-                    key: self._interpolate(
-                        value, server_name=name, field_label=f"env.{key}"
-                    )
+                    key: interpolate(value, server_name=name, field_label=f"env.{key}")
                     for key, value in server.env.items()
                 }
                 entry = {"command": server.command}
@@ -170,20 +162,6 @@ class ClaudeCodeHarness(CliHarness):
         config_path.write_text(json.dumps({"mcpServers": servers}))
         config_path.chmod(0o600)
         return config_path
-
-    @staticmethod
-    def _interpolate(value: str, *, server_name: str, field_label: str) -> str:
-        def replace(match: re.Match[str]) -> str:
-            var = match.group(1)
-            if var not in os.environ:
-                raise HarnessConfigurationError(
-                    f"MCP server '{server_name}' needs env var {var} (referenced "
-                    f"by {field_label}), but it is not set.\n\n"
-                    f"export {var}=... and rerun caliper."
-                )
-            return os.environ[var]
-
-        return _ENV_VAR_RE.sub(replace, value)
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
         return self._build_env(
