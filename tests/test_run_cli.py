@@ -89,6 +89,8 @@ tasks:
     # Engine is resolved at the run seam and defaults to claude-code (ADR 0004)
     assert calls["backend"] == "claude-code"
     assert calls["model"] is None
+    assert calls["judge_backend"] == "claude-code"
+    assert calls["judge_model"] == "claude-sonnet-4-6"
 
 
 def test_run_cli_resolves_backend_and_judge_model_targets(

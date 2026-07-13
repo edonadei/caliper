@@ -9,7 +9,7 @@ from pathlib import Path
 from caliper.harness import get_harness
 from caliper.harness.base import ConversationTurn
 from caliper.judge.base import Judge, JudgeResult
-from caliper.schema.spec import DEFAULT_BACKEND, TaskSpec
+from caliper.schema.spec import DEFAULT_BACKEND, TaskSpec, resolve_judge_model
 
 _SYSTEM = """\
 You are an evaluation judge for an AI assistant. You will be shown a conversation \
@@ -142,7 +142,7 @@ class EvalJudge(Judge):
     ) -> None:
         # The judge engine is a runtime axis, resolved from --judge-model (ADR 0004).
         self._backend = backend
-        self._model = model
+        self._model = resolve_judge_model(backend, model)
 
     def evaluate(
         self,
