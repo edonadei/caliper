@@ -471,6 +471,11 @@ def print_comparison(comp: RunComparison, verbose: bool = False) -> None:
         f"    {a_desc} {_TO} {b_desc}   {_SEP}"
         f"   k=[cyan]{comp.a.k}[/cyan]"
         + (f"/[cyan]{comp.b.k}[/cyan]" if comp.k_mismatch else "")
+        + (
+            f"   {_SEP}   margin=[cyan]{comp.regression_margin:g}%[/cyan]"
+            if comp.regression_margin > 0
+            else ""
+        )
     )
     for warning in comp.warnings:
         console.print(f" [bold yellow]{_WARN}[/bold yellow] [yellow]{warning}[/yellow]")

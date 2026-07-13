@@ -203,3 +203,46 @@ def test_matching_specs_and_k_produce_no_warnings() -> None:
     assert not comp.spec_mismatch
     assert not comp.k_mismatch
     assert comp.warnings == []
+
+
+# --------------------------------------------------------------------------
+# Regression margin (non-inferiority-aware flag)
+# --------------------------------------------------------------------------
+
+
+def _outcomes(n_pass: int, n_fail: int) -> list[Outcome]:
+    return [P] * n_pass + [F] * n_fail
+
+
+def test_margin_zero_preserves_any_below_regression() -> None:
+    a = _run([_task("alpha", _outcomes(20, 0), task_id="t1")], k=20)
+    b = _run([_task("alpha", _outcomes(19, 1), task_id="t1")], k=20)
+
+    comp = diff_runs(a, b, margin=0.0)
+
+    assert comp.regression_margin == 0.0
+    assert comp.has_regression
+    assert comp.matched[0].regression
+
+
+def test_margin_suppresses_small_drop() -> None:
+    a = _run([_task("alpha", _outcomes(20, 0), task_id="t1")], k=20)
+    b = _run([_task("alpha", _outcomes(19, 1), task_id="t1")], k=20)
+
+    comp = diff_runs(a, b, margin=0.05)
+
+    assert comp.regression_margin == 5.0
+    assert not comp.has_regression
+    assert not comp.matched[0].regression
+    assert comp.matched[0].delta is not None and comp.matched[0].delta < 0
+
+
+def test_margin_flags_drop_beyond_tolerance() -> None:
+    a = _run([_task("alpha", _outcomes(20, 0), task_id="t1")], k=20)
+    b = _run([_task("alpha", _outcomes(18, 2), task_id="t1")], k=20)
+
+    comp = diff_runs(a, b, margin=0.05)
+
+    assert comp.regression_margin == 5.0
+    assert comp.has_regression
+    assert comp.matched[0].regression

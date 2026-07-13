@@ -276,7 +276,8 @@ class TaskComparison(BaseModel):
     ``a_score``/``b_score`` are the stored per-task ``pass_at_k`` (``None`` when
     every attempt was unusable — the task was never fairly measured). ``delta``
     is ``b - a`` only when both sides were measured, else ``None`` (never faked
-    as 0). ``regression`` fires on the any-below rule: B below A, both measured.
+    as 0). ``regression`` fires when B drops more than the comparison's
+    ``regression_margin`` below A (any-below when that margin is 0).
     """
 
     task_name: str
@@ -310,6 +311,9 @@ class RunComparison(BaseModel):
     a_matched_avg: float
     b_matched_avg: float
     aggregate_delta: float
+    # Effective non-inferiority tolerance in percentage points (5.0 = 5%). Zero
+    # preserves the any-below regression rule.
+    regression_margin: float = 0.0
     has_regression: bool
     k_mismatch: bool
     spec_mismatch: bool

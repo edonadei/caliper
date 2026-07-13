@@ -32,7 +32,9 @@ def _group_by_name(tasks: list[TaskResult]) -> dict[str, list[TaskResult]]:
     return grouped
 
 
-def _compare_task(name: str, a: TaskResult, b: TaskResult) -> TaskComparison:
+def _compare_task(
+    name: str, a: TaskResult, b: TaskResult, *, margin: float = 0.0
+) -> TaskComparison:
     a_score = a.score
     b_score = b.score
     both_measured = a_score is not None and b_score is not None
@@ -41,8 +43,9 @@ def _compare_task(name: str, a: TaskResult, b: TaskResult) -> TaskComparison:
         a_score=a_score,
         b_score=b_score,
         delta=(b_score - a_score) if both_measured else None,
-        # Any-below rule; an unmeasured side is unknown, never a regression.
-        regression=both_measured and b_score < a_score,
+        # Any-below when margin=0; with margin, flag only when B drops *more than*
+        # the tolerance below A. An unmeasured side is unknown, never a regression.
+        regression=both_measured and b_score < (a_score - margin),
         a_outcomes=[att.outcome for att in a.attempts],
         b_outcomes=[att.outcome for att in b.attempts],
     )
@@ -54,6 +57,7 @@ def diff_runs(
     *,
     a_label: str | None = None,
     b_label: str | None = None,
+    margin: float = 0.0,
 ) -> RunComparison:
     """Diff two already-saved runs of (nominally) the same eval, A vs B.
 
@@ -68,6 +72,7 @@ def diff_runs(
         b.task_results,
         a_label=a_label,
         b_label=b_label,
+        margin=margin,
     )
 
 
@@ -97,6 +102,7 @@ def _diff(
     *,
     a_label: str | None,
     b_label: str | None,
+    margin: float = 0.0,
 ) -> RunComparison:
     a_by_name = _group_by_name(a_tasks)
     b_by_name = _group_by_name(b_tasks)
@@ -109,7 +115,7 @@ def _diff(
         b_group = b_by_name.get(name, [])
         pairs = min(len(a_group), len(b_group))
         for i in range(pairs):
-            matched.append(_compare_task(name, a_group[i], b_group[i]))
+            matched.append(_compare_task(name, a_group[i], b_group[i], margin=margin))
         # A-side tasks with no B counterpart (name absent or fewer in B).
         unmatched_a.extend(name for _ in a_group[pairs:])
 
@@ -154,6 +160,7 @@ def _diff(
         a_matched_avg=a_avg,
         b_matched_avg=b_avg,
         aggregate_delta=b_avg - a_avg,
+        regression_margin=margin * 100.0,
         has_regression=any(tc.regression for tc in matched),
         k_mismatch=k_mismatch,
         spec_mismatch=spec_mismatch,

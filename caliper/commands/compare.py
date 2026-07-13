@@ -40,8 +40,19 @@ def compare_cmd(
     verbose: Annotated[
         bool, typer.Option("--verbose", "-v", help="Also show pass@k and pass^k")
     ] = False,
+    margin: Annotated[
+        float,
+        typer.Option(
+            "--margin",
+            help=(
+                "Regression flag fires only when B drops more than this many "
+                "percentage points below A (default 0 = any-below)"
+            ),
+            min=0.0,
+        ),
+    ] = 0.0,
 ) -> None:
-    comparison = diff_runs(_load_run(a), _load_run(b))
+    comparison = diff_runs(_load_run(a), _load_run(b), margin=margin / 100.0)
 
     if fmt == "json":
         console.print_json(comparison_to_json(comparison))
