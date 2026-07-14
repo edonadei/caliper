@@ -15,7 +15,7 @@ _VALID_BACKENDS: frozenset[str] = frozenset({"claude-code", "codex", "pi", "herm
 DEFAULT_BACKEND: str = "claude-code"
 # Pinned so the claude-code judge does not inherit a stale model from the
 # installed Claude CLI's own default (see issue #59).
-DEFAULT_JUDGE_MODEL: str = "claude-sonnet-4-6"
+DEFAULT_JUDGE_MODEL: str = "claude-sonnet-5"
 
 
 def normalize_backend(value: str) -> str:

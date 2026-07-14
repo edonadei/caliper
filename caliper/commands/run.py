@@ -23,7 +23,6 @@ from caliper.schema.spec import (
     DEFAULT_BACKEND,
     load_spec,
     parse_target,
-    resolve_judge_model,
     spec_name,
 )
 
@@ -86,7 +85,6 @@ def run_cmd(
         jb, jm = parse_target(judge_model)
         judge_backend = jb or judge_backend
         judge_model_name = jm
-    judge_model_name = resolve_judge_model(judge_backend, judge_model_name)
 
     name = spec_name(spec_file)
     print_banner(name, k, backend, skill_model)

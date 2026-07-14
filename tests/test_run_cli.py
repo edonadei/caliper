@@ -90,7 +90,7 @@ tasks:
     assert calls["backend"] == "claude-code"
     assert calls["model"] is None
     assert calls["judge_backend"] == "claude-code"
-    assert calls["judge_model"] == "claude-sonnet-4-6"
+    assert calls["judge_model"] is None
 
 
 def test_run_cli_resolves_backend_and_judge_model_targets(

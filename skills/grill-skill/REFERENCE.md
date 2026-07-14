@@ -147,7 +147,7 @@ If the skill under test needs MCP tools, declare them in a top-level `mcp:` bloc
 | `pi` | pi CLI (authenticated) | For pi / agentskills.io skills; native `--skill` loading |
 | `hermes` | Hermes Agent CLI (authenticated) | Nous Research; normalized to a neutral agent, `hermes:<provider>/<model>` picks the model |
 
-The skill engine (`--model`) and judge engine (`--judge-model`) are chosen independently at run time. Every backend is a CLI agent; for API billing, configure a CLI with an API key rather than selecting a separate backend.
+The skill engine (`--model`) and judge engine (`--judge-model`) are chosen independently at run time. Every backend is a CLI agent; for API billing, configure a CLI with an API key rather than selecting a separate backend. When `--judge-model` is omitted, the default `claude-code` judge pins `claude-sonnet-5` at execution time so it does not inherit a stale model from the installed Claude CLI; `RunMeta.judge_model` stays empty unless you pass `--judge-model` explicitly or the autorater reports what it used.
 
 `hermes` is a stateful agent (persistent memory + persona), so Caliper strips it to a neutral agent per attempt — isolated `HERMES_HOME`, no `SOUL.md`/`MEMORY.md`, `--ignore-rules`, skill-under-test staged as the only local skill — and recovers the full trajectory via `hermes sessions export` after the `hermes -z` run.
 

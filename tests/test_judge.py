@@ -227,7 +227,7 @@ def test_eval_judge_claude_code_uses_pinned_default_model(
     )
 
     cmd, _kwargs = calls[0]
-    assert cmd[cmd.index("--model") + 1] == "claude-sonnet-4-6"
+    assert cmd[cmd.index("--model") + 1] == "claude-sonnet-5"
 
 
 def test_claude_judge_extracts_concrete_model_from_envelope(
