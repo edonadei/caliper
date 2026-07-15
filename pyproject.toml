@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "caliper-eval"
 version = "0.9.0"
-description = "CLI for evaluating Claude Code skills and AI agents"
+description = "A lightweight evaluation harness for agent skills"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
