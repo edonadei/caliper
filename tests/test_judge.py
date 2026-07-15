@@ -211,6 +211,25 @@ def test_eval_judge_claude_code_invokes_claude_cli(monkeypatch, tmp_path) -> Non
     assert kwargs["timeout"] == 60
 
 
+def test_eval_judge_claude_code_uses_pinned_default_model(
+    monkeypatch, tmp_path
+) -> None:
+    calls = _spawn(
+        monkeypatch,
+        stdout='{"mode": "verdict", "passed": true, "reasoning": "ok"}',
+    )
+
+    EvalJudge(backend="claude-code").evaluate(
+        task=_task(),
+        transcript=[ConversationTurn(role="assistant", content="ok")],
+        final_output="ok",
+        spec_dir=str(tmp_path),
+    )
+
+    cmd, _kwargs = calls[0]
+    assert cmd[cmd.index("--model") + 1] == "claude-sonnet-5"
+
+
 def test_claude_judge_extracts_concrete_model_from_envelope(
     monkeypatch, tmp_path
 ) -> None:

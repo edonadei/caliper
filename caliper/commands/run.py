@@ -19,7 +19,12 @@ from caliper.reporter import (
 )
 from caliper.runner import run, AttemptEvent
 from caliper.schema.results import Outcome, TaskResult
-from caliper.schema.spec import DEFAULT_BACKEND, load_spec, parse_target, spec_name
+from caliper.schema.spec import (
+    DEFAULT_BACKEND,
+    load_spec,
+    parse_target,
+    spec_name,
+)
 
 console = Console()
 
