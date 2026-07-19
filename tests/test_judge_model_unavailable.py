@@ -29,7 +29,8 @@ def test_is_model_unavailable_openai_style() -> None:
 
 
 def test_is_model_unavailable_rejects_unrelated_unparseable() -> None:
-    assert not is_model_unavailable('{"mode": "verdict", "passed": true')
+    assert not is_model_unavailable('{"mode": "verdict", "passed": true}')
+    assert not is_model_unavailable("model.py does not exist")
 
 
 def test_format_model_unavailable_message_includes_hint() -> None:
