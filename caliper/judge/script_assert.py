@@ -9,6 +9,7 @@ from pathlib import Path
 from caliper.harness import get_harness
 from caliper.harness.base import ConversationTurn
 from caliper.judge.base import Judge, JudgeResult
+from caliper.judge.errors import is_model_unavailable, judge_failure_reason
 from caliper.schema.spec import DEFAULT_BACKEND, TaskSpec, resolve_judge_model
 
 _SYSTEM = """\
@@ -89,7 +90,9 @@ def _run_inline_script(code: str, spec_dir: str) -> tuple[bool, str]:
         Path(tmp_path).unlink(missing_ok=True)
 
 
-def _parse_rich_response(raw: str, spec_dir: str) -> tuple[bool, str, bool]:
+def _parse_rich_response(
+    raw: str, spec_dir: str, model: str | None = None
+) -> tuple[bool, str, bool]:
     """Parse an autorater response into (passed, reasoning, errored).
 
     ``errored`` is True when the autorater failed to yield a usable verdict at
@@ -99,7 +102,10 @@ def _parse_rich_response(raw: str, spec_dir: str) -> tuple[bool, str, bool]:
     try:
         verdict = json.loads(raw)
     except json.JSONDecodeError:
-        return False, f"Judge returned unparseable response: {raw[:200]}", True
+        return False, judge_failure_reason(raw, model), True
+
+    if isinstance(verdict, dict) and verdict.get("type") == "error":
+        return False, judge_failure_reason(raw, model), True
 
     mode = verdict.get("mode", "verdict")
     reasoning = str(verdict.get("reasoning", ""))
@@ -217,8 +223,10 @@ class EvalJudge(Judge):
 
         result = harness.run_prompt(prompt, cwd=spec_dir, timeout=60)
         if result.error:
-            return False, result.error, True, result.resolved_model
-        passed, reasoning, errored = _parse_rich_response(
-            _strip_markdown_fence(result.text), spec_dir
-        )
+            error = result.error
+            if is_model_unavailable(error):
+                error = judge_failure_reason(error, self._model)
+            return False, error, True, result.resolved_model
+        raw = _strip_markdown_fence(result.text)
+        passed, reasoning, errored = _parse_rich_response(raw, spec_dir, self._model)
         return passed, reasoning, errored, result.resolved_model
