@@ -16,6 +16,11 @@ from caliper.harness.base import (
     PromptResult,
     RunContext,
 )
+from caliper.harness.prompt_failure import (
+    PromptFailure,
+    classify_claude_api_error_status,
+    format_judge_failure,
+)
 from caliper.harness.mcp import resolve_servers
 from caliper.schema.results import TokenUsage
 
@@ -249,8 +254,12 @@ class ClaudeCodeHarness(CliHarness):
     def _prompt_output(
         self, proc: ProcessResult, model: str | None, extras: dict
     ) -> PromptResult:
-        # No returncode gate on purpose: a failed call yields empty/garbage text,
-        # which the caller's verdict parse reports as an unusable response.
+        classified = _classify_claude_prompt_failure(proc.stdout, model)
+        if classified is not None:
+            return classified
+
+        # Unclassified errors still flow text through so the caller's verdict
+        # parse can report an unusable response (see PR #61).
         text, resolved = _extract_verdict_and_model(proc.stdout, model)
         return PromptResult(text=text, resolved_model=resolved, error=None)
 
@@ -440,6 +449,36 @@ class ClaudeCodeHarness(CliHarness):
                     break
 
         return transcript, final_output
+
+
+def _classify_claude_prompt_failure(
+    stdout: str, model: str | None
+) -> PromptResult | None:
+    """Return a classified upstream failure, or None to keep today's text path."""
+    stripped = stdout.strip()
+    try:
+        envelope = json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(envelope, dict) or not envelope.get("is_error"):
+        return None
+
+    status = envelope.get("api_error_status")
+    if not isinstance(status, int):
+        return None
+
+    kind = classify_claude_api_error_status(status)
+    if kind is None:
+        return None
+
+    message = str(envelope.get("result", "")).strip() or f"API error {status}"
+    failure = PromptFailure(kind=kind, message=message, status=status)
+    return PromptResult(
+        text="",
+        resolved_model=model,
+        error=format_judge_failure(failure, model),
+        failure=failure,
+    )
 
 
 def _extract_verdict_and_model(

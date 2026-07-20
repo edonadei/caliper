@@ -7,6 +7,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Callable
 
+from caliper.harness.prompt_failure import (
+    PromptFailure,
+    PromptFailureKind,
+    format_judge_failure,
+)
 from caliper.schema.results import TokenUsage
 from caliper.schema.spec import McpServer
 
@@ -96,12 +101,15 @@ class PromptResult:
     The judge's half of the backend seam: ``text`` is the agent's final answer,
     ``resolved_model`` the concrete model when the backend can report it (else
     the requested one, ``None`` on an unobserved CLI default), and ``error`` a
-    human-readable reason when no answer was produced at all.
+    human-readable reason when no answer was produced at all. When the harness
+    classifies an upstream API failure, ``failure`` carries the typed kind and
+    ``error`` is the formatted judge-facing message.
     """
 
     text: str
     resolved_model: str | None = None
     error: str | None = None
+    failure: PromptFailure | None = None
 
 
 class HarnessBackend(ABC):
@@ -383,10 +391,17 @@ class CliHarness(HarnessBackend):
         """Read the agent's final answer out of a finished prompt call."""
         if proc.returncode != 0:
             detail = (proc.stderr or proc.stdout).strip()
+            failure = PromptFailure(
+                kind=PromptFailureKind.OTHER,
+                message=detail[:200]
+                if detail
+                else f"{self.name} judge exited {proc.returncode}",
+            )
             return PromptResult(
                 text="",
                 resolved_model=model,
-                error=f"{self.name} judge exited {proc.returncode}: {detail[:200]}",
+                error=format_judge_failure(failure, model),
+                failure=failure,
             )
         return PromptResult(
             text=self._prompt_text(proc), resolved_model=model, error=None

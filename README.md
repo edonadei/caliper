@@ -609,5 +609,8 @@ Contributions are welcome. See [`CONTRIBUTING.md`](.github/CONTRIBUTING.md) for 
 **`codex judge failed: model ... is not supported`**
 The model name is not available to your Codex account. Use a model that `codex exec --model <name>` accepts.
 
+**`Judge model ... is unavailable` / `Judge authentication failed` / `Judge rate limited`**
+The judge CLI reached the provider and the call was refused. Caliper classifies these at the harness boundary (from the CLI's structured output) and suggests passing `--judge-model <backend[:model]>` to pick an available judge engine or model. Example: `caliper run my-skill.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001`.
+
 **A task passes only because of `assert:`**
 When a task has only `assert:`, no LLM judge runs. Add `expect:` if you also want an LLM to evaluate the transcript.
