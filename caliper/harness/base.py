@@ -391,11 +391,10 @@ class CliHarness(HarnessBackend):
         """Read the agent's final answer out of a finished prompt call."""
         if proc.returncode != 0:
             detail = (proc.stderr or proc.stdout).strip()
+            suffix = f": {detail[:200]}" if detail else ""
             failure = PromptFailure(
                 kind=PromptFailureKind.OTHER,
-                message=detail[:200]
-                if detail
-                else f"{self.name} judge exited {proc.returncode}",
+                message=f"{self.name} judge exited {proc.returncode}{suffix}",
             )
             return PromptResult(
                 text="",
