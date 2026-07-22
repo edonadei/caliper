@@ -8,6 +8,7 @@ from pathlib import Path
 
 from caliper.harness import get_harness
 from caliper.harness.base import ConversationTurn
+from caliper.harness.prompt_failure import format_judge_failure
 from caliper.judge.base import Judge, JudgeResult
 from caliper.schema.spec import DEFAULT_BACKEND, TaskSpec, resolve_judge_model
 
@@ -216,6 +217,11 @@ class EvalJudge(Judge):
         prompt = f"{_SYSTEM}\n\n{user_msg}"
 
         result = harness.run_prompt(prompt, cwd=spec_dir, timeout=60)
+        if result.failure is not None:
+            # Switch on the typed kind here, in the judge — provider status codes
+            # never leak past the harness boundary (issue #75, ADR-0001).
+            reasoning = format_judge_failure(result.failure, result.resolved_model)
+            return False, reasoning, True, result.resolved_model
         if result.error:
             return False, result.error, True, result.resolved_model
         passed, reasoning, errored = _parse_rich_response(

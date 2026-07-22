@@ -50,7 +50,8 @@ def test_classify_claude_prompt_failure_uses_recorded_fixture() -> None:
     assert result.failure.kind is PromptFailureKind.MODEL_UNAVAILABLE
     assert result.failure.status == 404
     assert "claude-sonnet-4-20250514" in result.failure.message
-    assert "--judge-model" in (result.error or "")
+    # The harness carries the raw provider message; the judge formats it.
+    assert result.error == result.failure.message
 
 
 def test_classify_claude_prompt_failure_leaves_unclassified_is_error_alone() -> None:

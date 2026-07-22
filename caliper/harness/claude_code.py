@@ -19,7 +19,6 @@ from caliper.harness.base import (
 from caliper.harness.prompt_failure import (
     PromptFailure,
     classify_claude_api_error_status,
-    format_judge_failure,
 )
 from caliper.harness.mcp import resolve_servers
 from caliper.schema.results import TokenUsage
@@ -473,10 +472,12 @@ def _classify_claude_prompt_failure(
 
     message = str(envelope.get("result", "")).strip() or f"API error {status}"
     failure = PromptFailure(kind=kind, message=message, status=status)
+    # Carry the structural failure; the judge switches on ``failure.kind`` to
+    # build the user-facing message (see caliper/judge/script_assert.py).
     return PromptResult(
         text="",
         resolved_model=model,
-        error=format_judge_failure(failure, model),
+        error=message,
         failure=failure,
     )
 

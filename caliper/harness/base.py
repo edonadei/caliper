@@ -10,7 +10,6 @@ from typing import Callable
 from caliper.harness.prompt_failure import (
     PromptFailure,
     PromptFailureKind,
-    format_judge_failure,
 )
 from caliper.schema.results import TokenUsage
 from caliper.schema.spec import McpServer
@@ -396,10 +395,13 @@ class CliHarness(HarnessBackend):
                 kind=PromptFailureKind.OTHER,
                 message=f"{self.name} judge exited {proc.returncode}{suffix}",
             )
+            # The harness carries the structural failure; the judge formats it
+            # (see caliper/judge/script_assert.py). ``error`` holds the raw
+            # message for callers that only read text.
             return PromptResult(
                 text="",
                 resolved_model=model,
-                error=format_judge_failure(failure, model),
+                error=failure.message,
                 failure=failure,
             )
         return PromptResult(
