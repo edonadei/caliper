@@ -159,3 +159,8 @@ optional `transcript` (ordered turns with `tool_name`/`tool_input`/`tool_output`
 so saved runs remain inspectable after the fact — including which MCP tools fired.
 Older JSON without `transcript` still loads (`null`). `report` and `compare` do not
 render the transcript; it is stored for later analysis.
+
+## Troubleshooting
+
+**`Judge model ... is unavailable` / `Judge authentication failed` / `Judge rate limited`**
+The judge CLI reached the provider and the call was refused. Caliper classifies these at the harness boundary (from the CLI's structured output) and suggests passing `--judge-model <backend[:model]>` to pick an available judge engine or model.
