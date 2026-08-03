@@ -360,6 +360,8 @@ tasks:
 
 Each task needs at least one of `expect`, `assert` or `activates`. Task IDs are assigned automatically as `task-001`, `task-002`, and so on.
 
+> **Upgrading an existing spec?** `skill:` became `skills:` in v0.10. See [docs/MIGRATING-to-skills.md](docs/MIGRATING-to-skills.md) — a short checklist, including the two traps a find-and-replace misses (stale `skill.path` inside `prompt:`/`expect:`/`assert:` strings, and prompts that name the skill they're testing).
+
 ### `skills:` — the neighbourhood
 
 Every entry is installed at the agent's own skills root under its frontmatter
