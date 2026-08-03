@@ -200,6 +200,9 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     )
     console.print()
 
+    _print_score(results)
+    console.print()
+
     table = Table(
         box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False
     )
@@ -236,7 +239,11 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     console.print(table)
     console.print()
 
-    _print_aggregate(results)
+    _print_activation_aggregate(results, _score_bar)
+    _print_unusable_summary(results)
+    console.print()
+    _print_usage_summary(UsageTotals.from_task_results(results.task_results))
+    console.print()
     _print_task_details(results.task_results, k, verbose)
 
 
@@ -331,15 +338,15 @@ def _score_bar(score: float, width: int = 20) -> str:
     )
 
 
-def _print_aggregate(results: RunResults) -> None:
+def _print_score(results: RunResults) -> None:
+    """The execution headline, printed *above* the per-task table it sums up."""
     agg = results.aggregate
-    score_bar = _score_bar
 
     if agg.scored_tasks:
         plural = "s" if agg.scored_tasks != 1 else ""
         console.print(
             f" [bold]Score[/bold]       [cyan]{agg.avg_score * 100:.1f}%[/cyan]"
-            f"  {score_bar(agg.avg_score)}"
+            f"  {_score_bar(agg.avg_score)}"
             f"  [dim]({agg.scored_tasks} task{plural} scored)[/dim]"
         )
     else:
@@ -348,12 +355,6 @@ def _print_aggregate(results: RunResults) -> None:
         console.print(
             f" [bold]Score[/bold]       [dim]{_RULE}  no execution checks[/dim]"
         )
-
-    _print_activation_aggregate(results, score_bar)
-    _print_unusable_summary(results)
-    console.print()
-    _print_usage_summary(UsageTotals.from_task_results(results.task_results))
-    console.print()
 
 
 def _print_activation_aggregate(results: RunResults, score_bar) -> None:
@@ -389,8 +390,8 @@ def _print_activation_aggregate(results: RunResults, score_bar) -> None:
     measured = [s for s in agg.activation_per_skill if s.expected or s.fired]
     dormant = [s for s in agg.activation_per_skill if not (s.expected or s.fired)]
 
-    console.print()
     if measured:
+        console.print()
         table = Table(
             box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False
         )
