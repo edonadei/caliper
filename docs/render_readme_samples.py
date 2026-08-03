@@ -203,8 +203,6 @@ def _run_example() -> RunResults:
         judge_backend="claude-code",
         era=ERA_INSTALL_AND_DISCOVER,
     )
-    # 26_000 in + 350 out per attempt → 79K over three; 9s each → 27s.
-    message_usage = TokenUsage(input_tokens=26_000, output_tokens=350)
     message = TaskResult(
         task_id="writes-a-conventional-commit-message",
         task_name="Writes a conventional commit message",
@@ -212,21 +210,23 @@ def _run_example() -> RunResults:
             _att(
                 i,
                 P,
-                9.0,
-                message_usage,
+                seconds,
+                TokenUsage(input_tokens=tok_in, output_tokens=tok_out),
                 "feat(auth): add token refresh\n\n…",
                 activated=["commit-writer"],
                 activation_passed=True,
             )
-            for i in (1, 2, 3)
+            for i, seconds, tok_in, tok_out in (
+                (1, 8.2, 25_400, 380),
+                (2, 10.6, 27_100, 296),
+                (3, 8.4, 26_300, 431),
+            )
         ],
         successes=3,
         unusable=0,
         pass_at_k=1.0,
         activation_expected=["commit-writer"],
     )
-    # 27_000 in + 350 out per attempt → 82K over three; 11s each → 33s.
-    subject_usage = TokenUsage(input_tokens=27_000, output_tokens=350)
     subject = TaskResult(
         task_id="keeps-the-subject-line-under-72-characters",
         task_name="Keeps the subject line under 72 characters",
@@ -234,17 +234,44 @@ def _run_example() -> RunResults:
             _att(
                 n,
                 outcome,
-                11.0,
-                subject_usage,
-                "Committed as feat(api): paginate the search endpoint",
+                seconds,
+                TokenUsage(input_tokens=tok_in, output_tokens=tok_out),
+                output,
                 assert_evidence=evidence,
                 activated=["commit-writer"],
                 activation_passed=True,
             )
-            for n, outcome, evidence in (
-                (1, P, None),
-                (2, P, None),
-                (3, F, "AssertionError: subject line is 94 chars (limit 72)"),
+            # The third attempt rambles: more output tokens, and the long
+            # subject line the assertion catches.
+            for n, outcome, seconds, tok_in, tok_out, output, evidence in (
+                (
+                    1,
+                    P,
+                    10.4,
+                    26_900,
+                    288,
+                    "Committed as feat(api): paginate search",
+                    None,
+                ),
+                (
+                    2,
+                    P,
+                    12.1,
+                    28_300,
+                    344,
+                    "Committed as fix(api): handle empty cursor",
+                    None,
+                ),
+                (
+                    3,
+                    F,
+                    11.8,
+                    27_200,
+                    612,
+                    "Committed as feat(api): add cursor-based pagination to the "
+                    "search endpoint so large result sets stream",
+                    "AssertionError: subject line is 94 chars (limit 72)",
+                ),
             )
         ],
         successes=2,
@@ -253,8 +280,7 @@ def _run_example() -> RunResults:
         activation_expected=["commit-writer"],
     )
     # A release-notes request belongs to the changelog-writer neighbour. Cheap:
-    # no execution check means no judge call. 4_000 in + 100 out, 3s each.
-    probe_usage = TokenUsage(input_tokens=4_000, output_tokens=100)
+    # no execution check means no judge call.
     probe = TaskResult(
         task_id="a-release-summary-belongs-to-changelog-writer",
         task_name="A release summary belongs to changelog-writer",
@@ -262,17 +288,17 @@ def _run_example() -> RunResults:
             _att(
                 n,
                 Outcome.NOT_CHECKED,
-                3.0,
-                probe_usage,
+                seconds,
+                TokenUsage(input_tokens=tok_in, output_tokens=tok_out),
                 "Here is a summary of the changes since v2.1 …",
                 activated=activated,
                 activation_passed=(activated == ["changelog-writer"]),
             )
             # commit-writer grabs it twice out of three: the hijack.
-            for n, activated in (
-                (1, ["commit-writer"]),
-                (2, ["changelog-writer"]),
-                (3, ["commit-writer"]),
+            for n, seconds, tok_in, tok_out, activated in (
+                (1, 3.4, 4_100, 118, ["commit-writer"]),
+                (2, 2.6, 3_700, 96, ["changelog-writer"]),
+                (3, 3.9, 4_400, 143, ["commit-writer"]),
             )
         ],
         successes=0,

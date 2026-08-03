@@ -382,27 +382,60 @@ def _print_activation_aggregate(results: RunResults, score_bar) -> None:
     if not agg.activation_per_skill:
         return
 
-    # Recall and precision, named for what a skill author is deciding: am I
-    # under-firing, or am I grabbing someone else's prompt? The statistical
-    # names stay in the schema and the glossary, not on the report.
+    # A skill never wanted and never seen had no chance to succeed or fail, so
+    # it carries no measurement — only the fact that it was installed. At two
+    # skills a row is fine; at ten it is eight identical rows burying the two
+    # that matter, so those collapse to a single line below the table.
+    measured = [s for s in agg.activation_per_skill if s.expected or s.fired]
+    dormant = [s for s in agg.activation_per_skill if not (s.expected or s.fired)]
+
     console.print()
-    table = Table(
-        box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False
-    )
-    table.add_column("Skill")
-    table.add_column("fires when wanted", justify="right")
-    table.add_column("quiet when not", justify="right")
-    for stats in agg.activation_per_skill:
-        table.add_row(
-            stats.skill,
-            _rate_cell(stats.hits, stats.expected, stats.recall),
-            _rate_cell(
-                stats.total - stats.expected - stats.unwanted,
-                stats.total - stats.expected,
-                stats.restraint,
-            ),
+    if measured:
+        table = Table(
+            box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False
         )
-    console.print(table)
+        table.add_column("Skill")
+        table.add_column("wanted", justify="right")
+        # Two complete sentences, deliberately not "fires when wanted / quiet
+        # when not": the second was elliptical and made the reader borrow a word
+        # from the first column to finish it. `fires` / `stays out` are opposed
+        # verbs, so the two columns read as the two sides of one boundary.
+        table.add_column("fires when wanted", justify="right")
+        table.add_column("stays out otherwise", justify="right")
+        # Worst first: the skill needing attention is the top row, not wherever
+        # it happened to sit in the spec (peers have no meaningful order anyway).
+        for stats in sorted(measured, key=_activation_severity):
+            table.add_row(
+                stats.skill,
+                Text(f"{stats.expected} of {stats.total}", style="dim"),
+                _rate_cell(stats.hits, stats.expected, stats.recall),
+                _rate_cell(
+                    stats.total - stats.expected - stats.unwanted,
+                    stats.total - stats.expected,
+                    stats.restraint,
+                ),
+            )
+        console.print(table)
+
+    if dormant:
+        names = ", ".join(s.skill for s in dormant)
+        plural = "s were" if len(dormant) > 1 else " was"
+        console.print(
+            f" [dim]{len(dormant)} more declared skill{plural} never wanted and "
+            f"never fired: {names}[/dim]"
+        )
+
+
+def _activation_severity(stats) -> float:
+    """Sort key: the worse of a skill's two rates, so the broken one leads.
+
+    A missing rate is not a problem — nothing ever wanted the skill, or it never
+    had a chance to hold back — so it sorts as perfect rather than as zero.
+    """
+    return min(
+        stats.recall if stats.recall is not None else 1.0,
+        stats.restraint if stats.restraint is not None else 1.0,
+    )
 
 
 def _rate_cell(numerator: int, denominator: int, rate: float | None) -> Text:

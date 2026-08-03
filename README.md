@@ -111,6 +111,7 @@ tasks:
           ["git", "log", "-1", "--pretty=%s"], capture_output=True, text=True
       ).stdout.strip()
       assert len(subject) <= 72, f"subject line is {len(subject)} chars"
+    activates: [commit-writer]
 
   # Activation: this prompt belongs to the neighbour, not to you
   - name: A release summary belongs to changelog-writer
@@ -143,7 +144,7 @@ caliper run my-skill.eval.yaml --k 3          # add --baseline to diff vs the ba
 
 **4. Read the output**
 
-![caliper run of commit-writer at k=3. Three rows: 'Writes a conventional commit message' passes 3/3 (100.0%) with a green tick in the act column; 'Keeps the subject line under 72 characters' 2/3 (66.7%, PARTIAL) with a green tick; 'A release summary belongs to changelog-writer' shows no execution score, a red cross in the act column, and reads 'trigger only'. Score 83.3% over 2 tasks scored. Activation 77.8% over 3 asserted tasks. A per-skill table shows commit-writer firing when wanted 6/6 (100.0%) but quiet when not only 1/3 (33.3%), and changelog-writer firing when wanted 1/3 (33.3%) and quiet when not 6/6 (100.0%). Failure panels below show the assertion error and the attempts where commit-writer activated on the changelog prompt](docs/assets/run-output.svg)
+![caliper run of commit-writer at k=3. Three rows: 'Writes a conventional commit message' passes 3/3 (100.0%, 80K tokens) with a green tick in the act column; 'Keeps the subject line under 72 characters' 2/3 (66.7%, PARTIAL, 84K tokens) with a green tick; 'A release summary belongs to changelog-writer' shows no execution score, a red cross in the act column, and reads 'trigger only'. Score 83.3% over 2 tasks scored. Activation 77.8% over 3 asserted tasks. A per-skill table shows commit-writer firing when wanted 6/6 (100.0%) but quiet when not only 1/3 (33.3%), and changelog-writer firing when wanted 1/3 (33.3%) and quiet when not 6/6 (100.0%). Failure panels below show the assertion error and the attempts where commit-writer activated on the changelog prompt](docs/assets/run-output.svg)
 
 The report ends with the per-task failure panels: for each attempt that didn't pass, the output plus the assertion or autorater reason *why*. Full results are also saved as JSON under `.caliper/results/<spec>/` for you to inspect or `caliper compare` later. `--verbose` adds `pass@k` and `pass^k` columns (both derived from the raw rate) and a panel for every task.
 
