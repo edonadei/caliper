@@ -5,6 +5,7 @@ import subprocess
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from caliper.harness.prompt_failure import (
@@ -13,6 +14,7 @@ from caliper.harness.prompt_failure import (
 )
 from caliper.schema.results import TokenUsage
 from caliper.schema.spec import McpServer
+from caliper.skills import SkillRef, install_skills
 
 
 class HarnessConfigurationError(RuntimeError):
@@ -63,11 +65,17 @@ class RunContext:
     task_id: str
     attempt: int
     prompt: str
-    skill_path: str | None
+    # The declared skill neighbourhood, installed at this backend's skills root
+    # before the agent runs and never preloaded into its context. Empty for a
+    # bare-agent run (and for every ``--baseline`` attempt).
+    skill_refs: list[SkillRef]
     model: str | None
     timeout: int
     isolated_home: str
     extra_path: list[str]
+    # ``sandbox.forbidden_files`` — applied to the install so a skill's answer
+    # key never travels with it.
+    forbidden_files: list[str] = field(default_factory=list)
     # Declared MCP servers (name -> McpServer) the agent-under-test may use. The
     # literal ``${VAR}`` in each server's ``env`` is kept as authored; a backend
     # that supports MCP interpolates and materializes it at run time. ``None``
@@ -140,6 +148,15 @@ class HarnessBackend(ABC):
     # than pending.
     mcp_unsupported_hint: str | None = None
 
+    # Tool names that mean "the agent deliberately opened a skill" on this
+    # backend — claude-code's ``Skill``, hermes' ``skill_view``. Backends whose
+    # agents reach a skill with a plain file read (codex, pi) leave this empty
+    # and are detected by the path shape instead; the detector takes the *union*
+    # of both, so a dedicated-tool backend is still caught reading the file
+    # directly. Facts about the backend, not an algorithm — the matching lives
+    # once, in the runner (docs/adr/0014).
+    activation_tool_names: frozenset[str] = frozenset()
+
     @abstractmethod
     def run(
         self,
@@ -147,12 +164,13 @@ class HarnessBackend(ABC):
         attempt: int,
         prompt: str,
         *,
-        skill_path: str | None,
+        skill_refs: list[SkillRef],
         model: str | None,
         timeout: int,
         isolated_home: str,
         extra_path: list[str] | None = None,
         mcp_servers: dict[str, McpServer] | None = None,
+        forbidden_files: list[str] | None = None,
     ) -> AttemptResult: ...
 
     def run_prompt(
@@ -192,27 +210,32 @@ class CliHarness(HarnessBackend):
         attempt: int,
         prompt: str,
         *,
-        skill_path: str | None,
+        skill_refs: list[SkillRef],
         model: str | None,
         timeout: int,
         isolated_home: str,
         extra_path: list[str] | None = None,
         mcp_servers: dict[str, McpServer] | None = None,
+        forbidden_files: list[str] | None = None,
     ) -> AttemptResult:
         ctx = RunContext(
             task_id=task_id,
             attempt=attempt,
             prompt=prompt,
-            skill_path=skill_path,
+            skill_refs=list(skill_refs),
             model=model or self._model,
             timeout=timeout,
             isolated_home=isolated_home,
             extra_path=list(extra_path or []),
             mcp_servers=mcp_servers,
+            forbidden_files=list(forbidden_files or []),
         )
 
         self._ensure_ready(ctx)
         self._prepare(ctx)
+        # After _prepare: a backend's skills root can depend on state _prepare
+        # sets up (hermes' HERMES_HOME, pi's agent dir).
+        self._install_skills(ctx)
         cmd, stdin, cleanup = self._command(ctx)
         env = self._environment(ctx)
 
@@ -300,6 +323,24 @@ class CliHarness(HarnessBackend):
 
     def _prepare(self, ctx: RunContext) -> None:
         """Seed the isolated home with auth/config before the agent runs."""
+
+    @abstractmethod
+    def skills_root(self, ctx: RunContext) -> Path:
+        """Where this agent discovers skills, inside the attempt's isolated home.
+
+        The one backend-specific fact install-and-discover needs. Called after
+        ``_prepare``, so it may read state that hook set up.
+        """
+
+    def _install_skills(self, ctx: RunContext) -> None:
+        """Install the declared neighbourhood; never preload any of it.
+
+        Nothing is placed in the agent's context — it meets each skill as a name
+        and a ``description`` it may or may not reach for, which is what makes
+        the choice measurable (docs/adr/0013).
+        """
+        if ctx.skill_refs:
+            install_skills(ctx.skill_refs, self.skills_root(ctx), ctx.forbidden_files)
 
     @abstractmethod
     def _command(

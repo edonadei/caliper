@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from caliper.harness.base import AttemptResult, ConversationTurn, HarnessBackend
 from caliper.judge.base import JudgeResult
-from caliper.runner import _stage_skill_directory, run
+from caliper.runner import run
 from caliper.schema.results import Outcome
-from caliper.schema.spec import EvalSpec, SkillConfig, TaskSpec
+from caliper.schema.spec import EvalSpec, TaskSpec
 
 
 class FailingHarness(HarnessBackend):
@@ -18,12 +18,13 @@ class FailingHarness(HarnessBackend):
         attempt: int,
         prompt: str,
         *,
-        skill_path: str | None,
+        skill_refs: list,
         model: str | None,
         timeout: int,
         isolated_home: str,
         extra_path: list[str] | None = None,
         mcp_servers: dict | None = None,
+        forbidden_files: list | None = None,
     ) -> AttemptResult:
         return AttemptResult(
             task_id=task_id,
@@ -46,19 +47,20 @@ class InfraErrorHarness(FailingHarness):
         attempt: int,
         prompt: str,
         *,
-        skill_path: str | None,
+        skill_refs: list,
         model: str | None,
         timeout: int,
         isolated_home: str,
         extra_path: list[str] | None = None,
         mcp_servers: dict | None = None,
+        forbidden_files: list | None = None,
     ) -> AttemptResult:
         self.attempts.append(attempt)
         return super().run(
             task_id=task_id,
             attempt=attempt,
             prompt=prompt,
-            skill_path=skill_path,
+            skill_refs=skill_refs,
             model=model,
             timeout=timeout,
             isolated_home=isolated_home,
@@ -80,12 +82,13 @@ class MixedOutcomeHarness(HarnessBackend):
         attempt: int,
         prompt: str,
         *,
-        skill_path: str | None,
+        skill_refs: list,
         model: str | None,
         timeout: int,
         isolated_home: str,
         extra_path: list[str] | None = None,
         mcp_servers: dict | None = None,
+        forbidden_files: list | None = None,
     ) -> AttemptResult:
         self.attempts.append(attempt)
         if attempt in (1, 3):
@@ -130,7 +133,6 @@ class JudgeErrorThenPass:
 
 def _one_task_spec() -> EvalSpec:
     return EvalSpec(
-        skill=SkillConfig(),
         tasks=[
             TaskSpec(
                 id="task-001",
@@ -144,7 +146,7 @@ def _one_task_spec() -> EvalSpec:
 
 def test_runner_fails_attempt_when_harness_exits_nonzero(tmp_path) -> None:
     spec_path = tmp_path / "failing.eval.yaml"
-    spec_path.write_text("skill: {}\ntasks: []\n")
+    spec_path.write_text("tasks: []\n")
     judge = RecordingJudge()
     spec = _one_task_spec()
 
@@ -172,7 +174,7 @@ def test_runner_fails_attempt_when_harness_exits_nonzero(tmp_path) -> None:
 
 def test_runner_runs_all_infra_failures_by_default(tmp_path) -> None:
     spec_path = tmp_path / "failing.eval.yaml"
-    spec_path.write_text("skill: {}\ntasks: []\n")
+    spec_path.write_text("tasks: []\n")
     harness = InfraErrorHarness()
 
     results = run(
@@ -193,7 +195,7 @@ def test_runner_runs_all_infra_failures_by_default(tmp_path) -> None:
 
 def test_runner_fail_fast_stops_after_unusable_threshold(tmp_path) -> None:
     spec_path = tmp_path / "failing.eval.yaml"
-    spec_path.write_text("skill: {}\ntasks: []\n")
+    spec_path.write_text("tasks: []\n")
     harness = InfraErrorHarness()
 
     results = run(
@@ -216,7 +218,7 @@ def test_runner_fail_fast_stops_after_unusable_threshold(tmp_path) -> None:
 
 def test_runner_fail_fast_does_not_reset_streak_on_judge_error(tmp_path) -> None:
     spec_path = tmp_path / "failing.eval.yaml"
-    spec_path.write_text("skill: {}\ntasks: []\n")
+    spec_path.write_text("tasks: []\n")
     harness = MixedOutcomeHarness()
 
     results = run(
@@ -243,7 +245,7 @@ def test_runner_fail_fast_does_not_reset_streak_on_judge_error(tmp_path) -> None
 
 def test_runner_emits_task_done_when_fail_fast_stops_early(tmp_path) -> None:
     spec_path = tmp_path / "failing.eval.yaml"
-    spec_path.write_text("skill: {}\ntasks: []\n")
+    spec_path.write_text("tasks: []\n")
     finished_tasks = []
 
     run(
@@ -264,58 +266,6 @@ def test_runner_emits_task_done_when_fail_fast_stops_early(tmp_path) -> None:
     assert finished_tasks[0].pass_at_k is None
 
 
-def _make_skill_dir(tmp_path):
-    skill_dir = tmp_path / "my-skill"
-    (skill_dir / "references").mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text("See [REFERENCE.md](REFERENCE.md)")
-    (skill_dir / "REFERENCE.md").write_text("token: UNIQUE-REF-42")
-    (skill_dir / "references" / "deep.md").write_text("nested detail")
-    return skill_dir
-
-
-def test_stage_copies_skill_siblings_into_home(tmp_path) -> None:
-    skill_dir = _make_skill_dir(tmp_path)
-    home = tmp_path / "home"
-    home.mkdir()
-
-    _stage_skill_directory(str(skill_dir / "SKILL.md"), str(home), [])
-
-    assert (home / "REFERENCE.md").read_text() == "token: UNIQUE-REF-42"
-    assert (home / "references" / "deep.md").read_text() == "nested detail"
-    assert (home / "SKILL.md").exists()
-
-
-def test_stage_excludes_cheat_surfaces(tmp_path) -> None:
-    skill_dir = _make_skill_dir(tmp_path)
-    (skill_dir / ".caliper" / "results").mkdir(parents=True)
-    (skill_dir / ".caliper" / "results" / "run.json").write_text("answers")
-    (skill_dir / "my-skill.eval.yaml").write_text("expect: the secret")
-    (skill_dir / "secret.txt").write_text("do not stage me")
-    home = tmp_path / "home"
-    home.mkdir()
-
-    _stage_skill_directory(str(skill_dir / "SKILL.md"), str(home), [r"secret\.txt$"])
-
-    assert not (home / ".caliper").exists()
-    assert not (home / "my-skill.eval.yaml").exists()
-    assert not (home / "secret.txt").exists()
-    # Legitimate references are still staged.
-    assert (home / "REFERENCE.md").exists()
-
-
-def test_stage_ignores_lone_command_file(tmp_path) -> None:
-    # A bare slash-command .md (not named SKILL.md) has no skill directory;
-    # we must not slurp its siblings (which could be an arbitrary repo).
-    (tmp_path / "review.md").write_text("Review the code.")
-    (tmp_path / "unrelated.md").write_text("do not copy")
-    home = tmp_path / "home"
-    home.mkdir()
-
-    _stage_skill_directory(str(tmp_path / "review.md"), str(home), [])
-
-    assert not (home / "unrelated.md").exists()
-
-
 class ResolvedModelHarness(HarnessBackend):
     """A harness that reports the concrete model it resolved for each attempt."""
 
@@ -332,12 +282,13 @@ class ResolvedModelHarness(HarnessBackend):
         attempt: int,
         prompt: str,
         *,
-        skill_path: str | None,
+        skill_refs: list,
         model: str | None,
         timeout: int,
         isolated_home: str,
         extra_path: list[str] | None = None,
         mcp_servers: dict | None = None,
+        forbidden_files: list | None = None,
     ) -> AttemptResult:
         return AttemptResult(
             task_id=task_id,
@@ -362,7 +313,7 @@ class ModelReportingJudge:
 
 def test_runmeta_records_judge_engine_and_resolved_model(tmp_path) -> None:
     spec_path = tmp_path / "prov.eval.yaml"
-    spec_path.write_text("skill: {}\ntasks: []\n")
+    spec_path.write_text("tasks: []\n")
 
     results = run(
         spec=_one_task_spec(),
@@ -387,7 +338,7 @@ def test_runmeta_records_judge_engine_and_resolved_model(tmp_path) -> None:
 
 def test_runmeta_fills_default_judge_model_from_autorater(tmp_path) -> None:
     spec_path = tmp_path / "prov.eval.yaml"
-    spec_path.write_text("skill: {}\ntasks: []\n")
+    spec_path.write_text("tasks: []\n")
 
     results = run(
         spec=_one_task_spec(),
@@ -408,7 +359,7 @@ def test_runmeta_fills_default_judge_model_from_autorater(tmp_path) -> None:
 
 def test_runmeta_prefers_explicit_model_over_resolved(tmp_path) -> None:
     spec_path = tmp_path / "prov.eval.yaml"
-    spec_path.write_text("skill: {}\ntasks: []\n")
+    spec_path.write_text("tasks: []\n")
 
     results = run(
         spec=_one_task_spec(),
@@ -435,12 +386,13 @@ class TranscriptHarness(HarnessBackend):
         attempt: int,
         prompt: str,
         *,
-        skill_path: str | None,
+        skill_refs: list,
         model: str | None,
         timeout: int,
         isolated_home: str,
         extra_path: list[str] | None = None,
         mcp_servers: dict | None = None,
+        forbidden_files: list | None = None,
     ) -> AttemptResult:
         return AttemptResult(
             task_id=task_id,
@@ -468,7 +420,7 @@ class TranscriptHarness(HarnessBackend):
 
 def test_runner_persists_attempt_transcript(tmp_path) -> None:
     spec_path = tmp_path / "transcript.eval.yaml"
-    spec_path.write_text("skill: {}\ntasks: []\n")
+    spec_path.write_text("tasks: []\n")
 
     results = run(
         spec=_one_task_spec(),

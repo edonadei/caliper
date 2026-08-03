@@ -1,5 +1,5 @@
-skill:
-  path: ./SKILL.md
+skills:
+  - ./SKILL.md
 
 # The engine (backend + model) is a runtime axis, not a spec field — this eval
 # runs on whatever `--model` / `--judge-model` select (default claude-code).
@@ -70,8 +70,8 @@ tasks:
       Summarize the contents of a file provided by the user.
       EOF
       cat > /tmp/grill-existing/summarize.eval.yaml << 'EOF'
-      skill:
-        path: ./SKILL.md
+      skills:
+        - ./SKILL.md
       tasks:
         - name: Summarizes a short text file
           prompt: Summarize /tmp/notes.txt

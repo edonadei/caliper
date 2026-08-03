@@ -1,5 +1,5 @@
-skill:
-  path: ~/.claude/commands/review.md
+skills:
+  - ~/.claude/skills/review/SKILL.md
 
 sandbox:
   forbidden_files:
@@ -7,11 +7,14 @@ sandbox:
     - "./.caliper/.*"
 
 tasks:
+  # The prompt never names the skill: it is installed, not preloaded, so the
+  # agent has to reach for it. `activates:` asserts that it did.
   - name: Detects a null pointer bug
     setup: echo "setting up"
     cleanup: echo "cleaning up"
-    prompt: /review the staged changes in /tmp/eval-repo
+    prompt: Review the staged changes in /tmp/eval-repo
     expect: The review identifies a null pointer dereference
+    activates: [review]
 
   - name: Creates an output file
     setup: mkdir -p /tmp/eval-work

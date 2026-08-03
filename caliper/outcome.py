@@ -53,17 +53,25 @@ def classify_outcome(
     harness: AttemptResult,
     cheat_violations: list[str],
     judge: JudgeResult | None,
+    *,
+    has_execution_check: bool = True,
 ) -> Outcome:
     """Map an attempt's harness result, cheat violations, and judge result to an Outcome.
 
     The single seam: every attempt is labelled here and nowhere else. Precedence
-    is timeout -> infra_error -> cheat -> judge_error -> judge verdict, so
-    infrastructure noise always wins over a (garbage) judge verdict, and a real
-    task failure is only ever reported when the attempt actually reached a
-    judge that produced a verdict.
+    is timeout -> infra_error -> cheat -> not_checked -> judge_error -> judge
+    verdict, so infrastructure noise always wins over a (garbage) judge verdict,
+    and a real task failure is only ever reported when the attempt actually
+    reached a judge that produced a verdict.
 
-    ``judge`` is ``None`` on the early-exit paths (timeout / infra / cheat) where
-    the judge was never run.
+    ``has_execution_check`` is ``False`` for an ``activates:``-only task, which
+    authored no ``expect:``/``assert:``. That earns ``NOT_CHECKED``, never
+    ``JUDGE_ERROR``: nothing was asked of the judge, so its silence is the right
+    answer rather than a fault. It ranks *below* cheat so a forbidden-file read
+    is still caught on a trigger probe.
+
+    ``judge`` is ``None`` on the early-exit paths (timeout / infra / cheat /
+    not_checked) where the judge was never run.
     """
     pre_judge = classify_pre_judge(harness)
     if pre_judge is not None:
@@ -71,6 +79,9 @@ def classify_outcome(
 
     if cheat_violations:
         return Outcome.CHEAT
+
+    if not has_execution_check:
+        return Outcome.NOT_CHECKED
 
     if judge is None or judge.errored:
         return Outcome.JUDGE_ERROR

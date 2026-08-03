@@ -19,6 +19,39 @@ from caliper.schema.results import (
 )
 
 
+class IncomparableRunsError(ValueError):
+    """Two runs cannot be diffed at all — refused rather than warned about."""
+
+
+def _neighbourhood(results: RunResults) -> list[str]:
+    """The names of the skills a run installed, as its comparability key."""
+    return sorted(s.name for s in results.skill_snapshots if s.name)
+
+
+def _check_era(a: RunMeta, b: RunMeta) -> None:
+    """Refuse a cross-era diff. The one guard that stops rather than warns.
+
+    A ``k_mismatch`` or a neighbourhood change yields a diff that is confounded
+    but *legible* — a human reads the warning and reasons about it. A cross-era
+    diff yields a number that is meaningless and looks entirely normal: same
+    spec, same k, same task names, a plausible delta. Nothing in the output
+    invites suspicion, which is exactly what earns a hard stop.
+    """
+    if a.era == b.era:
+        return
+    labels = {None: "pre-install-and-discover (force-loaded)"}
+    raise IncomparableRunsError(
+        "These runs were produced under different loading disciplines and their "
+        "numbers are not comparable:\n"
+        f"  A: {labels.get(a.era, a.era)}\n"
+        f"  B: {labels.get(b.era, b.era)}\n\n"
+        "Before install-and-discover, claude-code measured invocation x "
+        "execution under a mangled skill name while the other backends measured "
+        "execution with the skill force-loaded — neither is what a run measures "
+        "now. Re-run the older side to compare."
+    )
+
+
 def _group_by_name(tasks: list[TaskResult]) -> dict[str, list[TaskResult]]:
     """Tasks keyed by their stable identity, ``task_name``, preserving order.
 
@@ -36,6 +69,10 @@ def _compare_task(name: str, a: TaskResult, b: TaskResult) -> TaskComparison:
     a_score = a.score
     b_score = b.score
     both_measured = a_score is not None and b_score is not None
+    # The two scoreboards are diffed by the same rule but never mixed: each has
+    # its own delta and its own regression flag.
+    a_act, b_act = a.activation_score, b.activation_score
+    both_activation = a_act is not None and b_act is not None
     return TaskComparison(
         task_name=name,
         a_score=a_score,
@@ -45,6 +82,10 @@ def _compare_task(name: str, a: TaskResult, b: TaskResult) -> TaskComparison:
         regression=both_measured and b_score < a_score,
         a_outcomes=[att.outcome for att in a.attempts],
         b_outcomes=[att.outcome for att in b.attempts],
+        a_activation=a_act,
+        b_activation=b_act,
+        activation_delta=(b_act - a_act) if both_activation else None,
+        activation_regression=both_activation and b_act < a_act,
     )
 
 
@@ -60,7 +101,10 @@ def diff_runs(
     Matches tasks by ``task_name``; tasks present on only one side are surfaced
     as unmatched. The headline aggregate is computed over the *fully-comparable*
     set — tasks measured on both sides — so the delta is strictly like-for-like.
+
+    Raises ``IncomparableRunsError`` when the two runs come from different eras.
     """
+    _check_era(a.run, b.run)
     return _diff(
         a.run,
         a.task_results,
@@ -68,6 +112,8 @@ def diff_runs(
         b.task_results,
         a_label=a_label,
         b_label=b_label,
+        a_neighbourhood=_neighbourhood(a),
+        b_neighbourhood=_neighbourhood(b),
     )
 
 
@@ -79,6 +125,9 @@ def diff_baseline(results: RunResults) -> RunComparison:
     Assumes ``results.baseline_task_results`` is present (the caller checks).
     """
     assert results.baseline_task_results is not None
+    # The neighbourhood difference *is* the experiment here (that is what
+    # --baseline varies), so it is not flagged as a mismatch.
+    neighbourhood = _neighbourhood(results)
     return _diff(
         results.run,
         results.baseline_task_results,
@@ -86,6 +135,8 @@ def diff_baseline(results: RunResults) -> RunComparison:
         results.task_results,
         a_label="no skill",
         b_label="with skill",
+        a_neighbourhood=neighbourhood,
+        b_neighbourhood=neighbourhood,
     )
 
 
@@ -97,6 +148,8 @@ def _diff(
     *,
     a_label: str | None,
     b_label: str | None,
+    a_neighbourhood: list[str] | None = None,
+    b_neighbourhood: list[str] | None = None,
 ) -> RunComparison:
     a_by_name = _group_by_name(a_tasks)
     b_by_name = _group_by_name(b_tasks)
@@ -142,6 +195,17 @@ def _diff(
         warnings.append(
             f"A ran k={a_run.k}, B ran k={b_run.k} — pass@k not directly comparable"
         )
+    neighbourhood_mismatch = (
+        a_neighbourhood is not None
+        and b_neighbourhood is not None
+        and a_neighbourhood != b_neighbourhood
+    )
+    if neighbourhood_mismatch:
+        warnings.append(
+            f"different skill neighbourhoods: {a_neighbourhood or ['(none)']} vs "
+            f"{b_neighbourhood or ['(none)']} — the larger set gives the agent "
+            "competitors, so some attempts may never activate the skill at all"
+        )
 
     return RunComparison(
         a=a_run,
@@ -155,8 +219,10 @@ def _diff(
         b_matched_avg=b_avg,
         aggregate_delta=b_avg - a_avg,
         has_regression=any(tc.regression for tc in matched),
+        has_activation_regression=any(tc.activation_regression for tc in matched),
         k_mismatch=k_mismatch,
         spec_mismatch=spec_mismatch,
+        neighbourhood_mismatch=neighbourhood_mismatch,
         warnings=warnings,
         # Token/wall totals over each whole run. Shown alongside pass@k but never
         # folded into has_regression — a token drop is a win, not a regression.

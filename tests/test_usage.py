@@ -28,7 +28,7 @@ def _ctx() -> RunContext:
         task_id="task-001",
         attempt=1,
         prompt="hello",
-        skill_path=None,
+        skill_refs=[],
         model=None,
         timeout=30,
         isolated_home="/tmp/none",
@@ -382,7 +382,8 @@ def test_non_baseline_run_renders_single_report(capsys) -> None:
     out = capsys.readouterr().out
     # No comparison view for a plain run.
     assert "no skill" not in out
-    assert "Score" in out
+    # The headline is named for the scoreboard it belongs to: a run has two.
+    assert "Execution" in out
 
 
 def test_baseline_run_shows_with_skill_failure_details(capsys) -> None:

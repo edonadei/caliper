@@ -1,5 +1,14 @@
 # Attempt outcome taxonomy over a bare `passed` bool
 
+> **Amended by [0014](0014-activation-is-a-check-type-not-a-separate-command.md):**
+> a seventh value, `not_checked`, was added when `activates:` made it possible to
+> author a task with **no execution check at all**. Such an attempt reached no
+> judge, but nothing went wrong — so it is neither usable nor noise. That split
+> the single usable/unusable question in two: `is_usable` (does it count toward
+> the score?) and `is_execution_noise` (should it be *reported* as a problem?).
+> Before the amendment those were the same predicate, and a correct
+> `activates:`-only spec reported itself as a `judge_error`.
+
 An attempt's result is a typed `Outcome` (`pass`, `task_fail`, `judge_error`,
 `infra_error`, `timeout`, `cheat`), not just `passed: bool`, so infrastructure
 and judge noise stop being scored as task failure. The outcome is classified

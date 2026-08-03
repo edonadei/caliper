@@ -20,8 +20,6 @@
 #   caliper run tests/mcp-header-smoke.eval.yaml --k 1                 # claude-code
 #   caliper run tests/mcp-header-smoke.eval.yaml --k 1 --model hermes  # hermes
 
-skill: {}
-
 mcp:
   echo:
     type: http

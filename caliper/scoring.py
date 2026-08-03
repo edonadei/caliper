@@ -12,7 +12,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from caliper.schema.results import AggregateScore, Outcome, TaskScore
+from typing import TYPE_CHECKING
+
+from caliper.schema.results import (
+    AggregateScore,
+    Outcome,
+    SkillActivationStats,
+    TaskScore,
+)
+
+if TYPE_CHECKING:
+    from caliper.schema.results import TaskResult
 
 
 def success_rate(successes: int, usable: int) -> float | None:
@@ -70,7 +80,10 @@ def score_outcomes(outcomes: Iterable[Outcome]) -> OutcomeScores:
     return OutcomeScores(
         successes=successes,
         usable=usable,
-        unusable=len(materialized) - usable,
+        # Only the outcomes where an execution check *went wrong*. NOT_CHECKED is
+        # excluded from the denominator without being reported as noise: a
+        # correct activates-only spec must never read as an error.
+        unusable=sum(1 for o in materialized if o.is_execution_noise),
         score=success_rate(successes, usable),
         pass_at_k=pass_at_k(successes, usable),
         pass_hat_k=pass_hat_k(successes, usable),
@@ -102,3 +115,58 @@ def aggregate_scores(
     scored = [t.score for t in per_task if t.score is not None]
     avg = sum(scored) / len(scored) if scored else 0.0
     return AggregateScore(avg_score=avg, per_task=per_task)
+
+
+@dataclass(frozen=True)
+class ActivationAggregate:
+    """The activation scoreboard for a run — never merged into the execution one."""
+
+    avg_score: float | None
+    tasks: int
+    per_skill: list[SkillActivationStats]
+
+
+def aggregate_activation(task_results: list["TaskResult"]) -> ActivationAggregate:
+    """Roll up the second scoreboard over the tasks that asserted ``activates:``.
+
+    Both halves count **attempts**, not tasks, so the per-skill diagnostic shares
+    units with the rate above it. Only activation-usable attempts of asserted
+    tasks are counted — an unasserted task contributes nothing and is rendered
+    *skipped*, not ``0%``.
+    """
+    scores = [
+        t.activation_score for t in task_results if t.activation_score is not None
+    ]
+    avg = sum(scores) / len(scores) if scores else None
+
+    expected: dict[str, int] = {}
+    fired: dict[str, int] = {}
+    hits: dict[str, int] = {}
+
+    for task in task_results:
+        if task.activation_expected is None:
+            continue
+        wanted = set(task.activation_expected)
+        for att in task.attempts:
+            if not att.outcome.is_activation_usable:
+                continue
+            if att.activation_passed is None:
+                continue
+            observed = set(att.activated or [])
+            for name in wanted:
+                expected[name] = expected.get(name, 0) + 1
+            for name in observed:
+                fired[name] = fired.get(name, 0) + 1
+            for name in wanted & observed:
+                hits[name] = hits.get(name, 0) + 1
+
+    per_skill = [
+        SkillActivationStats(
+            skill=name,
+            expected=expected.get(name, 0),
+            fired=fired.get(name, 0),
+            hits=hits.get(name, 0),
+        )
+        for name in sorted(set(expected) | set(fired))
+    ]
+    return ActivationAggregate(avg_score=avg, tasks=len(scores), per_skill=per_skill)

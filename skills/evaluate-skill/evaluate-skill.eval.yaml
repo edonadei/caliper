@@ -1,5 +1,5 @@
-skill:
-  path: ./SKILL.md
+skills:
+  - ./SKILL.md
 
 # The engine (backend + model) is a runtime axis, not a spec field — run this
 # eval with `--model codex --judge-model codex` (or any other engine).
@@ -12,8 +12,8 @@ tasks:
   - name: Validates a well-formed spec and reports it as valid
     setup: |
       cat > /tmp/caliper-test-valid.eval.yaml << 'EOF'
-      skill:
-        path: ./SKILL.md
+      skills:
+        - ./SKILL.md
       tasks:
         - name: Test arithmetic
           prompt: What is 2 + 2?
@@ -38,8 +38,8 @@ tasks:
   - name: Identifies errors in an invalid spec without fixing it
     setup: |
       cat > /tmp/caliper-test-invalid.eval.yaml << 'EOF'
-      skill:
-        path: ./SKILL.md
+      skills:
+        - ./SKILL.md
       tasks:
         - name: Broken task
           prompt: do something

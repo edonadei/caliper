@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import sys
 import tempfile
@@ -45,13 +44,19 @@ class CodexHarness(CliHarness):
                 "selecting a separate backend."
             )
 
+    def skills_root(self, ctx: RunContext) -> Path:
+        return Path(ctx.isolated_home) / ".codex" / "skills"
+
     def _prepare(self, ctx: RunContext) -> None:
         self._copy_codex_config(ctx)
 
     def _command(
         self, ctx: RunContext
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
-        full_prompt = self._inject_skill(ctx.prompt, ctx.skill_path)
+        # The prompt goes to the agent unmodified. Codex has no force-load flag,
+        # and caliper no longer invents one: the skill is installed at
+        # .codex/skills/<name>/ and the agent discovers it (docs/adr/0013).
+        full_prompt = ctx.prompt
         codex = self._codex_command() or "codex"
         cmd = [
             codex,
@@ -69,19 +74,6 @@ class CodexHarness(CliHarness):
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
         return self._build_env(ctx.isolated_home, ctx.extra_path)
-
-    def _inject_skill(self, prompt: str, skill_path: str | None) -> str:
-        if not skill_path:
-            return prompt
-
-        skill_src = Path(skill_path).expanduser()
-        if not skill_src.exists():
-            return prompt
-
-        raw = skill_src.read_text()
-        # Strip YAML frontmatter
-        body = re.sub(r"^---\n.*?\n---\n", "", raw, flags=re.DOTALL).strip()
-        return f"[Skill context]\n{body}\n[End skill context]\n\n{prompt}"
 
     def _cli_available(self) -> bool:
         codex = self._codex_command()

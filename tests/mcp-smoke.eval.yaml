@@ -19,8 +19,6 @@
 #   caliper run tests/mcp-smoke.eval.yaml --k 1 --model hermes  # hermes
 #   caliper run tests/mcp-smoke.eval.yaml --k 1 --model codex   # codex
 
-skill: {}
-
 mcp:
   echo:
     command: python3

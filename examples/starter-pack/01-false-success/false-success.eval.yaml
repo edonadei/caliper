@@ -12,12 +12,15 @@
 #   caliper run false-success.eval.yaml --k 3
 # ─────────────────────────────────────────────────────────────────────────────
 
-skill:
-  # 👉 EDIT 1: point this at your own SKILL.md (or delete `path:` to test the
-  #            bare agent with no skill).
-  path: ./SKILL.md
-  # The engine (backend + model) is NOT a spec field — it's a runtime axis.
-  # Pick it when you run, e.g. `--model codex:gpt-5-codex` (default: claude-code).
+# Skills are INSTALLED where the agent looks for them, never pasted into the
+# prompt — so the agent has to choose yours. Add neighbouring skills as further
+# entries to test that yours is the one that fires.
+# The engine (backend + model) is NOT a spec field — it's a runtime axis.
+# Pick it when you run, e.g. `--model codex:gpt-5-codex` (default: claude-code).
+skills:
+  # 👉 EDIT 1: point this at your own SKILL.md (or delete the whole `skills:`
+  #            block to test the bare agent with no skill).
+  - ./SKILL.md
 
 tasks:
   # 👉 EDIT 2: rename this task — it becomes the row label in your results.

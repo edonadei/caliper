@@ -20,11 +20,49 @@ class Outcome(str, Enum):
     INFRA_ERROR = "infra_error"
     TIMEOUT = "timeout"
     CHEAT = "cheat"
+    # The attempt ran cleanly and no execution check was authored — an
+    # `activates:`-only task, whose whole claim is about what the agent reached
+    # for. Not an error and not a failure: nothing was asked, so nothing is
+    # answered. Distinct from `judge_error`, where a check existed and the
+    # grader broke. See docs/adr/0001 and docs/adr/0014.
+    NOT_CHECKED = "not_checked"
 
     @property
     def is_usable(self) -> bool:
-        """True when the attempt was fairly measured (counts toward pass@k)."""
+        """True when the attempt was fairly measured (counts toward pass@k).
+
+        ``NOT_CHECKED`` is excluded — but as *unasked*, not as noise. The
+        execution score is over checks that were made, and a task that made none
+        renders skipped rather than joining the unusable-attempt count.
+        """
         return self in (Outcome.PASS, Outcome.TASK_FAIL, Outcome.CHEAT)
+
+    @property
+    def is_execution_noise(self) -> bool:
+        """True for the outcomes that mean an execution check *went wrong*.
+
+        The unusable-attempt report counts these; ``NOT_CHECKED`` is unusable but
+        not noise, so a correct activates-only spec never reports an error.
+        """
+        return self in (
+            Outcome.JUDGE_ERROR,
+            Outcome.INFRA_ERROR,
+            Outcome.TIMEOUT,
+        )
+
+    @property
+    def is_activation_usable(self) -> bool:
+        """True when this attempt's activation observation can be trusted.
+
+        Deliberately *not* ``is_usable``. A ``judge_error`` is activation-usable
+        — the agent ran, the transcript is whole, and only the grader broke, so
+        excluding it would let a flaky autorater shrink the activation sample for
+        a reason with no causal connection to it. Only ``infra_error`` and
+        ``timeout`` are excluded: there the transcript may be truncated, and an
+        empty observed set would be a fabricated "the description never fired".
+        See docs/adr/0014 and docs/CONTEXT.md → Activation score.
+        """
+        return self not in (Outcome.INFRA_ERROR, Outcome.TIMEOUT)
 
 
 class TokenUsage(BaseModel):
@@ -64,6 +102,9 @@ class FileSnapshot(BaseModel):
 
 
 class SkillSnapshot(BaseModel):
+    # The frontmatter name — the skill's identity, and the directory caliper
+    # installed it at. Empty on pre-#18 runs, which had no stable identity.
+    name: str = ""
     path: str
     git_repo: str | None = None
     git_sha: str | None = None
@@ -80,12 +121,24 @@ class TranscriptTurn(BaseModel):
     tool_output: str | None = None
 
 
+# The loading discipline a run was produced under. Recorded explicitly rather
+# than inferred from schema shape: the era is a *semantic* fact that merely
+# correlates with a field layout today, and the next schema change would
+# silently break the inference. ``None`` marks the pre-#18 runs — claude-code
+# measured invocation x execution under a mangled skill name, the other backends
+# measured execution with the skill force-loaded — which are comparable to
+# neither each other nor anything since. See docs/adr/0013.
+ERA_INSTALL_AND_DISCOVER = "install-and-discover"
+
+
 class RunMeta(BaseModel):
     spec: str
     timestamp: datetime
     k: int
     backend: str
     model: str | None = None
+    # ``None`` = a legacy run; ``compare`` refuses to diff across this boundary.
+    era: str | None = None
     # The judge engine that graded this run. Optional so results saved before
     # judge provenance was recorded still load (they render as an unknown judge).
     judge_backend: str | None = None
@@ -104,6 +157,15 @@ class AttemptRecord(BaseModel):
     # Optional so results saved before transcript persistence still load.
     transcript: list[TranscriptTurn] | None = None
     cheat_evidence: list[str] = Field(default_factory=list)
+    # The skills the agent chose to bring into context, recorded on every
+    # attempt whether or not the task asserted on it. ``None`` means *not
+    # observed* — no detector for this backend, or no transcript to read — and
+    # renders "—", the idiom already used for ``resolved_model`` and
+    # ``TokenUsage``. A bare ``[]`` would let an infrastructure failure render as
+    # a confident "nothing fired". Distinct from ``activation_passed``'s
+    # ``None``, which means *not asserted* (the ``assert_passed`` idiom).
+    activated: list[str] | None = None
+    activation_passed: bool | None = None
     assert_passed: bool | None = None
     assert_evidence: str | None = None
     autorater_passed: bool | None = None
@@ -127,6 +189,10 @@ class TaskResult(BaseModel):
     attempts: list[AttemptRecord]
     successes: int
     unusable: int = 0
+    # The task's `activates:` set, carried so the aggregate can compute per-skill
+    # recall/precision and the report can say *what* was expected when a row
+    # fails. ``None`` = the task asserted nothing.
+    activation_expected: list[str] | None = None
     # pass@k (P(≥1 of k pass)) — kept as a secondary, retry-friendly view. The
     # *primary* metric is ``score`` (raw success rate) below. None when every
     # attempt was unusable — the task was never fairly measured.
@@ -135,8 +201,13 @@ class TaskResult(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def usable(self) -> int:
-        """Attempts that got a fair shot (the pass@k / rate denominator)."""
-        return len(self.attempts) - self.unusable
+        """Attempts that got a fair shot (the pass@k / rate denominator).
+
+        Derived from the attempts rather than ``len - unusable``: since
+        ``NOT_CHECKED`` is neither usable nor noise, that subtraction would
+        silently over-count.
+        """
+        return sum(1 for a in self.attempts if a.outcome.is_usable)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -156,6 +227,43 @@ class TaskResult(BaseModel):
         from caliper.scoring import pass_hat_k
 
         return pass_hat_k(self.successes, self.usable)
+
+    # --- the second scoreboard, which never merges with the first ----------
+    #
+    # Derived from the attempts rather than stored, so the two denominators can
+    # never drift apart. An attempt counts here only when it was both
+    # activation-usable *and* asserted on, which is what makes an unasserted
+    # task render "skipped" rather than 0%.
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def activation_usable(self) -> int:
+        return sum(
+            1
+            for a in self.attempts
+            if a.outcome.is_activation_usable and a.activation_passed is not None
+        )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def activation_successes(self) -> int:
+        return sum(
+            1
+            for a in self.attempts
+            if a.outcome.is_activation_usable and a.activation_passed is True
+        )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def activation_score(self) -> float | None:
+        """Exact-set-match rate over activation-usable, asserted attempts.
+
+        ``None`` when the task asserted nothing (or nothing was measurable) —
+        rendered *skipped*, never ``0%``.
+        """
+        from caliper.scoring import success_rate
+
+        return success_rate(self.activation_successes, self.activation_usable)
 
 
 class UsageTotals(BaseModel):
@@ -216,7 +324,10 @@ class UsageTotals(BaseModel):
             for att in tr.attempts:
                 totals.attempts += 1
                 totals.wall_seconds += att.duration_seconds
-                unusable = not att.outcome.is_usable
+                # Noise, not merely "not usable": a NOT_CHECKED trigger probe
+                # spent its tokens producing a real activation measurement, so
+                # it is not wasted spend.
+                unusable = att.outcome.is_execution_noise
                 if unusable:
                     totals.unusable_attempts += 1
                     totals.unusable_wall_seconds += att.duration_seconds
@@ -251,15 +362,56 @@ class TaskScore(BaseModel):
     score: float | None
 
 
+class SkillActivationStats(BaseModel):
+    """Per-skill recall and precision, counted over attempts.
+
+    Indexed by skill *name* rather than by role, because the thing an author
+    edits in response is one skill's ``description``. Counted per attempt so the
+    diagnostic shares units with the rates above it, and computed only over
+    activation-usable attempts of tasks that asserted ``activates:``.
+    """
+
+    skill: str
+    # Attempts where this skill was in the expected set.
+    expected: int
+    # Attempts where it was observed to activate.
+    fired: int
+    # Attempts where both were true.
+    hits: int
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def recall(self) -> float | None:
+        """How often it fired when it was meant to. ``None`` if never expected."""
+        return self.hits / self.expected if self.expected else None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def precision(self) -> float | None:
+        """How often it was meant to when it fired. ``None`` if it never fired."""
+        return self.hits / self.fired if self.fired else None
+
+
 class AggregateScore(BaseModel):
     # Average raw success rate over measured tasks (the primary aggregate).
     avg_score: float
     per_task: list[TaskScore]
+    # The activation scoreboard. Kept beside the execution one but never blended
+    # into it: a bad `description` and a bad body have opposite fixes, so a
+    # single headline mixing them would point at neither (docs/adr/0014).
+    # ``None`` when no task asserted `activates:` — rendered skipped, not 0%.
+    avg_activation_score: float | None = None
+    activation_tasks: int = 0
+    activation_per_skill: list[SkillActivationStats] = Field(default_factory=list)
 
 
 class RunResults(BaseModel):
     run: RunMeta
-    skill_snapshot: SkillSnapshot
+    # Plural: a neighbour's `description` is part of what produced the score, so
+    # a run is not reproducible without it. ``skill_snapshot`` (singular) is
+    # retained read-only so pre-#18 result files still load and render.
+    skill_snapshots: list[SkillSnapshot] = Field(default_factory=list)
+    skill_snapshot: SkillSnapshot | None = None
     task_results: list[TaskResult]
     aggregate: AggregateScore
     # The **full** no-skill run, kept only when ``--baseline`` ran. Retaining the
@@ -286,6 +438,14 @@ class TaskComparison(BaseModel):
     regression: bool
     a_outcomes: list[Outcome]
     b_outcomes: list[Outcome]
+    # The activation scoreboard's half of the diff, carried alongside and never
+    # folded in. Without it the loop that matters most — edit a `description`,
+    # re-run, compare — has nothing to read, and a trigger probe (whose
+    # execution score is ``None`` by construction) would be a blank row.
+    a_activation: float | None = None
+    b_activation: float | None = None
+    activation_delta: float | None = None
+    activation_regression: bool = False
 
 
 class RunComparison(BaseModel):
@@ -311,8 +471,20 @@ class RunComparison(BaseModel):
     b_matched_avg: float
     aggregate_delta: float
     has_regression: bool
+    # Strictly separate from ``has_regression``: a description that stopped
+    # firing and a body that stopped working have opposite fixes, so one flag
+    # covering both would point at neither. A run can regress on activation
+    # while execution is flat, and that is the signal a `description` edit
+    # needs.
+    has_activation_regression: bool = False
     k_mismatch: bool
     spec_mismatch: bool
+    # The two runs installed different skill neighbourhoods. A warning, not a
+    # refusal: a larger neighbourhood gives the agent competitors and can depress
+    # execution scores for reasons unrelated to the skill body, but the result is
+    # still legible — unlike a cross-era diff, which is refused outright.
+    # ``spec_mismatch`` cannot catch this: it compares the spec *name*.
+    neighbourhood_mismatch: bool = False
     # Human-readable guards, mirrored into both the table header and JSON so an
     # agent on --format json sees the exact warning a human sees.
     warnings: list[str]

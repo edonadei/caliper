@@ -1,8 +1,6 @@
 # End-to-end smoke eval for the `claude-code` backend (the default engine).
 # The engine is a runtime axis, not a spec field — pick it when you run:
 #   caliper run tests/claude-code-smoke.eval.yaml --model claude-code:claude-haiku-4-5-20251001
-skill: {}
-
 tasks:
   - name: Write hello to a file
     setup: rm -f /tmp/caliper-e2e-smoke.txt

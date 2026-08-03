@@ -9,11 +9,18 @@ import pytest
 from caliper.harness.base import HarnessConfigurationError, RunContext
 from caliper.harness.codex import CodexHarness
 from caliper.schema.spec import McpServer
+from caliper.skills import resolve_skills
 
 
-def test_codex_cli_receives_injected_skill_on_stdin(monkeypatch, tmp_path) -> None:
-    skill = tmp_path / "SKILL.md"
-    skill.write_text("---\ndescription: test\n---\n\nUse caliper carefully.")
+def test_codex_installs_the_skill_and_leaves_the_prompt_alone(
+    monkeypatch, tmp_path
+) -> None:
+    skill_dir = tmp_path / "src"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: careful\ndescription: test\n---\n\nUse caliper carefully."
+    )
+    refs = resolve_skills([str(skill_dir / "SKILL.md")], tmp_path)
     calls = []
 
     def fake_which(name: str) -> str:
@@ -28,8 +35,9 @@ def test_codex_cli_receives_injected_skill_on_stdin(monkeypatch, tmp_path) -> No
             )
         assert cmd[:2] == ["codex.cmd", "exec"]
         assert cmd[-1] == "-"
-        assert kwargs["input"].startswith("[Skill context]\nUse caliper carefully.")
-        assert kwargs["input"].endswith("\n\nValidate the spec")
+        # Codex has no force-load flag and caliper no longer invents one: the
+        # prompt on stdin is exactly what the spec authored.
+        assert kwargs["input"] == "Validate the spec"
         assert kwargs["cwd"] == str(tmp_path)
         return subprocess.CompletedProcess(cmd, 0, stdout="VALID\n", stderr="")
 
@@ -43,7 +51,7 @@ def test_codex_cli_receives_injected_skill_on_stdin(monkeypatch, tmp_path) -> No
         task_id="task-001",
         attempt=1,
         prompt="Validate the spec",
-        skill_path=str(skill),
+        skill_refs=refs,
         model="test-model",
         timeout=30,
         isolated_home=str(tmp_path),
@@ -52,6 +60,8 @@ def test_codex_cli_receives_injected_skill_on_stdin(monkeypatch, tmp_path) -> No
 
     assert result.exit_code == 0
     assert result.final_output == "VALID"
+    # Installed at codex's own skills root, under its frontmatter name.
+    assert (tmp_path / ".codex" / "skills" / "careful" / "SKILL.md").exists()
     exec_cmd = calls[1][0]
     assert "--model" in exec_cmd
     assert exec_cmd[exec_cmd.index("--model") + 1] == "test-model"
@@ -81,7 +91,7 @@ def test_codex_cli_omits_model_when_unspecified(monkeypatch, tmp_path) -> None:
         task_id="task-001",
         attempt=1,
         prompt="Hello",
-        skill_path=None,
+        skill_refs=[],
         model=None,
         timeout=12,
         isolated_home=str(tmp_path),
@@ -142,7 +152,7 @@ def test_codex_json_stream_captures_tool_calls(monkeypatch, tmp_path) -> None:
         task_id="task-001",
         attempt=1,
         prompt="Inspect the repo",
-        skill_path=None,
+        skill_refs=[],
         model=None,
         timeout=12,
         isolated_home=str(tmp_path),
@@ -197,7 +207,7 @@ def test_codex_json_stream_keeps_unknown_tool_items(monkeypatch, tmp_path) -> No
         task_id="task-001",
         attempt=1,
         prompt="Use a tool",
-        skill_path=None,
+        skill_refs=[],
         model=None,
         timeout=12,
         isolated_home=str(tmp_path),
@@ -245,7 +255,7 @@ def test_codex_config_copy_strips_top_level_model(monkeypatch, tmp_path) -> None
         task_id="task-001",
         attempt=1,
         prompt="Hello",
-        skill_path=None,
+        skill_refs=[],
         model=None,
         timeout=12,
         isolated_home=str(isolated_home),
@@ -277,7 +287,7 @@ def test_codex_fails_clearly_when_cli_is_not_runnable(monkeypatch, tmp_path) -> 
             task_id="task-001",
             attempt=1,
             prompt="Hello",
-            skill_path=None,
+            skill_refs=[],
             model=None,
             timeout=12,
             isolated_home=str(tmp_path),
@@ -317,7 +327,7 @@ def test_codex_fails_clearly_when_cli_requires_newer_version(
             task_id="task-001",
             attempt=1,
             prompt="Hello",
-            skill_path=None,
+            skill_refs=[],
             model="gpt-5.4-mini",
             timeout=12,
             isolated_home=str(tmp_path),
@@ -379,7 +389,7 @@ def _run_codex_mcp(monkeypatch, tmp_path, mcp_servers, *, home=None):
         task_id="task-001",
         attempt=1,
         prompt="Hello",
-        skill_path=None,
+        skill_refs=[],
         model=None,
         timeout=30,
         isolated_home=str(iso),

@@ -11,7 +11,7 @@ from caliper.harness.base import (
 from caliper.harness.mcp import resolve_servers
 from caliper.judge.base import JudgeResult
 from caliper.runner import run
-from caliper.schema.spec import EvalSpec, McpServer, SkillConfig, TaskSpec
+from caliper.schema.spec import EvalSpec, McpServer, TaskSpec
 
 
 # --- schema validation ----------------------------------------------------
@@ -20,7 +20,6 @@ from caliper.schema.spec import EvalSpec, McpServer, SkillConfig, TaskSpec
 def test_mcp_block_parses_stdio_server() -> None:
     spec = EvalSpec.model_validate(
         {
-            "skill": {},
             "mcp": {
                 "weather": {
                     "command": "python3",
@@ -41,7 +40,7 @@ def test_mcp_block_parses_stdio_server() -> None:
 
 def test_mcp_defaults_are_empty() -> None:
     spec = EvalSpec.model_validate(
-        {"skill": {}, "tasks": [{"name": "t", "prompt": "p", "expect": "e"}]}
+        {"tasks": [{"name": "t", "prompt": "p", "expect": "e"}]}
     )
     assert spec.mcp == {}
 
@@ -57,7 +56,6 @@ def test_mcp_rejects_bad_server_name(bad_name: str) -> None:
     with pytest.raises(ValidationError, match="invalid MCP server name"):
         EvalSpec.model_validate(
             {
-                "skill": {},
                 "mcp": {bad_name: {"command": "python3"}},
                 "tasks": [{"name": "t", "prompt": "p", "expect": "e"}],
             }
@@ -69,7 +67,6 @@ def test_mcp_rejects_unknown_key() -> None:
     with pytest.raises(ValidationError):
         EvalSpec.model_validate(
             {
-                "skill": {},
                 "mcp": {"weather": {"command": "python3", "bogus": "x"}},
                 "tasks": [{"name": "t", "prompt": "p", "expect": "e"}],
             }
@@ -83,7 +80,6 @@ def test_mcp_rejects_unknown_key() -> None:
 def test_mcp_block_parses_remote_server(transport: str) -> None:
     spec = EvalSpec.model_validate(
         {
-            "skill": {},
             "mcp": {
                 "gdrive": {
                     "type": transport,
@@ -140,7 +136,6 @@ def test_mcp_rejects_blank_command() -> None:
     with pytest.raises(ValidationError, match="non-empty"):
         EvalSpec.model_validate(
             {
-                "skill": {},
                 "mcp": {"weather": {"command": "   "}},
                 "tasks": [{"name": "t", "prompt": "p", "expect": "e"}],
             }
@@ -151,7 +146,6 @@ def test_mcp_rejects_missing_command() -> None:
     with pytest.raises(ValidationError):
         EvalSpec.model_validate(
             {
-                "skill": {},
                 "mcp": {"weather": {"args": ["x"]}},
                 "tasks": [{"name": "t", "prompt": "p", "expect": "e"}],
             }
@@ -282,7 +276,6 @@ class _PassJudge:
 
 def _spec_with_mcp() -> EvalSpec:
     return EvalSpec(
-        skill=SkillConfig(),
         mcp={"echo": McpServer(command="python3", args=["s.py"])},
         tasks=[
             TaskSpec(id="task-001", name="t", prompt="p", assert_script="assert True")
@@ -292,7 +285,7 @@ def _spec_with_mcp() -> EvalSpec:
 
 def test_guard_refuses_mcp_spec_on_unsupported_backend(tmp_path) -> None:
     spec_path = tmp_path / "m.eval.yaml"
-    spec_path.write_text("skill: {}\ntasks: []\n")
+    spec_path.write_text("tasks: []\n")
     # A backend without a hint (a not-yet-implemented slice) gets the generic
     # "not supported yet" message.
     with pytest.raises(
@@ -313,7 +306,7 @@ def test_guard_refuses_mcp_spec_on_unsupported_backend(tmp_path) -> None:
 
 def test_guard_refusal_uses_backend_hint_when_present(tmp_path) -> None:
     spec_path = tmp_path / "m.eval.yaml"
-    spec_path.write_text("skill: {}\ntasks: []\n")
+    spec_path.write_text("tasks: []\n")
     # A backend whose lack of MCP is permanent-by-design supplies its own hint,
     # which the refusal carries verbatim — and drops the misleading "yet".
     with pytest.raises(HarnessConfigurationError) as exc:
@@ -334,7 +327,7 @@ def test_guard_refusal_uses_backend_hint_when_present(tmp_path) -> None:
 
 def test_guard_allows_mcp_spec_on_supporting_backend(tmp_path) -> None:
     spec_path = tmp_path / "m.eval.yaml"
-    spec_path.write_text("skill: {}\ntasks: []\n")
+    spec_path.write_text("tasks: []\n")
     harness = _McpHarness()
     run(
         spec=_spec_with_mcp(),
