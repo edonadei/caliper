@@ -187,12 +187,16 @@ def _att(
 
 
 def _run_example() -> RunResults:
-    """A single `caliper run … --k 3` of the two tasks in the README's spec: a
-    clean-passing autorater task and a script-assertion task that fails once (so
-    the report shows a PASS row, a PARTIAL row, and the failure panel that
-    explains *why*). Token/wall figures are chosen to sum to the summary line."""
+    """A single `caliper run … --k 3` of the README's quick-start spec.
+
+    Three tasks, one per kind of check: an autorater task that passes cleanly, a
+    script-assertion task that fails once (so the report shows a PASS row, a
+    PARTIAL row, and the failure panel explaining *why*), and a neighbour probe
+    that `commit-writer` hijacks — the case activation exists to catch, and the
+    reason the per-skill table has a second row worth reading.
+    """
     run = RunMeta(
-        spec="my-skill",
+        spec="commit-writer",
         timestamp=datetime(2026, 6, 19, 14, 23, 0),
         k=3,
         backend="claude-code",
@@ -200,8 +204,8 @@ def _run_example() -> RunResults:
         era=ERA_INSTALL_AND_DISCOVER,
     )
     # 26_000 in + 350 out per attempt → 79K over three; 9s each → 27s.
-    commit_usage = TokenUsage(input_tokens=26_000, output_tokens=350)
-    commit = TaskResult(
+    message_usage = TokenUsage(input_tokens=26_000, output_tokens=350)
+    message = TaskResult(
         task_id="writes-a-conventional-commit-message",
         task_name="Writes a conventional commit message",
         attempts=[
@@ -209,9 +213,9 @@ def _run_example() -> RunResults:
                 i,
                 P,
                 9.0,
-                commit_usage,
+                message_usage,
                 "feat(auth): add token refresh\n\n…",
-                activated=["my-skill"],
+                activated=["commit-writer"],
                 activation_passed=True,
             )
             for i in (1, 2, 3)
@@ -219,85 +223,91 @@ def _run_example() -> RunResults:
         successes=3,
         unusable=0,
         pass_at_k=1.0,
-        activation_expected=["my-skill"],
+        activation_expected=["commit-writer"],
     )
     # 27_000 in + 350 out per attempt → 82K over three; 11s each → 33s.
-    config_usage = TokenUsage(input_tokens=27_000, output_tokens=350)
-    config = TaskResult(
-        task_id="generates-a-valid-config-file",
-        task_name="Generates a valid config file",
+    subject_usage = TokenUsage(input_tokens=27_000, output_tokens=350)
+    subject = TaskResult(
+        task_id="keeps-the-subject-line-under-72-characters",
+        task_name="Keeps the subject line under 72 characters",
         attempts=[
             _att(
-                1,
-                P,
+                n,
+                outcome,
                 11.0,
-                config_usage,
-                "Wrote /tmp/app.config.json",
-                activated=["my-skill"],
+                subject_usage,
+                "Committed as feat(api): paginate the search endpoint",
+                assert_evidence=evidence,
+                activated=["commit-writer"],
                 activation_passed=True,
-            ),
-            _att(
-                2,
-                P,
-                11.0,
-                config_usage,
-                "Wrote /tmp/app.config.json",
-                activated=["my-skill"],
-                activation_passed=True,
-            ),
-            _att(
-                3,
-                F,
-                11.0,
-                config_usage,
-                "Wrote /tmp/app.config.json",
-                assert_evidence="AssertionError: data['port'] == 8080 (got 3000)",
-                activated=["my-skill"],
-                activation_passed=True,
-            ),
+            )
+            for n, outcome, evidence in (
+                (1, P, None),
+                (2, P, None),
+                (3, F, "AssertionError: subject line is 94 chars (limit 72)"),
+            )
         ],
         successes=2,
         unusable=0,
         pass_at_k=1.0,
-        activation_expected=["my-skill"],
+        activation_expected=["commit-writer"],
     )
-    # The third task in the README's spec: a trigger probe. No execution check,
-    # so no judge call and no execution score — it asks only whether the skill
-    # correctly stayed out of unrelated work.
-    silence_usage = TokenUsage(input_tokens=4_000, output_tokens=100)
-    silence = TaskResult(
-        task_id="unrelated-work-the-skill-should-stay-out-of-it",
-        task_name="Unrelated work: the skill should stay out of it",
+    # A release-notes request belongs to the changelog-writer neighbour. Cheap:
+    # no execution check means no judge call. 4_000 in + 100 out, 3s each.
+    probe_usage = TokenUsage(input_tokens=4_000, output_tokens=100)
+    probe = TaskResult(
+        task_id="a-release-summary-belongs-to-changelog-writer",
+        task_name="A release summary belongs to changelog-writer",
         attempts=[
             _att(
-                i,
+                n,
                 Outcome.NOT_CHECKED,
                 3.0,
-                silence_usage,
-                "Renamed `resolved_model` to `engine_model` across 7 files.",
-                activated=[],
-                activation_passed=True,
+                probe_usage,
+                "Here is a summary of the changes since v2.1 …",
+                activated=activated,
+                activation_passed=(activated == ["changelog-writer"]),
             )
-            for i in (1, 2, 3)
+            # commit-writer grabs it twice out of three: the hijack.
+            for n, activated in (
+                (1, ["commit-writer"]),
+                (2, ["changelog-writer"]),
+                (3, ["commit-writer"]),
+            )
         ],
         successes=0,
         unusable=0,
         pass_at_k=None,
-        activation_expected=[],
+        activation_expected=["changelog-writer"],
     )
-    task_results = [commit, config, silence]
+    task_results = [message, subject, probe]
+    scored = [tr for tr in task_results if tr.score is not None]
     return RunResults(
         run=run,
-        skill_snapshots=[SkillSnapshot(name="my-skill", path="./SKILL.md")],
+        skill_snapshots=[
+            SkillSnapshot(name="commit-writer", path="./SKILL.md"),
+            SkillSnapshot(name="changelog-writer", path="../changelog-writer/SKILL.md"),
+        ],
         task_results=task_results,
         aggregate=AggregateScore(
-            avg_score=sum(tr.score for tr in task_results if tr.score is not None)
-            / sum(1 for tr in task_results if tr.score is not None),
-            scored_tasks=sum(1 for tr in task_results if tr.score is not None),
-            avg_activation_score=1.0,
+            avg_score=sum(tr.score for tr in scored) / len(scored),
+            scored_tasks=len(scored),
+            avg_activation_score=sum(
+                tr.activation_score
+                for tr in task_results
+                if tr.activation_score is not None
+            )
+            / 3,
             activation_tasks=3,
             activation_per_skill=[
-                SkillActivationStats(skill="my-skill", expected=6, fired=6, hits=6)
+                # 9 scored attempts: 6 wanted commit-writer (all fired), 3 did
+                # not (it fired on 2 of them).
+                SkillActivationStats(
+                    skill="commit-writer", total=9, expected=6, fired=8, hits=6
+                ),
+                SkillActivationStats(
+                    skill="changelog-writer", total=9, expected=3, fired=1, hits=1
+                ),
             ],
             per_task=[
                 TaskScore(

@@ -253,6 +253,27 @@ recall is how often a skill fired when it was expected, precision how often it
 was expected when it fired. They are indexed by skill name rather than by role,
 because the thing an author edits in response is one skill's `description`.
 
+Both are *reported* in plain language rather than by their statistical names,
+as "fires when wanted" and "quiet when not", because the reader is a skill
+author diagnosing their own `description` and not an ML practitioner. The terms
+stay `recall`/`precision` in the schema and in this glossary, where exact
+language is the point.
+
+The second column is **restraint**, not `1 − precision`. Precision divides by
+the times a skill fired; restraint divides by the times it *should not have*. A
+skill that fires once wrongly across fifty silent opportunities has poor
+precision and near-perfect restraint, and restraint is the honest description of
+that skill. It is `None` when every attempt wanted the skill, since there was
+then no restraint to exercise.
+
+The two scoreboards are **not peers in the report**. The [[success rate|score]]
+is the headline, because it is already the joint measure of "would this work for
+a user"; activation is the *diagnostic* that says which half moved when the
+score drops. Rendering them as two equal bars invites averaging them, which is
+meaningless — they are rates over different populations. Activation is also
+reported on its own axis: the score is per **task**, the activation stats are
+per **skill**, and forcing both into one table is what makes either unreadable.
+
 Not asserting `activates:` leaves `activation_passed` at `None` and renders
 *skipped*, never `0%` — as does `--baseline`, which installs no skills and would
 otherwise be scoring caliper's own plumbing.

@@ -140,6 +140,9 @@ def aggregate_activation(task_results: list["TaskResult"]) -> ActivationAggregat
     expected: dict[str, int] = {}
     fired: dict[str, int] = {}
     hits: dict[str, int] = {}
+    # Every skill in the neighbourhood is in scope for every scored attempt, so
+    # one counter serves them all: it is the denominator restraint divides by.
+    considered = 0
 
     for task in task_results:
         if task.activation_expected is None:
@@ -148,6 +151,7 @@ def aggregate_activation(task_results: list["TaskResult"]) -> ActivationAggregat
         for att in task.attempts:
             if not att.activation_scored:
                 continue
+            considered += 1
             observed = set(att.activated or [])
             for name in wanted:
                 expected[name] = expected.get(name, 0) + 1
@@ -159,6 +163,7 @@ def aggregate_activation(task_results: list["TaskResult"]) -> ActivationAggregat
     per_skill = [
         SkillActivationStats(
             skill=name,
+            total=considered,
             expected=expected.get(name, 0),
             fired=fired.get(name, 0),
             hits=hits.get(name, 0),

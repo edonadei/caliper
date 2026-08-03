@@ -87,9 +87,10 @@ pipx install caliper-eval   # requires Python 3.10+
 **2. Write a spec**
 
 ```yaml
-# my-skill.eval.yaml
+# commit-writer.eval.yaml
 skills:
-  - ./SKILL.md
+  - ./SKILL.md                     # the skill under test
+  - ../changelog-writer/SKILL.md   # a neighbour it might steal work from
 
 tasks:
   # Autorater: the LLM judge reads the transcript and decides
@@ -99,26 +100,33 @@ tasks:
       The response is a conventional-commit message: a concise subject
       line under 72 characters, followed by a body explaining why the
       change was made, not just what changed.
+    activates: [commit-writer]
 
   # Script execution: a deterministic Python assertion
-  - name: Generates a valid config file
-    cleanup: rm -f /tmp/app.config.json
-    prompt: "Generate a config at /tmp/app.config.json with a 'port' of 8080."
+  - name: Keeps the subject line under 72 characters
+    prompt: "Commit the staged changes."
     assert: |
-      import json
-      from pathlib import Path
-      data = json.loads(Path("/tmp/app.config.json").read_text())
-      assert data["port"] == 8080
+      import subprocess
+      subject = subprocess.run(
+          ["git", "log", "-1", "--pretty=%s"], capture_output=True, text=True
+      ).stdout.strip()
+      assert len(subject) <= 72, f"subject line is {len(subject)} chars"
 
-  # Activation: did the agent reach for the skill at all?
-  - name: Unrelated work: the skill should stay out of it
-    prompt: "Rename `resolved_model` to `engine_model` across the repo."
-    activates: []
+  # Activation: this prompt belongs to the neighbour, not to you
+  - name: A release summary belongs to changelog-writer
+    prompt: "What changed since v2.1? I need it for the release notes."
+    activates: [changelog-writer]
 ```
 
 Three kinds of check, and a task needs at least one. `expect:` is graded by the
-judge LLM; `assert:` runs locally as Python; `activates:` asserts **which skills
-the agent chose to load**. Use any combination.
+judge LLM; `assert:` runs locally as Python; `activates:` asserts which skills
+the agent chose to load. Use any combination.
+
+The third task is the one you cannot write any other way. Both skills read git
+history, so a release-notes request is exactly where `commit-writer` might grab
+work that belongs to `changelog-writer`. Declaring the neighbour and asserting
+`activates: [changelog-writer]` is how you find out. A task like that needs no
+`expect:` at all: it skips the judge, so it costs a fraction of a graded task.
 
 Caliper never pastes your skill into the prompt. It **installs** it where the
 agent looks for skills and lets the agent decide, so a run measures the
@@ -135,7 +143,7 @@ caliper run my-skill.eval.yaml --k 3          # add --baseline to diff vs the ba
 
 **4. Read the output**
 
-![caliper run of my-skill at k=3: 'Writes a conventional commit message' passes 3/3 (100.0%), 'Generates a valid config file' 2/3 (66.7%, PARTIAL), and 'Unrelated work: the skill should stay out of it' shows as trigger only with no execution score. The activated column shows my-skill 3/3 on the first two rows and (none) 3/3 on the third. Execution 83.3% over 2 tasks, Activation 100.0% over 3 asserted tasks with my-skill at 100% recall and precision. 171K in / 2K out, 1m 9s wall. A failure panel shows the failing attempt's assertion error](docs/assets/run-output.svg)
+![caliper run of commit-writer at k=3. Three rows: 'Writes a conventional commit message' passes 3/3 (100.0%) with a green tick in the act column; 'Keeps the subject line under 72 characters' 2/3 (66.7%, PARTIAL) with a green tick; 'A release summary belongs to changelog-writer' shows no execution score, a red cross in the act column, and reads 'trigger only'. Score 83.3% over 2 tasks scored. Activation 77.8% over 3 asserted tasks. A per-skill table shows commit-writer firing when wanted 6/6 (100.0%) but quiet when not only 1/3 (33.3%), and changelog-writer firing when wanted 1/3 (33.3%) and quiet when not 6/6 (100.0%). Failure panels below show the assertion error and the attempts where commit-writer activated on the changelog prompt](docs/assets/run-output.svg)
 
 The report ends with the per-task failure panels: for each attempt that didn't pass, the output plus the assertion or autorater reason *why*. Full results are also saved as JSON under `.caliper/results/<spec>/` for you to inspect or `caliper compare` later. `--verbose` adds `pass@k` and `pass^k` columns (both derived from the raw rate) and a panel for every task.
 

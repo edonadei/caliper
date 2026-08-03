@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from caliper.schema.results import AttemptRecord, Outcome, TaskResult
+import pytest
+
+from caliper.schema.results import (
+    AttemptRecord,
+    Outcome,
+    SkillActivationStats,
+    TaskResult,
+)
 from caliper.scoring import aggregate_activation
 
 
@@ -165,3 +172,51 @@ def test_aggregate_averages_over_asserted_tasks_only():
     agg = aggregate_activation([perfect, missed, skipped])
     assert agg.avg_score == 0.5
     assert agg.tasks == 2
+
+
+# --- restraint: the reader-facing second direction ------------------------
+
+
+def test_restraint_divides_by_opportunities_not_by_firings():
+    # A skill wanted once, that fired once wrongly across many silent chances.
+    # precision = 1/2 = 50% (it fired twice, one was wrong).
+    # restraint = 9/10 = 90% (ten attempts did not want it; it held back on 9).
+    # Reporting `1 - precision` here would claim 50% restraint and read as a
+    # far worse skill than it is.
+    stats = SkillActivationStats(skill="mine", total=11, expected=1, fired=2, hits=1)
+    assert stats.precision == 0.5
+    assert stats.restraint == 0.9
+    assert stats.unwanted == 1
+
+
+def test_perfect_restraint_when_it_never_fires_unwanted():
+    stats = SkillActivationStats(skill="mine", total=6, expected=3, fired=3, hits=3)
+    assert stats.restraint == 1.0
+    assert stats.recall == 1.0
+
+
+def test_restraint_is_none_when_every_attempt_wanted_it():
+    # No chance to hold back is not the same as failing to.
+    stats = SkillActivationStats(skill="mine", total=4, expected=4, fired=4, hits=4)
+    assert stats.restraint is None
+
+
+def test_a_hijacker_has_full_recall_and_poor_restraint():
+    # Fires on all 6 prompts that want it, and on 2 of the 3 that do not.
+    stats = SkillActivationStats(skill="mine", total=9, expected=6, fired=8, hits=6)
+    assert stats.recall == 1.0
+    assert stats.restraint == pytest.approx(1 / 3)
+
+
+def test_aggregate_gives_every_skill_the_same_denominator():
+    # Both skills are in scope for every scored attempt of the run.
+    own = task("own", [attempt(1, activated=["a"], activation_passed=True)], ["a"])
+    theirs = task(
+        "theirs", [attempt(1, activated=["a"], activation_passed=False)], ["b"]
+    )
+    stats = {s.skill: s for s in aggregate_activation([own, theirs]).per_skill}
+    assert stats["a"].total == 2
+    assert stats["b"].total == 2
+    # `a` fired on the attempt that wanted `b`: one unwanted firing, no restraint.
+    assert stats["a"].unwanted == 1
+    assert stats["a"].restraint == 0.0

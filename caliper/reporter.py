@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import Counter
 
 from rich import box
 from rich.console import Console
@@ -210,9 +209,9 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     if verbose:
         table.add_column("pass@k", justify="right", style="dim")
         table.add_column("pass^k", justify="right", style="dim")
-    # Rendered always, for consistency: dim when nothing was asserted (purely
-    # informational), coloured when `activates:` made a claim.
-    table.add_column("activated")
+    # A verdict, not a list of names: the counts live on the per-skill table.
+    # Dim "—" when the task asserted nothing.
+    table.add_column("act", justify="center")
     table.add_column("Tokens", justify="right", style="dim")
     table.add_column("Wall", justify="right", style="dim")
     table.add_column("", justify="center")
@@ -279,30 +278,26 @@ def _is_trigger_only(tr: TaskResult) -> bool:
 
 
 def _activation_cell(tr: TaskResult) -> Text:
-    """Which skills the agent reached for, and in how many attempts.
+    """Did this task's activation claim hold? A three-state verdict, 3 chars wide.
+
+    Deliberately not the skill names: the *counts* live on the per-skill table,
+    which is the axis they belong to. Spelling them out here forced a skill name
+    into a per-task row and wrapped the whole table, and it degraded with every
+    extra skill. What a reader needs while scanning for failures is narrower —
+    a ``✗`` beside a 0% row says the description is the suspect, not the body.
 
     Counted over **activation-usable** attempts only, so a task whose every
-    attempt timed out renders "—" rather than a confident "(none) 5/5" — that
-    would be a claim about the skill manufactured from an infrastructure
-    failure.
+    attempt timed out renders "—" rather than a confident verdict manufactured
+    from an infrastructure failure.
     """
-    usable = [a for a in tr.attempts if a.activation_observed]
-    if not usable:
-        return Text(_RULE, style="dim")
-
-    n = len(usable)
-    counts = Counter(name for a in usable for name in (a.activated or []))
-    label = (
-        ", ".join(f"{name} {c}/{n}" for name, c in sorted(counts.items()))
-        if counts
-        else f"(none) {n}/{n}"
-    )
-
     if tr.activation_expected is None:
-        return Text(label, style="dim")
-    if tr.activation_score is not None and tr.activation_score >= 0.99:
-        return Text(label, style="green")
-    return Text(label, style="red")
+        return Text(_RULE, style="dim")
+    score = tr.activation_score
+    if score is None:
+        return Text(_RULE, style="dim")
+    if score >= 0.99:
+        return Text(_CHECK, style="green")
+    return Text(_CROSS, style="red")
 
 
 def _status_cell(tr: TaskResult, k: int, any_cheat: bool) -> Text:
@@ -343,15 +338,15 @@ def _print_aggregate(results: RunResults) -> None:
     if agg.scored_tasks:
         plural = "s" if agg.scored_tasks != 1 else ""
         console.print(
-            f" [bold]Execution[/bold]   [cyan]{agg.avg_score * 100:.1f}%[/cyan]"
+            f" [bold]Score[/bold]       [cyan]{agg.avg_score * 100:.1f}%[/cyan]"
             f"  {score_bar(agg.avg_score)}"
-            f"  [dim]({agg.scored_tasks} task{plural})[/dim]"
+            f"  [dim]({agg.scored_tasks} task{plural} scored)[/dim]"
         )
     else:
         # Nothing was measured — an all-trigger-probe spec. "0.0%" with an empty
         # bar would read as total failure of a run where nothing failed.
         console.print(
-            f" [bold]Execution[/bold]   [dim]{_RULE}  no execution checks[/dim]"
+            f" [bold]Score[/bold]       [dim]{_RULE}  no execution checks[/dim]"
         )
 
     _print_activation_aggregate(results, score_bar)
@@ -362,29 +357,65 @@ def _print_aggregate(results: RunResults) -> None:
 
 
 def _print_activation_aggregate(results: RunResults, score_bar) -> None:
-    """The second scoreboard, printed beside the first and never folded into it.
+    """The activation half: one headline line, then a table on the *skill* axis.
 
     Split out so a ``--baseline`` report can print it too: that path renders
     through ``compare``, whose table has no activation half (the no-skill arm
-    installs nothing, so there is nothing to diff against) — and without this
-    the activation numbers would silently vanish for anyone who passes
+    installs nothing, so there is nothing to diff) — and without this the
+    activation numbers would silently vanish for anyone who passes
     ``--baseline``.
+
+    Rendered only when the spec asserted ``activates:`` somewhere. A spec that
+    never makes an activation claim should not grow a table of empty rows.
     """
     agg = results.aggregate
-    if agg.avg_activation_score is not None:
-        plural = "s" if agg.activation_tasks != 1 else ""
-        console.print(
-            f" [bold]Activation[/bold]  "
-            f"[cyan]{agg.avg_activation_score * 100:.1f}%[/cyan]"
-            f"  {score_bar(agg.avg_activation_score)}"
-            f"  [dim]({agg.activation_tasks} asserted task{plural})[/dim]"
+    if agg.avg_activation_score is None:
+        return
+
+    plural = "s" if agg.activation_tasks != 1 else ""
+    console.print(
+        f" [bold]Activation[/bold]  "
+        f"[cyan]{agg.avg_activation_score * 100:.1f}%[/cyan]"
+        f"  {score_bar(agg.avg_activation_score)}"
+        f"  [dim]({agg.activation_tasks} asserted task{plural})[/dim]"
+    )
+    if not agg.activation_per_skill:
+        return
+
+    # Recall and precision, named for what a skill author is deciding: am I
+    # under-firing, or am I grabbing someone else's prompt? The statistical
+    # names stay in the schema and the glossary, not on the report.
+    console.print()
+    table = Table(
+        box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False
+    )
+    table.add_column("Skill")
+    table.add_column("fires when wanted", justify="right")
+    table.add_column("quiet when not", justify="right")
+    for stats in agg.activation_per_skill:
+        table.add_row(
+            stats.skill,
+            _rate_cell(stats.hits, stats.expected, stats.recall),
+            _rate_cell(
+                stats.total - stats.expected - stats.unwanted,
+                stats.total - stats.expected,
+                stats.restraint,
+            ),
         )
-        for stats in agg.activation_per_skill:
-            console.print(
-                f"   [dim]{stats.skill}[/dim]"
-                f"   recall [cyan]{_fmt_score(stats.recall)}[/cyan]"
-                f"   precision [cyan]{_fmt_score(stats.precision)}[/cyan]"
-            )
+    console.print(table)
+
+
+def _rate_cell(numerator: int, denominator: int, rate: float | None) -> Text:
+    """``n/m   xx.x%``, dim "—" when the case never arose.
+
+    A skill nothing ever expected has no recall, and one that never had a chance
+    to hold back has no restraint. Neither is a zero.
+    """
+    if rate is None or denominator <= 0:
+        return Text(_RULE, style="dim")
+    cell = Text(f"{numerator}/{denominator}".rjust(6))
+    cell.append(f"  {rate * 100:5.1f}%", style="green" if rate >= 0.99 else "red")
+    return cell
 
 
 def _print_unusable_summary(results: RunResults) -> None:

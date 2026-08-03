@@ -59,7 +59,7 @@ def render(results: RunResults) -> str:
 # --- the activated column -------------------------------------------------
 
 
-def test_column_counts_each_skill_over_activation_usable_attempts():
+def test_column_is_a_verdict_not_a_list_of_names():
     t = task(
         [
             attempt(1, activated=["mine"], activation_passed=True),
@@ -68,12 +68,13 @@ def test_column_counts_each_skill_over_activation_usable_attempts():
         ],
         expected=["mine"],
     )
-    assert _activation_cell(t).plain == "mine 2/3"
+    # Names and counts moved to the per-skill table; this is pass/fail only.
+    assert _activation_cell(t).plain == "✗"
 
 
-def test_column_says_none_when_the_agent_reached_for_nothing():
+def test_column_fails_when_the_agent_reached_for_nothing():
     t = task([attempt(1, activated=[], activation_passed=False)], expected=["mine"])
-    assert _activation_cell(t).plain == "(none) 1/1"
+    assert _activation_cell(t).plain == "✗"
 
 
 def test_a_fully_timed_out_task_shows_no_claim_about_the_skill():
@@ -108,7 +109,7 @@ def test_column_is_red_when_a_neighbour_hijacked():
     )
     cell = _activation_cell(t)
     assert cell.style == "red"
-    assert cell.plain == "other 1/1"
+    assert cell.plain == "✗"
 
 
 def test_unobserved_activation_renders_as_a_dash():
@@ -145,12 +146,14 @@ def test_report_prints_both_scoreboards_separately():
                 avg_activation_score=0.733,
                 activation_tasks=3,
                 activation_per_skill=[
-                    SkillActivationStats(skill="mine", expected=2, fired=4, hits=2)
+                    SkillActivationStats(
+                        skill="mine", total=6, expected=2, fired=4, hits=2
+                    )
                 ],
             ),
         )
     )
-    assert "Execution" in out
+    assert "Score" in out
     assert "Activation" in out
     assert "73.3%" in out
     assert "3 asserted tasks" in out
@@ -163,7 +166,7 @@ def test_report_prints_both_scoreboards_separately():
 def test_activation_line_is_absent_when_nothing_was_asserted():
     tasks = [task([attempt(1, activated=["mine"])], None)]
     out = render(_results(tasks, AggregateScore(avg_score=1.0, per_task=[])))
-    assert "Execution" in out
+    assert "Score" in out
     assert "Activation" not in out
 
 
@@ -324,7 +327,7 @@ def test_execution_headline_is_skipped_when_nothing_was_measured():
             ),
         )
     )
-    execution_line = next(ln for ln in out.splitlines() if "Execution" in ln)
+    execution_line = next(ln for ln in out.splitlines() if "Score" in ln)
     assert "%" not in execution_line
     assert "no execution checks" in execution_line
     # The activation scoreboard is unaffected and still reports.

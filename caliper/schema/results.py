@@ -386,6 +386,9 @@ class SkillActivationStats(BaseModel):
     """
 
     skill: str
+    # Every activation-scored attempt this skill was in scope for. The
+    # denominator both directions are carved out of.
+    total: int = 0
     # Attempts where this skill was in the expected set.
     expected: int
     # Attempts where it was observed to activate.
@@ -404,6 +407,29 @@ class SkillActivationStats(BaseModel):
     def precision(self) -> float | None:
         """How often it was meant to when it fired. ``None`` if it never fired."""
         return self.hits / self.fired if self.fired else None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def unwanted(self) -> int:
+        """Attempts where it fired and was *not* expected: the hijacks."""
+        return self.fired - self.hits
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def restraint(self) -> float | None:
+        """How often it stayed quiet on attempts that did not want it.
+
+        The reader-facing complement of a hijack, and **not** ``1 - precision``:
+        precision divides by the times it fired, this divides by the times it
+        should not have. A skill that fires once wrongly out of fifty silent
+        opportunities has terrible precision and near-perfect restraint, and the
+        second is the honest description. ``None`` when every attempt wanted it,
+        since there was then no restraint to exercise.
+        """
+        opportunities = self.total - self.expected
+        if opportunities <= 0:
+            return None
+        return (opportunities - self.unwanted) / opportunities
 
 
 class AggregateScore(BaseModel):

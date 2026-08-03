@@ -383,7 +383,7 @@ def test_non_baseline_run_renders_single_report(capsys) -> None:
     # No comparison view for a plain run.
     assert "no skill" not in out
     # The headline is named for the scoreboard it belongs to: a run has two.
-    assert "Execution" in out
+    assert "Score" in out
 
 
 def test_baseline_run_shows_with_skill_failure_details(capsys) -> None:
