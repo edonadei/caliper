@@ -107,7 +107,10 @@ def run_cmd(
         attempt_counts[task.name] += 1
         if event.outcome == Outcome.PASS:
             pass_counts[task.name] += 1
-        if not event.outcome.is_usable:
+        # `is_execution_noise`, not `not is_usable`: a NOT_CHECKED trigger probe
+        # is a healthy attempt, and flagging it live as yellow ⊘ told a watching
+        # agent to stop for a run in which nothing had gone wrong.
+        if event.outcome.is_execution_noise:
             unusable_counts[task.name] += 1
             # Surface noise the moment it lands so a watching agent/human can stop.
             progress.console.print(

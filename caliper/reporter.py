@@ -173,6 +173,11 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
         from caliper.compare import diff_baseline
 
         print_comparison(diff_baseline(results), verbose=verbose)
+        # compare's table has no activation half — the no-skill arm installs
+        # nothing, so there is nothing to diff — but the with-skill arm's
+        # activation numbers are still real and must not disappear.
+        _print_activation_aggregate(results, _score_bar)
+        console.print()
         # The compare table shows *which* attempts failed (the strips); the panels
         # below show *why* (output, assert evidence, autorater reasoning) for the
         # with-skill run — the strips alone don't, and there's no separate run to
@@ -320,18 +325,20 @@ def _status_cell(tr: TaskResult, k: int, any_cheat: bool) -> Text:
         return Text(f"~ PARTIAL{suffix}", style="bold yellow")
 
 
+def _score_bar(score: float, width: int = 20) -> str:
+    filled = round(score * width)
+    return (
+        "[green]"
+        + _BAR_FULL * filled
+        + "[/green][dim]"
+        + _BAR_EMPTY * (width - filled)
+        + "[/dim]"
+    )
+
+
 def _print_aggregate(results: RunResults) -> None:
     agg = results.aggregate
-
-    def score_bar(score: float, width: int = 20) -> str:
-        filled = round(score * width)
-        return (
-            "[green]"
-            + _BAR_FULL * filled
-            + "[/green][dim]"
-            + _BAR_EMPTY * (width - filled)
-            + "[/dim]"
-        )
+    score_bar = _score_bar
 
     if agg.scored_tasks:
         plural = "s" if agg.scored_tasks != 1 else ""
@@ -347,9 +354,23 @@ def _print_aggregate(results: RunResults) -> None:
             f" [bold]Execution[/bold]   [dim]{_RULE}  no execution checks[/dim]"
         )
 
-    # The second scoreboard, printed beside the first and never folded into it:
-    # a bad `description` and a bad body have opposite fixes, so one blended
-    # headline would point at neither.
+    _print_activation_aggregate(results, score_bar)
+    _print_unusable_summary(results)
+    console.print()
+    _print_usage_summary(UsageTotals.from_task_results(results.task_results))
+    console.print()
+
+
+def _print_activation_aggregate(results: RunResults, score_bar) -> None:
+    """The second scoreboard, printed beside the first and never folded into it.
+
+    Split out so a ``--baseline`` report can print it too: that path renders
+    through ``compare``, whose table has no activation half (the no-skill arm
+    installs nothing, so there is nothing to diff against) — and without this
+    the activation numbers would silently vanish for anyone who passes
+    ``--baseline``.
+    """
+    agg = results.aggregate
     if agg.avg_activation_score is not None:
         plural = "s" if agg.activation_tasks != 1 else ""
         console.print(
@@ -364,11 +385,6 @@ def _print_aggregate(results: RunResults) -> None:
                 f"   recall [cyan]{_fmt_score(stats.recall)}[/cyan]"
                 f"   precision [cyan]{_fmt_score(stats.precision)}[/cyan]"
             )
-
-    _print_unusable_summary(results)
-    console.print()
-    _print_usage_summary(UsageTotals.from_task_results(results.task_results))
-    console.print()
 
 
 def _print_unusable_summary(results: RunResults) -> None:
