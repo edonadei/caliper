@@ -83,8 +83,8 @@ pipx install caliper-eval   # requires Python 3.10+
 
 ```yaml
 # my-skill.eval.yaml
-skill:
-  path: ./SKILL.md
+skills:
+  - ./SKILL.md
 
 tasks:
   # Autorater: the LLM judge reads the transcript and decides
@@ -104,9 +104,21 @@ tasks:
       from pathlib import Path
       data = json.loads(Path("/tmp/app.config.json").read_text())
       assert data["port"] == 8080
+
+  # Activation: did the agent reach for the skill at all?
+  - name: Unrelated work — the skill should stay out of it
+    prompt: "Rename `resolved_model` to `engine_model` across the repo."
+    activates: []
 ```
 
-`expect:` is graded by the judge LLM; `assert:` runs locally as Python. Use either or both.
+Three kinds of check, and a task needs at least one. `expect:` is graded by the
+judge LLM; `assert:` runs locally as Python; `activates:` asserts **which skills
+the agent chose to load**. Use any combination.
+
+Caliper never pastes your skill into the prompt. It **installs** it where the
+agent looks for skills and lets the agent decide — so a run measures the
+`description` (does it fire?) and the body (does it work?) together, and
+`activates:` is what tells the two apart.
 
 The spec never names an engine. The skill and judge default to `claude-code`, and you pick a different agent/model at run time with `--model` / `--judge-model` (see [Choosing an engine](#choosing-an-engine)).
 
@@ -198,11 +210,13 @@ If an `.eval.yaml` already exists next to your skill, `grill-skill` reads the ex
 
 | Term | What it is |
 |---|---|
-| **Spec** | A `.eval.yaml` file that describes the skill, judge, and tasks to run |
+| **Spec** | A `.eval.yaml` file that describes the skills, judge, and tasks to run |
 | **Backend** | The CLI agent that executes the skill (`claude-code`, `codex`, `pi`, `hermes`) |
 | **Judge** | What decides pass/fail: an LLM reading the transcript (`expect:`), Python assertions (`assert:`), or both |
 | **success rate** | The primary score: run k times, measure how often a single run works (`pass@k`/`pass^k` are secondary views, under `--verbose`) |
-| **Baseline** | Re-run the same tasks without the skill to prove the skill is doing the work |
+| **Neighbourhood** | The set of skills a spec declares (`skills:`). All installed, none preloaded, and all assertable — the competition your `description` has to win |
+| **Activation** | The agent *choosing* to load a skill. Asserted with `activates:` and scored on its own scoreboard, separate from the success rate |
+| **Baseline** | Re-run the same tasks with no skills installed, to prove the skill is doing the work |
 | **Attempt** | One isolated run of a single task (fresh temporary home, no session history) |
 
 ---
@@ -252,7 +266,7 @@ npm install -g @earendil-works/pi-coding-agent
 pi   # then authenticate (e.g. /login for a subscription provider, or set the provider API key)
 ```
 
-`--model pi` runs `pi --print --mode json` and loads the skill natively via pi's `--skill` flag (the agentskills.io standard). It reuses your `~/.pi/agent` auth and settings; the `:model` half of `--model pi:<model>` overrides pi's configured default when set. Set `PI_CLI_PATH` to force a specific binary. Note: pi's built-in default provider is `google`, so running `--model pi` with no model relies on your pi config to resolve a provider you are authenticated for.
+`--model pi` runs `pi --print --mode json` and installs the declared skills under its agent dir, where pi discovers them (its `--skill` flag *preloads*, which caliper never does — pi's own `--no-skills` exists because discovery is the default). It reuses your `~/.pi/agent` auth and settings; the `:model` half of `--model pi:<model>` overrides pi's configured default when set. Set `PI_CLI_PATH` to force a specific binary. Note: pi's built-in default provider is `google`, so running `--model pi` with no model relies on your pi config to resolve a provider you are authenticated for.
 
 ### Hermes setup
 
@@ -262,7 +276,7 @@ hermes login   # authenticate
 hermes model   # pick a default model/provider you have credits for
 ```
 
-Hermes is a stateful, always-on agent (persistent memory, a persona, auto-generated skills), so Caliper **normalizes it to a neutral agent** to keep its score apples-to-apples with the other backends: every attempt runs in an isolated `HERMES_HOME` seeded with your `~/.hermes` auth/config only (never `SOUL.md`/`MEMORY.md`), with `--ignore-rules` and `--yolo` (so an approval prompt can't hang the non-interactive oneshot), and the skill-under-test is staged as the sole local skill. `--model hermes` runs `hermes -z` (oneshot) then `hermes sessions export` to recover the full tool-call trajectory; `--model hermes:<provider>/<model>` (e.g. `hermes:anthropic/claude-opus-4-8`) selects the model, otherwise your `~/.hermes/config.yaml` default is used. Point it at a provider you have credits for. If a run fails because no model is selected or a provider login lapsed, Caliper tells you to run `hermes model`. Set `HERMES_CLI_PATH` to force a specific binary. Hermes updates itself (`hermes update`), so it is not part of `caliper update-cli`.
+Hermes is a stateful, always-on agent (persistent memory, a persona, auto-generated skills), so Caliper **normalizes it to a neutral agent** to keep its score apples-to-apples with the other backends: every attempt runs in an isolated `HERMES_HOME` seeded with your `~/.hermes` auth/config only (never `SOUL.md`/`MEMORY.md`), with `--ignore-rules` and `--yolo` (so an approval prompt can't hang the non-interactive oneshot), and only the spec's declared skills are installed (its `--skills` flag is documented as *preload*, so caliper does not pass it). `--model hermes` runs `hermes -z` (oneshot) then `hermes sessions export` to recover the full tool-call trajectory; `--model hermes:<provider>/<model>` (e.g. `hermes:anthropic/claude-opus-4-8`) selects the model, otherwise your `~/.hermes/config.yaml` default is used. Point it at a provider you have credits for. If a run fails because no model is selected or a provider login lapsed, Caliper tells you to run `hermes model`. Set `HERMES_CLI_PATH` to force a specific binary. Hermes updates itself (`hermes update`), so it is not part of `caliper update-cli`.
 
 Check installed CLI versions:
 
@@ -294,8 +308,10 @@ or [`grill-skill`](#grill-skill-create-evals-interactively) skill, or hand-write
 the YAML below.
 
 ```yaml
-skill:
-  path: ./SKILL.md              # path to the skill file (optional for baseline-only runs)
+skills:                         # installed where the agent looks for skills,
+  - ./SKILL.md                  #   never pasted into the prompt
+  - ../evaluate-skill/SKILL.md  # neighbours: the competition your description
+                                #   has to win against (omit for a bare agent)
 
 # Note: there is no `backend`/`model` or `judge:` block. The engine is a runtime
 # axis: pass `--model` / `--judge-model` at run time (default: claude-code).
@@ -332,13 +348,58 @@ tasks:
   - name: Task with external assertion script
     prompt: "Generate a report"
     assert: ./assertions/check_report.py
+
+  - name: A neighbour's prompt — yours must not hijack it
+    prompt: "How reliable is my commit-message skill? Run it 10 times."
+    activates: [evaluate-skill]   # exactly these skills, and no others
+
+  - name: Unrelated work — silence expected
+    prompt: "Rename `resolved_model` to `engine_model` across the repo."
+    activates: []                 # nothing should fire
 ```
 
-Each task needs at least one of `expect` or `assert`. Task IDs are assigned automatically as `task-001`, `task-002`, and so on.
+Each task needs at least one of `expect`, `assert` or `activates`. Task IDs are assigned automatically as `task-001`, `task-002`, and so on.
+
+### `skills:` — the neighbourhood
+
+Every entry is installed at the agent's own skills root under its frontmatter
+`name:`, and **nothing is preloaded**. Entries are peers: no entry is "the skill
+under test", so `activates:` always names skills explicitly.
+
+The set is closed — the agent sees these skills and nothing else — which is what
+makes activation a measurement rather than a guess. It also means a skill you
+*don't* declare can never activate: if yours delegates to another skill, declare
+that one too and enumerate the whole chain (`activates: [mine, helper]`), which
+makes "did it actually delegate?" assertable.
+
+A skill must be a `SKILL.md` in a directory, carrying frontmatter `name:` and
+`description:`. A lone slash-command `.md` is rejected: with no name and no
+description there is nothing for an agent to discover.
+
+### `activates:` — did the agent reach for it?
+
+`activates:` asserts the **exact set** of skills that loaded on each attempt.
+
+| Form | Means |
+|---|---|
+| *(omitted)* | not asserted — the column still shows what loaded, dimmed |
+| `activates: [a]` | exactly `a` fired, and nothing else |
+| `activates: [a, b]` | both fired — how a delegating skill asserts its chain |
+| `activates: []` | nothing fired; silence held |
+
+A task with `activates:` and no `expect:`/`assert:` is a **trigger probe**: it
+asks only what the agent reached for, skips the judge entirely (so it is much
+cheaper than an execution task), and reports as `trigger only` rather than a
+zero. Use it for neighbour and silence probes, where there is no work worth
+grading.
+
+Activation is scored on its **own scoreboard**, never blended into the success
+rate — a failing `description` and a failing body are fixed in different places,
+so one number mixing them would point at neither.
 
 ### MCP servers (`mcp:`)
 
-The optional `mcp:` block declares the [MCP](https://modelcontextprotocol.io) servers the agent-under-test may use. It is a capability granted to the agent for the eval, part of the run environment like `sandbox:`, so it lives in the spec rather than behind a flag. It is a top-level mapping keyed by server name (a sibling of `sandbox:`, not nested under `skill:`, and it applies whether or not the eval uses a skill). Each server's tools appear in the transcript as a namespaced call an `expect:` judge can verify (`mcp__<server>__<tool>` on `claude-code` and `codex`, `mcp_<server>_<tool>` on `hermes`), so word an `expect:` around the tool's behavior, not one backend's exact spelling, if the spec is meant to run under more than one engine.
+The optional `mcp:` block declares the [MCP](https://modelcontextprotocol.io) servers the agent-under-test may use. It is a capability granted to the agent for the eval, part of the run environment like `sandbox:`, so it lives in the spec rather than behind a flag. It is a top-level mapping keyed by server name (a sibling of `sandbox:` and `skills:`, and it applies whether or not the eval declares any skill). Each server's tools appear in the transcript as a namespaced call an `expect:` judge can verify (`mcp__<server>__<tool>` on `claude-code` and `codex`, `mcp_<server>_<tool>` on `hermes`), so word an `expect:` around the tool's behavior, not one backend's exact spelling, if the spec is meant to run under more than one engine.
 
 A server is either **local (stdio)**, a `command` the harness spawns, or **remote (`type: http` or `sse`)**, a hosted endpoint at `url`, the shape most connectors (Google Drive, Notion, and so on) use:
 
@@ -507,6 +568,11 @@ not scored as task failure:
 | `infra_error` | harness failure: nonzero exit, or a detected rate-limit / spending-cap | ❌ unusable |
 | `timeout` | exceeded the time budget with no result | ❌ unusable |
 | `judge_error` | the judge produced no verdict (unparseable / errored autorater) | ❌ unusable |
+| `not_checked` | the task authored no `expect:`/`assert:` — a trigger probe | ⊘ not asked |
+
+`not_checked` is the one outcome that is neither: it leaves the denominator like
+an unusable attempt, but nothing went wrong, so it is never reported as an error
+and its tokens are not counted as wasted spend.
 
 The primary metric is the **raw success rate**: how often a *single* run works,
 computed over the **usable** attempts (the ones that got a fair shot). Unusable

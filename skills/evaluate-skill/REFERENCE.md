@@ -51,8 +51,10 @@ and model for both the skill and the judge are chosen at run time via `--model` 
 validation with a message pointing at the flags.
 
 ```yaml
-skill:
-  path: ./SKILL.md
+skills:                   # installed at the agent's own skills root, never
+  - ./SKILL.md            #   preloaded — the agent has to choose it
+  # add neighbouring skills as further entries to test that yours is the
+  # one that fires (they are assertable via `activates:`, not decoration)
 
 sandbox:
   forbidden_files:
@@ -90,7 +92,32 @@ tasks:
     name: Task with external assertion script
     prompt: Generate a report
     assert: ./assertions/check_report.py
+
+  - id: task-004
+    name: A neighbour's prompt — yours must not hijack it
+    prompt: <a prompt that belongs to a different declared skill>
+    activates: [other-skill]      # exactly these fired, and nothing else
+
+  - id: task-005
+    name: Unrelated work — silence expected
+    prompt: <a prompt no declared skill should answer>
+    activates: []                 # nothing fired
 ```
+
+Each task needs at least one of `expect`, `assert` or `activates`.
+
+`activates:` asserts the **exact set** of skills the agent loaded on an attempt.
+Skills are installed where the agent looks for them and never pasted into the
+prompt, so *choosing* one is an observable. A task carrying only `activates:` is
+a **trigger probe**: it skips the judge entirely (much cheaper than an execution
+task) and reports as `trigger only`, not a zero. Activation is scored on its own
+scoreboard and never blended into the success rate — a failing `description` and
+a failing body are fixed in different places.
+
+Identity is the frontmatter `name:`, so `activates:` names must match the
+`name:` in each declared `SKILL.md`, not its filename or directory. A skill the
+spec doesn't declare is never installed and can never activate — so if yours
+delegates to another skill, declare it and enumerate the chain.
 
 The same spec runs on any engine. To run it on Codex, pass the backend at run
 time — the spec is unchanged:
@@ -99,8 +126,7 @@ time — the spec is unchanged:
 caliper run path/to/spec.eval.yaml --model codex --judge-model codex
 ```
 
-For pi (loads the skill natively via pi's `--skill` flag), the `:model` half
-overrides pi's configured default:
+For pi, the `:model` half overrides pi's configured default:
 
 ```bash
 caliper run path/to/spec.eval.yaml --model pi:claude-sonnet-4-6 --judge-model pi
@@ -114,8 +140,8 @@ caliper run path/to/spec.eval.yaml --model hermes:anthropic/claude-sonnet-4.6 --
 ```
 
 Hermes is a stateful agent, so Caliper normalizes it to a neutral agent per
-attempt (isolated `HERMES_HOME`, no persona/memory, `--ignore-rules`, the
-skill-under-test staged as the only local skill) and recovers the full tool-call
+attempt (isolated `HERMES_HOME`, no persona/memory, `--ignore-rules`, and only
+the spec's declared skills installed) and recovers the full tool-call
 trajectory by running `hermes -z` then `hermes sessions export`.
 
 ## Key concepts
@@ -126,7 +152,7 @@ trajectory by running `hermes -z` then `hermes sessions export`.
 - **baseline** — runs each task without the skill to compute a delta score
 - **judge** — the spec drives evaluation: `expect:` triggers an LLM verdict (which may generate a Python assertion script); `assert:` runs a deterministic Python script; both can be combined and both must pass
 - **cheat detection** — transcript is scanned for reads of forbidden files (spec, results)
-- **MCP servers (`mcp:`)** — an optional top-level mapping (keyed by server name) declaring MCP servers the agent-under-test may use; they are a capability granted to the agent for the eval — part of the run environment like `sandbox:` (a sibling of it, not nested under `skill:`, and applied with or without a skill), so they live in the spec, not behind a flag. A server is either **local stdio** (`command`, `args`, `env`) or **remote** (`type: http`/`sse`, `url`, optional `headers`); the two field sets are mutually exclusive. Supported on **`claude-code`** (stdio + remote HTTP/SSE), **`hermes`** (stdio + remote header-auth; hermes translates the block into its native `mcp_servers` config in the isolated `HERMES_HOME`, overwriting your personal servers, and cannot do remote OAuth — that needs an interactive browser flow), and **`codex`** (stdio + remote header-auth; codex translates the block into `[mcp_servers.*]` tables in the isolated `~/.codex/config.toml` — stdio as `command`/`args`/`env`, remote as `url` + a static `http_headers` map, with `http`/`sse` collapsed onto codex's one url-inferred streamable-HTTP transport — replacing any personal servers from your real config, and likewise cannot do remote OAuth); a spec that declares `mcp:` on a backend that can't honor it is a hard error, not a silent no-op (`pi` has no MCP by design and will not honor `mcp:` natively — expose the capability as a CLI tool the skill drives or a pi extension, or run the eval on `claude-code`/`hermes`/`codex`). A value in a stdio `env:`, a remote `headers:`, or a remote `url:` may reference a host env var as `${VAR}` (resolved at the harness boundary from your shell at run time so secrets stay out of the committed spec; an unset var fails the run). A tool call surfaces as a namespaced name — `mcp__<server>__<tool>` on `claude-code` and `codex`, `mcp_<server>_<tool>` on `hermes` — so an `expect:` judge can check a tool was used; word it around behaviour, not one backend's spelling, if the spec runs under more than one engine. Server names must match `[A-Za-z0-9_-]+`; `caliper validate` reports a malformed entry (bad name, unknown key/`type`, a stdio server missing `command`, or a remote server missing `url`)
+- **MCP servers (`mcp:`)** — an optional top-level mapping (keyed by server name) declaring MCP servers the agent-under-test may use; they are a capability granted to the agent for the eval — part of the run environment like `sandbox:` (a sibling of it and of `skills:`, applied whether or not any skill is declared), so they live in the spec, not behind a flag. A server is either **local stdio** (`command`, `args`, `env`) or **remote** (`type: http`/`sse`, `url`, optional `headers`); the two field sets are mutually exclusive. Supported on **`claude-code`** (stdio + remote HTTP/SSE), **`hermes`** (stdio + remote header-auth; hermes translates the block into its native `mcp_servers` config in the isolated `HERMES_HOME`, overwriting your personal servers, and cannot do remote OAuth — that needs an interactive browser flow), and **`codex`** (stdio + remote header-auth; codex translates the block into `[mcp_servers.*]` tables in the isolated `~/.codex/config.toml` — stdio as `command`/`args`/`env`, remote as `url` + a static `http_headers` map, with `http`/`sse` collapsed onto codex's one url-inferred streamable-HTTP transport — replacing any personal servers from your real config, and likewise cannot do remote OAuth); a spec that declares `mcp:` on a backend that can't honor it is a hard error, not a silent no-op (`pi` has no MCP by design and will not honor `mcp:` natively — expose the capability as a CLI tool the skill drives or a pi extension, or run the eval on `claude-code`/`hermes`/`codex`). A value in a stdio `env:`, a remote `headers:`, or a remote `url:` may reference a host env var as `${VAR}` (resolved at the harness boundary from your shell at run time so secrets stay out of the committed spec; an unset var fails the run). A tool call surfaces as a namespaced name — `mcp__<server>__<tool>` on `claude-code` and `codex`, `mcp_<server>_<tool>` on `hermes` — so an `expect:` judge can check a tool was used; word it around behaviour, not one backend's spelling, if the spec runs under more than one engine. Server names must match `[A-Za-z0-9_-]+`; `caliper validate` reports a malformed entry (bad name, unknown key/`type`, a stdio server missing `command`, or a remote server missing `url`)
 - **token & wall-clock usage** — each attempt records an optional `usage` (`input_tokens` non-cached, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, computed `total_tokens`; the four token fields are disjoint) plus its `duration_seconds`. `report` shows per-task `Tokens`/`Wall` columns in the results table plus a per-run `Tokens … in / … out · Wall …` line (unusable spend broken out separately); a `--baseline` run retains the full no-skill run (`RunResults.baseline_task_results`) and renders through the same `compare` view (side-by-side table + token/wall deltas); `compare` deltas (green = cheaper) are **never** a regression — only the score is. All usage fields are optional (`null` → renders `—`); `claude-code`, `codex`, `pi`, `hermes` all report tokens. **Dollar cost is deliberately not tracked** (inconsistent across backends; tokens are the volume signal).
 - **isolation** — each attempt runs in a fresh temp HOME with no session history
 - **engine as a runtime axis** — backend + model are not spec fields; they are chosen per run and recorded in `RunMeta` (skill `backend`/`model` **and** `judge_backend`/`judge_model`), so the same spec can target any agent and never ages when a model goes stale. A default-model run records the concrete model the agent resolved wherever the backend reports it (skill model from hermes' export, `judge_model` from the claude-code judge's JSON), not a bare "default"; `judge_model` is empty for an assert-only run where no LLM judge fired. When `--judge-model` is omitted, the claude-code judge still pins `claude-sonnet-5` at execution time so it does not inherit a stale model from the installed Claude CLI — that pin is not written into `RunMeta` unless you pass it explicitly or the autorater reports what it used
