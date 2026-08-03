@@ -124,13 +124,21 @@ class ActivationAggregate:
     per_skill: list[SkillActivationStats]
 
 
-def aggregate_activation(task_results: list["TaskResult"]) -> ActivationAggregate:
+def aggregate_activation(
+    task_results: list["TaskResult"], declared: list[str] | None = None
+) -> ActivationAggregate:
     """Roll up the second scoreboard over the tasks that asserted ``activates:``.
 
     Both halves count **attempts**, not tasks, so the per-skill diagnostic shares
     units with the rate above it. Only activation-usable attempts of asserted
     tasks are counted — an unasserted task contributes nothing and is rendered
     *skipped*, not ``0%``.
+
+    ``declared`` is the whole neighbourhood, in spec order. Every declared skill
+    gets a row even if it never fired and was never expected: the reader would
+    otherwise have no way to tell what was installed, and a dormant neighbour is
+    itself informative — it says the probes never exercised the skill you
+    declared *because* you were worried about it.
     """
     scores = [
         t.activation_score for t in task_results if t.activation_score is not None
@@ -160,6 +168,11 @@ def aggregate_activation(task_results: list["TaskResult"]) -> ActivationAggregat
             for name in wanted & observed:
                 hits[name] = hits.get(name, 0) + 1
 
+    # Spec order first (the author's own ordering), then anything observed that
+    # was somehow not declared — which the closed neighbourhood should prevent,
+    # so it is a safety net rather than an expected case.
+    names = list(declared or [])
+    names += sorted((set(expected) | set(fired)) - set(names))
     per_skill = [
         SkillActivationStats(
             skill=name,
@@ -168,6 +181,6 @@ def aggregate_activation(task_results: list["TaskResult"]) -> ActivationAggregat
             fired=fired.get(name, 0),
             hits=hits.get(name, 0),
         )
-        for name in sorted(set(expected) | set(fired))
+        for name in names
     ]
     return ActivationAggregate(avg_score=avg, tasks=len(scores), per_skill=per_skill)

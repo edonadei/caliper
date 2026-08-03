@@ -289,7 +289,11 @@ run's isolated home contains these skills and nothing else — which is what mak
 agent could possibly have reached for is exactly the set the spec wrote down.
 Neighbours are not decoration; they are the competition a skill's `description`
 has to win against, so a run's numbers are only meaningful relative to the
-neighbourhood that produced them.
+neighbourhood that produced them. That is why a report names **every** declared
+member, including one that never fired and was never expected: without its row a
+reader could not tell what was installed, and its dormancy is itself an answer,
+saying the probes never exercised the neighbour they were written to guard
+against.
 _Avoid_: skill list, skill dependencies, sibling skills.
 
 ## Install-and-discover

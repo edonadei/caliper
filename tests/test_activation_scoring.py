@@ -220,3 +220,31 @@ def test_aggregate_gives_every_skill_the_same_denominator():
     # `a` fired on the attempt that wanted `b`: one unwanted firing, no restraint.
     assert stats["a"].unwanted == 1
     assert stats["a"].restraint == 0.0
+
+
+def test_a_dormant_declared_skill_still_gets_a_row():
+    # Declared as a neighbour, never expected, never fired. Without a row the
+    # reader cannot tell what neighbourhood produced the numbers.
+    t = task("t", [attempt(1, activated=["mine"], activation_passed=True)], ["mine"])
+    stats = {s.skill: s for s in aggregate_activation([t], ["mine", "rival"]).per_skill}
+    assert set(stats) == {"mine", "rival"}
+    rival = stats["rival"]
+    assert rival.expected == 0
+    assert rival.fired == 0
+    # Never expected, so no recall was earned; but it did stay out of the one
+    # attempt that did not want it, which is a real observation.
+    assert rival.recall is None
+    assert rival.restraint == 1.0
+
+
+def test_rows_follow_spec_order_not_alphabetical():
+    t = task("t", [attempt(1, activated=["zebra"], activation_passed=True)], ["zebra"])
+    names = [s.skill for s in aggregate_activation([t], ["zebra", "alpha"]).per_skill]
+    assert names == ["zebra", "alpha"]
+
+
+def test_an_undeclared_observed_skill_is_still_reported():
+    # Should not happen (the neighbourhood is closed) but must not vanish.
+    t = task("t", [attempt(1, activated=["ghost"], activation_passed=False)], ["mine"])
+    names = [s.skill for s in aggregate_activation([t], ["mine"]).per_skill]
+    assert names == ["mine", "ghost"]
