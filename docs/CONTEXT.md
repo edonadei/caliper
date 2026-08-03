@@ -259,12 +259,13 @@ author diagnosing their own `description` and not an ML practitioner. The terms
 stay `recall`/`precision` in the schema and in this glossary, where exact
 language is the point.
 
-The second column is **restraint**, not `1 − precision`. Precision divides by
-the times a skill fired; restraint divides by the times it *should not have*. A
-skill that fires once wrongly across fifty silent opportunities has poor
-precision and near-perfect restraint, and restraint is the honest description of
-that skill. It is `None` when every attempt wanted the skill, since there was
-then no restraint to exercise.
+The reported second direction is the **unwanted rate**, not `1 − precision`.
+Precision divides by the times a skill fired; this divides by the times it
+*should not have*. A skill that fires once wrongly across fifty silent
+opportunities has 50% precision and a 2% unwanted rate, and the second is the
+honest description of that skill. It is `None` when every attempt wanted the
+skill, since it then had no opportunity to over-fire — which is not the same as
+never taking one.
 
 The two scoreboards are **not peers in the report**. The [[success rate|score]]
 is the headline, because it is already the joint measure of "would this work for

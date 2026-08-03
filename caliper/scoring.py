@@ -149,7 +149,7 @@ def aggregate_activation(
     fired: dict[str, int] = {}
     hits: dict[str, int] = {}
     # Every skill in the neighbourhood is in scope for every scored attempt, so
-    # one counter serves them all: it is the denominator restraint divides by.
+    # one counter serves them all: it is what the two rates are carved out of.
     considered = 0
 
     for task in task_results:

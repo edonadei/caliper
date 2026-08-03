@@ -174,38 +174,39 @@ def test_aggregate_averages_over_asserted_tasks_only():
     assert agg.tasks == 2
 
 
-# --- restraint: the reader-facing second direction ------------------------
+# --- the over-firing rate: the second direction ---------------------------
 
 
-def test_restraint_divides_by_opportunities_not_by_firings():
+def test_over_firing_divides_by_opportunities_not_by_firings():
     # A skill wanted once, that fired once wrongly across many silent chances.
     # precision = 1/2 = 50% (it fired twice, one was wrong).
-    # restraint = 9/10 = 90% (ten attempts did not want it; it held back on 9).
-    # Reporting `1 - precision` here would claim 50% restraint and read as a
+    # unwanted_rate = 1/10 = 10% (ten attempts did not want it; it took one).
+    # Reporting `1 - precision` would claim a 50% over-firing rate and read as a
     # far worse skill than it is.
     stats = SkillActivationStats(skill="mine", total=11, expected=1, fired=2, hits=1)
     assert stats.precision == 0.5
-    assert stats.restraint == 0.9
+    assert stats.unwanted_rate == 0.1
     assert stats.unwanted == 1
 
 
-def test_perfect_restraint_when_it_never_fires_unwanted():
+def test_zero_over_firing_when_it_never_fires_unwanted():
     stats = SkillActivationStats(skill="mine", total=6, expected=3, fired=3, hits=3)
-    assert stats.restraint == 1.0
+    assert stats.unwanted_rate == 0.0
     assert stats.recall == 1.0
 
 
-def test_restraint_is_none_when_every_attempt_wanted_it():
-    # No chance to hold back is not the same as failing to.
+def test_over_firing_is_none_when_every_attempt_wanted_it():
+    # No chance to over-fire is not the same as taking one.
     stats = SkillActivationStats(skill="mine", total=4, expected=4, fired=4, hits=4)
-    assert stats.restraint is None
+    assert stats.unwanted_rate is None
 
 
-def test_a_hijacker_has_full_recall_and_poor_restraint():
-    # Fires on all 6 prompts that want it, and on 2 of the 3 that do not.
+def test_a_hijacker_has_full_recall_and_a_high_over_firing_rate():
+    # Fires on all 6 prompts that want it, and on 2 of the 3 that do not. Its
+    # first column looks perfect; only the second exposes it.
     stats = SkillActivationStats(skill="mine", total=9, expected=6, fired=8, hits=6)
     assert stats.recall == 1.0
-    assert stats.restraint == pytest.approx(1 / 3)
+    assert stats.unwanted_rate == pytest.approx(2 / 3)
 
 
 def test_aggregate_gives_every_skill_the_same_denominator():
@@ -217,9 +218,10 @@ def test_aggregate_gives_every_skill_the_same_denominator():
     stats = {s.skill: s for s in aggregate_activation([own, theirs]).per_skill}
     assert stats["a"].total == 2
     assert stats["b"].total == 2
-    # `a` fired on the attempt that wanted `b`: one unwanted firing, no restraint.
+    # `a` fired on the attempt that wanted `b`: one unwanted firing out of one
+    # opportunity to hold back.
     assert stats["a"].unwanted == 1
-    assert stats["a"].restraint == 0.0
+    assert stats["a"].unwanted_rate == 1.0
 
 
 def test_a_dormant_declared_skill_still_gets_a_row():
@@ -234,7 +236,7 @@ def test_a_dormant_declared_skill_still_gets_a_row():
     # Never expected, so no recall was earned; but it did stay out of the one
     # attempt that did not want it, which is a real observation.
     assert rival.recall is None
-    assert rival.restraint == 1.0
+    assert rival.unwanted_rate == 0.0
 
 
 def test_rows_follow_spec_order_not_alphabetical():

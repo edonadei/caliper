@@ -396,12 +396,11 @@ def _print_activation_aggregate(results: RunResults, score_bar) -> None:
         )
         table.add_column("Skill")
         table.add_column("wanted", justify="right")
-        # Two complete sentences, deliberately not "fires when wanted / quiet
-        # when not": the second was elliptical and made the reader borrow a word
-        # from the first column to finish it. `fires` / `stays out` are opposed
-        # verbs, so the two columns read as the two sides of one boundary.
+        # The same verb on both sides, so the pair reads as one behaviour
+        # measured over two populations. The second is good-when-*low*, which
+        # the cell colouring carries: a high hijack rate renders red.
         table.add_column("fires when wanted", justify="right")
-        table.add_column("stays out otherwise", justify="right")
+        table.add_column("fires when not wanted", justify="right")
         # Worst first: the skill needing attention is the top row, not wherever
         # it happened to sit in the spec (peers have no meaningful order anyway).
         for stats in sorted(measured, key=_activation_severity):
@@ -410,9 +409,10 @@ def _print_activation_aggregate(results: RunResults, score_bar) -> None:
                 Text(f"{stats.expected} of {stats.total}", style="dim"),
                 _rate_cell(stats.hits, stats.expected, stats.recall),
                 _rate_cell(
-                    stats.total - stats.expected - stats.unwanted,
+                    stats.unwanted,
                     stats.total - stats.expected,
-                    stats.restraint,
+                    stats.unwanted_rate,
+                    higher_is_better=False,
                 ),
             )
         console.print(table)
@@ -427,27 +427,36 @@ def _print_activation_aggregate(results: RunResults, score_bar) -> None:
 
 
 def _activation_severity(stats) -> float:
-    """Sort key: the worse of a skill's two rates, so the broken one leads.
+    """Sort key: a skill's worst failure rate, worst first (descending).
 
-    A missing rate is not a problem — nothing ever wanted the skill, or it never
-    had a chance to hold back — so it sorts as perfect rather than as zero.
+    Both directions are converted to "how wrong is this" so they compare on one
+    scale. A missing rate means the case never arose, which is not a failure, so
+    it contributes nothing rather than counting as total failure.
     """
-    return min(
-        stats.recall if stats.recall is not None else 1.0,
-        stats.restraint if stats.restraint is not None else 1.0,
-    )
+    missed = 1.0 - stats.recall if stats.recall is not None else 0.0
+    over = stats.unwanted_rate if stats.unwanted_rate is not None else 0.0
+    return -max(missed, over)
 
 
-def _rate_cell(numerator: int, denominator: int, rate: float | None) -> Text:
+def _rate_cell(
+    numerator: int,
+    denominator: int,
+    rate: float | None,
+    *,
+    higher_is_better: bool = True,
+) -> Text:
     """``n/m   xx.x%``, dim "—" when the case never arose.
 
-    A skill nothing ever expected has no recall, and one that never had a chance
-    to hold back has no restraint. Neither is a zero.
+    A skill nothing ever expected has no fire-when-wanted rate, and one that
+    never faced a prompt it should skip has no chance to over-fire. Neither is a
+    zero. ``higher_is_better`` flips the colouring for the over-firing column,
+    where the good value is 0%.
     """
     if rate is None or denominator <= 0:
         return Text(_RULE, style="dim")
     cell = Text(f"{numerator}/{denominator}".rjust(6))
-    cell.append(f"  {rate * 100:5.1f}%", style="green" if rate >= 0.99 else "red")
+    good = rate >= 0.99 if higher_is_better else rate <= 0.01
+    cell.append(f"  {rate * 100:5.1f}%", style="green" if good else "red")
     return cell
 
 

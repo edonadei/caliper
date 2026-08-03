@@ -416,20 +416,21 @@ class SkillActivationStats(BaseModel):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
-    def restraint(self) -> float | None:
-        """How often it stayed quiet on attempts that did not want it.
+    def unwanted_rate(self) -> float | None:
+        """How often it fired on attempts that did not want it. Lower is better.
 
-        The reader-facing complement of a hijack, and **not** ``1 - precision``:
-        precision divides by the times it fired, this divides by the times it
-        should not have. A skill that fires once wrongly out of fifty silent
-        opportunities has terrible precision and near-perfect restraint, and the
-        second is the honest description. ``None`` when every attempt wanted it,
-        since there was then no restraint to exercise.
+        **Not ``1 - precision``**: precision divides by the times the skill
+        fired, this divides by the times it should not have. A skill that fires
+        once wrongly across fifty silent opportunities has 50% precision and a 2%
+        unwanted rate, and the second is the honest description of that skill.
+
+        ``None`` when every attempt wanted it, since it then had no opportunity
+        to over-fire — which is not the same as never taking one.
         """
         opportunities = self.total - self.expected
         if opportunities <= 0:
             return None
-        return (opportunities - self.unwanted) / opportunities
+        return self.unwanted / opportunities
 
 
 class AggregateScore(BaseModel):
