@@ -287,3 +287,53 @@ def test_no_activation_regression_when_the_description_improves():
     assert tc.activation_delta == 1.0
     assert tc.activation_regression is False
     assert comp.has_activation_regression is False
+
+
+def test_execution_headline_is_skipped_when_nothing_was_measured():
+    # An all-trigger-probe spec. "0.0%" with an empty bar would read as total
+    # failure of a run in which nothing failed.
+    tasks = [
+        TaskResult(
+            task_id="task-001",
+            task_name="silence",
+            attempts=[
+                AttemptRecord(
+                    attempt=1,
+                    output="",
+                    duration_seconds=1.0,
+                    outcome=Outcome.NOT_CHECKED,
+                    activated=[],
+                    activation_passed=True,
+                )
+            ],
+            successes=0,
+            unusable=0,
+            pass_at_k=None,
+            activation_expected=[],
+        )
+    ]
+    out = render(
+        _results(
+            tasks,
+            AggregateScore(
+                avg_score=0.0,
+                scored_tasks=0,
+                per_task=[],
+                avg_activation_score=1.0,
+                activation_tasks=1,
+            ),
+        )
+    )
+    execution_line = next(ln for ln in out.splitlines() if "Execution" in ln)
+    assert "%" not in execution_line
+    assert "no execution checks" in execution_line
+    # The activation scoreboard is unaffected and still reports.
+    assert "Activation" in out
+
+
+def test_execution_headline_reports_its_task_count():
+    tasks = [task([attempt(1, activated=["mine"], activation_passed=True)], ["mine"])]
+    out = render(
+        _results(tasks, AggregateScore(avg_score=1.0, scored_tasks=2, per_task=[]))
+    )
+    assert "2 tasks" in out

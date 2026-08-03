@@ -662,6 +662,34 @@ them up per run:
 - `report --format json` adds a derived `usage_totals` block; the saved JSON keeps
   the raw per-attempt `usage` (totals are always derived, never persisted).
 
+### Activation fields in saved results
+
+- Each `AttemptRecord` carries `activated` — the skills the agent chose to load,
+  recorded on **every** attempt whether or not the task asserted on it. It is
+  `null` when nothing was *observable*: a `--baseline` attempt (no skills
+  installed), or a timeout / infra failure whose transcript may be truncated. A
+  bare `[]` in those cases would be a fabricated "the description never fired",
+  so caliper never writes one.
+- `activation_passed` is the verdict: `null` = **not asserted** (a different
+  `null` from `activated`'s, matching the existing `assert_passed` idiom).
+- `TaskResult` carries `activation_expected` (the task's `activates:` set) plus
+  derived `activation_usable` / `activation_successes` / `activation_score`.
+- `AggregateScore` carries `avg_activation_score`, `activation_tasks`, and
+  `activation_per_skill` (per-skill `expected`/`fired`/`hits` with derived
+  `recall`/`precision`), alongside `scored_tasks` for the execution half.
+- `RunMeta.era` records the loading discipline a run was produced under.
+  Pre-#18 runs have no era, and **`caliper compare` refuses** to diff across
+  that boundary — those runs measured something else (see
+  [ADR 0013](docs/adr/0013-install-and-discover-is-the-only-loading-discipline.md)).
+  A *neighbourhood* change between two same-era runs only warns.
+- `RunResults.skill_snapshots` is a **list** — one snapshot per declared skill,
+  since a neighbour's `description` is part of what produced the score. Runs
+  saved before #18 carry a singular `skill_snapshot`; they still load, and their
+  missing era is what makes `compare` refuse them.
+- `TaskComparison` carries `a_activation`/`b_activation`/`activation_delta`/
+  `activation_regression`, and `RunComparison` carries
+  `has_activation_regression` — kept strictly separate from `has_regression`.
+
 ---
 
 ## Contributing

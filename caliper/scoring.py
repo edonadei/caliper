@@ -10,9 +10,7 @@ through it rather than re-deriving ``usable`` themselves.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
-
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable
 
 from caliper.schema.results import (
     AggregateScore,
@@ -114,7 +112,7 @@ def aggregate_scores(
 
     scored = [t.score for t in per_task if t.score is not None]
     avg = sum(scored) / len(scored) if scored else 0.0
-    return AggregateScore(avg_score=avg, per_task=per_task)
+    return AggregateScore(avg_score=avg, scored_tasks=len(scored), per_task=per_task)
 
 
 @dataclass(frozen=True)
@@ -148,9 +146,7 @@ def aggregate_activation(task_results: list["TaskResult"]) -> ActivationAggregat
             continue
         wanted = set(task.activation_expected)
         for att in task.attempts:
-            if not att.outcome.is_activation_usable:
-                continue
-            if att.activation_passed is None:
+            if not att.activation_scored:
                 continue
             observed = set(att.activated or [])
             for name in wanted:

@@ -239,3 +239,113 @@ def test_a_trigger_probes_tokens_are_not_reported_as_wasted_spend():
     assert totals.unusable_attempts == 0
     assert totals.unusable_tokens == 0
     assert totals.total_tokens == 24010
+
+
+# --- regressions found in review ------------------------------------------
+
+
+def test_trigger_only_survives_one_timeout_among_k():
+    # Keyed on "no execution verdict", not unanimity: a single timeout must not
+    # flip a correct trigger probe back to 0/3 UNUSABLE.
+    tr = TaskResult(
+        task_id="t",
+        task_name="t",
+        attempts=[
+            AttemptRecord(
+                attempt=1, output="", duration_seconds=1.0, outcome=Outcome.NOT_CHECKED
+            ),
+            AttemptRecord(
+                attempt=2, output="", duration_seconds=1.0, outcome=Outcome.TIMEOUT
+            ),
+        ],
+        successes=0,
+        unusable=1,
+        pass_at_k=None,
+        activation_expected=[],
+    )
+    assert _is_trigger_only(tr) is True
+    assert "trigger only" in _status_cell(tr, k=2, any_cheat=False).plain
+
+
+def test_a_task_with_a_real_verdict_is_not_trigger_only():
+    tr = TaskResult(
+        task_id="t",
+        task_name="t",
+        attempts=[
+            AttemptRecord(
+                attempt=1, output="", duration_seconds=1.0, outcome=Outcome.PASS
+            ),
+            AttemptRecord(
+                attempt=2, output="", duration_seconds=1.0, outcome=Outcome.NOT_CHECKED
+            ),
+        ],
+        successes=1,
+        unusable=0,
+        pass_at_k=None,
+    )
+    assert _is_trigger_only(tr) is False
+
+
+class TimingOutHarness(HarnessBackend):
+    @property
+    def name(self) -> str:
+        return "timeout"
+
+    def run(
+        self,
+        task_id,
+        attempt,
+        prompt,
+        *,
+        skill_refs,
+        model,
+        timeout,
+        isolated_home,
+        extra_path=None,
+        mcp_servers=None,
+        forbidden_files=None,
+    ) -> AttemptResult:
+        return AttemptResult(
+            task_id=task_id,
+            attempt=attempt,
+            transcript=[],
+            final_output="",
+            exit_code=124,
+            duration_seconds=0.1,
+            timed_out=True,
+        )
+
+
+def test_a_timeout_records_activation_as_unobserved_not_as_empty(tmp_path):
+    # A truncated transcript yields no evidence either way. Recording `[]` would
+    # put a fabricated "the description never fired" into the saved JSON.
+    skill_dir = tmp_path / "s"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\nname: mine\ndescription: d\n---\nbody")
+    spec_path = tmp_path / "s.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+
+    results = run(
+        spec=EvalSpec(
+            skills=[str(skill_dir / "SKILL.md")],
+            tasks=[TaskSpec(id="task-001", name="t", prompt="p", activates=["mine"])],
+        ),
+        spec_path=spec_path,
+        harness=TimingOutHarness(),
+        judge=CountingJudge(),
+        k=1,
+        workers=1,
+        timeout=30,
+    )
+
+    attempt = results.task_results[0].attempts[0]
+    assert attempt.outcome is Outcome.TIMEOUT
+    assert attempt.activated is None
+    assert attempt.activation_passed is None
+
+
+def test_a_healthy_trigger_probe_resets_the_fail_fast_streak():
+    # NOT_CHECKED is a healthy attempt; leaving it neutral would let a run abort
+    # mid-way and silently truncate the activation sample.
+    assert Outcome.NOT_CHECKED.is_execution_noise is False
+    assert Outcome.JUDGE_ERROR.is_execution_noise is True

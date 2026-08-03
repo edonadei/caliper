@@ -262,10 +262,15 @@ def _needs_detail(tr: TaskResult) -> bool:
 
 
 def _is_trigger_only(tr: TaskResult) -> bool:
-    """True when every attempt authored no execution check (`activates:` alone)."""
-    return bool(tr.attempts) and all(
-        a.outcome == Outcome.NOT_CHECKED for a in tr.attempts
-    )
+    """True when the task authored no execution check (`activates:` alone).
+
+    Keyed on the *absence of any execution verdict*, not on unanimity: a single
+    timeout among k would otherwise flip a correct trigger probe back to
+    "0/3 UNUSABLE" — the exact reading `not_checked` exists to prevent.
+    """
+    if not any(a.outcome == Outcome.NOT_CHECKED for a in tr.attempts):
+        return False
+    return not any(a.outcome in (Outcome.PASS, Outcome.TASK_FAIL) for a in tr.attempts)
 
 
 def _activation_cell(tr: TaskResult) -> Text:
@@ -276,11 +281,7 @@ def _activation_cell(tr: TaskResult) -> Text:
     would be a claim about the skill manufactured from an infrastructure
     failure.
     """
-    usable = [
-        a
-        for a in tr.attempts
-        if a.outcome.is_activation_usable and a.activated is not None
-    ]
+    usable = [a for a in tr.attempts if a.activation_observed]
     if not usable:
         return Text(_RULE, style="dim")
 
@@ -332,10 +333,19 @@ def _print_aggregate(results: RunResults) -> None:
             + "[/dim]"
         )
 
-    console.print(
-        f" [bold]Execution[/bold]   [cyan]{agg.avg_score * 100:.1f}%[/cyan]"
-        f"  {score_bar(agg.avg_score)}"
-    )
+    if agg.scored_tasks:
+        plural = "s" if agg.scored_tasks != 1 else ""
+        console.print(
+            f" [bold]Execution[/bold]   [cyan]{agg.avg_score * 100:.1f}%[/cyan]"
+            f"  {score_bar(agg.avg_score)}"
+            f"  [dim]({agg.scored_tasks} task{plural})[/dim]"
+        )
+    else:
+        # Nothing was measured — an all-trigger-probe spec. "0.0%" with an empty
+        # bar would read as total failure of a run where nothing failed.
+        console.print(
+            f" [bold]Execution[/bold]   [dim]{_RULE}  no execution checks[/dim]"
+        )
 
     # The second scoreboard, printed beside the first and never folded into it:
     # a bad `description` and a bad body have opposite fixes, so one blended

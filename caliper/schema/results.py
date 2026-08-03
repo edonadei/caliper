@@ -166,6 +166,26 @@ class AttemptRecord(BaseModel):
     # ``None``, which means *not asserted* (the ``assert_passed`` idiom).
     activated: list[str] | None = None
     activation_passed: bool | None = None
+
+    @property
+    def activation_scored(self) -> bool:
+        """Whether this attempt counts on the activation scoreboard.
+
+        Both halves matter and are easy to drift apart if rewritten per call
+        site: the outcome must be activation-usable *and* the task must have
+        asserted (``activation_passed is not None``).
+        """
+        return self.outcome.is_activation_usable and self.activation_passed is not None
+
+    @property
+    def activation_observed(self) -> bool:
+        """Whether this attempt yielded a trustworthy observation to *display*.
+
+        Weaker than :attr:`activation_scored`: an unasserted task still shows
+        what loaded, dimmed.
+        """
+        return self.outcome.is_activation_usable and self.activated is not None
+
     assert_passed: bool | None = None
     assert_evidence: str | None = None
     autorater_passed: bool | None = None
@@ -238,19 +258,13 @@ class TaskResult(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def activation_usable(self) -> int:
-        return sum(
-            1
-            for a in self.attempts
-            if a.outcome.is_activation_usable and a.activation_passed is not None
-        )
+        return sum(1 for a in self.attempts if a.activation_scored)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def activation_successes(self) -> int:
         return sum(
-            1
-            for a in self.attempts
-            if a.outcome.is_activation_usable and a.activation_passed is True
+            1 for a in self.attempts if a.activation_scored and a.activation_passed
         )
 
     @computed_field  # type: ignore[prop-decorator]
@@ -395,6 +409,11 @@ class SkillActivationStats(BaseModel):
 class AggregateScore(BaseModel):
     # Average raw success rate over measured tasks (the primary aggregate).
     avg_score: float
+    # How many tasks that average is over. Zero means *nothing was measured* —
+    # an all-trigger-probe spec, say — and the headline must then render skipped
+    # rather than 0.0%, which would be a fabricated failure of the same kind the
+    # activation side is careful to avoid.
+    scored_tasks: int = 0
     per_task: list[TaskScore]
     # The activation scoreboard. Kept beside the execution one but never blended
     # into it: a bad `description` and a bad body have opposite fixes, so a
@@ -408,10 +427,10 @@ class AggregateScore(BaseModel):
 class RunResults(BaseModel):
     run: RunMeta
     # Plural: a neighbour's `description` is part of what produced the score, so
-    # a run is not reproducible without it. ``skill_snapshot`` (singular) is
-    # retained read-only so pre-#18 result files still load and render.
+    # a run is not reproducible without it. Pre-#18 files carrying the singular
+    # `skill_snapshot` still load — pydantic ignores the unknown key — and their
+    # missing era is what makes `compare` refuse them anyway.
     skill_snapshots: list[SkillSnapshot] = Field(default_factory=list)
-    skill_snapshot: SkillSnapshot | None = None
     task_results: list[TaskResult]
     aggregate: AggregateScore
     # The **full** no-skill run, kept only when ``--baseline`` ran. Retaining the

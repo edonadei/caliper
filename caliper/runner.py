@@ -32,7 +32,7 @@ from caliper.schema.results import (
 )
 from caliper.schema.spec import DEFAULT_BACKEND, EvalSpec, TaskSpec, spec_name
 from caliper.scoring import aggregate_activation, aggregate_scores, score_outcomes
-from caliper.skills import SkillRef, resolve_skills
+from caliper.skills import SkillRef, resolve_skills, validate_activates
 
 _FAIL_FAST_OUTCOMES = {Outcome.INFRA_ERROR, Outcome.TIMEOUT}
 
@@ -56,7 +56,7 @@ class _RunEnv:
     harness: HarnessBackend
     judge: Judge
     cheat: _CheatDetector
-    detector: ActivationDetector
+    activation: ActivationDetector
     spec: EvalSpec
     spec_path: Path
     skill_refs: list[SkillRef]
@@ -116,7 +116,7 @@ def run(
     # missing frontmatter name:, a duplicate) should fail before any paid
     # attempt runs, not partway through.
     skill_refs = resolve_skills(list(spec.skills), spec_path.parent)
-    _validate_activates(spec, skill_refs)
+    validate_activates(spec.tasks, skill_refs)
 
     snapshotter = _SkillSnapshotter()
     skill_snapshots = [
@@ -139,7 +139,7 @@ def run(
         harness=harness,
         judge=judge,
         cheat=cheat,
-        detector=detector,
+        activation=detector,
         spec=spec,
         spec_path=spec_path,
         skill_refs=skill_refs,
@@ -220,7 +220,12 @@ def _run_task(task: TaskSpec, env: _RunEnv, k: int, with_skill: bool) -> TaskRes
         attempts.append(record)
         if record.outcome in _FAIL_FAST_OUTCOMES:
             consecutive_fail_fast_triggers += 1
-        elif record.outcome.is_usable:
+        elif not record.outcome.is_execution_noise:
+            # Any healthy attempt breaks the streak — including a NOT_CHECKED
+            # trigger probe, which ran fine and yielded a real activation
+            # observation. Leaving it neutral would let a run abort mid-way and
+            # silently truncate the activation sample. `judge_error` is noise and
+            # still does not reset (see docs/adr/0001).
             consecutive_fail_fast_triggers = 0
         if (
             env.fail_fast_unusable > 0
@@ -284,10 +289,21 @@ def _run_attempt(
         if attempt_result.resolved_model:
             env.resolved_models.append(attempt_result.resolved_model)
 
-        # Recorded on *every* attempt, asserted only when the task said so. A
-        # --baseline arm installed nothing, so there was no choice to observe.
+        # A timeout or infrastructure signal terminates the attempt before we
+        # spend a (paid) judge call on garbage output. The pre-judge classifier
+        # owns that predicate — the runner no longer re-derives it — so the skip
+        # here and the final label can never drift apart.
+        pre_judge_outcome = classify_pre_judge(attempt_result)
+
+        # Recorded on *every* attempt that produced a whole transcript, asserted
+        # only when the task said so. Two cases yield ``None`` — *not observed*,
+        # never a fabricated empty set: a --baseline arm installed nothing, so
+        # there was no choice to make; and a timeout/infra failure may have been
+        # killed mid-run, where an empty result would be a confident "the
+        # description never fired" manufactured from a truncated transcript.
+        observable = with_skill and pre_judge_outcome is None
         activated = (
-            env.detector.detect(attempt_result.transcript) if with_skill else None
+            env.activation.detect(attempt_result.transcript) if observable else None
         )
         expected = task.activates if with_skill else None
         activation_passed = check_activation(activated, expected)
@@ -295,9 +311,9 @@ def _run_attempt(
         def record(outcome: Outcome, **verdict) -> AttemptRecord:
             """One attempt's record; only the verdict fields differ per exit path.
 
-            ``activated``/``activation_passed`` ride on every path — including
-            the pre-judge exits — because activation is observed from the
-            transcript and owes nothing to the judge.
+            ``activated``/``activation_passed`` ride on every path, because
+            activation is observed from the transcript and owes nothing to the
+            judge.
             """
             return AttemptRecord(
                 attempt=attempt,
@@ -311,11 +327,6 @@ def _run_attempt(
                 **verdict,
             )
 
-        # A timeout or infrastructure signal terminates the attempt before we
-        # spend a (paid) judge call on garbage output. The pre-judge classifier
-        # owns that predicate — the runner no longer re-derives it — so the skip
-        # here and the final label can never drift apart.
-        pre_judge_outcome = classify_pre_judge(attempt_result)
         if pre_judge_outcome is not None:
             evidence = (
                 attempt_result.error or f"harness exited {attempt_result.exit_code}"
@@ -394,29 +405,6 @@ def _run_shell(cmd: str | None) -> None:
         subprocess.run(cmd, shell=True, check=False)
 
 
-def _validate_activates(spec: EvalSpec, skill_refs: list[SkillRef]) -> None:
-    """Refuse an ``activates:`` naming a skill the spec never declared.
-
-    The neighbourhood is closed: an undeclared skill is not installed and so can
-    *never* activate, which would make the expectation unsatisfiable — a task
-    stuck at 0% for a reason no transcript explains. Catch it before the run
-    spends anything.
-    """
-    declared = {ref.name for ref in skill_refs}
-    for task in spec.tasks:
-        unknown = [name for name in (task.activates or []) if name not in declared]
-        if not unknown:
-            continue
-        listed = ", ".join(sorted(declared)) or "(none)"
-        raise HarnessConfigurationError(
-            f"Task '{task.name}' expects {', '.join(unknown)} to activate, but "
-            f"the spec's skills: declares only {listed}.\n\n"
-            "An undeclared skill is never installed, so it cannot activate and "
-            "the expectation could never be met. Add it to skills:, or correct "
-            "the name (identity is the frontmatter name:, not the filename)."
-        )
-
-
 class _CheatDetector:
     def __init__(self, patterns: list[str]) -> None:
         self._compiled = [re.compile(p) for p in patterns]
@@ -451,10 +439,7 @@ class _CheatDetector:
 class _SkillSnapshotter:
     _REF_PATTERN = re.compile(r'[./~][^\s"\'<>]+\.(sh|py|md|js|ts)')
 
-    def snapshot(self, skill_path: str | None, name: str = "") -> SkillSnapshot:
-        if not skill_path:
-            return SkillSnapshot(name=name, path="", files={})
-
+    def snapshot(self, skill_path: str, name: str) -> SkillSnapshot:
         path = Path(skill_path).expanduser().resolve()
         if not path.exists():
             return SkillSnapshot(name=name, path=str(path), files={})

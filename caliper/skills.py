@@ -119,6 +119,32 @@ def resolve_skills(skill_paths: list[str], spec_dir: Path) -> list[SkillRef]:
     return refs
 
 
+def validate_activates(
+    tasks: list, refs: list[SkillRef], *, spec_label: str = "spec"
+) -> None:
+    """Refuse an ``activates:`` naming a skill the spec never declared.
+
+    The neighbourhood is closed: an undeclared skill is not installed and so can
+    *never* activate, which would make the expectation unsatisfiable — a task
+    stuck at 0% for a reason no transcript explains. Shared by ``validate`` (so
+    it is caught before you pay for anything) and the run seam (so it is caught
+    even when ``validate`` was skipped).
+    """
+    declared = {ref.name for ref in refs}
+    for task in tasks:
+        unknown = [name for name in (task.activates or []) if name not in declared]
+        if not unknown:
+            continue
+        listed = ", ".join(sorted(declared)) or "(none)"
+        raise SkillResolutionError(
+            f"Task '{task.name}' expects {', '.join(unknown)} to activate, but "
+            f"the {spec_label}'s skills: declares only {listed}.\n\n"
+            "An undeclared skill is never installed, so it cannot activate and "
+            "the expectation could never be met. Add it to skills:, or correct "
+            "the name (identity is the frontmatter name:, not the filename)."
+        )
+
+
 def install_skills(
     refs: list[SkillRef], skills_root: Path, forbidden_files: list[str]
 ) -> None:

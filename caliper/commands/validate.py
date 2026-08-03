@@ -6,7 +6,11 @@ from rich.console import Console
 from rich.panel import Panel
 
 from caliper.schema.spec import load_spec, spec_name
-from caliper.skills import SkillResolutionError, resolve_skills
+from caliper.skills import (
+    SkillResolutionError,
+    resolve_skills,
+    validate_activates,
+)
 
 console = Console()
 
@@ -47,6 +51,7 @@ def validate_cmd(
     # `validate` should catch rather than leaving for a paid run to discover.
     try:
         refs = resolve_skills(list(spec.skills), spec_file.parent)
+        validate_activates(spec.tasks, refs)
     except SkillResolutionError as exc:
         console.print(
             Panel(

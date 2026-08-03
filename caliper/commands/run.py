@@ -8,6 +8,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from caliper.harness.base import HarnessConfigurationError
+from caliper.skills import SkillResolutionError
 from caliper.harness import get_harness
 from caliper.judge import EvalJudge
 from caliper.reporter import (
@@ -160,6 +161,15 @@ def run_cmd(
                 on_attempt_done=on_attempt_done,
                 on_task_done=on_task_done,
             )
+        except SkillResolutionError as exc:
+            console.print(
+                Panel(
+                    str(exc),
+                    title="[bold red]Invalid skills:[/bold red]",
+                    border_style="red",
+                )
+            )
+            raise typer.Exit(1)
         except HarnessConfigurationError as exc:
             console.print(
                 Panel(

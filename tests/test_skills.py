@@ -7,6 +7,7 @@ from caliper.skills import (
     frontmatter_name,
     install_skills,
     resolve_skills,
+    validate_activates,
 )
 
 
@@ -174,3 +175,40 @@ def test_install_of_nothing_creates_no_root(tmp_path):
     root = tmp_path / "root"
     install_skills([], root, [])
     assert not root.exists()
+
+
+# --- validate_activates ---------------------------------------------------
+
+
+class _Task:
+    """Minimal stand-in for a TaskSpec (only .name and .activates are read)."""
+
+    def __init__(self, name, activates):
+        self.name = name
+        self.activates = activates
+
+
+def test_activates_naming_an_undeclared_skill_is_rejected(tmp_path):
+    # The neighbourhood is closed, so an undeclared skill can never activate —
+    # the expectation would be permanently unsatisfiable.
+    write_skill(tmp_path / "a", "declared")
+    refs = resolve_skills(["./a/SKILL.md"], tmp_path)
+    with pytest.raises(SkillResolutionError) as exc:
+        validate_activates([_Task("t", ["ghost"])], refs)
+    assert "ghost" in str(exc.value)
+    assert "declared" in str(exc.value)
+
+
+def test_activates_naming_declared_skills_passes(tmp_path):
+    write_skill(tmp_path / "a", "alpha")
+    write_skill(tmp_path / "b", "beta")
+    refs = resolve_skills(["./a/SKILL.md", "./b/SKILL.md"], tmp_path)
+    validate_activates([_Task("t", ["alpha", "beta"])], refs)
+
+
+def test_empty_activates_needs_no_declaration(tmp_path):
+    validate_activates([_Task("t", [])], [])
+
+
+def test_unasserted_tasks_are_ignored(tmp_path):
+    validate_activates([_Task("t", None)], [])
