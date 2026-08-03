@@ -4,7 +4,11 @@
 [![Python](https://img.shields.io/pypi/pyversions/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Skills](https://skills.sh/b/edonadei/caliper)](https://skills.sh/edonadei/caliper)
 
-Caliper is a lightweight evaluation harness for agent skills. Write a short spec of what "good" looks like, run it again and again, and get a **success rate** you can track. It also runs every task _without_ the skill, so you learn whether the skill is doing the work or the base agent would have passed anyway. Works with the agent you already use: Claude Code, Codex, Pi, or Hermes.
+Caliper is a lightweight evaluation harness for agent skills. Write a short spec of what "good" looks like, run it again and again, and get a **success rate** you can track. Works with the agent you already use: Claude Code, Codex, Pi, or Hermes.
+
+Caliper never pastes your skill into the prompt. It installs the skill where the agent looks for skills and lets the agent choose, the same way your users run it. That separates two failures a single score would blur together.
+
+A skill with a solid body still scores near zero if its `description` is too vague to get picked. A skill that gets picked every time can still do the job badly. One of those is a frontmatter problem and the other is a prose problem, so Caliper reports them as two numbers instead of one.
 
 **Teach your agent to evaluate:**
 
@@ -32,6 +36,7 @@ Agent skills are hard to test. A skill that works on your machine, on this promp
 Use Caliper to answer questions like:
 
 - Did my prompt edit actually improve the skill?
+- Does my skill fire when it should, and stay quiet on someone else's prompt?
 - Is the skill doing the work, or would the base agent pass without it?
 - Does it still pass the workflows it passed last week?
 - Which agent (Claude Code, Codex, Pi, or Hermes) runs this skill more reliably?
@@ -106,7 +111,7 @@ tasks:
       assert data["port"] == 8080
 
   # Activation: did the agent reach for the skill at all?
-  - name: Unrelated work — the skill should stay out of it
+  - name: Unrelated work: the skill should stay out of it
     prompt: "Rename `resolved_model` to `engine_model` across the repo."
     activates: []
 ```
@@ -116,7 +121,7 @@ judge LLM; `assert:` runs locally as Python; `activates:` asserts **which skills
 the agent chose to load**. Use any combination.
 
 Caliper never pastes your skill into the prompt. It **installs** it where the
-agent looks for skills and lets the agent decide — so a run measures the
+agent looks for skills and lets the agent decide, so a run measures the
 `description` (does it fire?) and the body (does it work?) together, and
 `activates:` is what tells the two apart.
 
@@ -130,7 +135,7 @@ caliper run my-skill.eval.yaml --k 3          # add --baseline to diff vs the ba
 
 **4. Read the output**
 
-![caliper run of my-skill at k=3: 'Writes a conventional commit message' passes 3/3 (100.0%), 'Generates a valid config file' 2/3 (66.7%, PARTIAL); overall Score 83.3%, 159K in / 2K out, 1m 0s wall at 10.0s per attempt, with a failure panel showing the failing attempt's assertion error](docs/assets/run-output.svg)
+![caliper run of my-skill at k=3: 'Writes a conventional commit message' passes 3/3 (100.0%), 'Generates a valid config file' 2/3 (66.7%, PARTIAL), and 'Unrelated work: the skill should stay out of it' shows as trigger only with no execution score. The activated column shows my-skill 3/3 on the first two rows and (none) 3/3 on the third. Execution 83.3% over 2 tasks, Activation 100.0% over 3 asserted tasks with my-skill at 100% recall and precision. 171K in / 2K out, 1m 9s wall. A failure panel shows the failing attempt's assertion error](docs/assets/run-output.svg)
 
 The report ends with the per-task failure panels: for each attempt that didn't pass, the output plus the assertion or autorater reason *why*. Full results are also saved as JSON under `.caliper/results/<spec>/` for you to inspect or `caliper compare` later. `--verbose` adds `pass@k` and `pass^k` columns (both derived from the raw rate) and a panel for every task.
 
@@ -214,7 +219,7 @@ If an `.eval.yaml` already exists next to your skill, `grill-skill` reads the ex
 | **Backend** | The CLI agent that executes the skill (`claude-code`, `codex`, `pi`, `hermes`) |
 | **Judge** | What decides pass/fail: an LLM reading the transcript (`expect:`), Python assertions (`assert:`), or both |
 | **success rate** | The primary score: run k times, measure how often a single run works (`pass@k`/`pass^k` are secondary views, under `--verbose`) |
-| **Neighbourhood** | The set of skills a spec declares (`skills:`). All installed, none preloaded, and all assertable — the competition your `description` has to win |
+| **Neighbourhood** | The set of skills a spec declares (`skills:`). All installed, none preloaded, and all assertable. This is the competition your `description` has to win |
 | **Activation** | The agent *choosing* to load a skill. Asserted with `activates:` and scored on its own scoreboard, separate from the success rate |
 | **Baseline** | Re-run the same tasks with no skills installed, to prove the skill is doing the work |
 | **Attempt** | One isolated run of a single task (fresh temporary home, no session history) |
@@ -266,7 +271,7 @@ npm install -g @earendil-works/pi-coding-agent
 pi   # then authenticate (e.g. /login for a subscription provider, or set the provider API key)
 ```
 
-`--model pi` runs `pi --print --mode json` and installs the declared skills under its agent dir, where pi discovers them (its `--skill` flag *preloads*, which caliper never does — pi's own `--no-skills` exists because discovery is the default). It reuses your `~/.pi/agent` auth and settings; the `:model` half of `--model pi:<model>` overrides pi's configured default when set. Set `PI_CLI_PATH` to force a specific binary. Note: pi's built-in default provider is `google`, so running `--model pi` with no model relies on your pi config to resolve a provider you are authenticated for.
+`--model pi` runs `pi --print --mode json` and installs the declared skills under its agent dir, where pi discovers them (its `--skill` flag *preloads*, which caliper never does; pi's own `--no-skills` exists because discovery is the default). It reuses your `~/.pi/agent` auth and settings; the `:model` half of `--model pi:<model>` overrides pi's configured default when set. Set `PI_CLI_PATH` to force a specific binary. Note: pi's built-in default provider is `google`, so running `--model pi` with no model relies on your pi config to resolve a provider you are authenticated for.
 
 ### Hermes setup
 
@@ -349,26 +354,26 @@ tasks:
     prompt: "Generate a report"
     assert: ./assertions/check_report.py
 
-  - name: A neighbour's prompt — yours must not hijack it
+  - name: A neighbour's prompt: yours must not hijack it
     prompt: "How reliable is my commit-message skill? Run it 10 times."
     activates: [evaluate-skill]   # exactly these skills, and no others
 
-  - name: Unrelated work — silence expected
+  - name: Unrelated work, silence expected
     prompt: "Rename `resolved_model` to `engine_model` across the repo."
     activates: []                 # nothing should fire
 ```
 
 Each task needs at least one of `expect`, `assert` or `activates`. Task IDs are assigned automatically as `task-001`, `task-002`, and so on.
 
-> **Upgrading an existing spec?** `skill:` became `skills:` in v0.10. See [docs/MIGRATING-to-skills.md](docs/MIGRATING-to-skills.md) — a short checklist, including the two traps a find-and-replace misses (stale `skill.path` inside `prompt:`/`expect:`/`assert:` strings, and prompts that name the skill they're testing).
+> **Upgrading an existing spec?** `skill:` became `skills:` in v0.10. See [docs/MIGRATING-to-skills.md](docs/MIGRATING-to-skills.md) for a short checklist, including the two traps a find-and-replace misses (stale `skill.path` inside `prompt:`/`expect:`/`assert:` strings, and prompts that name the skill they're testing).
 
-### `skills:` — the neighbourhood
+### `skills:`, the neighbourhood
 
 Every entry is installed at the agent's own skills root under its frontmatter
 `name:`, and **nothing is preloaded**. Entries are peers: no entry is "the skill
 under test", so `activates:` always names skills explicitly.
 
-The set is closed — the agent sees these skills and nothing else — which is what
+The set is closed. The agent sees these skills and nothing else, which is what
 makes activation a measurement rather than a guess. It also means a skill you
 *don't* declare can never activate: if yours delegates to another skill, declare
 that one too and enumerate the whole chain (`activates: [mine, helper]`), which
@@ -378,15 +383,15 @@ A skill must be a `SKILL.md` in a directory, carrying frontmatter `name:` and
 `description:`. A lone slash-command `.md` is rejected: with no name and no
 description there is nothing for an agent to discover.
 
-### `activates:` — did the agent reach for it?
+### `activates:`: did the agent reach for it?
 
 `activates:` asserts the **exact set** of skills that loaded on each attempt.
 
 | Form | Means |
 |---|---|
-| *(omitted)* | not asserted — the column still shows what loaded, dimmed |
+| *(omitted)* | not asserted; the column still shows what loaded, dimmed |
 | `activates: [a]` | exactly `a` fired, and nothing else |
-| `activates: [a, b]` | both fired — how a delegating skill asserts its chain |
+| `activates: [a, b]` | both fired, which is how a delegating skill asserts its chain |
 | `activates: []` | nothing fired; silence held |
 
 A task with `activates:` and no `expect:`/`assert:` is a **trigger probe**: it
@@ -396,7 +401,7 @@ zero. Use it for neighbour and silence probes, where there is no work worth
 grading.
 
 Activation is scored on its **own scoreboard**, never blended into the success
-rate — a failing `description` and a failing body are fixed in different places,
+rate. A failing `description` and a failing body are fixed in different places,
 so one number mixing them would point at neither.
 
 ### MCP servers (`mcp:`)
@@ -570,7 +575,7 @@ not scored as task failure:
 | `infra_error` | harness failure: nonzero exit, or a detected rate-limit / spending-cap | ❌ unusable |
 | `timeout` | exceeded the time budget with no result | ❌ unusable |
 | `judge_error` | the judge produced no verdict (unparseable / errored autorater) | ❌ unusable |
-| `not_checked` | the task authored no `expect:`/`assert:` — a trigger probe | ⊘ not asked |
+| `not_checked` | the task authored no `expect:`/`assert:`, so it is a trigger probe | ⊘ not asked |
 
 `not_checked` is the one outcome that is neither: it leaves the denominator like
 an unusable attempt, but nothing went wrong, so it is never reported as an error
@@ -666,8 +671,8 @@ them up per run:
 
 ### Activation fields in saved results
 
-- Each `AttemptRecord` carries `activated` — the skills the agent chose to load,
-  recorded on **every** attempt whether or not the task asserted on it. It is
+- Each `AttemptRecord` carries `activated`, the skills the agent chose to load,
+  recorded on every attempt whether or not the task asserted on it. It is
   `null` when nothing was *observable*: a `--baseline` attempt (no skills
   installed), or a timeout / infra failure whose transcript may be truncated. A
   bare `[]` in those cases would be a fabricated "the description never fired",
@@ -681,16 +686,16 @@ them up per run:
   `recall`/`precision`), alongside `scored_tasks` for the execution half.
 - `RunMeta.era` records the loading discipline a run was produced under.
   Pre-#18 runs have no era, and **`caliper compare` refuses** to diff across
-  that boundary — those runs measured something else (see
+  that boundary, because those runs measured something else (see
   [ADR 0013](docs/adr/0013-install-and-discover-is-the-only-loading-discipline.md)).
   A *neighbourhood* change between two same-era runs only warns.
-- `RunResults.skill_snapshots` is a **list** — one snapshot per declared skill,
+- `RunResults.skill_snapshots` is a list, one snapshot per declared skill,
   since a neighbour's `description` is part of what produced the score. Runs
   saved before #18 carry a singular `skill_snapshot`; they still load, and their
   missing era is what makes `compare` refuse them.
 - `TaskComparison` carries `a_activation`/`b_activation`/`activation_delta`/
   `activation_regression`, and `RunComparison` carries
-  `has_activation_regression` — kept strictly separate from `has_regression`.
+  `has_activation_regression`, kept strictly separate from `has_regression`.
 
 ---
 

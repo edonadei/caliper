@@ -29,12 +29,14 @@ from rich.console import Console
 import caliper.reporter as reporter
 from caliper.reporter import print_comparison, print_results
 from caliper.schema.results import (
+    ERA_INSTALL_AND_DISCOVER,
     AggregateScore,
     AttemptRecord,
     Outcome,
     RunComparison,
     RunMeta,
     RunResults,
+    SkillActivationStats,
     SkillSnapshot,
     TaskResult,
     TaskScore,
@@ -168,6 +170,8 @@ def _att(
     tokens: TokenUsage,
     output: str,
     assert_evidence: str | None = None,
+    activated: list[str] | None = None,
+    activation_passed: bool | None = None,
 ) -> AttemptRecord:
     return AttemptRecord(
         attempt=attempt,
@@ -177,6 +181,8 @@ def _att(
         usage=tokens,
         assert_passed=None if assert_evidence is None else outcome is P,
         assert_evidence=assert_evidence,
+        activated=activated,
+        activation_passed=activation_passed,
     )
 
 
@@ -191,6 +197,7 @@ def _run_example() -> RunResults:
         k=3,
         backend="claude-code",
         judge_backend="claude-code",
+        era=ERA_INSTALL_AND_DISCOVER,
     )
     # 26_000 in + 350 out per attempt → 79K over three; 9s each → 27s.
     commit_usage = TokenUsage(input_tokens=26_000, output_tokens=350)
@@ -198,12 +205,21 @@ def _run_example() -> RunResults:
         task_id="writes-a-conventional-commit-message",
         task_name="Writes a conventional commit message",
         attempts=[
-            _att(i, P, 9.0, commit_usage, "feat(auth): add token refresh\n\n…")
+            _att(
+                i,
+                P,
+                9.0,
+                commit_usage,
+                "feat(auth): add token refresh\n\n…",
+                activated=["my-skill"],
+                activation_passed=True,
+            )
             for i in (1, 2, 3)
         ],
         successes=3,
         unusable=0,
         pass_at_k=1.0,
+        activation_expected=["my-skill"],
     )
     # 27_000 in + 350 out per attempt → 82K over three; 11s each → 33s.
     config_usage = TokenUsage(input_tokens=27_000, output_tokens=350)
@@ -211,8 +227,24 @@ def _run_example() -> RunResults:
         task_id="generates-a-valid-config-file",
         task_name="Generates a valid config file",
         attempts=[
-            _att(1, P, 11.0, config_usage, "Wrote /tmp/app.config.json"),
-            _att(2, P, 11.0, config_usage, "Wrote /tmp/app.config.json"),
+            _att(
+                1,
+                P,
+                11.0,
+                config_usage,
+                "Wrote /tmp/app.config.json",
+                activated=["my-skill"],
+                activation_passed=True,
+            ),
+            _att(
+                2,
+                P,
+                11.0,
+                config_usage,
+                "Wrote /tmp/app.config.json",
+                activated=["my-skill"],
+                activation_passed=True,
+            ),
             _att(
                 3,
                 F,
@@ -220,19 +252,53 @@ def _run_example() -> RunResults:
                 config_usage,
                 "Wrote /tmp/app.config.json",
                 assert_evidence="AssertionError: data['port'] == 8080 (got 3000)",
+                activated=["my-skill"],
+                activation_passed=True,
             ),
         ],
         successes=2,
         unusable=0,
         pass_at_k=1.0,
+        activation_expected=["my-skill"],
     )
-    task_results = [commit, config]
+    # The third task in the README's spec: a trigger probe. No execution check,
+    # so no judge call and no execution score — it asks only whether the skill
+    # correctly stayed out of unrelated work.
+    silence_usage = TokenUsage(input_tokens=4_000, output_tokens=100)
+    silence = TaskResult(
+        task_id="unrelated-work-the-skill-should-stay-out-of-it",
+        task_name="Unrelated work: the skill should stay out of it",
+        attempts=[
+            _att(
+                i,
+                Outcome.NOT_CHECKED,
+                3.0,
+                silence_usage,
+                "Renamed `resolved_model` to `engine_model` across 7 files.",
+                activated=[],
+                activation_passed=True,
+            )
+            for i in (1, 2, 3)
+        ],
+        successes=0,
+        unusable=0,
+        pass_at_k=None,
+        activation_expected=[],
+    )
+    task_results = [commit, config, silence]
     return RunResults(
         run=run,
-        skill_snapshot=SkillSnapshot(path="./SKILL.md"),
+        skill_snapshots=[SkillSnapshot(name="my-skill", path="./SKILL.md")],
         task_results=task_results,
         aggregate=AggregateScore(
-            avg_score=sum(tr.score for tr in task_results) / len(task_results),
+            avg_score=sum(tr.score for tr in task_results if tr.score is not None)
+            / sum(1 for tr in task_results if tr.score is not None),
+            scored_tasks=sum(1 for tr in task_results if tr.score is not None),
+            avg_activation_score=1.0,
+            activation_tasks=3,
+            activation_per_skill=[
+                SkillActivationStats(skill="my-skill", expected=6, fired=6, hits=6)
+            ],
             per_task=[
                 TaskScore(
                     task_id=tr.task_id,
