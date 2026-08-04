@@ -250,3 +250,23 @@ def test_an_undeclared_observed_skill_is_still_reported():
     t = task("t", [attempt(1, activated=["ghost"], activation_passed=False)], ["mine"])
     names = [s.skill for s in aggregate_activation([t], ["mine"]).per_skill]
     assert names == ["mine", "ghost"]
+
+
+def test_headline_counts_asserted_tasks_and_says_when_some_were_lost():
+    # A task that asserted but whose every attempt timed out is unmeasurable.
+    # It must not silently vanish from the denominator the headline names.
+    measured = task("a", [attempt(1, activated=["x"], activation_passed=True)], ["x"])
+    lost = task(
+        "b",
+        [attempt(1, Outcome.TIMEOUT, activated=[], activation_passed=False)],
+        ["x"],
+    )
+    agg = aggregate_activation([measured, lost], ["x"])
+    assert agg.tasks == 1
+    assert agg.asserted == 2
+
+
+def test_opportunities_is_the_denominator_the_rate_divides_by():
+    stats = SkillActivationStats(skill="mine", total=9, expected=6, fired=8, hits=6)
+    assert stats.opportunities == 3
+    assert stats.unwanted_rate == stats.unwanted / stats.opportunities

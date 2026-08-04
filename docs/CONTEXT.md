@@ -254,10 +254,12 @@ was expected when it fired. They are indexed by skill name rather than by role,
 because the thing an author edits in response is one skill's `description`.
 
 Both are *reported* in plain language rather than by their statistical names,
-as "fires when wanted" and "quiet when not", because the reader is a skill
-author diagnosing their own `description` and not an ML practitioner. The terms
-stay `recall`/`precision` in the schema and in this glossary, where exact
-language is the point.
+as "fires when wanted" and "fires when not wanted", because the reader is a
+skill author diagnosing their own `description` and not an ML practitioner. The
+pair deliberately shares one verb over two populations, so neither column needs
+a word borrowed from the other to parse; the second is then good-when-*low*,
+which the colouring carries. The terms stay `recall`/`precision` in the schema
+and in this glossary, where exact language is the point.
 
 The reported second direction is the **unwanted rate**, not `1 − precision`.
 Precision divides by the times a skill fired; this divides by the times it

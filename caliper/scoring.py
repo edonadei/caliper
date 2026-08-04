@@ -120,7 +120,10 @@ class ActivationAggregate:
     """The activation scoreboard for a run — never merged into the execution one."""
 
     avg_score: float | None
+    # Tasks the average is actually over. Fewer than ``asserted`` when a task
+    # asserted but no attempt survived to be measured.
     tasks: int
+    asserted: int
     per_skill: list[SkillActivationStats]
 
 
@@ -183,4 +186,9 @@ def aggregate_activation(
         )
         for name in names
     ]
-    return ActivationAggregate(avg_score=avg, tasks=len(scores), per_skill=per_skill)
+    return ActivationAggregate(
+        avg_score=avg,
+        tasks=len(scores),
+        asserted=sum(1 for t in task_results if t.activation_expected is not None),
+        per_skill=per_skill,
+    )

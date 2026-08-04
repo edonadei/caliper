@@ -181,6 +181,7 @@ def run(
     )
     agg_with.avg_activation_score = activation.avg_score
     agg_with.activation_tasks = activation.tasks
+    agg_with.activation_asserted = activation.asserted
     agg_with.activation_per_skill = activation.per_skill
 
     # Keep the whole no-skill run so the report can render it through the same

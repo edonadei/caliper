@@ -410,6 +410,16 @@ class SkillActivationStats(BaseModel):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
+    def opportunities(self) -> int:
+        """Attempts that did *not* want this skill: its chances to over-fire.
+
+        The denominator of ``unwanted_rate``, exposed so the reporter renders the
+        same number the rate divides by instead of recomputing it.
+        """
+        return max(self.total - self.expected, 0)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
     def unwanted(self) -> int:
         """Attempts where it fired and was *not* expected: the hijacks."""
         return self.fired - self.hits
@@ -427,10 +437,9 @@ class SkillActivationStats(BaseModel):
         ``None`` when every attempt wanted it, since it then had no opportunity
         to over-fire — which is not the same as never taking one.
         """
-        opportunities = self.total - self.expected
-        if opportunities <= 0:
+        if self.opportunities <= 0:
             return None
-        return self.unwanted / opportunities
+        return self.unwanted / self.opportunities
 
 
 class AggregateScore(BaseModel):
@@ -448,6 +457,7 @@ class AggregateScore(BaseModel):
     # ``None`` when no task asserted `activates:` — rendered skipped, not 0%.
     avg_activation_score: float | None = None
     activation_tasks: int = 0
+    activation_asserted: int = 0
     activation_per_skill: list[SkillActivationStats] = Field(default_factory=list)
 
 

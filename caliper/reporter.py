@@ -175,7 +175,7 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
         # compare's table has no activation half — the no-skill arm installs
         # nothing, so there is nothing to diff — but the with-skill arm's
         # activation numbers are still real and must not disappear.
-        _print_activation_aggregate(results, _score_bar)
+        _print_activation_aggregate(results)
         console.print()
         # The compare table shows *which* attempts failed (the strips); the panels
         # below show *why* (output, assert evidence, autorater reasoning) for the
@@ -239,7 +239,7 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     console.print(table)
     console.print()
 
-    _print_activation_aggregate(results, _score_bar)
+    _print_activation_aggregate(results)
     _print_unusable_summary(results)
     console.print()
     _print_usage_summary(UsageTotals.from_task_results(results.task_results))
@@ -297,8 +297,6 @@ def _activation_cell(tr: TaskResult) -> Text:
     attempt timed out renders "—" rather than a confident verdict manufactured
     from an infrastructure failure.
     """
-    if tr.activation_expected is None:
-        return Text(_RULE, style="dim")
     score = tr.activation_score
     if score is None:
         return Text(_RULE, style="dim")
@@ -357,7 +355,7 @@ def _print_score(results: RunResults) -> None:
         )
 
 
-def _print_activation_aggregate(results: RunResults, score_bar) -> None:
+def _print_activation_aggregate(results: RunResults) -> None:
     """The activation half: one headline line, then a table on the *skill* axis.
 
     Split out so a ``--baseline`` report can print it too: that path renders
@@ -373,12 +371,18 @@ def _print_activation_aggregate(results: RunResults, score_bar) -> None:
     if agg.avg_activation_score is None:
         return
 
-    plural = "s" if agg.activation_tasks != 1 else ""
+    asserted = agg.activation_asserted or agg.activation_tasks
+    plural = "s" if asserted != 1 else ""
+    scope = (
+        f"{asserted} asserted task{plural}"
+        if agg.activation_tasks == asserted
+        else f"{agg.activation_tasks} of {asserted} asserted task{plural} measured"
+    )
     console.print(
         f" [bold]Activation[/bold]  "
         f"[cyan]{agg.avg_activation_score * 100:.1f}%[/cyan]"
-        f"  {score_bar(agg.avg_activation_score)}"
-        f"  [dim]({agg.activation_tasks} asserted task{plural})[/dim]"
+        f"  {_score_bar(agg.avg_activation_score)}"
+        f"  [dim]({scope})[/dim]"
     )
     if not agg.activation_per_skill:
         return
@@ -411,7 +415,7 @@ def _print_activation_aggregate(results: RunResults, score_bar) -> None:
                 _rate_cell(stats.hits, stats.expected, stats.recall),
                 _rate_cell(
                     stats.unwanted,
-                    stats.total - stats.expected,
+                    stats.opportunities,
                     stats.unwanted_rate,
                     higher_is_better=False,
                 ),
@@ -566,6 +570,12 @@ def _print_task_detail(tr: TaskResult, k: int) -> None:
         if attempt.activation_passed is False:
             reached = ", ".join(attempt.activated or []) or "(nothing)"
             lines.append(f"    [red]activated:[/red] {reached}")
+        elif attempt.activation_observed and attempt.activation_passed is None:
+            # Nothing was asserted, so this is informational only — but it is
+            # the one place the observation still surfaces now that the task
+            # column carries a verdict rather than the skill names.
+            reached = ", ".join(attempt.activated or []) or "(nothing)"
+            lines.append(f"    [dim]activated: {reached}[/dim]")
         lines.append(f"    [dim]output:[/dim] {_format_output(attempt.output)}")
         if attempt.assert_evidence:
             lines.append(f"    [dim]assert: {attempt.assert_evidence}[/dim]")
