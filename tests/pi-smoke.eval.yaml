@@ -1,8 +1,6 @@
 # End-to-end smoke eval for the `pi` backend.
 # The engine is a runtime axis, not a spec field — pick it when you run:
 #   caliper run tests/pi-smoke.eval.yaml --model pi
-skill: {}
-
 tasks:
   - name: Write hello to a file
     setup: rm -f /tmp/caliper-e2e-smoke-pi.txt

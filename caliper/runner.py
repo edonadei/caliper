@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+from caliper.activation import ActivationDetector, check_activation
 from caliper.harness.base import (
     ConversationTurn,
     HarnessBackend,
@@ -19,6 +20,7 @@ from caliper.harness.base import (
 from caliper.judge.base import Judge
 from caliper.outcome import classify_outcome, classify_pre_judge
 from caliper.schema.results import (
+    ERA_INSTALL_AND_DISCOVER,
     AttemptRecord,
     FileSnapshot,
     Outcome,
@@ -29,7 +31,8 @@ from caliper.schema.results import (
     TranscriptTurn,
 )
 from caliper.schema.spec import DEFAULT_BACKEND, EvalSpec, TaskSpec, spec_name
-from caliper.scoring import aggregate_scores, score_outcomes
+from caliper.scoring import aggregate_activation, aggregate_scores, score_outcomes
+from caliper.skills import SkillRef, resolve_skills, validate_activates
 
 _FAIL_FAST_OUTCOMES = {Outcome.INFRA_ERROR, Outcome.TIMEOUT}
 
@@ -39,6 +42,33 @@ class AttemptEvent:
     task_id: str
     attempt: int
     outcome: Outcome
+
+
+@dataclass(frozen=True)
+class _RunEnv:
+    """Everything constant across a run's tasks and attempts.
+
+    Threaded as one value so ``_run_task``/``_run_attempt`` keep a readable
+    signature — they vary only by task, attempt number, and whether the skills
+    are installed (the ``--baseline`` axis).
+    """
+
+    harness: HarnessBackend
+    judge: Judge
+    cheat: _CheatDetector
+    activation: ActivationDetector
+    spec: EvalSpec
+    spec_path: Path
+    skill_refs: list[SkillRef]
+    timeout: int
+    fail_fast_unusable: int
+    on_attempt_done: Callable[[AttemptEvent], None] | None
+    on_task_done: Callable[[TaskResult], None] | None
+    # Collect the concrete model each attempt/judge call resolved, so RunMeta can
+    # record what really ran even on a CLI default. list.append is atomic under
+    # the GIL, so these are safe to share across the pool's worker threads.
+    resolved_models: list[str]
+    judge_models: list[str]
 
 
 def run(
@@ -82,7 +112,19 @@ def run(
             "mcp: block from the spec."
         )
 
-    skill_snapshot = _SkillSnapshotter().snapshot(_resolve_skill_path(spec, spec_path))
+    # Resolve the neighbourhood once, up front: a bad entry (a lone .md, a
+    # missing frontmatter name:, a duplicate) should fail before any paid
+    # attempt runs, not partway through.
+    skill_refs = resolve_skills(list(spec.skills), spec_path.parent)
+    validate_activates(spec.tasks, skill_refs)
+
+    snapshotter = _SkillSnapshotter()
+    skill_snapshots = [
+        snapshotter.snapshot(str(ref.path), ref.name) for ref in skill_refs
+    ]
+    detector = ActivationDetector(
+        [ref.name for ref in skill_refs], harness.activation_tool_names
+    )
 
     auto_forbidden = [
         re.escape(str(spec_path.resolve())),
@@ -92,56 +134,29 @@ def run(
 
     task_results_with: list[TaskResult] = []
     task_results_without: list[TaskResult] = []
-    # Collects the concrete model each attempt resolved (same value every time),
-    # so RunMeta can record the real model even when the CLI's default was used.
-    # list.append is atomic under the GIL, so it is safe across worker threads.
-    resolved_models: list[str] = []
-    # Same, for the judge autorater's concrete model (only set for expect: tasks
-    # whose judge CLI reports it, e.g. claude-code).
-    judge_models: list[str] = []
+
+    env = _RunEnv(
+        harness=harness,
+        judge=judge,
+        cheat=cheat,
+        activation=detector,
+        spec=spec,
+        spec_path=spec_path,
+        skill_refs=skill_refs,
+        timeout=timeout,
+        fail_fast_unusable=fail_fast_unusable,
+        on_attempt_done=on_attempt_done,
+        on_task_done=on_task_done,
+        resolved_models=[],
+        judge_models=[],
+    )
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures_with = {
-            pool.submit(
-                _run_task,
-                task,
-                harness,
-                judge,
-                cheat,
-                spec,
-                spec_path,
-                k,
-                timeout,
-                True,
-                on_attempt_done,
-                on_task_done,
-                fail_fast_unusable,
-                resolved_models,
-                judge_models,
-            ): task
-            for task in spec.tasks
+            pool.submit(_run_task, task, env, k, True): task for task in spec.tasks
         }
         futures_without = (
-            {
-                pool.submit(
-                    _run_task,
-                    task,
-                    harness,
-                    judge,
-                    cheat,
-                    spec,
-                    spec_path,
-                    k,
-                    timeout,
-                    False,
-                    on_attempt_done,
-                    on_task_done,
-                    fail_fast_unusable,
-                    resolved_models,
-                    judge_models,
-                ): task
-                for task in spec.tasks
-            }
+            {pool.submit(_run_task, task, env, k, False): task for task in spec.tasks}
             if baseline
             else {}
         )
@@ -160,6 +175,14 @@ def run(
         r.task_id: (r.task_name, r.successes, r.usable, k) for r in task_results_with
     }
     agg_with = aggregate_scores(pass_counts_with)
+    # The second scoreboard, carried alongside — never folded into avg_score.
+    activation = aggregate_activation(
+        task_results_with, [ref.name for ref in skill_refs]
+    )
+    agg_with.avg_activation_score = activation.avg_score
+    agg_with.activation_tasks = activation.tasks
+    agg_with.activation_asserted = activation.asserted
+    agg_with.activation_per_skill = activation.per_skill
 
     # Keep the whole no-skill run so the report can render it through the same
     # ``compare`` path as any other two-run diff (see reporter.diff_baseline).
@@ -176,61 +199,40 @@ def run(
             # Prefer the explicitly requested model; otherwise fall back to the
             # concrete model an attempt resolved (e.g. from hermes' export), so a
             # default-model run still records what actually ran.
-            model=model or (resolved_models[0] if resolved_models else None),
+            model=model or (env.resolved_models[0] if env.resolved_models else None),
             judge_backend=judge_backend,
             # Prefer the explicitly requested judge model; else the concrete model
             # an autorater reported (e.g. claude-code). Stays None for assert-only
             # runs, where no LLM judge ran.
-            judge_model=judge_model or (judge_models[0] if judge_models else None),
+            judge_model=judge_model
+            or (env.judge_models[0] if env.judge_models else None),
+            era=ERA_INSTALL_AND_DISCOVER,
         ),
-        skill_snapshot=skill_snapshot,
+        skill_snapshots=skill_snapshots,
         task_results=task_results_with,
         aggregate=agg_with,
         baseline_task_results=baseline_task_results,
     )
 
 
-def _run_task(
-    task: TaskSpec,
-    harness: HarnessBackend,
-    judge: Judge,
-    cheat: _CheatDetector,
-    spec: EvalSpec,
-    spec_path: Path,
-    k: int,
-    timeout: int,
-    with_skill: bool,
-    on_attempt_done: Callable[[AttemptEvent], None] | None,
-    on_task_done: Callable[[TaskResult], None] | None,
-    fail_fast_unusable: int,
-    resolved_models: list[str],
-    judge_models: list[str],
-) -> TaskResult:
+def _run_task(task: TaskSpec, env: _RunEnv, k: int, with_skill: bool) -> TaskResult:
     attempts: list[AttemptRecord] = []
     consecutive_fail_fast_triggers = 0
     for attempt_num in range(1, k + 1):
-        record = _run_attempt(
-            task,
-            attempt_num,
-            harness,
-            judge,
-            cheat,
-            spec,
-            spec_path,
-            timeout,
-            with_skill,
-            on_attempt_done,
-            resolved_models,
-            judge_models,
-        )
+        record = _run_attempt(task, attempt_num, env, with_skill)
         attempts.append(record)
         if record.outcome in _FAIL_FAST_OUTCOMES:
             consecutive_fail_fast_triggers += 1
-        elif record.outcome.is_usable:
+        elif not record.outcome.is_execution_noise:
+            # Any healthy attempt breaks the streak — including a NOT_CHECKED
+            # trigger probe, which ran fine and yielded a real activation
+            # observation. Leaving it neutral would let a run abort mid-way and
+            # silently truncate the activation sample. `judge_error` is noise and
+            # still does not reset (see docs/adr/0001).
             consecutive_fail_fast_triggers = 0
         if (
-            fail_fast_unusable > 0
-            and consecutive_fail_fast_triggers >= fail_fast_unusable
+            env.fail_fast_unusable > 0
+            and consecutive_fail_fast_triggers >= env.fail_fast_unusable
         ):
             break
 
@@ -242,9 +244,13 @@ def _run_task(
         successes=scores.successes,
         unusable=scores.unusable,
         pass_at_k=scores.pass_at_k,
+        # A --baseline arm installs no skills, so scoring activation there would
+        # be scoring caliper's own plumbing: the expectation is dropped, and the
+        # column renders skipped rather than 0%.
+        activation_expected=task.activates if with_skill else None,
     )
-    if on_task_done and len(attempts) < k:
-        on_task_done(result)
+    if env.on_task_done and len(attempts) < k:
+        env.on_task_done(result)
     return result
 
 
@@ -255,113 +261,128 @@ def _persist_transcript(
 
 
 def _run_attempt(
-    task: TaskSpec,
-    attempt: int,
-    harness: HarnessBackend,
-    judge: Judge,
-    cheat: _CheatDetector,
-    spec: EvalSpec,
-    spec_path: Path,
-    timeout: int,
-    with_skill: bool,
-    on_attempt_done: Callable[[AttemptEvent], None] | None,
-    resolved_models: list[str],
-    judge_models: list[str],
+    task: TaskSpec, attempt: int, env: _RunEnv, with_skill: bool
 ) -> AttemptRecord:
+    spec, spec_path = env.spec, env.spec_path
     tmp_dir = tempfile.mkdtemp(prefix="caliper-")
     try:
         _run_shell(task.setup)
         resolved_extra_path = [
             str((spec_path.parent / p).resolve()) for p in spec.sandbox.extra_path
         ]
-        skill_path = _resolve_skill_path(spec, spec_path) if with_skill else None
-        if skill_path:
-            _stage_skill_directory(
-                skill_path, tmp_dir, list(spec.sandbox.forbidden_files)
-            )
-        attempt_result = harness.run(
+        # The neighbourhood is *installed* by the harness at its own skills root
+        # and never preloaded; --baseline installs nothing at all.
+        skill_refs = env.skill_refs if with_skill else []
+        attempt_result = env.harness.run(
             task_id=task.id,
             attempt=attempt,
             prompt=task.prompt,
-            skill_path=skill_path,
+            skill_refs=skill_refs,
             # None → the harness uses the model it was constructed with; the
             # engine is resolved once at the run seam (ADR 0004), not per spec.
             model=None,
-            timeout=timeout,
+            timeout=env.timeout,
             isolated_home=tmp_dir,
             extra_path=resolved_extra_path,
             # Declared MCP servers are the agent's tool environment for the
             # eval; the backend materializes them. ``None`` when none declared.
             mcp_servers=dict(spec.mcp) or None,
+            forbidden_files=list(spec.sandbox.forbidden_files),
         )
         if attempt_result.resolved_model:
-            resolved_models.append(attempt_result.resolved_model)
+            env.resolved_models.append(attempt_result.resolved_model)
 
         # A timeout or infrastructure signal terminates the attempt before we
         # spend a (paid) judge call on garbage output. The pre-judge classifier
         # owns that predicate — the runner no longer re-derives it — so the skip
         # here and the final label can never drift apart.
         pre_judge_outcome = classify_pre_judge(attempt_result)
-        if pre_judge_outcome is not None:
-            evidence = (
-                attempt_result.error or f"harness exited {attempt_result.exit_code}"
-            )
-            return _finish(
-                AttemptRecord(
-                    attempt=attempt,
-                    output=attempt_result.final_output,
-                    duration_seconds=attempt_result.duration_seconds,
-                    outcome=pre_judge_outcome,
-                    usage=attempt_result.usage,
-                    transcript=_persist_transcript(attempt_result.transcript),
-                    assert_evidence=evidence,
-                ),
-                task,
-                on_attempt_done,
-            )
 
-        cheat_violations = cheat.check(attempt_result.transcript)
-        if cheat_violations:
-            outcome = classify_outcome(attempt_result, cheat_violations, None)
-            return _finish(
-                AttemptRecord(
-                    attempt=attempt,
-                    output=attempt_result.final_output,
-                    duration_seconds=attempt_result.duration_seconds,
-                    outcome=outcome,
-                    usage=attempt_result.usage,
-                    transcript=_persist_transcript(attempt_result.transcript),
-                    cheat_evidence=cheat_violations,
-                ),
-                task,
-                on_attempt_done,
-            )
-
-        judge_result = judge.evaluate(
-            task=task,
-            transcript=attempt_result.transcript,
-            final_output=attempt_result.final_output,
-            spec_dir=str(spec_path.parent),
+        # Recorded on *every* attempt that produced a whole transcript, asserted
+        # only when the task said so. Two cases yield ``None`` — *not observed*,
+        # never a fabricated empty set: a --baseline arm installed nothing, so
+        # there was no choice to make; and a timeout/infra failure may have been
+        # killed mid-run, where an empty result would be a confident "the
+        # description never fired" manufactured from a truncated transcript.
+        observable = with_skill and pre_judge_outcome is None
+        activated = (
+            env.activation.detect(attempt_result.transcript) if observable else None
         )
-        if judge_result.resolved_model:
-            judge_models.append(judge_result.resolved_model)
-        outcome = classify_outcome(attempt_result, [], judge_result)
+        expected = task.activates if with_skill else None
+        activation_passed = check_activation(activated, expected)
 
-        return _finish(
-            AttemptRecord(
+        def record(outcome: Outcome, **verdict) -> AttemptRecord:
+            """One attempt's record; only the verdict fields differ per exit path.
+
+            ``activated``/``activation_passed`` ride on every path, because
+            activation is observed from the transcript and owes nothing to the
+            judge.
+            """
+            return AttemptRecord(
                 attempt=attempt,
                 output=attempt_result.final_output,
                 duration_seconds=attempt_result.duration_seconds,
                 outcome=outcome,
                 usage=attempt_result.usage,
                 transcript=_persist_transcript(attempt_result.transcript),
+                activated=activated,
+                activation_passed=activation_passed,
+                **verdict,
+            )
+
+        if pre_judge_outcome is not None:
+            evidence = (
+                attempt_result.error or f"harness exited {attempt_result.exit_code}"
+            )
+            return _finish(
+                record(pre_judge_outcome, assert_evidence=evidence),
+                task,
+                env.on_attempt_done,
+            )
+
+        cheat_violations = env.cheat.check(attempt_result.transcript)
+        if cheat_violations:
+            outcome = classify_outcome(attempt_result, cheat_violations, None)
+            return _finish(
+                record(outcome, cheat_evidence=cheat_violations),
+                task,
+                env.on_attempt_done,
+            )
+
+        # An `activates:`-only task authored no execution check, so there is
+        # nothing to grade — skip the (paid) judge call rather than spending it
+        # to receive a non-verdict and label the attempt an error.
+        if not (task.expect or task.assert_script):
+            return _finish(
+                record(
+                    classify_outcome(
+                        attempt_result, [], None, has_execution_check=False
+                    )
+                ),
+                task,
+                env.on_attempt_done,
+            )
+
+        judge_result = env.judge.evaluate(
+            task=task,
+            transcript=attempt_result.transcript,
+            final_output=attempt_result.final_output,
+            spec_dir=str(spec_path.parent),
+        )
+        if judge_result.resolved_model:
+            env.judge_models.append(judge_result.resolved_model)
+        outcome = classify_outcome(attempt_result, [], judge_result)
+
+        return _finish(
+            record(
+                outcome,
                 assert_passed=judge_result.assert_passed,
                 assert_evidence=judge_result.assert_evidence,
                 autorater_passed=judge_result.autorater_passed,
                 autorater_reasoning=judge_result.autorater_reasoning,
             ),
             task,
-            on_attempt_done,
+            env.on_attempt_done,
         )
     finally:
         _run_shell(task.cleanup)
@@ -385,68 +406,6 @@ def _finish(
 def _run_shell(cmd: str | None) -> None:
     if cmd:
         subprocess.run(cmd, shell=True, check=False)
-
-
-def _resolve_skill_path(spec: EvalSpec, spec_path: Path) -> str | None:
-    if not spec.skill.path:
-        return None
-    path = Path(spec.skill.path).expanduser()
-    if not path.is_absolute():
-        path = spec_path.parent / path
-    return str(path.resolve())
-
-
-# Directories never staged into a run: results (cheat surface), VCS, caches.
-_STAGE_EXCLUDE_DIRS = {".caliper", ".git", "__pycache__", "node_modules", ".venv"}
-# Per-file cap so a stray large fixture or binary can't bloat every attempt.
-_STAGE_MAX_FILE_BYTES = 5 * 1024 * 1024
-
-
-def _stage_skill_directory(
-    skill_path: str, isolated_home: str, forbidden_files: list[str]
-) -> None:
-    """Stage a directory-based skill's files into the run's working dir.
-
-    Modern skills lean on progressive disclosure: a short ``SKILL.md`` that
-    points at ``REFERENCE.md``, ``references/`` and helper scripts the agent
-    reads on demand. If we hand the agent only ``SKILL.md``'s text those
-    pointers dangle, so we copy the skill directory into ``isolated_home`` (the
-    cwd the agent runs in) and the relative links resolve as they would from a
-    real install.
-
-    Only a real skill *directory* is staged, keyed off a file named ``SKILL.md``;
-    a lone slash-command ``.md`` has no directory and is left alone. Cheat
-    surfaces — the ``.eval.yaml`` spec, ``.caliper/`` results, and anything the
-    spec marks ``forbidden_files`` — are never copied, so staging cannot leak the
-    answer key.
-    """
-    src = Path(skill_path)
-    if src.name != "SKILL.md" or not src.exists():
-        return
-
-    skill_dir = src.parent
-    home = Path(isolated_home)
-    forbidden = [re.compile(p) for p in forbidden_files]
-
-    for item in sorted(skill_dir.rglob("*")):
-        if not item.is_file():
-            continue
-        rel = item.relative_to(skill_dir)
-        if any(part in _STAGE_EXCLUDE_DIRS for part in rel.parts):
-            continue
-        if item.name.endswith(".eval.yaml"):
-            continue
-        rel_posix = rel.as_posix()
-        if any(r.search(rel_posix) or r.search("./" + rel_posix) for r in forbidden):
-            continue
-        try:
-            if item.stat().st_size > _STAGE_MAX_FILE_BYTES:
-                continue
-        except OSError:
-            continue
-        dst = home / rel
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(item, dst)
 
 
 class _CheatDetector:
@@ -483,13 +442,10 @@ class _CheatDetector:
 class _SkillSnapshotter:
     _REF_PATTERN = re.compile(r'[./~][^\s"\'<>]+\.(sh|py|md|js|ts)')
 
-    def snapshot(self, skill_path: str | None) -> SkillSnapshot:
-        if not skill_path:
-            return SkillSnapshot(path="", files={})
-
+    def snapshot(self, skill_path: str, name: str) -> SkillSnapshot:
         path = Path(skill_path).expanduser().resolve()
         if not path.exists():
-            return SkillSnapshot(path=str(path), files={})
+            return SkillSnapshot(name=name, path=str(path), files={})
 
         files: dict[str, FileSnapshot] = {}
         content = path.read_text()
@@ -513,6 +469,7 @@ class _SkillSnapshotter:
 
         git_repo, git_sha = self._git_info(path)
         return SkillSnapshot(
+            name=name,
             path=str(path),
             git_repo=git_repo,
             git_sha=git_sha,

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typer.testing import CliRunner
 
 from caliper.main import app
-from caliper.schema.results import AggregateScore, RunMeta, RunResults, SkillSnapshot
+from caliper.schema.results import AggregateScore, RunMeta, RunResults
 
 
 runner = CliRunner()
@@ -25,8 +25,8 @@ def test_run_cli_forwards_options_to_run(monkeypatch, tmp_path) -> None:
     spec_file = tmp_path / "sample.eval.yaml"
     spec_file.write_text(
         """
-skill:
-  path: ./SKILL.md
+skills:
+  - ./SKILL.md
 tasks:
   - name: One
     prompt: Do it
@@ -44,7 +44,7 @@ tasks:
                 k=kwargs["k"],
                 backend="codex",
             ),
-            skill_snapshot=SkillSnapshot(path=""),
+            skill_snapshots=[],
             task_results=[],
             aggregate=AggregateScore(avg_score=0.0, per_task=[]),
         )
@@ -99,7 +99,7 @@ def test_run_cli_resolves_backend_and_judge_model_targets(
     """--model and --judge-model accept a backend:model compound and split it."""
     spec_file = tmp_path / "sample.eval.yaml"
     spec_file.write_text(
-        "skill:\n  path: ./SKILL.md\n"
+        "skills:\n  - ./SKILL.md\n"
         "tasks:\n  - name: One\n    prompt: Do it\n    assert: assert True\n"
     )
 
@@ -115,7 +115,7 @@ def test_run_cli_resolves_backend_and_judge_model_targets(
                 backend=kwargs["backend"],
                 model=kwargs["model"],
             ),
-            skill_snapshot=SkillSnapshot(path=""),
+            skill_snapshots=[],
             task_results=[],
             aggregate=AggregateScore(avg_score=0.0, per_task=[]),
         )

@@ -9,6 +9,7 @@ import pytest
 from caliper.harness.base import HarnessConfigurationError
 from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.schema.spec import McpServer
+from caliper.skills import resolve_skills
 
 
 def _ok_stream(cmd: list[str]) -> subprocess.CompletedProcess:
@@ -29,8 +30,12 @@ def _ok_stream(cmd: list[str]) -> subprocess.CompletedProcess:
 def test_claude_harness_accepts_runner_contract_with_extra_path(
     monkeypatch, tmp_path
 ) -> None:
-    skill = tmp_path / "review.md"
-    skill.write_text("Review the code.")
+    skill_dir = tmp_path / "src"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: reviewer\ndescription: Reviews code.\n---\n\nReview the code."
+    )
+    refs = resolve_skills([str(skill_dir / "SKILL.md")], tmp_path)
     run_calls = []
 
     def fake_run(cmd, **kwargs):
@@ -53,8 +58,8 @@ def test_claude_harness_accepts_runner_contract_with_extra_path(
     result = ClaudeCodeHarness(model="claude-test").run(
         task_id="task-001",
         attempt=1,
-        prompt="/review the diff",
-        skill_path=str(skill),
+        prompt="Review the diff",
+        skill_refs=refs,
         model=None,
         timeout=30,
         isolated_home=str(tmp_path / "home"),
@@ -64,15 +69,22 @@ def test_claude_harness_accepts_runner_contract_with_extra_path(
     assert result.exit_code == 0
     assert result.final_output == "done"
 
+    # Installed where the CLI classifies a real skill, under its frontmatter
+    # name — not written into .claude/commands/ under a mangled filename, and
+    # never pasted into the prompt.
+    home = tmp_path / "home"
+    assert (home / ".claude" / "skills" / "reviewer" / "SKILL.md").exists()
+    assert not (home / ".claude" / "commands").exists()
+
     cmd, kwargs = next(
         (cmd, kwargs) for cmd, kwargs in run_calls if cmd[:2] == ["claude", "-p"]
     )
     assert cmd[:2] == ["claude", "-p"]
-    assert cmd[2] == "/review the diff"
+    # The prompt reaches the agent verbatim — no skill text, no invocation.
+    assert cmd[2] == "Review the diff"
     assert "--dangerously-skip-permissions" in cmd
     assert cmd[cmd.index("--model") + 1] == "claude-test"
     assert kwargs["env"]["PATH"].startswith(str(tmp_path / "bin"))
-    assert not list((tmp_path / "home" / ".claude" / "commands").glob("*.md"))
 
 
 def test_claude_harness_reports_cli_startup_crash_before_auth(
@@ -97,7 +109,7 @@ def test_claude_harness_reports_cli_startup_crash_before_auth(
             task_id="task-001",
             attempt=1,
             prompt="hello",
-            skill_path=None,
+            skill_refs=[],
             model=None,
             timeout=30,
             isolated_home=str(tmp_path / "home"),
@@ -154,7 +166,7 @@ def test_claude_harness_materializes_mcp_config(monkeypatch, tmp_path) -> None:
         task_id="task-001",
         attempt=1,
         prompt="p",
-        skill_path=None,
+        skill_refs=[],
         model=None,
         timeout=30,
         isolated_home=str(home),
@@ -204,7 +216,7 @@ def test_claude_harness_materializes_remote_mcp_config(monkeypatch, tmp_path) ->
         task_id="task-001",
         attempt=1,
         prompt="p",
-        skill_path=None,
+        skill_refs=[],
         model=None,
         timeout=30,
         isolated_home=str(home),
@@ -251,7 +263,7 @@ def test_claude_harness_errors_on_unset_remote_header_var(
             task_id="task-001",
             attempt=1,
             prompt="p",
-            skill_path=None,
+            skill_refs=[],
             model=None,
             timeout=30,
             isolated_home=str(home),
@@ -283,7 +295,7 @@ def test_claude_harness_omits_mcp_flags_when_no_servers(monkeypatch, tmp_path) -
         task_id="task-001",
         attempt=1,
         prompt="p",
-        skill_path=None,
+        skill_refs=[],
         model=None,
         timeout=30,
         isolated_home=str(home),
@@ -312,7 +324,7 @@ def test_claude_harness_errors_on_unset_mcp_env_var(monkeypatch, tmp_path) -> No
             task_id="task-001",
             attempt=1,
             prompt="p",
-            skill_path=None,
+            skill_refs=[],
             model=None,
             timeout=30,
             isolated_home=str(home),

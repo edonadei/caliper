@@ -17,8 +17,6 @@
 #
 # http transport + claude-code backend (this is issue #48's slice).
 
-skill: {}
-
 mcp:
   deepwiki:
     type: http

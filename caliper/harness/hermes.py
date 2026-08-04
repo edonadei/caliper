@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 from pathlib import Path
 from typing import Callable
@@ -44,6 +43,10 @@ class HermesHarness(CliHarness):
     """
 
     supports_mcp = True
+    # Hermes advertises installed skills to the model as name + truncated
+    # description and exposes the model's choice as a named skill_view call —
+    # the shape that makes a description measurable.
+    activation_tool_names = frozenset({"skill_view"})
 
     def __init__(self, model: str | None = None) -> None:
         self._model = model
@@ -78,9 +81,8 @@ class HermesHarness(CliHarness):
 
         self._configure_mcp(ctx, hermes_home)
 
-        skill_name = self._stage_skill(ctx, hermes_home)
-        if skill_name:
-            ctx.extras["skill_name"] = skill_name
+    def skills_root(self, ctx: RunContext) -> Path:
+        return Path(ctx.extras["hermes_home"]) / "skills"
 
     def _configure_mcp(self, ctx: RunContext, hermes_home: Path) -> None:
         """Normalize the seeded config's ``mcp_servers`` to exactly the declared set.
@@ -131,45 +133,6 @@ class HermesHarness(CliHarness):
             for name, resolved in resolve_servers(ctx.mcp_servers).items()
         }
 
-    def _stage_skill(self, ctx: RunContext, hermes_home: Path) -> str | None:
-        """Copy the already-staged skill into ``HERMES_HOME/skills/<name>``.
-
-        The runner has already staged the skill directory (cheat surfaces
-        excluded) into ``isolated_home``; we re-stage that sanitized copy as a
-        local Hermes skill so ``--skills <name>`` loads it natively — preserving
-        progressive disclosure (Hermes reads the body on demand via its
-        ``skill_view`` tool). Copying from the staged copy, not the original,
-        inherits the runner's forbidden-file exclusions.
-        """
-        if not ctx.skill_path:
-            return None
-        staged = Path(ctx.isolated_home) / "SKILL.md"
-        if not staged.exists():
-            return None
-
-        name = self._skill_name(staged.read_text()) or "skill-under-test"
-        dst = hermes_home / "skills" / name
-        dst.mkdir(parents=True, exist_ok=True)
-        home = Path(ctx.isolated_home)
-        for item in sorted(home.rglob("*")):
-            if not item.is_file():
-                continue
-            rel = item.relative_to(home)
-            # Skip the Hermes home we are seeding inside the same dir.
-            if rel.parts and rel.parts[0] == ".hermes":
-                continue
-            target = dst / rel
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(item, target)
-        return name
-
-    def _skill_name(self, skill_text: str) -> str | None:
-        match = re.search(r"^---\n(.*?)\n---", skill_text, flags=re.DOTALL)
-        if not match:
-            return None
-        name = re.search(r"^name:\s*(.+?)\s*$", match.group(1), flags=re.MULTILINE)
-        return name.group(1).strip() if name else None
-
     def _command(
         self, ctx: RunContext
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
@@ -177,14 +140,15 @@ class HermesHarness(CliHarness):
         # stderr, where _diagnose reads them), then export the single persisted
         # session as JSONL on stdout for _parse_stream. `exit $rc` propagates the
         # oneshot's exit code so a failed run is classified as infra_error.
-        skill = ctx.extras.get("skill_name")
-        skills_arg = ' --skills "$CALIPER_SKILL"' if skill else ""
+        # No --skills: hermes' own help calls that flag "preload", and its system
+        # prompt already advertises installed skills as name + description for
+        # the model to choose from — exactly the condition activation needs.
         # --yolo bypasses interactive approval prompts (the hermes analog of
         # claude-code's --dangerously-skip-permissions and pi's --approve): the
         # neutral-agent harness runs non-interactively with stdin closed, so an
         # approval gate — e.g. before an MCP tool call — would hang until timeout.
         script = (
-            f'"$CALIPER_HERMES" -z "$CALIPER_PROMPT"{skills_arg} --yolo '
+            '"$CALIPER_HERMES" -z "$CALIPER_PROMPT" --yolo '
             "--ignore-rules 1>&2\n"
             "rc=$?\n"
             '"$CALIPER_HERMES" sessions export --source cli - 2>/dev/null\n'
@@ -204,9 +168,6 @@ class HermesHarness(CliHarness):
             "CALIPER_HERMES": self._hermes_command() or "hermes",
             "CALIPER_PROMPT": ctx.prompt,
         }
-        skill = ctx.extras.get("skill_name")
-        if skill:
-            env["CALIPER_SKILL"] = skill
         return self._passthrough(env, ("LANG", "LC_ALL", "TERM", "TMPDIR"))
 
     def _cli_available(self) -> bool:

@@ -9,6 +9,7 @@ import yaml
 from caliper.harness.base import HarnessConfigurationError
 from caliper.harness.hermes import HermesHarness
 from caliper.schema.spec import McpServer
+from caliper.skills import resolve_skills
 
 
 def _version(cmd):
@@ -56,7 +57,7 @@ def test_hermes_seeds_only_neutral_config_and_ignores_rules(
         task_id="task-001",
         attempt=1,
         prompt="Hello",
-        skill_path=None,
+        skill_refs=[],
         model=None,
         timeout=30,
         isolated_home=str(iso),
@@ -81,15 +82,17 @@ def test_hermes_seeds_only_neutral_config_and_ignores_rules(
     assert env["CALIPER_PROMPT"] == "Hello"
 
 
-def test_hermes_stages_skill_and_passes_skills_flag(monkeypatch, tmp_path) -> None:
+def test_hermes_installs_the_skill_without_preloading_it(monkeypatch, tmp_path) -> None:
     home = _fake_home(tmp_path)
     iso = tmp_path / "iso"
     iso.mkdir()
-    # The runner stages the skill dir into isolated_home; simulate that.
-    (iso / "SKILL.md").write_text(
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "SKILL.md").write_text(
         "---\nname: my-skill\ndescription: test\n---\n\nDo the thing.\n"
     )
-    (iso / "REFERENCE.md").write_text("Extra detail.")
+    (src / "REFERENCE.md").write_text("Extra detail.")
+    refs = resolve_skills([str(src / "SKILL.md")], tmp_path)
     calls = []
 
     def fake_run(cmd, **kwargs):
@@ -104,21 +107,23 @@ def test_hermes_stages_skill_and_passes_skills_flag(monkeypatch, tmp_path) -> No
         task_id="task-001",
         attempt=1,
         prompt="Do it",
-        skill_path=str(iso / "SKILL.md"),
+        skill_refs=refs,
         model=None,
         timeout=30,
         isolated_home=str(iso),
     )
 
-    staged = iso / ".hermes" / "skills" / "my-skill"
-    assert (staged / "SKILL.md").exists()
+    installed = iso / ".hermes" / "skills" / "my-skill"
+    assert (installed / "SKILL.md").exists()
     # Progressive-disclosure siblings travel with the skill.
-    assert (staged / "REFERENCE.md").exists()
+    assert (installed / "REFERENCE.md").exists()
 
     run_cmd, run_kwargs = calls[1]
     script = run_cmd[2]
-    assert "--skills" in script
-    assert run_kwargs["env"]["CALIPER_SKILL"] == "my-skill"
+    # hermes' own help calls --skills "preload"; caliper never preloads, so the
+    # model meets the skill as a name + description and chooses for itself.
+    assert "--skills" not in script
+    assert "CALIPER_SKILL" not in run_kwargs["env"]
 
 
 def test_hermes_no_skills_flag_without_skill(monkeypatch, tmp_path) -> None:
@@ -143,7 +148,7 @@ def test_hermes_no_skills_flag_without_skill(monkeypatch, tmp_path) -> None:
         task_id="task-001",
         attempt=1,
         prompt="Hello",
-        skill_path=None,
+        skill_refs=[],
         model=None,
         timeout=30,
         isolated_home=str(iso),
@@ -182,7 +187,7 @@ def _run_hermes_mcp(monkeypatch, tmp_path, mcp_servers, *, home=None):
         task_id="task-001",
         attempt=1,
         prompt="Hello",
-        skill_path=None,
+        skill_refs=[],
         model=None,
         timeout=30,
         isolated_home=str(iso),
@@ -297,7 +302,7 @@ def test_hermes_passes_yolo_to_bypass_approval(monkeypatch, tmp_path) -> None:
         task_id="task-001",
         attempt=1,
         prompt="Hello",
-        skill_path=None,
+        skill_refs=[],
         model=None,
         timeout=30,
         isolated_home=str(iso),
@@ -327,7 +332,7 @@ def test_hermes_diagnoses_model_selection_error(monkeypatch, tmp_path) -> None:
             task_id="task-001",
             attempt=1,
             prompt="Hello",
-            skill_path=None,
+            skill_refs=[],
             model=None,
             timeout=12,
             isolated_home=str(iso),
@@ -382,7 +387,7 @@ def test_hermes_parses_export_trajectory(monkeypatch, tmp_path) -> None:
         task_id="task-001",
         attempt=1,
         prompt="Run echo",
-        skill_path=None,
+        skill_refs=[],
         model=None,
         timeout=30,
         isolated_home=str(iso),
@@ -450,7 +455,7 @@ def test_hermes_run_captures_token_usage_end_to_end(monkeypatch, tmp_path) -> No
         task_id="task-001",
         attempt=1,
         prompt="Write hello to a file",
-        skill_path=None,
+        skill_refs=[],
         model=None,
         timeout=30,
         isolated_home=str(iso),
@@ -475,7 +480,7 @@ def test_hermes_missing_cli_raises_configuration_error(monkeypatch, tmp_path) ->
             task_id="task-001",
             attempt=1,
             prompt="Hello",
-            skill_path=None,
+            skill_refs=[],
             model=None,
             timeout=12,
             isolated_home=str(tmp_path),
@@ -503,7 +508,7 @@ def test_hermes_credit_failure_raises_configuration_error(
             task_id="task-001",
             attempt=1,
             prompt="Hello",
-            skill_path=None,
+            skill_refs=[],
             model=None,
             timeout=12,
             isolated_home=str(iso),

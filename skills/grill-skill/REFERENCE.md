@@ -66,8 +66,10 @@ The spec carries no engine — pick the backend/model at run time with `--model`
 `--judge-model` (default `claude-code`).
 
 ```yaml
-skill:
-  path: ./SKILL.md
+skills:                   # installed at the agent's own skills root, never
+  - ./SKILL.md            #   preloaded — the agent has to choose it
+  # add neighbouring skills as further entries to test that yours is the
+  # one that fires (they are assertable via `activates:`, not decoration)
 
 sandbox:
   forbidden_files:
@@ -103,7 +105,38 @@ tasks:
   - name: Adversarial — <what the skill should refuse or avoid>
     prompt: ...
     expect: <describes the refusal or safe behavior>
+
+  - name: Silence — <work no declared skill should answer>
+    prompt: ...
+    activates: []                # a trigger probe: no judge, no execution score
 ```
+
+Each task needs at least one of `expect`, `assert` or `activates`.
+
+## Triggering: does the description fire?
+
+Skills are **installed** where the agent looks for them and never pasted into
+the prompt, so whether the agent reaches for one is measurable. Two rules follow
+for how you write prompts:
+
+- **Never name the skill in a prompt.** "Use the commit-message skill to…"
+  removes the very choice being measured. Write the prompt a real user would.
+- **`activates:` asserts the exact set** of skills that loaded — `[a]` means `a`
+  and nothing else, `[]` means silence. Names are the frontmatter `name:`, not
+  filenames.
+
+A task carrying only `activates:` is a **trigger probe**. It skips the judge
+entirely, so it costs far less than an execution task, and reports as `trigger
+only` rather than a zero. Two kinds are worth generating:
+
+- **Neighbour probe** — declare a sibling skill in `skills:`, then give a prompt
+  that belongs to *it* and assert `activates: [sibling]`. This catches a
+  `description` that over-claims.
+- **Silence probe** — unrelated work, `activates: []`.
+
+Activation is scored separately from execution and never blended in, so a
+near-zero score with a green activation column means the body is wrong, while a
+red activation column means the `description` is.
 
 ## Naming convention
 
@@ -136,7 +169,7 @@ Add `assert:` when the outcome is a fact that an LLM judge might guess wrong:
 
 ## MCP servers (`mcp:`)
 
-If the skill under test needs MCP tools, declare them in a top-level `mcp:` block (a mapping keyed by server name) — a capability granted to the agent-under-test for the eval, part of the run environment like `sandbox:` (a sibling of it, not nested under `skill:`), so they belong in the spec, not on the command line. A server is either **local stdio** (a `command`, optional `args`, optional `env`) or **remote** (`type: http`/`sse`, a `url`, optional `headers` for auth); the two field sets are mutually exclusive. Supported on **`claude-code`** (stdio + remote HTTP/SSE), **`hermes`** (stdio + remote header-auth; not remote OAuth), and **`codex`** (stdio + remote header-auth, translated into `[mcp_servers.*]` tables in the isolated `~/.codex/config.toml`; not remote OAuth). A tool call appears in the transcript as a namespaced name — `mcp__<server>__<tool>` on `claude-code` and `codex`, `mcp_<server>_<tool>` on `hermes` — so an `expect:` criterion can check the skill actually used it; word it around behaviour, not one backend's spelling, if the spec runs under more than one engine. Put secrets in a host env var and reference it as `${VAR}` inside a stdio `env:`, a remote `headers:`, or a remote `url:` — it resolves at the harness boundary from your shell at run time and never lands in the committed spec (an unset var fails the run). Running an `mcp:` spec on a backend that can't honor it is a hard error, not a silent no-op: `pi` has no MCP by design and will not honor `mcp:` natively — expose the capability as a CLI tool the skill drives or a pi extension, or run the eval on `claude-code`/`hermes`/`codex`.
+If the skill under test needs MCP tools, declare them in a top-level `mcp:` block (a mapping keyed by server name) — a capability granted to the agent-under-test for the eval, part of the run environment like `sandbox:` (a sibling of it and of `skills:`), so they belong in the spec, not on the command line. A server is either **local stdio** (a `command`, optional `args`, optional `env`) or **remote** (`type: http`/`sse`, a `url`, optional `headers` for auth); the two field sets are mutually exclusive. Supported on **`claude-code`** (stdio + remote HTTP/SSE), **`hermes`** (stdio + remote header-auth; not remote OAuth), and **`codex`** (stdio + remote header-auth, translated into `[mcp_servers.*]` tables in the isolated `~/.codex/config.toml`; not remote OAuth). A tool call appears in the transcript as a namespaced name — `mcp__<server>__<tool>` on `claude-code` and `codex`, `mcp_<server>_<tool>` on `hermes` — so an `expect:` criterion can check the skill actually used it; word it around behaviour, not one backend's spelling, if the spec runs under more than one engine. Put secrets in a host env var and reference it as `${VAR}` inside a stdio `env:`, a remote `headers:`, or a remote `url:` — it resolves at the harness boundary from your shell at run time and never lands in the committed spec (an unset var fails the run). Running an `mcp:` spec on a backend that can't honor it is a hard error, not a silent no-op: `pi` has no MCP by design and will not honor `mcp:` natively — expose the capability as a CLI tool the skill drives or a pi extension, or run the eval on `claude-code`/`hermes`/`codex`.
 
 ## Backends
 
@@ -149,7 +182,7 @@ If the skill under test needs MCP tools, declare them in a top-level `mcp:` bloc
 
 The skill engine (`--model`) and judge engine (`--judge-model`) are chosen independently at run time. Every backend is a CLI agent; for API billing, configure a CLI with an API key rather than selecting a separate backend. When `--judge-model` is omitted, the default `claude-code` judge pins `claude-sonnet-5` at execution time so it does not inherit a stale model from the installed Claude CLI; `RunMeta.judge_model` stays empty unless you pass `--judge-model` explicitly or the autorater reports what it used.
 
-`hermes` is a stateful agent (persistent memory + persona), so Caliper strips it to a neutral agent per attempt — isolated `HERMES_HOME`, no `SOUL.md`/`MEMORY.md`, `--ignore-rules`, skill-under-test staged as the only local skill — and recovers the full trajectory via `hermes sessions export` after the `hermes -z` run.
+`hermes` is a stateful agent (persistent memory + persona), so Caliper strips it to a neutral agent per attempt — isolated `HERMES_HOME`, no `SOUL.md`/`MEMORY.md`, `--ignore-rules`, and only the spec's declared skills installed — and recovers the full trajectory via `hermes sessions export` after the `hermes -z` run.
 
 ## Results storage
 

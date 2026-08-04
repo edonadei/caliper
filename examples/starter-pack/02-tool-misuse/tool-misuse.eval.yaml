@@ -13,11 +13,11 @@
 #   caliper run tool-misuse.eval.yaml --k 3
 # ─────────────────────────────────────────────────────────────────────────────
 
-skill:
+skills:
   # 👉 EDIT 1: point this at your own SKILL.md.
-  path: ./SKILL.md
   # The engine (backend + model) is NOT a spec field — it's a runtime axis.
   # Pick it when you run, e.g. `--model codex:gpt-5-codex` (default: claude-code).
+  - ./SKILL.md
 
 sandbox:
   # Puts the fake `notify` CLI on PATH inside each attempt. When testing your

@@ -16,11 +16,11 @@
 # Re-run it after every edit to your prompt/SKILL.md and watch for reds.
 # ─────────────────────────────────────────────────────────────────────────────
 
-skill:
+skills:
   # 👉 EDIT 1: point this at your own SKILL.md.
-  path: ./SKILL.md
   # The engine (backend + model) is NOT a spec field — it's a runtime axis.
   # Pick it when you run, e.g. `--model codex:gpt-5-codex` (default: claude-code).
+  - ./SKILL.md
 
 # 👉 EDIT 2: replace these four cases with the fixed set that matters for your
 #            skill. Keep them simple and unambiguous — they are your tripwire.

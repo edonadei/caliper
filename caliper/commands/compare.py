@@ -6,7 +6,7 @@ import typer
 from rich.console import Console
 
 from caliper.commands._addressing import resolve_run_path
-from caliper.compare import diff_runs
+from caliper.compare import IncomparableRunsError, diff_runs
 from caliper.reporter import comparison_to_json, print_comparison
 from caliper.schema.results import RunResults
 
@@ -41,7 +41,13 @@ def compare_cmd(
         bool, typer.Option("--verbose", "-v", help="Also show pass@k and pass^k")
     ] = False,
 ) -> None:
-    comparison = diff_runs(_load_run(a), _load_run(b))
+    try:
+        comparison = diff_runs(_load_run(a), _load_run(b))
+    except IncomparableRunsError as exc:
+        # A hard stop, unlike the k/spec/neighbourhood warnings: a cross-era diff
+        # looks entirely normal and would be believed (docs/adr/0013).
+        console.print(f"[bold red]Refusing to compare:[/bold red] {exc}")
+        raise typer.Exit(1)
 
     if fmt == "json":
         console.print_json(comparison_to_json(comparison))

@@ -5,7 +5,6 @@ import os
 import re
 import shutil
 import sys
-import uuid
 from pathlib import Path
 from typing import Callable
 
@@ -47,14 +46,20 @@ class ClaudeCodeHarness(CliHarness):
         self._model = model
 
     supports_mcp = True
+    # The CLI classifies a real skill only at .claude/skills/<name>/SKILL.md and
+    # exposes the agent's choice as a dedicated Skill tool call naming it.
+    activation_tool_names = frozenset({"Skill"})
 
     @property
     def name(self) -> str:
         return "claude-code"
 
+    def skills_root(self, ctx: RunContext) -> Path:
+        return Path(ctx.isolated_home) / ".claude" / "skills"
+
     def _prepare(self, ctx: RunContext) -> None:
         home = Path(ctx.isolated_home)
-        (home / ".claude" / "commands").mkdir(parents=True, exist_ok=True)
+        (home / ".claude").mkdir(parents=True, exist_ok=True)
 
         # Copy auth files from the real HOME so the CLI finds its credentials.
         # Without this, the isolated HOME causes claude to fall back to
@@ -84,16 +89,11 @@ class ClaudeCodeHarness(CliHarness):
         self, ctx: RunContext
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
         # Files staged into the isolated HOME only for this attempt; removed
-        # after the process exits regardless of which ones we created.
+        # after the process exits regardless of which ones we created. The skill
+        # neighbourhood is *not* among them: it is installed at
+        # .claude/skills/<name>/ by the template method and left for the agent
+        # to discover (docs/adr/0013).
         staged: list[Path] = []
-
-        if ctx.skill_path:
-            commands_dir = Path(ctx.isolated_home) / ".claude" / "commands"
-            skill_src = Path(ctx.skill_path).expanduser()
-            uid = uuid.uuid4().hex[:8]
-            skill_file = commands_dir / f"{skill_src.stem}-vrd-{uid}.md"
-            skill_file.write_text(skill_src.read_text())
-            staged.append(skill_file)
 
         cmd = [
             "claude",

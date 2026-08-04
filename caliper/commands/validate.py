@@ -6,6 +6,11 @@ from rich.console import Console
 from rich.panel import Panel
 
 from caliper.schema.spec import load_spec, spec_name
+from caliper.skills import (
+    SkillResolutionError,
+    resolve_skills,
+    validate_activates,
+)
 
 console = Console()
 
@@ -41,15 +46,33 @@ def validate_cmd(
         console.print(f"[bold red]Error parsing YAML:[/bold red] {exc}")
         raise typer.Exit(1)
 
+    # Resolve the neighbourhood here too: a lone slash-command .md, a missing
+    # frontmatter name:, or two skills claiming one name are all things
+    # `validate` should catch rather than leaving for a paid run to discover.
+    try:
+        refs = resolve_skills(list(spec.skills), spec_file.parent)
+        validate_activates(spec.tasks, refs)
+    except SkillResolutionError as exc:
+        console.print(
+            Panel(
+                str(exc),
+                title="[bold red]Validation failed[/bold red]",
+                border_style="red",
+            )
+        )
+        raise typer.Exit(1)
+
     name = spec_name(spec_file)
     n_tasks = len(spec.tasks)
-    skill_path = spec.skill.path or "(bare agent — no skill)"
+    skills = ", ".join(ref.name for ref in refs) or "(bare agent — no skills)"
+    asserted = sum(1 for t in spec.tasks if t.activates is not None)
 
     console.print(
         Panel(
             f"[bold]{name}[/bold]\n"
-            f"  skill    [cyan]{skill_path}[/cyan]\n"
-            f"  tasks    [cyan]{n_tasks}[/cyan]\n"
+            f"  skills   [cyan]{skills}[/cyan]\n"
+            f"  tasks    [cyan]{n_tasks}[/cyan] "
+            f"[dim]({asserted} asserting activates:)[/dim]\n"
             "  engine   [dim]chosen at run time (--model / --judge-model)[/dim]",
             title=f"[bold green]{CHECK} Spec is valid[/bold green]",
             border_style="green",

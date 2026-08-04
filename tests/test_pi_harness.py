@@ -7,15 +7,22 @@ import pytest
 
 from caliper.harness.base import HarnessConfigurationError
 from caliper.harness.pi import PiHarness
+from caliper.skills import resolve_skills
 
 
 def _version(cmd):
     return subprocess.CompletedProcess(cmd, 0, stdout="0.80.2\n", stderr="")
 
 
-def test_pi_cli_receives_skill_and_model_flags(monkeypatch, tmp_path) -> None:
-    skill = tmp_path / "SKILL.md"
-    skill.write_text("---\ndescription: test\n---\n\nUse caliper carefully.")
+def test_pi_installs_the_skill_and_passes_no_preload_flag(
+    monkeypatch, tmp_path
+) -> None:
+    skill_dir = tmp_path / "src"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: careful\ndescription: test\n---\n\nUse caliper carefully."
+    )
+    refs = resolve_skills([str(skill_dir / "SKILL.md")], tmp_path)
     calls = []
 
     def fake_run(cmd, **kwargs):
@@ -31,7 +38,7 @@ def test_pi_cli_receives_skill_and_model_flags(monkeypatch, tmp_path) -> None:
         task_id="task-001",
         attempt=1,
         prompt="Validate the spec",
-        skill_path=str(skill),
+        skill_refs=refs,
         model="claude-sonnet-4-6",
         timeout=30,
         isolated_home=str(tmp_path),
@@ -46,7 +53,10 @@ def test_pi_cli_receives_skill_and_model_flags(monkeypatch, tmp_path) -> None:
     assert "--approve" in run_cmd
     assert calls[1][1]["stdin"] is subprocess.DEVNULL
     assert run_cmd[run_cmd.index("--model") + 1] == "claude-sonnet-4-6"
-    assert run_cmd[run_cmd.index("--skill") + 1] == str(skill)
+    # --skill preloads; pi's own --no-skills exists because discovery is its
+    # default, so the skill is installed under the agent dir and left to be found.
+    assert "--skill" not in run_cmd
+    assert (tmp_path / ".pi" / "agent" / "skills" / "careful" / "SKILL.md").exists()
     # prompt is the final positional arg
     assert run_cmd[-1] == "Validate the spec"
     # config is pointed at the per-attempt copy, not the real ~/.pi
@@ -71,7 +81,7 @@ def test_pi_omits_model_and_skill_when_unspecified(monkeypatch, tmp_path) -> Non
         task_id="task-001",
         attempt=1,
         prompt="Hello",
-        skill_path=None,
+        skill_refs=[],
         model=None,
         timeout=12,
         isolated_home=str(tmp_path),
@@ -130,7 +140,7 @@ def test_pi_json_stream_captures_tool_calls(monkeypatch, tmp_path) -> None:
         task_id="task-001",
         attempt=1,
         prompt="Write a file",
-        skill_path=None,
+        skill_refs=[],
         model=None,
         timeout=12,
         isolated_home=str(tmp_path),
@@ -200,7 +210,7 @@ def test_pi_run_captures_token_usage_end_to_end(monkeypatch, tmp_path) -> None:
         task_id="task-001",
         attempt=1,
         prompt="Write hello to a file",
-        skill_path=None,
+        skill_refs=[],
         model=None,
         timeout=12,
         isolated_home=str(tmp_path),
@@ -225,7 +235,7 @@ def test_pi_missing_cli_raises_configuration_error(monkeypatch, tmp_path) -> Non
             task_id="task-001",
             attempt=1,
             prompt="Hello",
-            skill_path=None,
+            skill_refs=[],
             model=None,
             timeout=12,
             isolated_home=str(tmp_path),
@@ -248,7 +258,7 @@ def test_pi_auth_failure_raises_configuration_error(monkeypatch, tmp_path) -> No
             task_id="task-001",
             attempt=1,
             prompt="Hello",
-            skill_path=None,
+            skill_refs=[],
             model=None,
             timeout=12,
             isolated_home=str(tmp_path),

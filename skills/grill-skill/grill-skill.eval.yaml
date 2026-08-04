@@ -1,5 +1,5 @@
-skill:
-  path: ./SKILL.md
+skills:
+  - ./SKILL.md
 
 # The engine (backend + model) is a runtime axis, not a spec field — this eval
 # runs on whatever `--model` / `--judge-model` select (default claude-code).
@@ -16,6 +16,7 @@ tasks:
   # the FIRST turn only: the agent must interview, not run ahead. The assert is
   # a deterministic guard that it did NOT fabricate answers and write a spec.
   - name: Interviews before generating — asks, then stops (does not run ahead)
+    activates: [grill-skill]
     setup: |
       rm -rf /tmp/grill-fresh
       mkdir -p /tmp/grill-fresh
@@ -55,6 +56,7 @@ tasks:
   # missing BEFORE changing anything. Assert is a deterministic guard that the
   # existing spec was left untouched in this first turn.
   - name: Detects an existing eval and asks before touching it
+    activates: [grill-skill]
     setup: |
       rm -rf /tmp/grill-existing
       mkdir -p /tmp/grill-existing
@@ -70,8 +72,8 @@ tasks:
       Summarize the contents of a file provided by the user.
       EOF
       cat > /tmp/grill-existing/summarize.eval.yaml << 'EOF'
-      skill:
-        path: ./SKILL.md
+      skills:
+        - ./SKILL.md
       tasks:
         - name: Summarizes a short text file
           prompt: Summarize /tmp/notes.txt
@@ -80,7 +82,7 @@ tasks:
     cleanup: rm -rf /tmp/grill-existing
     prompt: >
       I want to improve the eval for my skill at
-      /tmp/grill-existing/SKILL.md using grill-skill. I'm here to answer your
+      /tmp/grill-existing/SKILL.md. I'm here to answer your
       questions — do NOT change any files yet. Tell me the current state of my
       eval and what you need from me.
     expect: >
@@ -103,6 +105,7 @@ tasks:
   # agent must serialize a valid 3-task spec. This is the back-half of the
   # workflow and the one task with a full artifact assert.
   - name: Serializes a valid 3-task spec when the structure is given
+    activates: [grill-skill]
     setup: |
       rm -rf /tmp/grill-serialize
       mkdir -p /tmp/grill-serialize
@@ -120,11 +123,11 @@ tasks:
     cleanup: rm -rf /tmp/grill-serialize
     prompt: >
       Write the file directly now — do NOT ask me any clarifying questions
-      first; I have given you everything you need. Use the grill-skill to write
+      first; I have given you everything you need. Write
       a COMPLETE, valid caliper eval spec for the
       skill at /tmp/grill-serialize/SKILL.md, and write it to
       /tmp/grill-serialize/hello-file.eval.yaml (do not run it — just create the
-      file). The spec must have a top-level skill block with skill.path
+      file). The spec must have a top-level skills: list containing
       ./SKILL.md (and NO backend/model or judge block — the engine is a runtime
       axis, chosen with --model at run time), plus exactly 3 tasks: a happy path
       where the prompt asks the agent to write the greeting file and the expect
@@ -133,12 +136,11 @@ tasks:
       to overwrite a protected system file.
     expect: >
       A valid, runnable .eval.yaml is written at
-      /tmp/grill-serialize/hello-file.eval.yaml: it has a top-level skill block
-      (path ./SKILL.md, no backend/model, no judge block) and exactly 3 tasks
-      covering a happy path, an edge case, and an adversarial case.
+      /tmp/grill-serialize/hello-file.eval.yaml: it has a top-level skills: list
+      containing ./SKILL.md (no backend/model, no judge block) and exactly 3
+      tasks covering a happy path, an edge case, and an adversarial case.
     assert: |
       import yaml
-      def pa(n): return n if isinstance(n, str) else (n or {}).get("path")
 
       path = "/tmp/grill-serialize/hello-file.eval.yaml"
       try:
@@ -149,12 +151,16 @@ tasks:
       except Exception as e:
           assert False, f"spec is not valid YAML: {e}"
       assert isinstance(spec, dict), "spec is not a mapping"
-      assert pa(spec.get("skill")) in ("./SKILL.md", "SKILL.md"), \
-          f"skill.path should be ./SKILL.md, got {pa(spec.get('skill'))!r}"
-      skill = spec.get("skill") or {}
-      if isinstance(skill, dict):
-          assert "backend" not in skill and "model" not in skill, \
-              "engine is a runtime axis: skill must not pin backend/model"
+      assert "skill" not in spec, \
+          "`skill:` was replaced by the `skills:` neighbourhood"
+      skills = spec.get("skills")
+      assert isinstance(skills, list) and skills, \
+          f"spec needs a top-level skills: list, got {skills!r}"
+      # Entries are bare paths; tolerate the mapping form in case the agent
+      # writes one, so the assert tests the schema, not the agent's YAML style.
+      def pa(e): return e if isinstance(e, str) else (e or {}).get("path")
+      assert pa(skills[0]) in ("./SKILL.md", "SKILL.md"), \
+          f"skills[0] should be ./SKILL.md, got {pa(skills[0])!r}"
       assert "judge" not in spec, "engine is a runtime axis: no judge block belongs in the spec"
       tasks = spec.get("tasks", [])
       assert len(tasks) == 3, f"Expected 3 tasks, got {len(tasks)}"

@@ -63,6 +63,9 @@ class PiHarness(CliHarness):
         # differs from codex (which strips its config default).
         ctx.extras["agent_dir"] = self._copy_pi_config(ctx.isolated_home)
 
+    def skills_root(self, ctx: RunContext) -> Path:
+        return Path(ctx.extras["agent_dir"]) / "skills"
+
     def _command(
         self, ctx: RunContext
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
@@ -79,14 +82,9 @@ class PiHarness(CliHarness):
         ]
         if ctx.model:
             cmd += ["--model", ctx.model]
-        if ctx.skill_path:
-            # Prefer the staged copy in the run's cwd (siblings staged alongside,
-            # cheat surfaces excluded) over the real skill dir; fall back to the
-            # original path when nothing was staged (e.g. a lone command file).
-            staged = Path(ctx.isolated_home) / "SKILL.md"
-            skill_src = staged if staged.exists() else Path(ctx.skill_path).expanduser()
-            if skill_src.exists():
-                cmd += ["--skill", str(skill_src)]
+        # No --skill: that flag preloads, and pi's own --no-skills exists
+        # precisely because discovery is its default. The neighbourhood is
+        # installed under the agent dir and pi finds it (docs/adr/0013).
         cmd.append(ctx.prompt)
         # stdin is left as None so the template closes it (DEVNULL): in --print
         # mode pi otherwise blocks reading stdin (e.g. for a trust confirmation)

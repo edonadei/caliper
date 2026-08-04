@@ -6,8 +6,10 @@ implementation details, no specs, no decisions (those live in `docs/adr/`).
 ## Eval spec
 
 The `.eval.yaml` file. It describes **what** is tested and **how success is
-judged** — the task prompts, `expect:`/`assert:` checks, `sandbox.forbidden_files`,
-and `skill.path` — and nothing about *which engine runs or grades* it. The
+judged** — the task prompts, the `expect:`/`assert:`/`activates:` checks,
+`sandbox.forbidden_files`, and the `skills:` [[skill neighbourhood|neighbourhood]]
+(a list of paths; a task must carry at least one of the three checks) — and
+nothing about *which engine runs or grades* it. The
 [[engine as runtime axis]] (backend + model, for both the skill-under-test and
 the judge) is deliberately absent from the spec: it is chosen at invocation, not
 authored into the file. Consequence: a spec never ages when a model goes stale,
@@ -98,8 +100,9 @@ an always-on `MEMORY.md` into every turn and auto-generates skills. Because a
 score is only meaningful when the k attempts are independent (see
 [[single-shot harness]]), a stateful backend is only admitted after being
 **normalized** to a neutral agent: each attempt runs in an isolated agent home
-with memory/persona/rule injection switched off, so the only skill present is the
-[[eval spec]]'s skill-under-test. Normalization also extends to the tool
+with memory/persona/rule injection switched off, so the only skills present are
+the [[eval spec]]'s declared [[skill neighbourhood]] — the closure that makes
+[[activation]] measurable. Normalization also extends to the tool
 environment: hermes' `mcp_servers` is set to *exactly* the spec's declared
 [[MCP server (declared)|servers]] — an empty set when the spec declares no
 `mcp:` — so an attempt never inherits the user's ambient personal MCP servers
@@ -118,8 +121,8 @@ Codex / OpenCode. Consequences that distinguish it from a flat backend:
   number is **not apples-to-apples** with a flat backend's. The sub-agent
   must be *pinned* for the number to be reproducible.
 - The skill is **installed** into the orchestrator's registry (the way a real
-  ClawHub user runs it), not injected — see [[load-a-skill-natively]] for why
-  "native" loading is unavailable here.
+  ClawHub user runs it) — the same discipline every backend now follows, see
+  [[install-and-discover]].
 - Its `--json` output may expose only the final message, not the sub-agent's
   tool calls, limiting what `assert:`/`expect:` can inspect.
 
@@ -127,10 +130,11 @@ Codex / OpenCode. Consequences that distinguish it from a flat backend:
 
 Holding the eval fixed while varying the *skill text*, then comparing the score
 across variants — as opposed to `--baseline`, which varies skill-vs-no-skill.
-Caliper has no native ablation mode: a variant is run by pointing the spec's
-`skill.path` at a different `SKILL.md` (or swapping the file) and re-running.
-Each run's `skill_snapshot` records the exact skill content + git SHA, so a
-score is always traceable to the text that produced it.
+Caliper has no native ablation mode: a variant is run by pointing a `skills:`
+entry at a different `SKILL.md` (or swapping the file) and re-running. Each
+run's skill snapshots record the exact content + git SHA of *every* member of
+the [[skill neighbourhood]] — plural, because a neighbour's `description` is
+part of what produced the score, so a run is not reproducible without it.
 
 ## Run comparison (`compare`)
 
@@ -199,35 +203,142 @@ multi-turn / simulated-user turn-taking. Consequence: interview skills (their
 value is the back-and-forth) can only be tested on their **first-turn
 discipline**, not a full simulated conversation.
 
-## Skill-directory staging
+## Activation
 
-When a skill is a **directory** (a file named `SKILL.md` with siblings), the
-runner stages that directory's contents into the run's working dir
-(`isolated_home`, every CLI backend's `cwd`) before the harness runs — so
-relative pointers like `[REFERENCE.md](REFERENCE.md)` and `references/` resolve,
-mirroring how a skill is really installed. One copy covers `claude-code`, `codex`
-and `pi` at once. Cheat surfaces are never staged: the `.eval.yaml` spec,
-`.caliper/` results, and anything the spec marks `forbidden_files` are excluded,
-so staging cannot leak the answer key. A **lone** slash-command `.md` file (not
-named `SKILL.md`) has no skill directory and is injected text-only, unchanged.
+The agent, offered a skill that is **installed but not preloaded**, chose to
+bring it into its own context. It is an *observation of the agent's judgement*,
+and it is the thing `activates:` asserts on.
 
-Consequence: **progressive disclosure is measurable** — moving prose out of
-`SKILL.md` into `REFERENCE.md` is testable, because the agent can actually reach
-the referenced file during a run. (Every backend is now a CLI agent that can
-reach staged files; the tool-less `claude-api`/`openai-api` backends, which
-could only inject `SKILL.md` text and so couldn't measure disclosure, were
-removed — see [[cli-agent-backends-only]].)
+Three neighbouring words that are not this one, and are worth keeping apart:
 
-## Load a skill *natively*
+- **Loading** is the *mechanism* — how a skill becomes reachable at all. It is
+  caliper's job, and under [[install-and-discover]] it is the same every run.
+- **Triggering** is the `description`'s job — the property of the *text* that
+  makes an agent reach for it. Activation is the evidence that triggering
+  worked, on one prompt, once.
+- **Execution** is what happens after: whether the skill's *body* got the task
+  done. Activation and execution are measured on the same attempt but scored on
+  [[activation score|separate scoreboards]], because their failures have
+  opposite fixes — a bad `description` is edited in the frontmatter, a bad body
+  in the prose.
 
-To hand the skill-under-test to the agent through the agent's **own
-skill-loading flag** (e.g. pi's `--skill <path>`, the agentskills.io
-standard), rather than pasting the skill's text into the prompt.
+Every attempt yields an activation observation as a by-product, whether or not
+the task asserts on it.
+_Avoid_: firing, invocation, triggering (when you mean the observation).
 
-The contrasting term is **inject**: paste `SKILL.md` into the prompt/message
-because the agent has no native skill-loading mechanism. `codex` injects;
-`pi` loads natively. "Support X natively" therefore means "X exposes a
-skill-loading flag we can pass," not merely "we added an X backend."
+## Activation score
+
+The second scoreboard, scored per attempt as an **exact set match**: the
+observed [[activation]] set equals the set the task's `activates:` declared,
+or the attempt fails. It never merges with the [[success rate|execution
+score]] — two aggregates, two regression flags — because blending them would
+make the headline a mix of "does the body work" and "does the description
+fire", and those have opposite fixes.
+
+Its denominator is **not** the execution one. An attempt is activation-usable
+unless it was an `infra_error` or a `timeout` — the two cases where the
+transcript may be truncated and an empty observed set would be a fabricated
+negative. A `judge_error` *is* activation-usable: the agent ran, the transcript
+is whole, and only the grader broke. The two scoreboards therefore report
+different counts, and nothing should assume they match.
+
+Exact match means a skill that legitimately delegates has its whole chain
+enumerated (`activates: [a, b, c]`), which makes "did it actually delegate?"
+assertable. This is affordable only because the [[skill neighbourhood]] is
+closed: an undeclared skill is not installed and cannot activate, so the
+enumeration is bounded by a list the author wrote.
+
+Alongside it, per-skill **recall** and **precision**, counted over attempts:
+recall is how often a skill fired when it was expected, precision how often it
+was expected when it fired. They are indexed by skill name rather than by role,
+because the thing an author edits in response is one skill's `description`.
+
+Both are *reported* in plain language rather than by their statistical names,
+as "fires when wanted" and "fires when not wanted", because the reader is a
+skill author diagnosing their own `description` and not an ML practitioner. The
+pair deliberately shares one verb over two populations, so neither column needs
+a word borrowed from the other to parse; the second is then good-when-*low*,
+which the colouring carries. The terms stay `recall`/`precision` in the schema
+and in this glossary, where exact language is the point.
+
+The reported second direction is the **unwanted rate**, not `1 − precision`.
+Precision divides by the times a skill fired; this divides by the times it
+*should not have*. A skill that fires once wrongly across fifty silent
+opportunities has 50% precision and a 2% unwanted rate, and the second is the
+honest description of that skill. It is `None` when every attempt wanted the
+skill, since it then had no opportunity to over-fire — which is not the same as
+never taking one.
+
+The two scoreboards are **not peers in the report**. The [[success rate|score]]
+is the headline, because it is already the joint measure of "would this work for
+a user"; activation is the *diagnostic* that says which half moved when the
+score drops. Rendering them as two equal bars invites averaging them, which is
+meaningless — they are rates over different populations. Activation is also
+reported on its own axis: the score is per **task**, the activation stats are
+per **skill**, and forcing both into one table is what makes either unreadable.
+
+Not asserting `activates:` leaves `activation_passed` at `None` and renders
+*skipped*, never `0%` — as does `--baseline`, which installs no skills and would
+otherwise be scoring caliper's own plumbing.
+
+## Skill neighbourhood
+
+The set of skills declared by an [[eval spec]] and installed for a run. Its
+members are **peers**: no entry is privileged as "the skill under test", so
+every claim about what fired names skills explicitly and never leans on
+position or an implied default. The neighbourhood is deliberately closed — the
+run's isolated home contains these skills and nothing else — which is what makes
+[[activation]] a *measurement* rather than an observation: the set of things the
+agent could possibly have reached for is exactly the set the spec wrote down.
+Neighbours are not decoration; they are the competition a skill's `description`
+has to win against, so a run's numbers are only meaningful relative to the
+neighbourhood that produced them. That is why a report names **every** declared
+member, including one that never fired and was never expected: without its row a
+reader could not tell what was installed, and its dormancy is itself an answer,
+saying the probes never exercised the neighbour they were written to guard
+against.
+_Avoid_: skill list, skill dependencies, sibling skills.
+
+## Install-and-discover
+
+Caliper's **only** loading discipline: every member of the [[skill
+neighbourhood]] is copied to the backend's native skills root
+(`<skills_root>/<name>/SKILL.md`, the name taken from frontmatter), and nothing
+is ever placed into the agent's context for it. The agent meets each skill the
+way a real user's agent does — as a name and a `description` it may or may not
+reach for. See [[install-and-discover-is-the-only-loading-discipline]].
+
+The contrasting term is **preload**: put the skill's text in front of the agent
+before it has decided it wants it — pi's `--skill`, hermes' `--skills` (whose
+own help text says "preload"), or codex's invented `[Skill context]` prompt
+prepend. Caliper does none of these. Preloading and [[activation]] are mutually
+exclusive by construction: a skill already in context cannot be *chosen*.
+
+Two consequences worth stating in the same breath. **Identity is established,
+not discovered** — because caliper is the installer, the backend reports back
+exactly the frontmatter `name:` the spec wrote, which is what lets an
+observation be matched to a spec entry at all. And **cheat surfaces are never
+installed**: the `.eval.yaml` spec, `.caliper/` results, `.git/`, and anything
+the spec marks `forbidden_files` are excluded for *every* member — a
+neighbour's answer key is still an answer key.
+_Avoid_: inject, force-load, load natively (the old inject-vs-native axis is
+retired; the axis is now install vs preload).
+
+## Progressive disclosure
+
+Writing a short `SKILL.md` that points at `REFERENCE.md`, `references/` and
+helper scripts the agent reads on demand, rather than one long file. It is
+**measurable** because the relative pointers resolve: the skill is installed as
+a whole directory, so the agent can reach the referenced files during a run
+exactly as it would from a real install. (Every backend is a CLI agent that can
+reach them; the tool-less `claude-api`/`openai-api` backends, which could only
+paste `SKILL.md` text and so could not measure disclosure, were removed — see
+[[cli-agent-backends-only]].)
+
+A **lone** slash-command `.md` file (not named `SKILL.md`) has no directory, no
+frontmatter `name:` and no `description:` — nothing to install and nothing for
+an agent to discover — so it is rejected at `validate` rather than measured as a
+guaranteed zero.
 
 ## Outcome
 
@@ -244,8 +355,28 @@ of six values, classified once at the seam where an attempt is assembled:
   (spending cap, rate limit) even on a zero exit.
 - `timeout` — the attempt exceeded its time budget with no usable result.
 - `cheat` — a forbidden-file read was detected.
+- `not_checked` — the attempt ran cleanly and the task authored **no execution
+  check** (a [[trigger probe]]). Not an error and not a failure: nothing was
+  asked, so nothing was answered.
 
 `passed` is retained as a derived convenience, equal to `outcome == pass`.
+
+Outcomes answer *two* questions, not one. **Usable** asks "does this count
+toward the [[success rate|score]]?"; **execution noise** asks "should this be
+*reported* as a problem?". They coincide for every value except `not_checked`,
+which is excluded from the denominator without being an error — so a correct
+trigger-probe spec never reads as broken.
+
+## Trigger probe
+
+A task that authors `activates:` and no `expect:`/`assert:` — its whole claim is
+about **which skills the agent reached for**, not about the work. Two shapes:
+a *neighbour probe* (`activates: [x]`, asserting the subject must not hijack a
+prompt belonging to `x` — grading whether `x` did the job well is `x`'s own
+eval) and a *silence probe* (`activates: []` on unrelated work, where there is
+nothing meaningful to expect). It skips the judge entirely, so it is much cheaper
+than an execution task, and renders as *trigger only* rather than a zero.
+_Avoid_: activation-only task, triggering test.
 
 ## Attempt usage
 

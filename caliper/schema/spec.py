@@ -61,6 +61,11 @@ class TaskSpec(BaseModel):
     prompt: str
     expect: str | None = None
     assert_script: str | None = Field(None, alias="assert")
+    # The exact set of skills expected to activate on this attempt. ``None`` =
+    # not asserted (the check is skipped, never scored 0%); ``[]`` = silence is
+    # expected. A delegating skill enumerates its whole chain — see
+    # docs/adr/0014-activation-is-a-check-type-not-a-separate-command.md.
+    activates: list[str] | None = None
     setup: str | None = None
     cleanup: str | None = None
 
@@ -68,17 +73,14 @@ class TaskSpec(BaseModel):
 
     @model_validator(mode="after")
     def require_at_least_one_check(self) -> "TaskSpec":
-        if not self.expect and not self.assert_script:
+        # ``activates: []`` is falsy but *is* a check ("nothing should fire"), so
+        # this tests for absence, not truthiness.
+        if not self.expect and not self.assert_script and self.activates is None:
             raise ValueError(
-                f"Task '{self.name}' must have at least one of: expect, assert"
+                f"Task '{self.name}' must have at least one of: "
+                "expect, assert, activates"
             )
         return self
-
-
-class SkillConfig(BaseModel):
-    # `path` is the only spec-level skill fact; the engine that runs it is a
-    # runtime axis (see DEFAULT_BACKEND). Omit `path` to test the bare agent.
-    path: str | None = None
 
 
 class SandboxConfig(BaseModel):
@@ -170,7 +172,10 @@ _MCP_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class EvalSpec(BaseModel):
-    skill: SkillConfig
+    # The skill neighbourhood: paths to SKILL.md files, installed at the
+    # backend's skills root and never preloaded. Peers — no entry is privileged
+    # as "the skill under test". Empty for a bare-agent eval.
+    skills: list[str] = []
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     mcp: dict[str, McpServer] = {}
     tasks: list[TaskSpec]
@@ -197,6 +202,28 @@ _REMOVED_KEYS: dict[str, str] = {
     "skill.model": "--model",
     "judge": "--judge-model",
 }
+
+
+def _reject_singular_skill(raw: dict) -> None:
+    """Point ``skill: path:`` at the ``skills:`` neighbourhood that replaced it.
+
+    Not a rename: the singular key implied one privileged skill, where the new
+    key is a set of peers whose members are all installed and all assertable
+    (see docs/adr/0014).
+    """
+    if "skill" not in raw:
+        return
+    skill = raw.get("skill")
+    path = skill.get("path") if isinstance(skill, dict) else None
+    example = f"  - {path}" if path else "  - ./SKILL.md"
+    raise ValueError(
+        "`skill:` is no longer a spec key — a spec now declares a *set* of "
+        "skills, all installed at the agent's own skills root and left for it "
+        "to discover.\n\nReplace it with:\n\nskills:\n"
+        f"{example}\n\n"
+        "Add neighbouring skills as further entries to test that yours is the "
+        "one that fires."
+    )
 
 
 def _reject_removed_keys(raw: dict) -> None:
@@ -226,7 +253,10 @@ def load_spec(path: Path) -> EvalSpec:
 
     raw = yaml.safe_load(path.read_text())
     if isinstance(raw, dict):
+        # Engine keys first: a spec carrying both `skill.model` and `skill:`
+        # should hear about the engine move, which is the older migration.
         _reject_removed_keys(raw)
+        _reject_singular_skill(raw)
     for i, task in enumerate(raw.get("tasks", []), 1):
         task["id"] = f"task-{i:03d}"
     return EvalSpec.model_validate(raw)

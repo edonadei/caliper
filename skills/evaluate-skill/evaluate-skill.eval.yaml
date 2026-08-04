@@ -1,5 +1,5 @@
-skill:
-  path: ./SKILL.md
+skills:
+  - ./SKILL.md
 
 # The engine (backend + model) is a runtime axis, not a spec field — run this
 # eval with `--model codex --judge-model codex` (or any other engine).
@@ -10,10 +10,11 @@ sandbox:
 
 tasks:
   - name: Validates a well-formed spec and reports it as valid
+    activates: [evaluate-skill]
     setup: |
       cat > /tmp/caliper-test-valid.eval.yaml << 'EOF'
-      skill:
-        path: ./SKILL.md
+      skills:
+        - ./SKILL.md
       tasks:
         - name: Test arithmetic
           prompt: What is 2 + 2?
@@ -36,10 +37,11 @@ tasks:
       assert result.returncode == 0, f"caliper validate exited {result.returncode}: {result.stderr}"
 
   - name: Identifies errors in an invalid spec without fixing it
+    activates: [evaluate-skill]
     setup: |
       cat > /tmp/caliper-test-invalid.eval.yaml << 'EOF'
-      skill:
-        path: ./SKILL.md
+      skills:
+        - ./SKILL.md
       tasks:
         - name: Broken task
           prompt: do something
@@ -54,6 +56,7 @@ tasks:
       agent does not edit the invalid spec file.
 
   - name: Creates an engineless eval spec and defers the engine to run time
+    activates: [evaluate-skill]
     cleanup: rm -f /tmp/caliper-created.eval.yaml
     prompt: >
       Create an evaluation spec file at /tmp/caliper-created.eval.yaml for a
@@ -62,11 +65,11 @@ tasks:
       "The assistant answers 4." Then tell me how to run it against Codex.
     expect: >
       A valid .eval.yaml file is written at /tmp/caliper-created.eval.yaml with
-      skill.path ./SKILL.md and the requested task. The spec does NOT pin a
-      backend or model (no skill.backend/model, no judge block) because the
-      engine is a runtime axis, and the agent tells the user to select Codex at
-      run time with `caliper run ... --model codex` (optionally
-      `--judge-model codex`).
+      a top-level skills: list containing ./SKILL.md and the requested task. The
+      spec does NOT pin a backend or model (no skill.backend/model, no judge
+      block) because the engine is a runtime axis, and the agent tells the user
+      to select Codex at run time with `caliper run ... --model codex`
+      (optionally `--judge-model codex`).
     assert: |
       import os
       import yaml
@@ -75,9 +78,12 @@ tasks:
       assert os.path.exists(path), "Spec file was not created"
       with open(path) as f:
           spec = yaml.safe_load(f)
-      assert spec["skill"]["path"] == "./SKILL.md", "skill path should be ./SKILL.md"
-      assert "backend" not in spec["skill"], "engine is a runtime axis: no skill.backend"
-      assert "model" not in spec["skill"], "engine is a runtime axis: no skill.model"
+      assert "skill" not in spec, "`skill:` was replaced by the `skills:` list"
+      skills = spec.get("skills")
+      assert isinstance(skills, list) and skills, \
+          f"spec needs a top-level skills: list, got {skills!r}"
+      def pa(e): return e if isinstance(e, str) else (e or {}).get("path")
+      assert pa(skills[0]) == "./SKILL.md", "skills[0] should be ./SKILL.md"
       assert "judge" not in spec, "engine is a runtime axis: no judge block belongs in the spec"
       assert len(spec.get("tasks", [])) == 1, "Expected exactly one task"
       task = spec["tasks"][0]
@@ -86,16 +92,17 @@ tasks:
       assert task["expect"] == "The assistant answers 4.", "Unexpected expectation"
 
   - name: Explains independent skill and judge engines are selected at run time
+    activates: [evaluate-skill]
     cleanup: rm -f /tmp/caliper-mixed-backend.eval.yaml
     prompt: >
       Create an evaluation spec file at /tmp/caliper-mixed-backend.eval.yaml
-      that evaluates a Claude Code skill at ~/.claude/commands/review.md but is
-      judged by Codex. Include one task named "Reviews staged changes", prompt
-      "/review the staged changes", and expectation "The review reports at least
+      that evaluates a Claude Code skill at ~/.claude/skills/review/SKILL.md but
+      is judged by Codex. Include one task named "Reviews staged changes", prompt
+      "Review the staged changes", and expectation "The review reports at least
       one actionable issue." Then tell me the exact command to run it that way.
     expect: >
-      The agent writes a valid engineless spec (skill.path
-      ~/.claude/commands/review.md, no backend/model, no judge block) and
+      The agent writes a valid engineless spec (a skills: list containing
+      ~/.claude/skills/review/SKILL.md, no backend/model, no judge block) and
       explains that the skill and judge engines are chosen independently at run
       time — e.g. `caliper run ... --model claude-code --judge-model codex` —
       because Caliper treats the engine as a runtime axis, not a spec field.
@@ -107,12 +114,17 @@ tasks:
       assert os.path.exists(path), "Spec file was not created"
       with open(path) as f:
           spec = yaml.safe_load(f)
-      assert spec["skill"]["path"] == "~/.claude/commands/review.md", "Unexpected skill path"
-      assert "backend" not in spec["skill"], "engine is a runtime axis: no skill.backend"
+      assert "skill" not in spec, "`skill:` was replaced by the `skills:` list"
+      skills = spec.get("skills")
+      assert isinstance(skills, list) and skills, \
+          f"spec needs a top-level skills: list, got {skills!r}"
+      def pa(e): return e if isinstance(e, str) else (e or {}).get("path")
+      assert pa(skills[0]) == "~/.claude/skills/review/SKILL.md", "Unexpected skill path"
       assert "judge" not in spec, "engine is a runtime axis: no judge block belongs in the spec"
       assert spec["tasks"][0]["name"] == "Reviews staged changes", "Unexpected task name"
 
   - name: Lists available evaluations gracefully
+    activates: [evaluate-skill]
     prompt: >
       Use caliper to list all available evaluations and tell me what you find.
     expect: >
@@ -120,6 +132,7 @@ tasks:
       with scores and timestamps, or clearly states that no results have been recorded yet
 
   - name: Surfaces Claude Code configuration errors clearly
+    activates: [evaluate-skill]
     prompt: >
       Run the Claude Code smoke eval at
       skills/evaluate-skill/references/evals/claude-code-smoke/claude-code-smoke.eval.yaml

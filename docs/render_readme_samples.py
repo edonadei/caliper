@@ -29,12 +29,14 @@ from rich.console import Console
 import caliper.reporter as reporter
 from caliper.reporter import print_comparison, print_results
 from caliper.schema.results import (
+    ERA_INSTALL_AND_DISCOVER,
     AggregateScore,
     AttemptRecord,
     Outcome,
     RunComparison,
     RunMeta,
     RunResults,
+    SkillActivationStats,
     SkillSnapshot,
     TaskResult,
     TaskScore,
@@ -168,6 +170,8 @@ def _att(
     tokens: TokenUsage,
     output: str,
     assert_evidence: str | None = None,
+    activated: list[str] | None = None,
+    activation_passed: bool | None = None,
 ) -> AttemptRecord:
     return AttemptRecord(
         attempt=attempt,
@@ -177,62 +181,160 @@ def _att(
         usage=tokens,
         assert_passed=None if assert_evidence is None else outcome is P,
         assert_evidence=assert_evidence,
+        activated=activated,
+        activation_passed=activation_passed,
     )
 
 
 def _run_example() -> RunResults:
-    """A single `caliper run … --k 3` of the two tasks in the README's spec: a
-    clean-passing autorater task and a script-assertion task that fails once (so
-    the report shows a PASS row, a PARTIAL row, and the failure panel that
-    explains *why*). Token/wall figures are chosen to sum to the summary line."""
+    """A single `caliper run … --k 3` of the README's quick-start spec.
+
+    Three tasks, one per kind of check: an autorater task that passes cleanly, a
+    script-assertion task that fails once (so the report shows a PASS row, a
+    PARTIAL row, and the failure panel explaining *why*), and a neighbour probe
+    that `commit-writer` hijacks — the case activation exists to catch, and the
+    reason the per-skill table has a second row worth reading.
+    """
     run = RunMeta(
-        spec="my-skill",
+        spec="commit-writer",
         timestamp=datetime(2026, 6, 19, 14, 23, 0),
         k=3,
         backend="claude-code",
         judge_backend="claude-code",
+        era=ERA_INSTALL_AND_DISCOVER,
     )
-    # 26_000 in + 350 out per attempt → 79K over three; 9s each → 27s.
-    commit_usage = TokenUsage(input_tokens=26_000, output_tokens=350)
-    commit = TaskResult(
+    message = TaskResult(
         task_id="writes-a-conventional-commit-message",
         task_name="Writes a conventional commit message",
         attempts=[
-            _att(i, P, 9.0, commit_usage, "feat(auth): add token refresh\n\n…")
-            for i in (1, 2, 3)
+            _att(
+                i,
+                P,
+                seconds,
+                TokenUsage(input_tokens=tok_in, output_tokens=tok_out),
+                "feat(auth): add token refresh\n\n…",
+                activated=["commit-writer"],
+                activation_passed=True,
+            )
+            for i, seconds, tok_in, tok_out in (
+                (1, 8.2, 25_400, 380),
+                (2, 10.6, 27_100, 296),
+                (3, 8.4, 26_300, 431),
+            )
         ],
         successes=3,
         unusable=0,
         pass_at_k=1.0,
+        activation_expected=["commit-writer"],
     )
-    # 27_000 in + 350 out per attempt → 82K over three; 11s each → 33s.
-    config_usage = TokenUsage(input_tokens=27_000, output_tokens=350)
-    config = TaskResult(
-        task_id="generates-a-valid-config-file",
-        task_name="Generates a valid config file",
+    subject = TaskResult(
+        task_id="keeps-the-subject-line-under-72-characters",
+        task_name="Keeps the subject line under 72 characters",
         attempts=[
-            _att(1, P, 11.0, config_usage, "Wrote /tmp/app.config.json"),
-            _att(2, P, 11.0, config_usage, "Wrote /tmp/app.config.json"),
             _att(
-                3,
-                F,
-                11.0,
-                config_usage,
-                "Wrote /tmp/app.config.json",
-                assert_evidence="AssertionError: data['port'] == 8080 (got 3000)",
-            ),
+                n,
+                outcome,
+                seconds,
+                TokenUsage(input_tokens=tok_in, output_tokens=tok_out),
+                output,
+                assert_evidence=evidence,
+                activated=["commit-writer"],
+                activation_passed=True,
+            )
+            # The third attempt rambles: more output tokens, and the long
+            # subject line the assertion catches.
+            for n, outcome, seconds, tok_in, tok_out, output, evidence in (
+                (
+                    1,
+                    P,
+                    10.4,
+                    26_900,
+                    288,
+                    "Committed as feat(api): paginate search",
+                    None,
+                ),
+                (
+                    2,
+                    P,
+                    12.1,
+                    28_300,
+                    344,
+                    "Committed as fix(api): handle empty cursor",
+                    None,
+                ),
+                (
+                    3,
+                    F,
+                    11.8,
+                    27_200,
+                    612,
+                    "Committed as feat(api): add cursor-based pagination to the "
+                    "search endpoint so large result sets stream",
+                    "AssertionError: subject line is 94 chars (limit 72)",
+                ),
+            )
         ],
         successes=2,
         unusable=0,
         pass_at_k=1.0,
+        activation_expected=["commit-writer"],
     )
-    task_results = [commit, config]
+    # A release-notes request belongs to the changelog-writer neighbour. Cheap:
+    # no execution check means no judge call.
+    probe = TaskResult(
+        task_id="a-release-summary-belongs-to-changelog-writer",
+        task_name="A release summary belongs to changelog-writer",
+        attempts=[
+            _att(
+                n,
+                Outcome.NOT_CHECKED,
+                seconds,
+                TokenUsage(input_tokens=tok_in, output_tokens=tok_out),
+                "Here is a summary of the changes since v2.1 …",
+                activated=activated,
+                activation_passed=(activated == ["changelog-writer"]),
+            )
+            # commit-writer grabs it twice out of three: the hijack.
+            for n, seconds, tok_in, tok_out, activated in (
+                (1, 3.4, 4_100, 118, ["commit-writer"]),
+                (2, 2.6, 3_700, 96, ["changelog-writer"]),
+                (3, 3.9, 4_400, 143, ["commit-writer"]),
+            )
+        ],
+        successes=0,
+        unusable=0,
+        pass_at_k=None,
+        activation_expected=["changelog-writer"],
+    )
+    task_results = [message, subject, probe]
+    scored = [tr for tr in task_results if tr.score is not None]
     return RunResults(
         run=run,
-        skill_snapshot=SkillSnapshot(path="./SKILL.md"),
+        skill_snapshots=[
+            SkillSnapshot(name="commit-writer", path="./SKILL.md"),
+            SkillSnapshot(name="changelog-writer", path="../changelog-writer/SKILL.md"),
+        ],
         task_results=task_results,
         aggregate=AggregateScore(
-            avg_score=sum(tr.score for tr in task_results) / len(task_results),
+            avg_score=sum(tr.score for tr in scored) / len(scored),
+            scored_tasks=len(scored),
+            avg_activation_score=sum(
+                tr.activation_score
+                for tr in task_results
+                if tr.activation_score is not None
+            )
+            / 3,
+            activation_tasks=3,
+            activation_per_skill=[
+                # 9 scored attempts: 6 wanted commit-writer (all fired), 3 did
+                # not (it fired on 2 of them).
+                SkillActivationStats(
+                    skill="commit-writer", total=9, expected=6, fired=8, hits=6
+                ),
+                SkillActivationStats(
+                    skill="changelog-writer", total=9, expected=3, fired=1, hits=1
+                ),
+            ],
             per_task=[
                 TaskScore(
                     task_id=tr.task_id,
