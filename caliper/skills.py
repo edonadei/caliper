@@ -119,6 +119,37 @@ def resolve_skills(skill_paths: list[str], spec_dir: Path) -> list[SkillRef]:
     return refs
 
 
+def apply_ablation(refs: list[SkillRef], ablate: list[str]) -> list[SkillRef]:
+    """The neighbourhood minus the named skills, or an explanation of the refusal.
+
+    Subjecthood is a *runtime axis*: the spec keeps a list of peers and the
+    invocation names which one is being removed, exactly as the engine is chosen
+    per invocation rather than authored into the file. See
+    docs/adr/0015-ablation-names-its-subject-at-the-invocation.md
+    and docs/CONTEXT.md → Ablation.
+
+    An undeclared name is refused rather than ignored: it would otherwise
+    produce a full run recorded and labelled as an ablation, which is a
+    plausible-looking number with nothing in the output to invite suspicion.
+    """
+    if not ablate:
+        return list(refs)
+
+    declared = {ref.name for ref in refs}
+    unknown = [name for name in ablate if name not in declared]
+    if unknown:
+        listed = ", ".join(sorted(declared)) or "(none)"
+        raise SkillResolutionError(
+            f"--ablate names {', '.join(unknown)}, which the spec's skills: does "
+            f"not declare (it declares {listed}).\n\n"
+            "Ablation removes a *declared* member of the neighbourhood, so an "
+            "unknown name would leave every skill installed while the run "
+            "recorded itself as an ablation. Correct the name (identity is the "
+            "frontmatter name:, not the filename)."
+        )
+    return [ref for ref in refs if ref.name not in set(ablate)]
+
+
 def validate_activates(
     tasks: list, refs: list[SkillRef], *, spec_label: str = "spec"
 ) -> None:

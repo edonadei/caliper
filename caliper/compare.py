@@ -1,10 +1,10 @@
 """Pure comparison of two runs — the ablation reporting primitive.
 
 ``diff_runs(a, b)`` is the whole of ``caliper compare``'s logic; the CLI command
-and ``--format json`` are thin shells over it. ``diff_baseline`` reuses the exact
-same machinery for a ``--baseline`` run (no skill vs with skill), so there is one
-comparison path, not two. See docs/CONTEXT.md (Run comparison, Task identity,
-Regression) for the domain terms.
+and ``--format json`` are thin shells over it. There is no within-run diff: an
+ablated arm is an ordinary saved run, so skill-vs-no-skill and
+candidate-vs-control travel this one path rather than two. See docs/CONTEXT.md
+(Run comparison, Ablation, Task identity, Regression) for the domain terms.
 """
 
 from __future__ import annotations
@@ -89,13 +89,40 @@ def _compare_task(name: str, a: TaskResult, b: TaskResult) -> TaskComparison:
     )
 
 
-def diff_runs(
-    a: RunResults,
-    b: RunResults,
-    *,
-    a_label: str | None = None,
-    b_label: str | None = None,
-) -> RunComparison:
+def _ablation_labels(
+    a_run: RunMeta,
+    a_neighbourhood: list[str],
+    b_run: RunMeta,
+    b_neighbourhood: list[str],
+) -> tuple[str, str] | None:
+    """Side labels when these two runs form an ablation pair, else ``None``.
+
+    A pair is exactly one ablated side against one full side, where the ablated
+    side's neighbourhood really is the other's minus what it says it removed.
+    The marker is *checked*, not merely trusted: a run whose ``ablated`` claim
+    disagrees with its own snapshots falls back to the generic warning.
+
+    Two runs that ablated *different* skills are deliberately **not** a pair —
+    nothing but this marker could tell that case apart from a legitimate one,
+    since both sides simply have a smaller-than-declared neighbourhood.
+    """
+    if bool(a_run.ablated) == bool(b_run.ablated):
+        return None
+    if a_run.ablated:
+        cut, cut_nb, full_nb = a_run.ablated, a_neighbourhood, b_neighbourhood
+    else:
+        cut, cut_nb, full_nb = b_run.ablated, b_neighbourhood, a_neighbourhood
+    if set(cut_nb) != set(full_nb) - set(cut):
+        return None
+    cut_label = "bare agent" if not cut_nb else f"without {', '.join(sorted(cut))}"
+    return (
+        (cut_label, "full neighbourhood")
+        if a_run.ablated
+        else ("full neighbourhood", cut_label)
+    )
+
+
+def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
     """Diff two already-saved runs of (nominally) the same eval, A vs B.
 
     Matches tasks by ``task_name``; tasks present on only one side are surfaced
@@ -105,52 +132,10 @@ def diff_runs(
     Raises ``IncomparableRunsError`` when the two runs come from different eras.
     """
     _check_era(a.run, b.run)
-    return _diff(
-        a.run,
-        a.task_results,
-        b.run,
-        b.task_results,
-        a_label=a_label,
-        b_label=b_label,
-        a_neighbourhood=_neighbourhood(a),
-        b_neighbourhood=_neighbourhood(b),
-    )
+    a_run, b_run = a.run, b.run
+    a_tasks, b_tasks = a.task_results, b.task_results
+    a_neighbourhood, b_neighbourhood = _neighbourhood(a), _neighbourhood(b)
 
-
-def diff_baseline(results: RunResults) -> RunComparison:
-    """The no-skill-vs-with-skill diff of a ``--baseline`` run.
-
-    Both sides share the run's single ``RunMeta`` (same spec, k, engine), so it
-    routes through the same ``_diff`` as ``compare`` and just labels the sides.
-    Assumes ``results.baseline_task_results`` is present (the caller checks).
-    """
-    assert results.baseline_task_results is not None
-    # The neighbourhood difference *is* the experiment here (that is what
-    # --baseline varies), so it is not flagged as a mismatch.
-    neighbourhood = _neighbourhood(results)
-    return _diff(
-        results.run,
-        results.baseline_task_results,
-        results.run,
-        results.task_results,
-        a_label="no skill",
-        b_label="with skill",
-        a_neighbourhood=neighbourhood,
-        b_neighbourhood=neighbourhood,
-    )
-
-
-def _diff(
-    a_run: RunMeta,
-    a_tasks: list[TaskResult],
-    b_run: RunMeta,
-    b_tasks: list[TaskResult],
-    *,
-    a_label: str | None,
-    b_label: str | None,
-    a_neighbourhood: list[str] | None = None,
-    b_neighbourhood: list[str] | None = None,
-) -> RunComparison:
     a_by_name = _group_by_name(a_tasks)
     b_by_name = _group_by_name(b_tasks)
 
@@ -195,11 +180,12 @@ def _diff(
         warnings.append(
             f"A ran k={a_run.k}, B ran k={b_run.k} — pass@k not directly comparable"
         )
-    neighbourhood_mismatch = (
-        a_neighbourhood is not None
-        and b_neighbourhood is not None
-        and a_neighbourhood != b_neighbourhood
-    )
+    # On a recognised ablation pair the differing neighbourhood *is* the
+    # experiment, so the generic warning would be describing the design as a
+    # mistake — and the sides get titled from the marker instead.
+    labels = _ablation_labels(a_run, a_neighbourhood, b_run, b_neighbourhood)
+    a_label, b_label = labels if labels else (None, None)
+    neighbourhood_mismatch = labels is None and a_neighbourhood != b_neighbourhood
     if neighbourhood_mismatch:
         warnings.append(
             f"different skill neighbourhoods: {a_neighbourhood or ['(none)']} vs "

@@ -136,5 +136,9 @@ of check rather than split across two files.
   name rather than by role, since the thing an author edits in response is one
   skill's `description`. Per-attempt, not per-task, so the diagnostic shares
   units with the score above it.
-- **`--baseline` skips activation entirely.** It installs no skills, so scoring
+- **`--baseline` skips activation entirely.** (Amended by
+  [0015](0015-ablation-names-its-subject-at-the-invocation.md), which retires the
+  flag in favour of `--ablate` and generalises this to *any* ablated run — which
+  observes activation but withholds the verdict, since a partial ablation still
+  has skills installed to observe.) It installs no skills, so scoring
   activation would be scoring caliper's own plumbing.

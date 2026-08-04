@@ -362,33 +362,72 @@ def test_print_results_renders_per_task_tokens_and_wall(capsys) -> None:
     assert "24s" in out  # per-task wall total in the row
 
 
-def test_baseline_run_renders_as_compare(capsys) -> None:
-    # A --baseline run (baseline_task_results present) renders through the compare
-    # view: labelled sides, both usage totals, and a token/wall delta.
-    results = _run([_task_with_tokens("alpha", 1000, 10.0)])  # with skill: 2000 tok
-    base = _run([_task_with_tokens("alpha", 600, 6.0)])  # no skill: 1200 tok
-    results.baseline_task_results = base.task_results
-    print_results(results)
-    out = capsys.readouterr().out
-    assert "compare" in out
-    assert "no skill" in out and "with skill" in out
-    # Token delta B(with) 2000 vs A(no skill) 1200 → +67% (skill costlier).
-    assert "Tokens" in out and "+67%" in out
-
-
-def test_non_baseline_run_renders_single_report(capsys) -> None:
+def test_every_run_renders_a_single_report(capsys) -> None:
+    # There is no within-run diff any more: an ablated arm is an ordinary saved
+    # run, so `run` always renders one report and `compare` does the diffing.
     results = _run([_task_with_tokens("alpha", 1000, 10.0)])
     print_results(results)
     out = capsys.readouterr().out
-    # No comparison view for a plain run.
-    assert "no skill" not in out
+    assert "compare" not in out
     # The headline is named for the scoreboard it belongs to: a run has two.
     assert "Score" in out
 
 
-def test_baseline_run_shows_with_skill_failure_details(capsys) -> None:
-    # The compare strips show WHICH attempts failed; the panels below must still
-    # show WHY (output + assert evidence) for the with-skill run.
+def test_an_ablated_run_names_what_was_removed(capsys) -> None:
+    # Its numbers are only readable next to what was removed, and its activation
+    # verdicts are blank by design (docs/adr/0015).
+    results = _run([_task_with_tokens("alpha", 1000, 10.0)])
+    results.run.ablated = ["grilling"]
+    print_results(results)
+    out = capsys.readouterr().out
+    assert "ablated" in out and "grilling" in out
+    assert "observed, not scored" in out
+
+
+def test_an_ablated_run_shows_observations_on_a_passing_task(capsys) -> None:
+    # The verdict is withheld but the observation is the point — and a fully
+    # passing task earns no failure panel, so the counts must live on the
+    # skill axis, where "did the neighbour pick up the work?" is readable.
+    passing = TaskResult(
+        task_id="task-001",
+        task_name="alpha",
+        attempts=[
+            AttemptRecord(
+                attempt=1,
+                output="done",
+                duration_seconds=3.0,
+                outcome=Outcome.PASS,
+                activated=["keeper"],
+            )
+        ],
+        successes=1,
+        unusable=0,
+        pass_at_k=1.0,
+    )
+    results = _run([passing], k=1)
+    results.run.ablated = ["subject"]
+    results.skill_snapshots = [
+        SkillSnapshot(name="keeper", path="/x/keeper/SKILL.md"),
+        SkillSnapshot(name="dormant", path="/x/dormant/SKILL.md"),
+    ]
+    print_results(results)
+    out = capsys.readouterr().out
+    assert "Observed activations" in out
+    assert "keeper" in out and "1/1" in out
+    # A declared-but-silent skill still gets a row: its dormancy is an answer.
+    assert "dormant" in out and "0/1" in out
+
+
+def test_a_normal_run_has_no_observed_activations_block(capsys) -> None:
+    # It is the ablated run's stand-in for the scored table, not a second table
+    # every run grows.
+    results = _run([_task_with_tokens("alpha", 1000, 10.0)])
+    print_results(results)
+    assert "Observed activations" not in capsys.readouterr().out
+
+
+def test_failure_details_still_show_why_an_attempt_failed(capsys) -> None:
+    # The table shows WHICH attempts failed; the panels below show WHY.
     fail = AttemptRecord(
         attempt=2,
         output="no staged changes",
@@ -397,7 +436,7 @@ def test_baseline_run_shows_with_skill_failure_details(capsys) -> None:
         usage=TokenUsage(input_tokens=100),
         assert_evidence="AssertionError: expected 2 commits, got 1",
     )
-    with_task = TaskResult(
+    task = TaskResult(
         task_id="task-001",
         task_name="alpha",
         attempts=[_att(Outcome.PASS, 3.0, None), fail, _att(Outcome.PASS, 3.0, None)],
@@ -405,11 +444,7 @@ def test_baseline_run_shows_with_skill_failure_details(capsys) -> None:
         unusable=0,
         pass_at_k=0.963,
     )
-    results = _run([with_task], k=3)
-    results.baseline_task_results = _run(
-        [_task_with_tokens("alpha", 50, 3.0)]
-    ).task_results
-    print_results(results)
+    print_results(_run([task], k=3))
     out = capsys.readouterr().out
     assert "expected 2 commits, got 1" in out
 

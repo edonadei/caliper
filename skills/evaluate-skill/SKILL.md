@@ -49,9 +49,9 @@ If the skill has a `SKILL.md` but no `.eval.yaml`, suggest the `grill-skill` wor
 2. Decide whether the suite is a capability eval or a regression eval.
 3. Cover normal, edge, and adversarial cases when the behavior matters.
 4. Grade artifacts (files, git state, command output, exact values) whenever you can; judge the transcript only when the behavior itself is the point. The full artifact-vs-transcript rules, the task-quality checklist, common eval patterns, and how to write `expect:` rubrics live in [REFERENCE.md](REFERENCE.md) — read and apply them when designing tasks.
-5. Run with `--baseline` to confirm the skill beats the raw agent. Debug the spec at `--k 1`, then measure reliability at `--k 3` or higher.
+5. Run once with `--ablate <skill-name>` and `caliper compare` the two runs, to confirm the skill beats the raw agent. Debug the spec at `--k 1`, then measure reliability at `--k 3` or higher.
 
-**Done when:** tasks have observable success criteria, at least one deterministic `assert:`, a positive baseline delta, the spec passes `caliper validate`, and the user has been prompted to commit the spec.
+**Done when:** tasks have observable success criteria, at least one deterministic `assert:`, a positive delta against the ablated run, the spec passes `caliper validate`, and the user has been prompted to commit the spec.
 
 ## Committing
 

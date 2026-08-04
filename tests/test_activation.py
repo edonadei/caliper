@@ -98,8 +98,9 @@ def test_no_tool_calls_means_nothing_activated():
 
 
 def test_detection_is_unavailable_when_no_skills_are_declared():
-    # A bare-agent or --baseline attempt installs nothing, so there is nothing to
-    # observe — that is "not observed", not "nothing fired".
+    # A bare-agent attempt (nothing declared, or the whole neighbourhood
+    # ablated) installs nothing, so there is nothing to observe — that is "not
+    # observed", not "nothing fired".
     assert ActivationDetector([], frozenset({"Skill"})).detect([]) is None
 
 

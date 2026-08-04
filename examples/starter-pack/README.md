@@ -135,8 +135,19 @@ fake and point the `assert:` at your real side effect instead.
 
 ## What's a good next step?
 
-- Add `--baseline` to prove the skill is doing the work, not the base agent:
-  `caliper run false-success.eval.yaml --k 3 --baseline`.
+- Prove the skill is doing the work, not the base agent: run the same tasks with
+  it removed, then diff the two runs.
+
+  ```bash
+  caliper run false-success.eval.yaml --k 3 --ablate <skill-name>
+  caliper run false-success.eval.yaml --k 3
+  # A bare spec name resolves to that spec's latest run, so the older (ablated)
+  # side is addressed by its saved results path.
+  caliper compare .caliper/results/false-success/<ablated-run>.json false-success
+  ```
+
+  That arm is a property of the *tasks*, not of the skill's text, so run it once
+  and keep re-diffing against it as the skill changes.
 - Commit your edited template next to your skill so contributors run the same eval.
 - See the [main README](../../README.md) for the full spec format, judging, and
   CLI reference, or use `/grill-skill` to generate a spec interactively.

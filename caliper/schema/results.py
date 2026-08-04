@@ -139,6 +139,15 @@ class RunMeta(BaseModel):
     model: str | None = None
     # ``None`` = a legacy run; ``compare`` refuses to diff across this boundary.
     era: str | None = None
+    # Skills declared by the spec but deliberately *not* installed for this run
+    # (``--ablate``). Recorded explicitly rather than left to be inferred from a
+    # short ``skill_snapshots`` list: an empty list is otherwise ambiguous
+    # between "ablated everything" and "declared no skills", and the era marker
+    # already sets the precedent that a semantic fact is not sniffed from a
+    # schema shape. See
+    # docs/adr/0015-ablation-names-its-subject-at-the-invocation.md
+    # and docs/CONTEXT.md → Ablation.
+    ablated: list[str] = Field(default_factory=list)
     # The judge engine that graded this run. Optional so results saved before
     # judge provenance was recorded still load (they render as an unknown judge).
     judge_backend: str | None = None
@@ -470,12 +479,6 @@ class RunResults(BaseModel):
     skill_snapshots: list[SkillSnapshot] = Field(default_factory=list)
     task_results: list[TaskResult]
     aggregate: AggregateScore
-    # The **full** no-skill run, kept only when ``--baseline`` ran. Retaining the
-    # whole run (not just a pass@k aggregate) lets a ``--baseline`` report render
-    # through the very same ``compare`` machinery — same table, same strips, same
-    # token/wall deltas — instead of a bespoke renderer. Optional so old JSON (and
-    # non-baseline runs) still load.
-    baseline_task_results: list[TaskResult] | None = None
 
 
 class TaskComparison(BaseModel):
@@ -515,8 +518,10 @@ class RunComparison(BaseModel):
     a: RunMeta
     b: RunMeta
     # How each side is titled in the header. ``None`` → the run's timestamp+engine
-    # (the default for ``compare`` of two saved runs); a ``--baseline`` diff sets
-    # them to "no skill" / "with skill" since both sides share one RunMeta.
+    # (the default for two unrelated runs); a recognised ablation pair is titled
+    # from ``RunMeta.ablated`` instead ("without grilling" → "full
+    # neighbourhood"), which is the one thing the retired ``--baseline`` renderer
+    # did that was worth keeping.
     a_label: str | None = None
     b_label: str | None = None
     matched: list[TaskComparison]
@@ -539,7 +544,10 @@ class RunComparison(BaseModel):
     # refusal: a larger neighbourhood gives the agent competitors and can depress
     # execution scores for reasons unrelated to the skill body, but the result is
     # still legible — unlike a cross-era diff, which is refused outright.
-    # ``spec_mismatch`` cannot catch this: it compares the spec *name*.
+    # ``spec_mismatch`` cannot catch this: it compares the spec *name*. Silent on
+    # a recognised ablation pair, where the differing neighbourhood *is* the
+    # experiment; still fires for two runs that ablated *different* skills, which
+    # nothing but the ``ablated`` marker could tell apart.
     neighbourhood_mismatch: bool = False
     # Human-readable guards, mirrored into both the table header and JSON so an
     # agent on --format json sees the exact warning a human sees.
