@@ -1,6 +1,11 @@
 # Ruff is the sole formatting authority; contributors never hand-format
 
-We adopt **`ruff format` + `ruff check`, pinned to `ruff==0.13.0`**, as the
+> The pinned version moves as a chore and is **not** a new decision each time;
+> the current pin lives in `pyproject.toml`, `.pre-commit-config.yaml` and
+> `.github/CONTRIBUTING.md`, which must stay in lockstep. What this ADR fixes
+> is that the version is *exact* and that ruff alone decides style.
+
+We adopt **`ruff format` + `ruff check`, pinned to an exact version**, as the
 single source of truth for code style — enforced by a required CI check on
 every PR and a local `pre-commit` hook — and we forbid manually reformatting
 lines outside the scope of a change. This is a follow-up to #29, where a

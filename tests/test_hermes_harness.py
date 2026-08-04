@@ -141,7 +141,7 @@ def test_hermes_no_skills_flag_without_skill(monkeypatch, tmp_path) -> None:
     result_calls = []
     monkeypatch.setattr(
         "caliper.harness.base.subprocess.run",
-        lambda cmd, **kw: (result_calls.append((cmd, kw)) or fake_run(cmd, **kw)),
+        lambda cmd, **kw: result_calls.append((cmd, kw)) or fake_run(cmd, **kw),
     )
 
     HermesHarness().run(

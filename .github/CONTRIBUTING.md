@@ -42,11 +42,11 @@ Black, autopep8, yapf, or your editor's built-in formatter on this codebase.
 
 ### Pinned version
 
-The formatter is pinned to **`ruff==0.13.0`** so that local runs and CI always
+The formatter is pinned to **`ruff==0.15.20`** so that local runs and CI always
 agree. The pin lives in three places that must stay in lockstep:
 
-- `pyproject.toml` — `dev` optional-dependencies (`ruff==0.13.0`)
-- `.pre-commit-config.yaml` — `rev: v0.13.0`
+- `pyproject.toml` — `dev` optional-dependencies (`ruff==0.15.20`)
+- `.pre-commit-config.yaml` — `rev: v0.15.20`
 - CI installs it via `pip install -e ".[dev]"`
 
 When bumping ruff, update all three together in a single PR (expect a

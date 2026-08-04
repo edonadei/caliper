@@ -22,7 +22,7 @@ When any of the following change, update all three locations before marking the 
 ## Formatting
 
 `ruff` is the single formatting and linting authority for this repo, pinned to
-`ruff==0.13.0`. Run `ruff format .` and `ruff check .` before finishing. Never
+`ruff==0.15.20`. Run `ruff format .` and `ruff check .` before finishing. Never
 hand-reformat lines outside the scope of your change — the formatter is the
 only style authority, and manual reflow inflates diffs. CI enforces
 `ruff format --check .` and `ruff check .` on every PR. See
