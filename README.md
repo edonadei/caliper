@@ -4,11 +4,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Skills](https://skills.sh/b/edonadei/caliper)](https://skills.sh/edonadei/caliper)
 
-Caliper is a lightweight evaluation harness for agent skills. Write a short spec of what "good" looks like, run it again and again, and get a **success rate** you can track. Works with the agent you already use: Claude Code, Codex, Pi, or Hermes.
-
-Caliper never pastes your skill into the prompt. It installs the skill where the agent looks for skills and lets the agent choose, the same way your users run it. That separates two failures a single score would blur together.
-
-A skill with a solid body still scores near zero if its `description` is too vague to get picked. A skill that gets picked every time can still do the job badly. One of those is a frontmatter problem and the other is a prose problem, so Caliper reports them as two numbers instead of one.
+Caliper is a lightweight evaluation harness for agent skills. Write a short spec of what "good" looks like, run it, and get a **success rate** you can track. Works with the agent you already use: **Claude Code, Codex, Pi, or Hermes**. Caliper installs the skill where the agent looks for skills and lets the agent choose.
 
 **Teach your agent to evaluate:**
 
@@ -19,16 +15,17 @@ npx skills@latest add edonadei/caliper
 **Or run it yourself:**
 
 ```bash
-# The control arm: same tasks, skill removed. Run it once and keep it.
+# Run the evaluation.
+caliper run commit-commands.eval.yaml --k 3
+
+# The control subject: your skill is not there.
 caliper run commit-commands.eval.yaml --k 3 --ablate commit-commands
 
-# The real run, then the diff. A bare spec name means "that spec's latest run",
-# so the control arm is addressed by its saved path.
-caliper run commit-commands.eval.yaml --k 3
-caliper compare .caliper/results/commit-commands/<ablated-run>.json commit-commands
+# Compare the runs. Did your skill improve it?
+caliper compare .caliper/results/commit-commands/<evaluation-run>.json .caliper/results/commit-commands/<ablated-run>.json
 ```
 
-You write a spec, a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you. `--ablate` runs the same tasks with that skill *removed* from the neighbourhood, and `caliper compare` diffs the two runs task by task:
+You write a spec, a YAML file describing what "working" means. Either hand-write it or have `/grill-skill` generate it for you. `--ablate` runs the same tasks with that skill *removed*, and `caliper compare` diffs the two runs task by task:
 
 <!-- Terminal output of `caliper compare`, rendered to SVG so the box-drawing
      table stays aligned on every screen. Regenerate with:
@@ -41,9 +38,10 @@ Agent skills are hard to test. A skill that works on your machine, on this promp
 
 Use Caliper to answer questions like:
 
-- Did my prompt edit actually improve the skill?
-- Does my skill fire when it should, and stay quiet on someone else's prompt?
-- Is the skill doing the work, or would the base agent pass without it?
+- Is my agent still working the same with this new model?
+- Did my prompt edit improved the skill?
+- Does my skill fire when it should, and stay quiet when it needs to not trigger?
+- Is the skill worth the context? Or would the base agent pass without it?
 - Does it still pass the workflows it passed last week?
 - Which agent (Claude Code, Codex, Pi, or Hermes) runs this skill more reliably?
 
