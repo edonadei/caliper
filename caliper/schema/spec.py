@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -171,11 +171,49 @@ class McpServer(BaseModel):
 _MCP_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
+# One member of the neighbourhood fetched from git rather than read off the
+# local filesystem. The two entry shapes are discriminated the way `mcp:`
+# already discriminates local from remote — a bare string is a *path source*, a
+# mapping is a *git source* — rather than by a URL grammar whose delimiters
+# collide with real branch names. See
+# docs/adr/0016-caliper-fetches-git-sources-itself.md and
+# docs/CONTEXT.md → Skill source.
+class GitSkillSource(BaseModel):
+    # Anything `git` can clone: an owner/name shorthand, a full URL, or a local
+    # path (which is what the tests use as a stand-in remote).
+    repo: str
+    # Optional by design: an omitted ref means the default branch, and drift is
+    # *reported* rather than prevented. See docs/adr/0017.
+    ref: str | None = None
+    path: str = "SKILL.md"
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("path")
+    @classmethod
+    def check_path(cls, value: str) -> str:
+        # Same rule `resolve_skills` enforces for a path source: identity is the
+        # frontmatter name of a SKILL.md, and there is nothing to install
+        # without one.
+        if PurePosixPath(value).name != "SKILL.md":
+            raise ValueError(
+                f"path '{value}' must point at a SKILL.md — caliper installs a "
+                "skill at <skills_root>/<name>/SKILL.md, so an entry names one "
+                "skill file, not a directory"
+            )
+        parts = PurePosixPath(value).parts
+        if value.startswith("/") or ".." in parts:
+            raise ValueError(f"path '{value}' must stay inside the repo")
+        return value
+
+
 class EvalSpec(BaseModel):
-    # The skill neighbourhood: paths to SKILL.md files, installed at the
-    # backend's skills root and never preloaded. Peers — no entry is privileged
-    # as "the skill under test". Empty for a bare-agent eval.
-    skills: list[str] = []
+    # The skill neighbourhood: a list of skill *sources*, each installed at the
+    # backend's skills root and never preloaded. A bare string is a path source
+    # (a SKILL.md on disk, resolved against the spec's directory); a mapping is
+    # a git source. Peers — no entry is privileged as "the skill under test".
+    # Empty for a bare-agent eval. See docs/CONTEXT.md → Skill source.
+    skills: list[str | GitSkillSource] = []
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     mcp: dict[str, McpServer] = {}
     tasks: list[TaskSpec]

@@ -43,6 +43,22 @@ change is **never** a regression (only the score is), and dollar cost is not tra
 (tokens are the volume signal). Each attempt in the report also shows its tokens
 next to its duration under `--verbose`.
 
+`compare` also reports **skill drift** — a member of the neighbourhood whose
+*text* changed between the two runs, read from the per-file hashes in each run's
+snapshots. It is graded by provenance, not role: a drifted **git source** warns,
+because the spec claimed where those bytes came from and the delta you are
+reading is confounded; a drifted **path source** is shown without alarm, because
+nothing was promised about a working file and that edit is usually the thing the
+run exists to measure.
+
+```
+ ⚠ tdd changed between runs — git source, a1b2c3d → e4f5g6h; pin `ref:` to hold it fixed
+   my-skill changed between runs — path, 4fc7951 → bcbcbde
+```
+
+This is a change in *text* at constant membership; a change in *membership* is
+the separate neighbourhood warning.
+
 ## Inspecting failures
 
 After any `caliper run`, failed tasks are shown automatically with their output
@@ -72,8 +88,12 @@ The spec carries no engine — pick the backend/model at run time with `--model`
 ```yaml
 skills:                   # installed at the agent's own skills root, never
   - ./SKILL.md            #   preloaded — the agent has to choose it
-  # add neighbouring skills as further entries to test that yours is the
-  # one that fires (they are assertable via `activates:`, not decoration)
+  # add further entries to test that yours is the one that fires (they are
+  # assertable via `activates:`, not decoration). A bare string is a *path
+  # source*; a mapping is a *git source* caliper clones for you:
+  - repo: vercel-labs/agent-skills
+    ref: a1b2c3d          # optional — omit to track the default branch
+    path: skills/tdd/SKILL.md   # optional — defaults to SKILL.md at the root
 
 sandbox:
   forbidden_files:

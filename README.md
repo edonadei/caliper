@@ -330,8 +330,11 @@ the YAML below.
 ```yaml
 skills:                         # installed where the agent looks for skills,
   - ./SKILL.md                  #   never pasted into the prompt
-  - ../evaluate-skill/SKILL.md  # neighbours: the competition your description
-                                #   has to win against (omit for a bare agent)
+  - ../evaluate-skill/SKILL.md  # a path source: whatever that file says today
+  - repo: vercel-labs/agent-skills   # a git source: caliper clones it
+    ref: a1b2c3d                     #   optional — omit to track the default branch
+    path: skills/tdd/SKILL.md        #   optional — defaults to SKILL.md at the root
+                                # omit `skills:` entirely for a bare agent
 
 # Note: there is no `backend`/`model` or `judge:` block. The engine is a runtime
 # axis: pass `--model` / `--judge-model` at run time (default: claude-code).
@@ -397,6 +400,61 @@ makes "did it actually delegate?" assertable.
 A skill must be a `SKILL.md` in a directory, carrying frontmatter `name:` and
 `description:`. A lone slash-command `.md` is rejected: with no name and no
 description there is nothing for an agent to discover.
+
+#### Path sources and git sources
+
+An entry is written one of two ways, and the shape is the difference:
+
+| Entry | Means |
+|---|---|
+| `- ./SKILL.md` | a **path source** — a file on your disk, whatever it says at run time |
+| `- {repo: …, ref: …, path: …}` | a **git source** — caliper clones it and resolves `ref:` to a commit |
+
+Git sources are how you give your `description` real competition to win against
+without vendoring somebody's repo into yours. One entry is one skill; entries
+sharing a repo and commit share one clone, so naming five skills from a pack
+costs five entries and one fetch.
+
+`repo:` takes anything git can clone. A bare `owner/name` is expanded to
+`https://github.com/owner/name`; a URL, an `scp`-style `git@host:owner/name`, or
+a filesystem path is passed through untouched. To point at a *local* repo by
+relative path, write `./owner/name` — the leading `./` is what tells it apart
+from the shorthand.
+
+`ref:` is optional and an omitted one tracks the default branch, so it *will*
+move. That's allowed rather than forbidden because caliper records the commit it
+resolved and `compare` tells you when it moved — see below. Pinning a commit is
+still worth it: a pinned entry is fully offline once fetched, an unpinned one
+costs one `git ls-remote` per run.
+
+`caliper run` fetches before the first attempt, so a bad `repo:` costs you
+nothing. `caliper validate` never touches the network: it resolves git sources
+from the cache when it can and reports the rest as *not cached* (and says so
+when that means it couldn't check your `activates:` names).
+
+Checkouts land in `~/.cache/caliper/skills/` (or `$XDG_CACHE_HOME/caliper/…`),
+keyed by resolved commit — so they're immutable, shared across every spec that
+names them, and safe to delete. Set `CALIPER_CACHE_DIR` to put them elsewhere.
+
+If a git source can't be fetched and isn't cached, the run **refuses** — a
+member silently missing would measure your skill against competition that
+wasn't there. If it's cached but the remote is unreachable, the run uses the
+cache and says so.
+
+#### Skill drift
+
+`caliper compare` reports any member whose text changed between the two runs.
+A **git source** that moved gets a warning: the spec said where its bytes came
+from, and the delta you're reading is confounded. A **path source** that moved
+is shown without alarm — that's usually the edit the run exists to measure.
+
+```
+ ⚠ tdd changed between runs — git source, a1b2c3d → e4f5g6h; pin `ref:` to hold it fixed
+   my-skill changed between runs — path, 4fc7951 → bcbcbde
+```
+
+This is a change in *text* at constant membership. A change in *membership* —
+different skills installed — is the separate neighbourhood warning.
 
 ### `activates:`: did the agent reach for it?
 
@@ -574,7 +632,10 @@ How the diff reads:
   `has_regression`.
 
 `--format json` serializes the full comparison (per-task scores, deltas,
-regression flags, unmatched lists, warnings, and per-side usage) for scripting.
+regression flags, unmatched lists, warnings, `skill_drift`, and per-side usage)
+for scripting. Each `skill_drift` entry carries the member's `name`,
+`source_kind`, and the two sides' `a_ref`/`b_ref` — so a script sees drift for
+*every* member, including the path-sourced ones that don't raise a warning.
 
 ---
 
@@ -670,6 +731,10 @@ them up per run:
   turns (`role`, `content`, and tool `tool_name`/`tool_input`/`tool_output` when
   present). This preserves the full tool-call trace in saved results for later
   inspection; older JSON without the field still loads (`transcript` is `null`).
+- Each `SkillSnapshot` records `source_kind` (`"path"` or `"git"`) alongside
+  `git_repo`/`git_sha`, so a saved run says how each member of the neighbourhood
+  was obtained and — for a git source — the exact commit it was fetched at.
+  Older JSON without the field still loads and reads as `"path"`.
 - In the summary, **`in` = input + cache_read + cache_creation** and **`out` =
   output**. The **unusable** slice (timeout / infra / judge error) is broken out
   separately, so wasted spend stays visible without distorting the per-attempt

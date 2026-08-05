@@ -21,6 +21,9 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from caliper.schema.spec import GitSkillSource
+from caliper.skillfetch import SkillFetchError, SkillFetcher
+
 # Directories never installed: results (cheat surface), VCS, caches.
 _EXCLUDE_DIRS = {".caliper", ".git", "__pycache__", "node_modules", ".venv"}
 # Per-file cap so a stray large fixture or binary can't bloat every attempt.
@@ -38,10 +41,20 @@ class SkillResolutionError(ValueError):
 
 @dataclass(frozen=True)
 class SkillRef:
-    """One member of the neighbourhood: its identity and where it lives."""
+    """One member of the neighbourhood: its identity and where it lives.
+
+    ``source_kind`` records *how the entry was written*, not what role the skill
+    plays — peers stay peers. It travels into the run's snapshot because it is
+    what grades [[skill drift]]: a git source made a reproducibility claim the
+    spec could keep, a path source made none. See docs/adr/0017 and
+    docs/CONTEXT.md → Skill source.
+    """
 
     name: str
     path: Path
+    source_kind: str = "path"
+    git_repo: str | None = None
+    git_sha: str | None = None
 
     @property
     def directory(self) -> Path:
@@ -59,23 +72,52 @@ def frontmatter_name(text: str) -> str | None:
     return match.group(1).strip().strip("\"'")
 
 
-def resolve_skills(skill_paths: list[str], spec_dir: Path) -> list[SkillRef]:
-    """Turn a spec's ``skills:`` paths into named refs, or explain the refusal.
+def resolve_skills(
+    entries: list[str | GitSkillSource],
+    spec_dir: Path,
+    *,
+    fetcher: SkillFetcher | None = None,
+) -> list[SkillRef]:
+    """Turn a spec's ``skills:`` sources into named refs, or explain the refusal.
 
-    Relative paths resolve against the spec's own directory. Every entry must be
+    A bare string is a **path source**: relative paths resolve against the spec's
+    own directory. A mapping is a **git source**, materialized through
+    ``fetcher`` into a commit-addressed cache. Either way every entry must end at
     a ``SKILL.md`` carrying a frontmatter ``name:``, because the name is the
     install directory and therefore the identity everything downstream matches
-    on. Names must be unique: two entries with one name would collide on a single
-    install path, silently installing one over the other.
+    on. Names must be unique across the whole neighbourhood, whatever the source:
+    two entries with one name would collide on a single install path, silently
+    installing one over the other.
+
+    An offline ``fetcher`` (what ``validate`` passes) **skips** an uncached git
+    source rather than raising, recording it on ``fetcher.unresolved`` — a
+    schema check should not become a connectivity check.
     """
+    fetcher = fetcher or SkillFetcher()
     refs: list[SkillRef] = []
     seen: dict[str, Path] = {}
 
-    for raw in skill_paths:
-        path = Path(raw).expanduser()
-        if not path.is_absolute():
-            path = spec_dir / path
-        path = path.resolve()
+    for entry in entries:
+        if isinstance(entry, GitSkillSource):
+            try:
+                fetched = fetcher.materialize(entry)
+            except SkillFetchError as exc:
+                raise SkillResolutionError(str(exc)) from exc
+            if fetched is None:
+                continue
+            path, raw = fetched.path, f"{entry.repo}:{entry.path}"
+            provenance = {
+                "source_kind": "git",
+                "git_repo": fetched.repo,
+                "git_sha": fetched.sha,
+            }
+        else:
+            raw = entry
+            path = Path(entry).expanduser()
+            if not path.is_absolute():
+                path = spec_dir / path
+            path = path.resolve()
+            provenance = {"source_kind": "path"}
 
         if path.name != "SKILL.md":
             raise SkillResolutionError(
@@ -114,7 +156,7 @@ def resolve_skills(skill_paths: list[str], spec_dir: Path) -> list[SkillRef]:
             )
 
         seen[name] = path
-        refs.append(SkillRef(name=name, path=path))
+        refs.append(SkillRef(name=name, path=path, **provenance))
 
     return refs
 
@@ -151,7 +193,11 @@ def apply_ablation(refs: list[SkillRef], ablate: list[str]) -> list[SkillRef]:
 
 
 def validate_activates(
-    tasks: list, refs: list[SkillRef], *, spec_label: str = "spec"
+    tasks: list,
+    refs: list[SkillRef],
+    *,
+    spec_label: str = "spec",
+    closed: bool = True,
 ) -> None:
     """Refuse an ``activates:`` naming a skill the spec never declared.
 
@@ -160,7 +206,15 @@ def validate_activates(
     stuck at 0% for a reason no transcript explains. Shared by ``validate`` (so
     it is caught before you pay for anything) and the run seam (so it is caught
     even when ``validate`` was skipped).
+
+    ``closed=False`` stands the check down, for the one case where the check's
+    premise does not hold: an offline ``validate`` could not see every declared
+    member, so ``refs`` is a subset of the neighbourhood rather than all of it,
+    and an unrecognised name means "not visible from here" rather than "not
+    declared". A run never passes this — it has fetched everything or refused.
     """
+    if not closed:
+        return
     declared = {ref.name for ref in refs}
     for task in tasks:
         unknown = [name for name in (task.activates or []) if name not in declared]
