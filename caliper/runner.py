@@ -469,14 +469,17 @@ class _SkillSnapshotter:
             hash="sha256:" + hashlib.sha256(content.encode()).hexdigest(),
         )
 
+        # `referenced`, not `ref`: the parameter is the SkillRef, and reusing the
+        # name here silently rebound it to a Path for every skill whose SKILL.md
+        # points at a companion file — which is most real ones.
         for match in self._REF_PATTERN.finditer(content):
-            ref = Path(match.group()).expanduser()
-            if not ref.is_absolute():
-                ref = path.parent / ref
-            ref = ref.resolve()
-            if ref.exists() and ref != path:
-                rel = str(ref.relative_to(path.parent))
-                ref_content = ref.read_text()
+            referenced = Path(match.group()).expanduser()
+            if not referenced.is_absolute():
+                referenced = path.parent / referenced
+            referenced = referenced.resolve()
+            if referenced.exists() and referenced != path:
+                rel = str(referenced.relative_to(path.parent))
+                ref_content = referenced.read_text()
                 files[rel] = FileSnapshot(
                     content=ref_content,
                     hash="sha256:" + hashlib.sha256(ref_content.encode()).hexdigest(),
