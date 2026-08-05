@@ -124,3 +124,15 @@ def test_two_distinct_runs_of_one_spec_still_compare(monkeypatch, tmp_path) -> N
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["compare", str(ablated), str(full)])
     assert result.exit_code == 0, result.output
+
+
+def test_list_names_which_run_was_the_control_arm(monkeypatch, tmp_path) -> None:
+    # `compare` needs the older side addressed by path, so an agent in a later
+    # session has to be able to tell the control arm from the full run without
+    # opening every results file.
+    _two_runs(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["list", "demo"])
+    assert result.exit_code == 0, result.output
+    assert "ablated" in result.output
+    assert "my-skill" in result.output

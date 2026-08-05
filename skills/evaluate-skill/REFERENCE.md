@@ -25,7 +25,7 @@ caliper validate path/to/spec.eval.yaml
 ### Browse saved results
 ```bash
 caliper list                        # all specs with latest scores
-caliper list my-skill-eval          # all runs for one spec
+caliper list my-skill-eval          # all runs for one spec: Run id + which were ablated
 caliper report my-skill-eval        # latest run (table view)
 caliper report my-skill-eval --run 2026-05-12T14-23-01Z  # specific run
 caliper report results.json --format json

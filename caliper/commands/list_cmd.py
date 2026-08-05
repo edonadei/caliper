@@ -76,23 +76,35 @@ def _list_runs(spec_dir: Path, spec_name: str) -> None:
         return
 
     table = Table(box=box.ROUNDED, header_style="bold cyan", expand=False)
-    table.add_column("Timestamp")
+    # No separate timestamp column: the run id *is* its timestamp, and spending
+    # a column to restate it in another format is what squeezed the id itself
+    # into an ellipsis.
     table.add_column("k", justify="right")
     table.add_column("Tasks", justify="right")
     table.add_column("pass@k", justify="right")
-    table.add_column("File", style="dim")
+    # Which run was a control arm. Without it two runs of one spec are
+    # indistinguishable here, and `compare` needs the older side named by path
+    # (docs/CONTEXT.md → Run comparison) — so this is where you find out which
+    # file that is, short of opening each one.
+    table.add_column("ablated", style="yellow")
+    # Folded, never ellipsized: this cell is the handle a caller passes to
+    # `compare`/`report --run`, so a truncated one is useless. Wrapping keeps
+    # every character on screen at any terminal width.
+    table.add_column("Run", style="dim", overflow="fold")
 
     for f in files:
+        ablated = ""
         try:
             results = RunResults.model_validate_json(f.read_text())
-            ts = results.run.timestamp.strftime("%Y-%m-%d %H:%M:%S")
             score = f"{results.aggregate.avg_score * 100:.1f}%"
             k = str(results.run.k)
             n_tasks = str(len(results.task_results))
+            ablated = ", ".join(results.run.ablated)
         except Exception:
-            ts = f.stem
             score = k = n_tasks = "?"
 
-        table.add_row(ts, k, n_tasks, score, f.name)
+        # The stem, not the filename: it is what `report --run` takes verbatim,
+        # and what a `compare` path is built from.
+        table.add_row(k, n_tasks, score, ablated, f.stem)
 
     console.print(table)
