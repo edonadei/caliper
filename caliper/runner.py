@@ -1,34 +1,30 @@
 from __future__ import annotations
 
-import hashlib
 import re
 import shutil
 import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from caliper.activation import ActivationDetector, check_activation
+from caliper.activation import ActivationDetector
+from caliper.attempt import assemble_attempt
 from caliper.harness.base import (
     ConversationTurn,
     HarnessBackend,
     HarnessConfigurationError,
 )
 from caliper.judge.base import Judge
-from caliper.outcome import classify_outcome, classify_pre_judge
 from caliper.schema.results import (
     ERA_INSTALL_AND_DISCOVER,
     AttemptRecord,
-    FileSnapshot,
     Outcome,
     RunMeta,
     RunResults,
-    SkillSnapshot,
     TaskResult,
-    TranscriptTurn,
 )
 from caliper.schema.spec import DEFAULT_BACKEND, EvalSpec, TaskSpec, spec_name
 from caliper.scoring import aggregate_activation, aggregate_scores, score_outcomes
@@ -39,6 +35,7 @@ from caliper.skills import (
     resolve_skills,
     validate_activates,
 )
+from caliper.skillsnapshot import snapshot_skill
 
 _FAIL_FAST_OUTCOMES = {Outcome.INFRA_ERROR, Outcome.TIMEOUT}
 
@@ -157,10 +154,9 @@ def run(
     ablated = sorted(set(ablate or []))
     skill_refs = apply_ablation(declared_refs, ablated)
 
-    snapshotter = _SkillSnapshotter()
     # Only the installed skills: a snapshot claims "this is what produced the
     # score", which an ablated skill demonstrably did not.
-    skill_snapshots = [snapshotter.snapshot(ref) for ref in skill_refs]
+    skill_snapshots = [snapshot_skill(ref) for ref in skill_refs]
     detector = ActivationDetector(
         [ref.name for ref in skill_refs], harness.activation_tool_names
     )
@@ -268,13 +264,14 @@ def _run_task(task: TaskSpec, env: _RunEnv, k: int) -> TaskResult:
     return result
 
 
-def _persist_transcript(
-    turns: list[ConversationTurn],
-) -> list[TranscriptTurn]:
-    return [TranscriptTurn(**asdict(turn)) for turn in turns]
-
-
 def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord:
+    """Run one attempt end to end: its lifecycle here, its verdict next door.
+
+    This function owns what an attempt *costs* — a fresh isolated home, the
+    task's setup/cleanup shell, one harness invocation — and hands the finished
+    result to :func:`caliper.attempt.assemble_attempt`, which owns what it
+    *means*.
+    """
     spec, spec_path = env.spec, env.spec_path
     tmp_dir = tempfile.mkdtemp(prefix="caliper-")
     try:
@@ -303,99 +300,20 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord:
         if attempt_result.resolved_model:
             env.resolved_models.append(attempt_result.resolved_model)
 
-        # A timeout or infrastructure signal terminates the attempt before we
-        # spend a (paid) judge call on garbage output. The pre-judge classifier
-        # owns that predicate — the runner no longer re-derives it — so the skip
-        # here and the final label can never drift apart.
-        pre_judge_outcome = classify_pre_judge(attempt_result)
-
-        # Recorded on *every* attempt that produced a whole transcript, asserted
-        # only when the task said so. A timeout/infra failure yields ``None`` —
-        # *not observed*, never a fabricated empty set — because the transcript
-        # may have been truncated, where an empty result would be a confident
-        # "the description never fired" manufactured from nothing. (Ablating the
-        # whole neighbourhood yields ``None`` too, from the detector itself:
-        # nothing installed means no choice existed to observe.)
-        activated = (
-            env.activation.detect(attempt_result.transcript)
-            if pre_judge_outcome is None
-            else None
-        )
-        activation_passed = check_activation(activated, env.expected_activation(task))
-
-        def record(outcome: Outcome, **verdict) -> AttemptRecord:
-            """One attempt's record; only the verdict fields differ per exit path.
-
-            ``activated``/``activation_passed`` ride on every path, because
-            activation is observed from the transcript and owes nothing to the
-            judge.
-            """
-            return AttemptRecord(
-                attempt=attempt,
-                output=attempt_result.final_output,
-                duration_seconds=attempt_result.duration_seconds,
-                outcome=outcome,
-                usage=attempt_result.usage,
-                transcript=_persist_transcript(attempt_result.transcript),
-                activated=activated,
-                activation_passed=activation_passed,
-                **verdict,
-            )
-
-        if pre_judge_outcome is not None:
-            evidence = (
-                attempt_result.error or f"harness exited {attempt_result.exit_code}"
-            )
-            return _finish(
-                record(pre_judge_outcome, assert_evidence=evidence),
-                task,
-                env.on_attempt_done,
-            )
-
-        cheat_violations = env.cheat.check(attempt_result.transcript)
-        if cheat_violations:
-            outcome = classify_outcome(attempt_result, cheat_violations, None)
-            return _finish(
-                record(outcome, cheat_evidence=cheat_violations),
-                task,
-                env.on_attempt_done,
-            )
-
-        # An `activates:`-only task authored no execution check, so there is
-        # nothing to grade — skip the (paid) judge call rather than spending it
-        # to receive a non-verdict and label the attempt an error.
-        if not (task.expect or task.assert_script):
-            return _finish(
-                record(
-                    classify_outcome(
-                        attempt_result, [], None, has_execution_check=False
-                    )
-                ),
-                task,
-                env.on_attempt_done,
-            )
-
-        judge_result = env.judge.evaluate(
+        assembled = assemble_attempt(
+            attempt_result,
+            attempt=attempt,
             task=task,
-            transcript=attempt_result.transcript,
-            final_output=attempt_result.final_output,
             spec_dir=str(spec_path.parent),
+            expected_activation=env.expected_activation(task),
+            activation=env.activation,
+            cheat=env.cheat,
+            judge=env.judge,
         )
-        if judge_result.resolved_model:
-            env.judge_models.append(judge_result.resolved_model)
-        outcome = classify_outcome(attempt_result, [], judge_result)
+        if assembled.judge_model:
+            env.judge_models.append(assembled.judge_model)
 
-        return _finish(
-            record(
-                outcome,
-                assert_passed=judge_result.assert_passed,
-                assert_evidence=judge_result.assert_evidence,
-                autorater_passed=judge_result.autorater_passed,
-                autorater_reasoning=judge_result.autorater_reasoning,
-            ),
-            task,
-            env.on_attempt_done,
-        )
+        return _finish(assembled.record, task, env.on_attempt_done)
     finally:
         _run_shell(task.cleanup)
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -449,73 +367,3 @@ class _CheatDetector:
                 results.extend(self._extract_paths(item, depth + 1))
             return results
         return []
-
-
-class _SkillSnapshotter:
-    _REF_PATTERN = re.compile(r'[./~][^\s"\'<>]+\.(sh|py|md|js|ts)')
-
-    def snapshot(self, ref: SkillRef) -> SkillSnapshot:
-        path = Path(ref.path).expanduser().resolve()
-        name = ref.name
-        if not path.exists():
-            return SkillSnapshot(
-                name=name, path=str(path), source_kind=ref.source_kind, files={}
-            )
-
-        files: dict[str, FileSnapshot] = {}
-        content = path.read_text()
-        files[path.name] = FileSnapshot(
-            content=content,
-            hash="sha256:" + hashlib.sha256(content.encode()).hexdigest(),
-        )
-
-        # `referenced`, not `ref`: the parameter is the SkillRef, and reusing the
-        # name here silently rebound it to a Path for every skill whose SKILL.md
-        # points at a companion file — which is most real ones.
-        for match in self._REF_PATTERN.finditer(content):
-            referenced = Path(match.group()).expanduser()
-            if not referenced.is_absolute():
-                referenced = path.parent / referenced
-            referenced = referenced.resolve()
-            if referenced.exists() and referenced != path:
-                rel = str(referenced.relative_to(path.parent))
-                ref_content = referenced.read_text()
-                files[rel] = FileSnapshot(
-                    content=ref_content,
-                    hash="sha256:" + hashlib.sha256(ref_content.encode()).hexdigest(),
-                )
-
-        # A git source already knows its provenance exactly — caliper resolved
-        # the ref and cloned that commit — so it is taken from the ref rather
-        # than re-derived from the checkout, whose HEAD is the same thing by a
-        # longer route. Only a path source has to be interrogated.
-        if ref.source_kind == "git":
-            git_repo, git_sha = ref.git_repo, ref.git_sha
-        else:
-            git_repo, git_sha = self._git_info(path)
-        return SkillSnapshot(
-            name=name,
-            path=str(path),
-            source_kind=ref.source_kind,
-            git_repo=git_repo,
-            git_sha=git_sha,
-            files=files,
-        )
-
-    def _git_info(self, path: Path) -> tuple[str | None, str | None]:
-        try:
-            repo = subprocess.check_output(
-                ["git", "rev-parse", "--show-toplevel"],
-                cwd=str(path.parent),
-                stderr=subprocess.DEVNULL,
-                text=True,
-            ).strip()
-            sha = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"],
-                cwd=str(path.parent),
-                stderr=subprocess.DEVNULL,
-                text=True,
-            ).strip()
-            return repo, sha
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            return None, None
