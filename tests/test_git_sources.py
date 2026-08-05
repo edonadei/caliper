@@ -254,6 +254,48 @@ def test_a_missing_skill_md_inside_the_repo_refuses(tmp_path: Path, origin: Path
         )
 
 
+def test_owner_name_shorthand_expands_to_a_github_url():
+    """git reads `owner/name` as a relative path, so caliper has to expand it."""
+    assert (
+        SkillFetcher.clone_url("vercel-labs/agent-skills")
+        == "https://github.com/vercel-labs/agent-skills"
+    )
+
+
+@pytest.mark.parametrize(
+    "repo",
+    [
+        "https://github.com/owner/name",
+        "git@github.com:owner/name.git",
+        "/abs/path/to/repo",
+        "./relative/repo",
+        "~/repo",
+        "owner/name/extra",
+    ],
+)
+def test_only_bare_owner_name_is_treated_as_shorthand(repo: str):
+    """Anything git already understands must pass through untouched."""
+    assert SkillFetcher.clone_url(repo) == repo
+
+
+def test_a_local_repo_is_still_reachable_by_relative_path(tmp_path: Path, origin: Path):
+    """`./owner/name` is the escape hatch from shorthand expansion."""
+    fetched = SkillFetcher(cache_dir=tmp_path / "cache").materialize(
+        GitSkillSource(repo=f"./{origin.relative_to(Path.cwd())}", ref="main")
+        if origin.is_relative_to(Path.cwd())
+        else GitSkillSource(repo=str(origin), ref="main")
+    )
+    assert fetched is not None
+
+
+def test_the_cache_key_and_messages_keep_the_spec_s_own_string(tmp_path: Path):
+    """A spec that wrote `owner/name` is never reported back under a URL."""
+    fetcher = SkillFetcher(cache_dir=tmp_path / "cache")
+    src = GitSkillSource(repo="owner/name", ref="main")
+    assert fetcher._label(src) == "owner/name@main"
+    assert "owner-name" in fetcher._repo_dir(src.repo).name
+
+
 # ── resolution ───────────────────────────────────────────────────────────────
 
 

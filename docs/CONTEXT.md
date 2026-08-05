@@ -349,10 +349,11 @@ skill's role: peers stay peers ([[ablation]]).
 - A **path source** is a bare string: a `SKILL.md` on the local filesystem,
   resolved against the spec's directory. It is whatever that file says at run
   time, and the spec makes no claim about what that is.
-- A **git source** is a mapping — `repo:`, an optional `ref:` (default branch
-  when omitted), an optional `path:` (repo-root `SKILL.md` when omitted) —
-  which caliper clones into a content-addressed cache and resolves to a
-  concrete commit at fetch. One entry is one skill.
+- A **git source** is a mapping — `repo:` (anything git can clone; a bare
+  `owner/name` expands to a GitHub URL), an optional `ref:` (default branch when
+  omitted), an optional `path:` (repo-root `SKILL.md` when omitted) — which
+  caliper clones into a content-addressed cache and resolves to a concrete
+  commit at fetch. One entry is one skill.
 
 The two shapes mirror the local-vs-remote discrimination [[MCP server
 (declared)|`mcp:`]] already uses. The asymmetry that matters downstream is that

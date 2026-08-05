@@ -32,6 +32,12 @@ _SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 # Keeps a cache directory readable (`agent-skills-1f4a…`) without letting a repo
 # string containing slashes or `..` decide where we write.
 _SLUG_RE = re.compile(r"[^A-Za-z0-9._-]+")
+# `owner/name` — the shorthand every skill registry uses, and the form the docs
+# lead with. git does not understand it (it reads it as a relative path), so
+# caliper expands it. Deliberately narrow: exactly one slash, no scheme, no
+# leading `.`/`/`/`~`, so a local repo is still reachable by writing `./owner/name`.
+_SHORTHAND_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
+_SHORTHAND_HOST = "https://github.com/"
 
 _GIT_TIMEOUT = 120
 
@@ -213,7 +219,7 @@ class SkillFetcher:
 
     def _ls_remote(self, src: GitSkillSource) -> str:
         ref = src.ref or "HEAD"
-        out = self._git("ls-remote", src.repo, ref)
+        out = self._git("ls-remote", self.clone_url(src.repo), ref)
         for line in out.splitlines():
             sha, _, name = line.partition("\t")
             if name.strip() in (ref, f"refs/heads/{ref}", f"refs/tags/{ref}"):
@@ -236,7 +242,7 @@ class SkillFetcher:
         dest.mkdir(parents=True, exist_ok=True)
         try:
             self._git("init", "-q", cwd=dest)
-            self._git("remote", "add", "origin", src.repo, cwd=dest)
+            self._git("remote", "add", "origin", self.clone_url(src.repo), cwd=dest)
             self._git("fetch", "-q", "--depth", "1", "origin", sha, cwd=dest)
             self._git("checkout", "-q", "FETCH_HEAD", cwd=dest)
         except SkillFetchError:
@@ -281,6 +287,18 @@ class SkillFetcher:
         return out
 
     # ── paths and plumbing ───────────────────────────────────────────────────
+
+    @staticmethod
+    def clone_url(repo: str) -> str:
+        """What to hand `git`, expanding `owner/name` to a GitHub URL.
+
+        Only the URL is expanded; the cache key and every message keep the
+        string the spec wrote, so a spec that says `owner/name` is not reported
+        back under a URL the author never typed.
+        """
+        if _SHORTHAND_RE.match(repo):
+            return f"{_SHORTHAND_HOST}{repo}"
+        return repo
 
     def _repo_dir(self, repo: str) -> Path:
         digest = hashlib.sha256(repo.encode()).hexdigest()[:12]

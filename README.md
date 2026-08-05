@@ -415,6 +415,12 @@ without vendoring somebody's repo into yours. One entry is one skill; entries
 sharing a repo and commit share one clone, so naming five skills from a pack
 costs five entries and one fetch.
 
+`repo:` takes anything git can clone. A bare `owner/name` is expanded to
+`https://github.com/owner/name`; a URL, an `scp`-style `git@host:owner/name`, or
+a filesystem path is passed through untouched. To point at a *local* repo by
+relative path, write `./owner/name` — the leading `./` is what tells it apart
+from the shorthand.
+
 `ref:` is optional and an omitted one tracks the default branch, so it *will*
 move. That's allowed rather than forbidden because caliper records the commit it
 resolved and `compare` tells you when it moved — see below. Pinning a commit is
