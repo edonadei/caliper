@@ -76,11 +76,21 @@ def _tc(name, a_score, b_score, a_outcomes, b_outcomes):
     )
 
 
-def _baseline_example() -> RunComparison:
-    """`--baseline` diff: no skill vs with skill on `commit-commands`, k=3."""
-    run = RunMeta(
+def _ablation_example() -> RunComparison:
+    """An ablation pair on `commit-commands`, k=3: the skill removed vs present.
+
+    Two ordinary saved runs; the sides are titled from ``RunMeta.ablated``.
+    """
+    ablated_run = RunMeta(
         spec="commit-commands",
         timestamp=datetime(2026, 7, 12, 9, 0, 0),
+        k=3,
+        backend="claude-code",
+        ablated=["commit-commands"],
+    )
+    full_run = RunMeta(
+        spec="commit-commands",
+        timestamp=datetime(2026, 7, 12, 9, 30, 0),
         k=3,
         backend="claude-code",
     )
@@ -95,10 +105,10 @@ def _baseline_example() -> RunComparison:
     b_usage = _tokens(180_000)
     b_usage.wall_seconds = 42.0
     return RunComparison(
-        a=run,
-        b=run,
-        a_label="no skill",
-        b_label="with skill",
+        a=ablated_run,
+        b=full_run,
+        a_label="without commit-commands",
+        b_label="full neighbourhood",
         matched=matched,
         unmatched_a=[],
         unmatched_b=[],
@@ -367,8 +377,8 @@ def _record_svg(render, out_name: str, title: str) -> Path:
 def main() -> None:
     for path in (
         _record_svg(
-            lambda: print_comparison(_baseline_example()),
-            "compare-baseline.svg",
+            lambda: print_comparison(_ablation_example()),
+            "compare-ablation.svg",
             "caliper compare",
         ),
         _record_svg(

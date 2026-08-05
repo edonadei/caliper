@@ -32,7 +32,12 @@ from caliper.schema.results import (
 )
 from caliper.schema.spec import DEFAULT_BACKEND, EvalSpec, TaskSpec, spec_name
 from caliper.scoring import aggregate_activation, aggregate_scores, score_outcomes
-from caliper.skills import SkillRef, resolve_skills, validate_activates
+from caliper.skills import (
+    SkillRef,
+    apply_ablation,
+    resolve_skills,
+    validate_activates,
+)
 
 _FAIL_FAST_OUTCOMES = {Outcome.INFRA_ERROR, Outcome.TIMEOUT}
 
@@ -49,8 +54,7 @@ class _RunEnv:
     """Everything constant across a run's tasks and attempts.
 
     Threaded as one value so ``_run_task``/``_run_attempt`` keep a readable
-    signature — they vary only by task, attempt number, and whether the skills
-    are installed (the ``--baseline`` axis).
+    signature — they vary only by task and attempt number.
     """
 
     harness: HarnessBackend
@@ -59,7 +63,11 @@ class _RunEnv:
     activation: ActivationDetector
     spec: EvalSpec
     spec_path: Path
+    # The skills actually installed: the declared neighbourhood minus anything
+    # ``--ablate`` removed.
     skill_refs: list[SkillRef]
+    # Truthy on an ablated run, which drops every task's activation expectation.
+    ablated: list[str]
     timeout: int
     fail_fast_unusable: int
     on_attempt_done: Callable[[AttemptEvent], None] | None
@@ -69,6 +77,22 @@ class _RunEnv:
     # the GIL, so these are safe to share across the pool's worker threads.
     resolved_models: list[str]
     judge_models: list[str]
+
+    def expected_activation(self, task: TaskSpec) -> list[str] | None:
+        """What this run asserts the task should activate — ``None`` if ablated.
+
+        An ablated run **drops** the expectation rather than filtering the
+        removed skill out of it. Filtering would assert a claim the author never
+        wrote, and it inverts the delegating case: remove a parent and its
+        neighbours correctly stop firing, so scoring that as a miss would report
+        the finding as a failure. The observation is still recorded; only the
+        verdict is withheld, so the column renders skipped rather than 0%. See
+        docs/adr/0015-ablation-names-its-subject-at-the-invocation.md.
+
+        Lives here because the task record and the attempt record both need it,
+        and a rule written twice is a rule that drifts.
+        """
+        return None if self.ablated else task.activates
 
 
 def run(
@@ -83,7 +107,7 @@ def run(
     k: int = 3,
     workers: int = 4,
     timeout: int = 120,
-    baseline: bool = False,
+    ablate: list[str] | None = None,
     on_attempt_done: Callable[[AttemptEvent], None] | None = None,
     on_task_done: Callable[[TaskResult], None] | None = None,
     fail_fast_unusable: int = 0,
@@ -115,10 +139,21 @@ def run(
     # Resolve the neighbourhood once, up front: a bad entry (a lone .md, a
     # missing frontmatter name:, a duplicate) should fail before any paid
     # attempt runs, not partway through.
-    skill_refs = resolve_skills(list(spec.skills), spec_path.parent)
-    validate_activates(spec.tasks, skill_refs)
+    declared_refs = resolve_skills(list(spec.skills), spec_path.parent)
+    # Validated against the *declared* set, not the installed one: under
+    # --ablate an `activates:` naming the removed skill has its expectation
+    # dropped, not violated, so refusing it here would make a correct spec
+    # unrunnable in exactly the mode it was written for. See
+    # docs/adr/0015-ablation-names-its-subject-at-the-invocation.md.
+    validate_activates(spec.tasks, declared_refs)
+    # Deduplicated: `--ablate x --ablate x` removes one skill, and the marker
+    # says so — it is the run's own description of what it did.
+    ablated = sorted(set(ablate or []))
+    skill_refs = apply_ablation(declared_refs, ablated)
 
     snapshotter = _SkillSnapshotter()
+    # Only the installed skills: a snapshot claims "this is what produced the
+    # score", which an ablated skill demonstrably did not.
     skill_snapshots = [
         snapshotter.snapshot(str(ref.path), ref.name) for ref in skill_refs
     ]
@@ -132,9 +167,6 @@ def run(
     ]
     cheat = _CheatDetector(list(spec.sandbox.forbidden_files) + auto_forbidden)
 
-    task_results_with: list[TaskResult] = []
-    task_results_without: list[TaskResult] = []
-
     env = _RunEnv(
         harness=harness,
         judge=judge,
@@ -143,6 +175,7 @@ def run(
         spec=spec,
         spec_path=spec_path,
         skill_refs=skill_refs,
+        ablated=ablated,
         timeout=timeout,
         fail_fast_unusable=fail_fast_unusable,
         on_attempt_done=on_attempt_done,
@@ -151,44 +184,24 @@ def run(
         judge_models=[],
     )
 
+    task_results: list[TaskResult] = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures_with = {
-            pool.submit(_run_task, task, env, k, True): task for task in spec.tasks
-        }
-        futures_without = (
-            {pool.submit(_run_task, task, env, k, False): task for task in spec.tasks}
-            if baseline
-            else {}
-        )
+        futures = [pool.submit(_run_task, task, env, k) for task in spec.tasks]
+        for fut in as_completed(futures):
+            task_results.append(fut.result())
 
-        for fut in as_completed(list(futures_with) + list(futures_without)):
-            result = fut.result()
-            if fut in futures_with:
-                task_results_with.append(result)
-            else:
-                task_results_without.append(result)
+    task_results.sort(key=lambda r: r.task_id)
 
-    task_results_with.sort(key=lambda r: r.task_id)
-    task_results_without.sort(key=lambda r: r.task_id)
-
-    pass_counts_with = {
-        r.task_id: (r.task_name, r.successes, r.usable, k) for r in task_results_with
+    pass_counts = {
+        r.task_id: (r.task_name, r.successes, r.usable, k) for r in task_results
     }
-    agg_with = aggregate_scores(pass_counts_with)
+    aggregate = aggregate_scores(pass_counts)
     # The second scoreboard, carried alongside — never folded into avg_score.
-    activation = aggregate_activation(
-        task_results_with, [ref.name for ref in skill_refs]
-    )
-    agg_with.avg_activation_score = activation.avg_score
-    agg_with.activation_tasks = activation.tasks
-    agg_with.activation_asserted = activation.asserted
-    agg_with.activation_per_skill = activation.per_skill
-
-    # Keep the whole no-skill run so the report can render it through the same
-    # ``compare`` path as any other two-run diff (see reporter.diff_baseline).
-    baseline_task_results = (
-        task_results_without if baseline and task_results_without else None
-    )
+    activation = aggregate_activation(task_results, [ref.name for ref in skill_refs])
+    aggregate.avg_activation_score = activation.avg_score
+    aggregate.activation_tasks = activation.tasks
+    aggregate.activation_asserted = activation.asserted
+    aggregate.activation_per_skill = activation.per_skill
 
     return RunResults(
         run=RunMeta(
@@ -207,19 +220,19 @@ def run(
             judge_model=judge_model
             or (env.judge_models[0] if env.judge_models else None),
             era=ERA_INSTALL_AND_DISCOVER,
+            ablated=ablated,
         ),
         skill_snapshots=skill_snapshots,
-        task_results=task_results_with,
-        aggregate=agg_with,
-        baseline_task_results=baseline_task_results,
+        task_results=task_results,
+        aggregate=aggregate,
     )
 
 
-def _run_task(task: TaskSpec, env: _RunEnv, k: int, with_skill: bool) -> TaskResult:
+def _run_task(task: TaskSpec, env: _RunEnv, k: int) -> TaskResult:
     attempts: list[AttemptRecord] = []
     consecutive_fail_fast_triggers = 0
     for attempt_num in range(1, k + 1):
-        record = _run_attempt(task, attempt_num, env, with_skill)
+        record = _run_attempt(task, attempt_num, env)
         attempts.append(record)
         if record.outcome in _FAIL_FAST_OUTCOMES:
             consecutive_fail_fast_triggers += 1
@@ -244,10 +257,7 @@ def _run_task(task: TaskSpec, env: _RunEnv, k: int, with_skill: bool) -> TaskRes
         successes=scores.successes,
         unusable=scores.unusable,
         pass_at_k=scores.pass_at_k,
-        # A --baseline arm installs no skills, so scoring activation there would
-        # be scoring caliper's own plumbing: the expectation is dropped, and the
-        # column renders skipped rather than 0%.
-        activation_expected=task.activates if with_skill else None,
+        activation_expected=env.expected_activation(task),
     )
     if env.on_task_done and len(attempts) < k:
         env.on_task_done(result)
@@ -260,9 +270,7 @@ def _persist_transcript(
     return [TranscriptTurn(**asdict(turn)) for turn in turns]
 
 
-def _run_attempt(
-    task: TaskSpec, attempt: int, env: _RunEnv, with_skill: bool
-) -> AttemptRecord:
+def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord:
     spec, spec_path = env.spec, env.spec_path
     tmp_dir = tempfile.mkdtemp(prefix="caliper-")
     try:
@@ -271,13 +279,12 @@ def _run_attempt(
             str((spec_path.parent / p).resolve()) for p in spec.sandbox.extra_path
         ]
         # The neighbourhood is *installed* by the harness at its own skills root
-        # and never preloaded; --baseline installs nothing at all.
-        skill_refs = env.skill_refs if with_skill else []
+        # and never preloaded. ``env.skill_refs`` is already the ablated set.
         attempt_result = env.harness.run(
             task_id=task.id,
             attempt=attempt,
             prompt=task.prompt,
-            skill_refs=skill_refs,
+            skill_refs=env.skill_refs,
             # None → the harness uses the model it was constructed with; the
             # engine is resolved once at the run seam (ADR 0004), not per spec.
             model=None,
@@ -299,17 +306,18 @@ def _run_attempt(
         pre_judge_outcome = classify_pre_judge(attempt_result)
 
         # Recorded on *every* attempt that produced a whole transcript, asserted
-        # only when the task said so. Two cases yield ``None`` — *not observed*,
-        # never a fabricated empty set: a --baseline arm installed nothing, so
-        # there was no choice to make; and a timeout/infra failure may have been
-        # killed mid-run, where an empty result would be a confident "the
-        # description never fired" manufactured from a truncated transcript.
-        observable = with_skill and pre_judge_outcome is None
+        # only when the task said so. A timeout/infra failure yields ``None`` —
+        # *not observed*, never a fabricated empty set — because the transcript
+        # may have been truncated, where an empty result would be a confident
+        # "the description never fired" manufactured from nothing. (Ablating the
+        # whole neighbourhood yields ``None`` too, from the detector itself:
+        # nothing installed means no choice existed to observe.)
         activated = (
-            env.activation.detect(attempt_result.transcript) if observable else None
+            env.activation.detect(attempt_result.transcript)
+            if pre_judge_outcome is None
+            else None
         )
-        expected = task.activates if with_skill else None
-        activation_passed = check_activation(activated, expected)
+        activation_passed = check_activation(activated, env.expected_activation(task))
 
         def record(outcome: Outcome, **verdict) -> AttemptRecord:
             """One attempt's record; only the verdict fields differ per exit path.

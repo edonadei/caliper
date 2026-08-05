@@ -85,7 +85,7 @@ tasks:
     assert calls["fail_fast_unusable"] == 2
     # Defaults flow through unchanged when the flag is omitted
     assert calls["timeout"] == 120
-    assert calls["baseline"] is False
+    assert calls["ablate"] == []
     # Engine is resolved at the run seam and defaults to claude-code (ADR 0004)
     assert calls["backend"] == "claude-code"
     assert calls["model"] is None
@@ -156,3 +156,62 @@ def test_run_cli_resolves_backend_and_judge_model_targets(
     assert result.exit_code == 0, result.output
     assert harness_args == {"backend": "codex", "model": "gpt-5-codex"}
     assert judge_args == {"backend": "pi", "model": "claude-sonnet-4-6"}
+
+
+def test_run_cli_collects_repeated_ablate_flags(monkeypatch, tmp_path) -> None:
+    """--ablate is repeatable; naming every skill is how you get the bare agent."""
+    spec_file = tmp_path / "sample.eval.yaml"
+    spec_file.write_text(
+        "skills:\n  - ./SKILL.md\n"
+        "tasks:\n  - name: One\n    prompt: Do it\n    assert: assert True\n"
+    )
+    calls = {}
+
+    def fake_run(**kwargs):
+        calls.update(kwargs)
+        return RunResults(
+            run=RunMeta(
+                spec="sample",
+                timestamp=datetime(2026, 7, 3, tzinfo=timezone.utc),
+                k=kwargs["k"],
+                backend="claude-code",
+            ),
+            skill_snapshots=[],
+            task_results=[],
+            aggregate=AggregateScore(avg_score=0.0, per_task=[]),
+        )
+
+    monkeypatch.setattr("caliper.commands.run.get_harness", lambda *a, **k: object())
+    monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **k: object())
+    monkeypatch.setattr(
+        "caliper.commands.run.make_progress", lambda *a, **k: (_Progress(), {})
+    )
+    monkeypatch.setattr("caliper.commands.run.update_progress", lambda *a, **k: None)
+    monkeypatch.setattr("caliper.commands.run.print_banner", lambda *a, **k: None)
+    monkeypatch.setattr("caliper.commands.run.print_results", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "caliper.commands.run.save_results", lambda *a, **k: tmp_path / "r.json"
+    )
+    monkeypatch.setattr("caliper.commands.run.run", fake_run)
+
+    result = runner.invoke(
+        app, ["run", str(spec_file), "--ablate", "grilling", "--ablate", "docs"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls["ablate"] == ["grilling", "docs"]
+
+
+def test_baseline_is_retired_and_says_where_the_capability_went(tmp_path) -> None:
+    # Not remapped onto --ablate: --baseline ran two arms in one invocation, so
+    # honouring the name over the new semantics would silently halve a scripted
+    # caller's spend and stop rendering the delta it was reading (docs/adr/0015).
+    spec_file = tmp_path / "sample.eval.yaml"
+    spec_file.write_text(
+        "skills:\n  - ./SKILL.md\n"
+        "tasks:\n  - name: One\n    prompt: Do it\n    assert: assert True\n"
+    )
+    result = runner.invoke(app, ["run", str(spec_file), "--baseline"])
+    assert result.exit_code == 2
+    assert "--ablate" in result.output
+    assert "caliper compare" in result.output

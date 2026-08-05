@@ -41,8 +41,16 @@ def run_cmd(
         min=0,
         help="Stop a task after N consecutive infra_error/timeout attempts (0 disables)",
     ),
+    ablate: Optional[list[str]] = typer.Option(
+        None,
+        "--ablate",
+        help=(
+            "Run without this declared skill installed (repeatable). "
+            "Diff it against a full run with `caliper compare`."
+        ),
+    ),
     baseline: bool = typer.Option(
-        False, "--baseline", help="Also run without skill for delta"
+        False, "--baseline", hidden=True, help="Retired — see --ablate"
     ),
     output: Optional[Path] = typer.Option(
         None, "--output", help="Save results JSON to path"
@@ -62,6 +70,32 @@ def run_cmd(
         help="Override judge backend/model (e.g. claude-code:claude-haiku-4-5-20251001)",
     ),
 ) -> None:
+    # Retired in favour of --ablate, which runs *one* arm and saves it as an
+    # ordinary run. Kept parseable for one release because caliper ships on PyPI
+    # and typer's bare "No such option" would tell an outside caller nothing
+    # about where the capability went. Not silently remapped: --baseline ran two
+    # arms in one invocation, so honouring the old name over the new semantics
+    # would halve a scripted caller's spend and stop rendering the delta it was
+    # reading. See
+    # docs/adr/0015-ablation-names-its-subject-at-the-invocation.md.
+    if baseline:
+        console.print(
+            Panel(
+                "`--baseline` has been retired.\n\n"
+                "It ran a second, no-skill arm inside every invocation, re-paying "
+                "for a number that cannot move when the skill changes: the "
+                "no-skill arm has no skill in it.\n\n"
+                "Run the arm once and keep it:\n"
+                "  caliper run <spec> --ablate <skill-name>\n"
+                "  caliper compare <that-run> <your-run>\n\n"
+                "Name every declared skill to get the bare agent. The saved arm "
+                "is reusable across every later iteration of the skill.",
+                title="[bold red]Retired flag[/bold red]",
+                border_style="red",
+            )
+        )
+        raise typer.Exit(2)
+
     if not spec_file.exists():
         console.print(f"[bold red]Error:[/bold red] File not found: {spec_file}")
         raise typer.Exit(1)
@@ -160,7 +194,7 @@ def run_cmd(
                 workers=workers,
                 timeout=timeout,
                 fail_fast_unusable=fail_fast_unusable,
-                baseline=baseline,
+                ablate=list(ablate or []),
                 on_attempt_done=on_attempt_done,
                 on_task_done=on_task_done,
             )

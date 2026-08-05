@@ -65,9 +65,9 @@ class RunContext:
     task_id: str
     attempt: int
     prompt: str
-    # The declared skill neighbourhood, installed at this backend's skills root
-    # before the agent runs and never preloaded into its context. Empty for a
-    # bare-agent run (and for every ``--baseline`` attempt).
+    # The skill neighbourhood to install at this backend's skills root before
+    # the agent runs, never preloaded into its context. Already reduced by any
+    # ``--ablate``; empty for a bare-agent run.
     skill_refs: list[SkillRef]
     model: str | None
     timeout: int

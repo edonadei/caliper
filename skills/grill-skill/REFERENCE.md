@@ -12,8 +12,12 @@ caliper run path/to/spec.eval.yaml --k 1
 # Reliability run — after iterating on the skill
 caliper run path/to/spec.eval.yaml --k 3
 
-# Baseline run — before committing, proves the skill makes a difference
-caliper run path/to/spec.eval.yaml --k 3 --baseline
+# Ablated run — before committing, proves the skill makes a difference.
+# Run once and keep it: it cannot move when the skill's text changes.
+caliper run path/to/spec.eval.yaml --k 3 --ablate my-skill
+# Then diff it against the full run. A bare spec name resolves to that spec's
+# LATEST run, so address the older side by its saved results path.
+caliper compare .caliper/results/<spec>/<ablated-run>.json <spec>
 
 # Choose the engine at run time — it is not stored in the spec (default: claude-code)
 caliper run path/to/spec.eval.yaml --model codex:gpt-5-codex

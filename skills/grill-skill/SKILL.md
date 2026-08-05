@@ -52,4 +52,4 @@ Validate the spec, then run at `k=1` (commands in [REFERENCE.md](REFERENCE.md)).
 Ask whether to iterate or finish.
 
 - **Iterate** — after the user edits their `SKILL.md`, re-run at `k=3` and show results. Loop back.
-- **Done** — suggest a `--baseline` run to prove the skill beats the raw agent, then remind the user to commit `SKILL.md` and the `.eval.yaml` together.
+- **Done** — suggest an `--ablate <skill-name>` run plus a `caliper compare` to prove the skill beats the raw agent, then remind the user to commit `SKILL.md` and the `.eval.yaml` together. Mention that the ablated run is worth keeping: it cannot move when the skill's text changes, so later iterations re-diff against it instead of re-running it.

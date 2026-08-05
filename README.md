@@ -19,15 +19,21 @@ npx skills@latest add edonadei/caliper
 **Or run it yourself:**
 
 ```bash
-caliper run commit-commands.eval.yaml --k 3 --baseline
+# The control arm: same tasks, skill removed. Run it once and keep it.
+caliper run commit-commands.eval.yaml --k 3 --ablate commit-commands
+
+# The real run, then the diff. A bare spec name means "that spec's latest run",
+# so the control arm is addressed by its saved path.
+caliper run commit-commands.eval.yaml --k 3
+caliper compare .caliper/results/commit-commands/<ablated-run>.json commit-commands
 ```
 
-You write a spec, a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you. With `--baseline`, Caliper runs each task with and without the skill and diffs the two runs task by task:
+You write a spec, a few lines of YAML describing what "working" means, which you hand-write or have `/grill-skill` generate for you. `--ablate` runs the same tasks with that skill *removed* from the neighbourhood, and `caliper compare` diffs the two runs task by task:
 
 <!-- Terminal output of `caliper compare`, rendered to SVG so the box-drawing
      table stays aligned on every screen. Regenerate with:
        python docs/render_readme_samples.py -->
-![caliper compare, no skill vs with skill on commit-commands: both tasks go 33.3% to 100.0% (+66.7%); tokens 290K to 180K, wall 1m 1s to 42s](docs/assets/compare-baseline.svg)
+![caliper compare, without commit-commands vs full neighbourhood on commit-commands: both tasks go 33.3% to 100.0% (+66.7%); tokens 290K to 180K, wall 1m 1s to 42s](docs/assets/compare-ablation.svg)
 
 ---
 
@@ -66,7 +72,7 @@ In your agent (Claude Code or Codex):
 **3. Run and measure**
 
 ```text
-/evaluate-skill run my-skill.eval.yaml --k 3 --baseline
+/evaluate-skill run my-skill.eval.yaml --k 3
 ```
 
 Browse past runs:
@@ -139,7 +145,7 @@ The spec never names an engine. The skill and judge default to `claude-code`, an
 **3. Run it**
 
 ```bash
-caliper run my-skill.eval.yaml --k 3          # add --baseline to diff vs the bare agent
+caliper run my-skill.eval.yaml --k 3          # --ablate <skill> for a run to diff against
 ```
 
 **4. Read the output**
@@ -204,7 +210,7 @@ Use the evaluate-skill skill to run my-skill.eval.yaml with k=3 and summarize th
 
 ### `grill-skill`: create evals interactively
 
-Don't have evals yet? `grill-skill` guides you through creating them. It reads your `SKILL.md`, interviews you about what good behavior looks like, and generates a 3-task spec (happy path, edge case, adversarial). Then it runs the eval and loops: k=1 to validate, k=3 to measure, baseline before you commit.
+Don't have evals yet? `grill-skill` guides you through creating them. It reads your `SKILL.md`, interviews you about what good behavior looks like, and generates a 3-task spec (happy path, edge case, adversarial). Then it runs the eval and loops: k=1 to validate, k=3 to measure, an ablated run to diff against before you commit.
 
 ```text
 /grill-skill ./my-skill/SKILL.md
@@ -230,7 +236,7 @@ If an `.eval.yaml` already exists next to your skill, `grill-skill` reads the ex
 | **success rate** | The primary score: run k times, measure how often a single run works (`pass@k`/`pass^k` are secondary views, under `--verbose`) |
 | **Neighbourhood** | The set of skills a spec declares (`skills:`). All installed, none preloaded, and all assertable. This is the competition your `description` has to win |
 | **Activation** | The agent *choosing* to load a skill. Asserted with `activates:` and scored on its own scoreboard, separate from the success rate |
-| **Baseline** | Re-run the same tasks with no skills installed, to prove the skill is doing the work |
+| **Ablation** | Re-run the same tasks with a declared skill *removed* (`--ablate`), to prove the skill is doing the work. Name every skill for the bare agent. It's a property of the tasks, so run it once and keep re-diffing against it |
 | **Attempt** | One isolated run of a single task (fresh temporary home, no session history) |
 
 ---
@@ -306,11 +312,11 @@ caliper update-cli --check
 2. Run with `--k 1` while iterating on the spec.
 3. Add `assert:` for facts an LLM judge might guess wrong (files, JSON, command output).
 4. Move to `--k 3` or higher once the task is stable.
-5. Add `--baseline` to prove the skill is making a difference.
+5. Run once with `--ablate <skill>` and `caliper compare` the two runs, to prove the skill is making a difference. That arm is a property of the *tasks*, so keep it and re-diff against it as the skill changes.
 6. Commit the spec alongside the skill so contributors can run the same eval.
 
 ```text
-/evaluate-skill run my-skill.eval.yaml --k 3 --baseline --verbose
+/evaluate-skill run my-skill.eval.yaml --k 3 --verbose
 ```
 
 ---
@@ -482,9 +488,9 @@ When both `expect` and `assert` are present, both must pass.
 |---|---|
 | `caliper run <spec>` | Run an evaluation spec |
 | `caliper validate <spec>` | Validate a spec file |
-| `caliper list [spec]` | List specs and saved runs |
+| `caliper list [spec]` | List specs and saved runs. Per-spec, each row carries its **Run** id and which skills that run **ablated** — how you find the control arm to diff against |
 | `caliper report <spec-or-result>` | Re-render saved results |
-| `caliper compare <A> <B>` | Diff two saved runs of the same eval, task by task |
+| `caliper compare <A> <B>` | Diff two saved runs of the same eval, task by task. Each side is a spec name (that spec's **latest** run) or a results-JSON path; they must be two distinct runs |
 | `caliper update-cli [backend]` | Check or update installed agent CLI versions |
 
 ### `caliper run` flags
@@ -492,7 +498,7 @@ When both `expect` and `assert` are present, both must pass.
 | Flag | Default | Description |
 |---|---|---|
 | `--k INT` | `3` | Attempts per task |
-| `--baseline` | off | Also run each task without the skill |
+| `--ablate NAME` | none | Run without this declared skill installed (repeatable; name them all for the bare agent) |
 | `--workers INT` | `4` | Parallel task workers |
 | `--timeout INT` | `120` | Seconds per attempt |
 | `--fail-fast INT` | `0` | Stop a task after N consecutive `infra_error`/`timeout` attempts (`0` disables) |
@@ -554,7 +560,8 @@ no `--run-a/-b` flags. To pin a historical run, name its JSON path.
 How the diff reads:
 
 - **Each row reads `before → after`.** The runs are named once in the header
-  (with `--baseline`, `no skill → with skill`), so there's no A/B legend.
+  (an ablation pair is titled `without <skill> → full neighbourhood`), so there's
+  no A/B legend.
 - **Tasks are matched by name**, so reordering doesn't matter. A task in only one
   run is listed as **unmatched** and left out of the delta.
 - **`Δ` is `after − before`**, and the headline `Δ (matched)` averages only the
@@ -622,8 +629,8 @@ the raw rate. Caliper leads with the raw rate because `pass@k` flatters flaky
 skills (`1/3 → 70.4%`).
 
 The aggregate is the average task success rate, skipping tasks with no usable
-attempts. With `--baseline`, Caliper runs the same tasks without the skill and
-reports the delta.
+attempts. To get a delta against the bare agent, run the same tasks with
+`--ablate` and `caliper compare` the two saved runs.
 
 `--fail-fast N` stops scheduling new attempts for a task after N consecutive
 `infra_error` or `timeout` outcomes (default `0` runs all k). An early-stopped
@@ -672,9 +679,9 @@ them up per run:
   cache in its `input_tokens`, so it's normalized to the non-cached contract above.
 - **Dollar cost is deliberately not tracked**: it's inconsistent across backends.
   Tokens are the volume signal, so derive a dollar figure downstream if you need one.
-- **With `--baseline`**, the no-skill run is kept and the report renders as a
-  `compare` view (same table, attempt strips, and token/wall deltas), showing the
-  skill-vs-bare-agent difference side by side.
+- **An ablated run is an ordinary saved run**, so the skill-vs-bare-agent view is
+  `caliper compare` like any other diff — same table, attempt strips, and
+  token/wall deltas.
 - `report --format json` adds a derived `usage_totals` block; the saved JSON keeps
   the raw per-attempt `usage` (totals are always derived, never persisted).
 
@@ -682,8 +689,9 @@ them up per run:
 
 - Each `AttemptRecord` carries `activated`, the skills the agent chose to load,
   recorded on every attempt whether or not the task asserted on it. It is
-  `null` when nothing was *observable*: a `--baseline` attempt (no skills
-  installed), or a timeout / infra failure whose transcript may be truncated. A
+  `null` when nothing was *observable*: an attempt with the whole neighbourhood
+  ablated (no skills installed), or a timeout / infra failure whose transcript
+  may be truncated. A
   bare `[]` in those cases would be a fabricated "the description never fired",
   so caliper never writes one.
 - `activation_passed` is the verdict: `null` = **not asserted** (a different

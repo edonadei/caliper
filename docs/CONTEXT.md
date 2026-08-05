@@ -128,13 +128,32 @@ Codex / OpenCode. Consequences that distinguish it from a flat backend:
 
 ## Ablation
 
-Holding the eval fixed while varying the *skill text*, then comparing the score
-across variants — as opposed to `--baseline`, which varies skill-vs-no-skill.
-Caliper has no native ablation mode: a variant is run by pointing a `skills:`
-entry at a different `SKILL.md` (or swapping the file) and re-running. Each
-run's skill snapshots record the exact content + git SHA of *every* member of
-the [[skill neighbourhood]] — plural, because a neighbour's `description` is
-part of what produced the score, so a run is not reproducible without it.
+**Removing** a declared member of the [[skill neighbourhood]] for one run —
+holding the [[eval spec]] and the [[engine as runtime axis|engine]] fixed — so
+that the score difference measures what that member contributed.
+`caliper run --ablate <name>` (repeatable) installs the neighbourhood *minus*
+the named skills and saves an ordinary run; the delta is read afterwards with
+[[run comparison|`caliper compare`]]. Ablating every declared member leaves the
+bare agent.
+
+**Which skill is the subject is a property of the invocation, not the spec** —
+the same discipline the [[engine as runtime axis|engine]] follows. `skills:`
+stays a list of peers with no privileged entry, so a reorder can never re-point
+what is being measured.
+
+An ablated run is a property of the **tasks and the surviving neighbourhood**,
+never of the ablated skill's text: that skill is not installed, so neither its
+body nor its `description` can move the number. It is therefore run **once** and
+re-compared against every later iteration of the skill. A task the bare agent
+already passes is a finding about the *task*, not about the skill.
+
+Varying a skill's *text* across runs is not ablation — it is two runs and a
+[[run comparison]]. Each run's skill snapshots record the exact content + git SHA
+of *every* member of the neighbourhood it installed — plural, because a
+neighbour's `description` is part of what produced the score, so a run is not
+reproducible without it.
+_Avoid_: baseline (the retired `--baseline` flag ran both arms inside a single
+invocation, and so re-paid for the removed arm on every run).
 
 ## Run comparison (`compare`)
 
@@ -143,8 +162,21 @@ candidate, or the same skill over time. `caliper compare <A> <B>` reports, per
 matched task, each run's score, the signed delta, and both per-attempt strips,
 plus a matched-only aggregate delta and a flag on any regressed task. It is the
 reading half of an [[ablation]]: it never produces runs, only diffs saved ones.
-Contrast `--baseline`, which is a within-run skill-vs-no-skill delta; a
-comparison is across two independent runs.
+There is no within-run diff — an ablated arm is an ordinary saved run, so
+skill-vs-no-skill and candidate-vs-control travel one path rather than two.
+
+The two sides must be **distinct saved runs**, and naming them is the caller's
+job: a bare spec name always means that spec's *latest* run, so an
+[[ablation]] pair — two runs of one spec, in one folder — names the control arm
+by its results path. Naming one spec twice is refused rather than diffed,
+because a run compared with itself agrees with itself on every guard and renders
+a clean table of zeroes.
+
+A run records which skills it [[ablation|ablated]], so a deliberate ablation pair
+is recognised and labelled from that marker rather than inferred from its smaller
+neighbourhood — the same reason the era marker is explicit rather than sniffed
+from a schema shape. Comparing two runs that ablated *different* skills is caught
+on the same marker.
 
 ## Task identity
 
@@ -192,8 +224,9 @@ regression treatment.
 
 The decision rule for accepting a shortened variant: at k≥5 its [[success
 rate|score]] must be within a small margin (≤5%) of the full skill's score **and**
-still beat the `--baseline` (no-skill) score. Equalling or exceeding full-skill is
-a bonus, not required. We are proving *no worse*, not *better*.
+still beat the score of the same tasks with that skill [[ablation|ablated]].
+Equalling or exceeding full-skill is a bonus, not required. We are proving *no
+worse*, not *better*.
 
 ## Single-shot harness
 
@@ -278,8 +311,12 @@ reported on its own axis: the score is per **task**, the activation stats are
 per **skill**, and forcing both into one table is what makes either unreadable.
 
 Not asserting `activates:` leaves `activation_passed` at `None` and renders
-*skipped*, never `0%` — as does `--baseline`, which installs no skills and would
-otherwise be scoring caliper's own plumbing.
+*skipped*, never `0%` — as does an [[ablation|ablated]] run, which **drops** every
+task's expectation rather than filtering the ablated name out of it. Filtering
+would have caliper assert a claim the author never wrote, and it inverts the
+delegating case: remove a parent skill and its neighbours correctly stop firing,
+so scoring that as a miss would report the finding as a failure. What each attempt
+actually reached for is still observed and shown; only the verdict is withheld.
 
 ## Skill neighbourhood
 
@@ -292,7 +329,10 @@ run's isolated home contains these skills and nothing else — which is what mak
 agent could possibly have reached for is exactly the set the spec wrote down.
 Neighbours are not decoration; they are the competition a skill's `description`
 has to win against, so a run's numbers are only meaningful relative to the
-neighbourhood that produced them. That is why a report names **every** declared
+neighbourhood that produced them. A single run may install a strict *subset* of
+it (see [[ablation]]); which member is left out is named at the invocation and
+never in the spec, so the declared set stays the same peers whatever is being
+measured. That is why a report names **every** declared
 member, including one that never fired and was never expected: without its row a
 reader could not tell what was installed, and its dormancy is itself an answer,
 saying the probes never exercised the neighbour they were written to guard

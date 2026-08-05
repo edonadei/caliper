@@ -127,6 +127,52 @@ class ActivationAggregate:
     per_skill: list[SkillActivationStats]
 
 
+@dataclass(frozen=True)
+class ObservedActivation:
+    """How often one installed skill fired, with nothing asserted about it.
+
+    The counting half of [[activation]] without the scoring half — what an
+    ablated run has, since it drops every expectation but keeps every
+    observation (docs/adr/0015-ablation-names-its-subject-at-the-invocation.md).
+    """
+
+    skill: str
+    fired: int
+    observed: int
+
+
+def observed_activations(
+    task_results: list["TaskResult"], declared: list[str] | None = None
+) -> list[ObservedActivation]:
+    """Per-skill activation counts over attempts where activation was *observed*.
+
+    Deliberately not ``SkillActivationStats``: with nothing expected, that type's
+    recall is undefined and its unwanted rate would read 100% — "fires when not
+    wanted" — for a skill that fired exactly when a reader would hope. Nothing
+    was wanted because nothing was asserted, which is not the same claim.
+
+    The denominator is ``activation_observed`` (a whole transcript), not
+    ``activation_scored`` (which additionally requires an assertion), because an
+    ablated run has no assertions left to require.
+    """
+    fired: dict[str, int] = {}
+    observed = 0
+    for task in task_results:
+        for att in task.attempts:
+            if not att.activation_observed:
+                continue
+            observed += 1
+            for name in att.activated or []:
+                fired[name] = fired.get(name, 0) + 1
+
+    names = list(declared or [])
+    names += sorted(set(fired) - set(names))
+    return [
+        ObservedActivation(skill=name, fired=fired.get(name, 0), observed=observed)
+        for name in names
+    ]
+
+
 def aggregate_activation(
     task_results: list["TaskResult"], declared: list[str] | None = None
 ) -> ActivationAggregate:

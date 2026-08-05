@@ -15,6 +15,7 @@ from rich.table import Table
 from rich.table import Column
 from rich.text import Text
 
+from caliper.scoring import observed_activations
 from caliper.schema.results import (
     Outcome,
     RunComparison,
@@ -166,24 +167,6 @@ def update_progress(
 
 
 def print_results(results: RunResults, verbose: bool = False) -> None:
-    # A --baseline run is a two-run diff (no skill vs with skill), so render it
-    # through the exact same comparison view as `caliper compare`.
-    if results.baseline_task_results is not None:
-        from caliper.compare import diff_baseline
-
-        print_comparison(diff_baseline(results), verbose=verbose)
-        # compare's table has no activation half — the no-skill arm installs
-        # nothing, so there is nothing to diff — but the with-skill arm's
-        # activation numbers are still real and must not disappear.
-        _print_activation_aggregate(results)
-        console.print()
-        # The compare table shows *which* attempts failed (the strips); the panels
-        # below show *why* (output, assert evidence, autorater reasoning) for the
-        # with-skill run — the strips alone don't, and there's no separate run to
-        # `caliper report` for a --baseline diff.
-        _print_task_details(results.task_results, results.run.k, verbose)
-        return
-
     spec = results.run.spec
     backend = results.run.backend
     model = results.run.model or ""
@@ -198,6 +181,14 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
         + f"){judge_suffix}  {_RULE}  {ts}",
         style="cyan",
     )
+    # An ablated run's numbers are only readable next to what was removed, and
+    # its activation column is *skipped* by design — say so once, up front,
+    # rather than leaving a reader to wonder why the verdicts went blank.
+    if results.run.ablated:
+        console.print(
+            f"    [yellow]ablated:[/yellow] {', '.join(results.run.ablated)}"
+            f"   {_SEP}   [dim]activation observed, not scored[/dim]"
+        )
     console.print()
 
     _print_score(results)
@@ -240,6 +231,10 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     console.print()
 
     _print_activation_aggregate(results)
+    # Mutually exclusive in practice: an ablated run asserts nothing, so the
+    # scored table above is empty and this is the activation half of its report.
+    if results.run.ablated:
+        _print_observed_activations(results)
     _print_unusable_summary(results)
     console.print()
     _print_usage_summary(UsageTotals.from_task_results(results.task_results))
@@ -247,9 +242,39 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     _print_task_details(results.task_results, k, verbose)
 
 
+def _print_observed_activations(results: RunResults) -> None:
+    """What the surviving skills reached for on an ablated run.
+
+    An ablated run withholds the activation *verdict* but keeps the observation
+    (docs/adr/0015-ablation-names-its-subject-at-the-invocation.md), and the
+    scored table above renders nothing because no task asserted. Without this,
+    "with the parent removed, did its neighbours pick up the work?" — the whole
+    reason a partial ablation is interesting — would be invisible.
+    """
+    rows = observed_activations(
+        results.task_results, [s.name for s in results.skill_snapshots if s.name]
+    )
+    if not rows or not rows[0].observed:
+        return
+    console.print(
+        f" [bold]Observed activations[/bold]  "
+        f"[dim](over {rows[0].observed} attempts; nothing asserted)[/dim]"
+    )
+    table = Table(box=box.SIMPLE, show_header=True, header_style="dim", expand=False)
+    table.add_column("Skill")
+    table.add_column("fired", justify="right")
+    for row in rows:
+        style = "dim" if not row.fired else ""
+        table.add_row(
+            Text(row.skill, style=style),
+            Text(f"{row.fired}/{row.observed}", style=style),
+        )
+    console.print(table)
+
+
 def _print_task_details(task_results: list[TaskResult], k: int, verbose: bool) -> None:
     """Per-task failure panels: all tasks under ``--verbose``, else only the ones
-    that did not fully pass. Shared by the single-run and --baseline reports."""
+    that did not fully pass."""
     tasks_to_detail = (
         task_results if verbose else [tr for tr in task_results if _needs_detail(tr)]
     )
@@ -357,12 +382,6 @@ def _print_score(results: RunResults) -> None:
 
 def _print_activation_aggregate(results: RunResults) -> None:
     """The activation half: one headline line, then a table on the *skill* axis.
-
-    Split out so a ``--baseline`` report can print it too: that path renders
-    through ``compare``, whose table has no activation half (the no-skill arm
-    installs nothing, so there is nothing to diff) — and without this the
-    activation numbers would silently vanish for anyone who passes
-    ``--baseline``.
 
     Rendered only when the spec asserted ``activates:`` somewhere. A spec that
     never makes an activation claim should not grow a table of empty rows.
@@ -489,9 +508,9 @@ def _print_unusable_summary(results: RunResults) -> None:
 
 def _print_usage_summary(totals: UsageTotals) -> None:
     """The cost block for a single run: tokens + wall time as an aligned grid.
-    (A --baseline run renders the skill-vs-no-skill token/wall delta through the
-    `compare` view instead.) Cost/latency is a first-class axis (docs/CONTEXT.md → Run
-    usage totals); dollar cost is deliberately out of scope."""
+    (Token/wall *deltas* between two runs are `compare`'s job.) Cost/latency is a
+    first-class axis (docs/CONTEXT.md → Run usage totals); dollar cost is
+    deliberately out of scope."""
     if totals.attempts == 0:
         return
 
@@ -674,8 +693,8 @@ def print_comparison(comp: RunComparison, verbose: bool = False) -> None:
         f"{_BANNER}  {_RULE}  compare  {_RULE}  [bold]{comp.a.spec}[/bold]",
         style="cyan",
     )
-    # Each side is titled by its explicit label (a --baseline diff sets "no skill"
-    # / "with skill") or, for a plain compare, its timestamp + engine.
+    # Each side is titled by its label — derived from ``RunMeta.ablated`` on a
+    # recognised ablation pair — or, for a plain compare, its timestamp + engine.
     a_desc = (
         comp.a_label
         or f"{a_ts} ([cyan]{_engine_label(comp.a.backend, comp.a.model)}[/cyan])"
@@ -781,8 +800,8 @@ def _delta_symbol() -> str:
 def _usage_cells(a_val: float, b_val: float, fmt) -> tuple[str, str, str]:
     """The (before, after, `Δ …`) markup for one usage row. Green when the 'after'
     is cheaper (a win), red when costlier — but this NEVER flips has_regression
-    (docs/CONTEXT.md → Regression). Dim when equal or there is no baseline to
-    compute a percentage."""
+    (docs/CONTEXT.md → Regression). Dim when equal, or when the 'before' is zero
+    and there is nothing to take a percentage of."""
     delta = b_val - a_val
     before, after = fmt(a_val), fmt(b_val)
     if delta == 0:
