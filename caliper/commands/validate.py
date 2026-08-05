@@ -6,6 +6,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from caliper.schema.spec import load_spec, spec_name
+from caliper.skillfetch import SkillFetcher
 from caliper.skills import (
     SkillResolutionError,
     resolve_skills,
@@ -49,9 +50,18 @@ def validate_cmd(
     # Resolve the neighbourhood here too: a lone slash-command .md, a missing
     # frontmatter name:, or two skills claiming one name are all things
     # `validate` should catch rather than leaving for a paid run to discover.
+    # Offline by design: `validate` answers "is this spec well-formed", and a
+    # schema check that needs the network is a check you cannot run on a plane.
+    # A git source resolves from a warm cache when there is one and is skipped
+    # otherwise — never fetched. See docs/adr/0016.
+    fetcher = SkillFetcher(offline=True)
     try:
-        refs = resolve_skills(list(spec.skills), spec_file.parent)
-        validate_activates(spec.tasks, refs)
+        refs = resolve_skills(list(spec.skills), spec_file.parent, fetcher=fetcher)
+        # An uncached git source leaves the neighbourhood *unknown*, not empty,
+        # so the closed-set check has to stand down: refusing an `activates:`
+        # naming a skill we simply could not see would fail a correct spec for a
+        # connectivity reason.
+        validate_activates(spec.tasks, refs, closed=not fetcher.unresolved)
     except SkillResolutionError as exc:
         console.print(
             Panel(
@@ -64,7 +74,16 @@ def validate_cmd(
 
     name = spec_name(spec_file)
     n_tasks = len(spec.tasks)
-    skills = ", ".join(ref.name for ref in refs) or "(bare agent — no skills)"
+    named = ", ".join(ref.name for ref in refs)
+    if fetcher.unresolved:
+        # Never "bare agent" here: the neighbourhood is *unknown*, not empty,
+        # and saying otherwise would describe an offline validate as a spec
+        # with no skills in it.
+        n = len(fetcher.unresolved)
+        uncached = f"[dim]{n} git source{'' if n == 1 else 's'} not cached[/dim]"
+        skills = f"{named}, {uncached}" if named else uncached
+    else:
+        skills = named or "(bare agent — no skills)"
     asserted = sum(1 for t in spec.tasks if t.activates is not None)
 
     console.print(

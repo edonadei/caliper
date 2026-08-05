@@ -8,7 +8,8 @@ implementation details, no specs, no decisions (those live in `docs/adr/`).
 The `.eval.yaml` file. It describes **what** is tested and **how success is
 judged** — the task prompts, the `expect:`/`assert:`/`activates:` checks,
 `sandbox.forbidden_files`, and the `skills:` [[skill neighbourhood|neighbourhood]]
-(a list of paths; a task must carry at least one of the three checks) — and
+(a list of [[skill source|sources]]; a task must carry at least one of the three
+checks) — and
 nothing about *which engine runs or grades* it. The
 [[engine as runtime axis]] (backend + model, for both the skill-under-test and
 the judge) is deliberately absent from the spec: it is chosen at invocation, not
@@ -327,9 +328,9 @@ position or an implied default. The neighbourhood is deliberately closed — the
 run's isolated home contains these skills and nothing else — which is what makes
 [[activation]] a *measurement* rather than an observation: the set of things the
 agent could possibly have reached for is exactly the set the spec wrote down.
-Neighbours are not decoration; they are the competition a skill's `description`
-has to win against, so a run's numbers are only meaningful relative to the
-neighbourhood that produced them. A single run may install a strict *subset* of
+Members are not decoration; they compete with one another for [[activation]], so
+a run's numbers are only meaningful relative to the whole set that produced
+them. A single run may install a strict *subset* of
 it (see [[ablation]]); which member is left out is named at the invocation and
 never in the spec, so the declared set stays the same peers whatever is being
 measured. That is why a report names **every** declared
@@ -338,6 +339,47 @@ reader could not tell what was installed, and its dormancy is itself an answer,
 saying the probes never exercised the neighbour they were written to guard
 against.
 _Avoid_: skill list, skill dependencies, sibling skills.
+
+## Skill source
+
+How caliper obtains one member of the [[skill neighbourhood]] — one entry of
+`skills:`. Two kinds, and the kind is a property of the *entry*, never of the
+skill's role: peers stay peers ([[ablation]]).
+
+- A **path source** is a bare string: a `SKILL.md` on the local filesystem,
+  resolved against the spec's directory. It is whatever that file says at run
+  time, and the spec makes no claim about what that is.
+- A **git source** is a mapping — `repo:`, an optional `ref:` (default branch
+  when omitted), an optional `path:` (repo-root `SKILL.md` when omitted) —
+  which caliper clones into a content-addressed cache and resolves to a
+  concrete commit at fetch. One entry is one skill.
+
+The two shapes mirror the local-vs-remote discrimination [[MCP server
+(declared)|`mcp:`]] already uses. The asymmetry that matters downstream is that
+a git source *makes a reproducibility claim* the spec can keep and a path source
+does not — which is what grades [[skill drift]], and the only respect in which
+the two differ (see [[0017-unpinned-git-sources-are-allowed-because-drift-is-reported]]).
+_Avoid_: remote skill, skill dependency, pinned skill.
+
+## Skill drift
+
+A member of the [[skill neighbourhood]] whose **content differs between two
+saved runs** of the same spec — caught by comparing the per-file hashes
+`SkillSnapshot` already records, and reported by [[run comparison|`compare`]]
+alongside its other warnings.
+
+It is reported for **every** member, at two volumes. A drifted [[skill
+source|git source]] *warns*: the spec said where those bytes come from and the
+promise did not hold, so the delta is confounded. A drifted **path source** is
+reported without alarm: nothing was promised about a working file, and warning
+would flag the author's own edit — the thing a run usually exists to measure —
+as a mistake.
+
+Distinct from `compare`'s neighbourhood mismatch, which is a change in
+**membership** (which skills were installed); drift is a change in **text** at
+constant membership. Both confound a comparison; neither is a
+[[regression in a comparison|regression]], which stays a score-only verdict.
+_Avoid_: skill change, version skew, stale skill.
 
 ## Install-and-discover
 

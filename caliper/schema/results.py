@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from enum import Enum
 
@@ -106,9 +107,29 @@ class SkillSnapshot(BaseModel):
     # installed it at. Empty on pre-#18 runs, which had no stable identity.
     name: str = ""
     path: str
+    # How the spec asked for this member: "path" (a file on disk) or "git" (a
+    # repo + ref caliper fetched). Recorded because it is what grades
+    # ``compare``'s drift report — a git source made a reproducibility claim,
+    # a path source did not. Defaults to "path", which is what every run saved
+    # before git sources existed was. See docs/adr/0017 and docs/CONTEXT.md →
+    # Skill source.
+    source_kind: str = "path"
     git_repo: str | None = None
     git_sha: str | None = None
     files: dict[str, FileSnapshot] = Field(default_factory=dict)
+
+    @property
+    def content_digest(self) -> str:
+        """A single stable digest over this member's captured files.
+
+        The unit of comparison for [[skill drift]]. Derived from the per-file
+        hashes rather than stored, the way ``compare`` keeps usable/unusable
+        counts derivable rather than persisted.
+        """
+        joined = "\n".join(
+            f"{rel}:{snap.hash}" for rel, snap in sorted(self.files.items())
+        )
+        return hashlib.sha256(joined.encode()).hexdigest()
 
 
 class TranscriptTurn(BaseModel):
@@ -507,6 +528,22 @@ class TaskComparison(BaseModel):
     activation_regression: bool = False
 
 
+class SkillDriftRecord(BaseModel):
+    """One member of the neighbourhood whose text differs between two runs.
+
+    ``source_kind`` is how the entry was *written*, and is what decides whether
+    this reads as a confound or as the experiment: a git source promised where
+    its bytes came from, a path source promised nothing. ``a_ref``/``b_ref`` are
+    short display handles — the resolved commit for a git source, a digest over
+    the captured files otherwise. See docs/CONTEXT.md → Skill drift.
+    """
+
+    name: str
+    source_kind: str
+    a_ref: str
+    b_ref: str
+
+
 class RunComparison(BaseModel):
     """The pure result of ``diff_runs(a, b)`` — the whole ``compare`` contract.
 
@@ -549,9 +586,20 @@ class RunComparison(BaseModel):
     # experiment; still fires for two runs that ablated *different* skills, which
     # nothing but the ``ablated`` marker could tell apart.
     neighbourhood_mismatch: bool = False
+    # Members installed by both runs whose *text* differs — the complement of
+    # ``neighbourhood_mismatch``, which is a change in *membership*. Every
+    # drifted member is recorded here; only the git-sourced ones also raise a
+    # warning, because only they promised to hold still (docs/adr/0017).
+    skill_drift: list[SkillDriftRecord] = Field(default_factory=list)
     # Human-readable guards, mirrored into both the table header and JSON so an
     # agent on --format json sees the exact warning a human sees.
     warnings: list[str]
+
+    @property
+    def has_skill_drift(self) -> bool:
+        """Whether any *claimed* member moved — the confounding kind."""
+        return any(d.source_kind == "git" for d in self.skill_drift)
+
     # Run usage totals per side (all tasks, not just matched). Token/wall deltas
     # are shown alongside pass@k but NEVER feed has_regression — a token drop is a
     # win, not a failure (docs/CONTEXT.md → Regression).

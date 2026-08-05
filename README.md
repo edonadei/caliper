@@ -330,8 +330,11 @@ the YAML below.
 ```yaml
 skills:                         # installed where the agent looks for skills,
   - ./SKILL.md                  #   never pasted into the prompt
-  - ../evaluate-skill/SKILL.md  # neighbours: the competition your description
-                                #   has to win against (omit for a bare agent)
+  - ../evaluate-skill/SKILL.md  # a path source: whatever that file says today
+  - repo: vercel-labs/agent-skills   # a git source: caliper clones it
+    ref: a1b2c3d                     #   optional — omit to track the default branch
+    path: skills/tdd/SKILL.md        #   optional — defaults to SKILL.md at the root
+                                # omit `skills:` entirely for a bare agent
 
 # Note: there is no `backend`/`model` or `judge:` block. The engine is a runtime
 # axis: pass `--model` / `--judge-model` at run time (default: claude-code).
@@ -397,6 +400,50 @@ makes "did it actually delegate?" assertable.
 A skill must be a `SKILL.md` in a directory, carrying frontmatter `name:` and
 `description:`. A lone slash-command `.md` is rejected: with no name and no
 description there is nothing for an agent to discover.
+
+#### Path sources and git sources
+
+An entry is written one of two ways, and the shape is the difference:
+
+| Entry | Means |
+|---|---|
+| `- ./SKILL.md` | a **path source** — a file on your disk, whatever it says at run time |
+| `- {repo: …, ref: …, path: …}` | a **git source** — caliper clones it and resolves `ref:` to a commit |
+
+Git sources are how you give your `description` real competition to win against
+without vendoring somebody's repo into yours. One entry is one skill; entries
+sharing a repo and commit share one clone, so naming five skills from a pack
+costs five entries and one fetch.
+
+`ref:` is optional and an omitted one tracks the default branch, so it *will*
+move. That's allowed rather than forbidden because caliper records the commit it
+resolved and `compare` tells you when it moved — see below. Pinning a commit is
+still worth it: a pinned entry is fully offline once fetched, an unpinned one
+costs one `git ls-remote` per run.
+
+`caliper run` fetches before the first attempt, so a bad `repo:` costs you
+nothing. `caliper validate` never touches the network: it resolves git sources
+from the cache when it can and reports the rest as *not cached*.
+
+If a git source can't be fetched and isn't cached, the run **refuses** — a
+member silently missing would measure your skill against competition that
+wasn't there. If it's cached but the remote is unreachable, the run uses the
+cache and says so.
+
+#### Skill drift
+
+`caliper compare` reports any member whose text changed between the two runs.
+A **git source** that moved gets a warning: the spec said where its bytes came
+from, and the delta you're reading is confounded. A **path source** that moved
+is shown without alarm — that's usually the edit the run exists to measure.
+
+```
+ ⚠ tdd changed between runs — git source, a1b2c3d → e4f5g6h; pin `ref:` to hold it fixed
+   my-skill changed between runs — path, 4fc7951 → bcbcbde
+```
+
+This is a change in *text* at constant membership. A change in *membership* —
+different skills installed — is the separate neighbourhood warning.
 
 ### `activates:`: did the agent reach for it?
 

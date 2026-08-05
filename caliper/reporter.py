@@ -712,6 +712,18 @@ def print_comparison(comp: RunComparison, verbose: bool = False) -> None:
     )
     for warning in comp.warnings:
         console.print(f" [bold yellow]{_WARN}[/bold yellow] [yellow]{warning}[/yellow]")
+    # Path-source drift is *shown*, not warned about: nothing was promised about
+    # a working file, and a warning on the everyday "edit skill, re-run" loop is
+    # one the reader learns to skip — taking the git-source warning above with
+    # it. The git-sourced records are already in `warnings`, so they are not
+    # repeated here. See docs/CONTEXT.md → Skill drift.
+    for record in comp.skill_drift:
+        if record.source_kind == "git":
+            continue
+        console.print(
+            f"   [dim]{record.name} changed between runs — path, "
+            f"{record.a_ref} {_TO} {record.b_ref}[/dim]"
+        )
     console.print()
 
     table = Table(

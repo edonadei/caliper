@@ -32,6 +32,7 @@ from caliper.schema.results import (
 )
 from caliper.schema.spec import DEFAULT_BACKEND, EvalSpec, TaskSpec, spec_name
 from caliper.scoring import aggregate_activation, aggregate_scores, score_outcomes
+from caliper.skillfetch import SkillFetcher
 from caliper.skills import (
     SkillRef,
     apply_ablation,
@@ -111,6 +112,9 @@ def run(
     on_attempt_done: Callable[[AttemptEvent], None] | None = None,
     on_task_done: Callable[[TaskResult], None] | None = None,
     fail_fast_unusable: int = 0,
+    # Supplied by the CLI so it can surface the fetcher's warnings; defaulted
+    # here so a caller with a path-only spec never has to think about it.
+    fetcher: SkillFetcher | None = None,
 ) -> RunResults:
     # A spec's mcp: servers configure the agent-under-test's tool environment
     # for the eval (a run-environment concern, like sandbox:). If the chosen
@@ -139,7 +143,9 @@ def run(
     # Resolve the neighbourhood once, up front: a bad entry (a lone .md, a
     # missing frontmatter name:, a duplicate) should fail before any paid
     # attempt runs, not partway through.
-    declared_refs = resolve_skills(list(spec.skills), spec_path.parent)
+    declared_refs = resolve_skills(
+        list(spec.skills), spec_path.parent, fetcher=fetcher or SkillFetcher()
+    )
     # Validated against the *declared* set, not the installed one: under
     # --ablate an `activates:` naming the removed skill has its expectation
     # dropped, not violated, so refusing it here would make a correct spec
@@ -154,9 +160,7 @@ def run(
     snapshotter = _SkillSnapshotter()
     # Only the installed skills: a snapshot claims "this is what produced the
     # score", which an ablated skill demonstrably did not.
-    skill_snapshots = [
-        snapshotter.snapshot(str(ref.path), ref.name) for ref in skill_refs
-    ]
+    skill_snapshots = [snapshotter.snapshot(ref) for ref in skill_refs]
     detector = ActivationDetector(
         [ref.name for ref in skill_refs], harness.activation_tool_names
     )
@@ -450,10 +454,13 @@ class _CheatDetector:
 class _SkillSnapshotter:
     _REF_PATTERN = re.compile(r'[./~][^\s"\'<>]+\.(sh|py|md|js|ts)')
 
-    def snapshot(self, skill_path: str, name: str) -> SkillSnapshot:
-        path = Path(skill_path).expanduser().resolve()
+    def snapshot(self, ref: SkillRef) -> SkillSnapshot:
+        path = Path(ref.path).expanduser().resolve()
+        name = ref.name
         if not path.exists():
-            return SkillSnapshot(name=name, path=str(path), files={})
+            return SkillSnapshot(
+                name=name, path=str(path), source_kind=ref.source_kind, files={}
+            )
 
         files: dict[str, FileSnapshot] = {}
         content = path.read_text()
@@ -475,10 +482,18 @@ class _SkillSnapshotter:
                     hash="sha256:" + hashlib.sha256(ref_content.encode()).hexdigest(),
                 )
 
-        git_repo, git_sha = self._git_info(path)
+        # A git source already knows its provenance exactly — caliper resolved
+        # the ref and cloned that commit — so it is taken from the ref rather
+        # than re-derived from the checkout, whose HEAD is the same thing by a
+        # longer route. Only a path source has to be interrogated.
+        if ref.source_kind == "git":
+            git_repo, git_sha = ref.git_repo, ref.git_sha
+        else:
+            git_repo, git_sha = self._git_info(path)
         return SkillSnapshot(
             name=name,
             path=str(path),
+            source_kind=ref.source_kind,
             git_repo=git_repo,
             git_sha=git_sha,
             files=files,

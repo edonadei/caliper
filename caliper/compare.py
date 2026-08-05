@@ -13,6 +13,8 @@ from caliper.schema.results import (
     RunComparison,
     RunMeta,
     RunResults,
+    SkillDriftRecord,
+    SkillSnapshot,
     TaskComparison,
     TaskResult,
     UsageTotals,
@@ -26,6 +28,54 @@ class IncomparableRunsError(ValueError):
 def _neighbourhood(results: RunResults) -> list[str]:
     """The names of the skills a run installed, as its comparability key."""
     return sorted(s.name for s in results.skill_snapshots if s.name)
+
+
+def _drift(a: RunResults, b: RunResults) -> list[SkillDriftRecord]:
+    """Members installed by both runs whose captured text differs.
+
+    The snapshots have carried per-file hashes since they went plural and
+    nothing has ever read them — ``_neighbourhood`` compares only names, so
+    today a change of *membership* is caught and a change of *text* is not.
+
+    Matched on name, the same stable identity everything else uses. A member on
+    one side only is deliberately not drift: that is a membership change, and
+    ``neighbourhood_mismatch`` already owns it.
+    """
+    b_by_name = {s.name: s for s in b.skill_snapshots if s.name}
+    records: list[SkillDriftRecord] = []
+
+    for a_snap in a.skill_snapshots:
+        b_snap = b_by_name.get(a_snap.name)
+        if b_snap is None or not a_snap.name:
+            continue
+        # A legacy snapshot captured no files, so both digests are the digest of
+        # nothing. Equal, and no claim either way — which is the right answer.
+        if not a_snap.files and not b_snap.files:
+            continue
+        if a_snap.content_digest == b_snap.content_digest:
+            continue
+        # Graded git if *either* side was fetched: vendoring a fetched skill (or
+        # the reverse) still moved a member that had been claimed.
+        kind = "git" if "git" in (a_snap.source_kind, b_snap.source_kind) else "path"
+        records.append(
+            SkillDriftRecord(
+                name=a_snap.name,
+                source_kind=kind,
+                a_ref=_short_ref(a_snap),
+                b_ref=_short_ref(b_snap),
+            )
+        )
+    return records
+
+
+def _short_ref(snap: SkillSnapshot) -> str:
+    """A seven-character handle for what this member *was* on one side.
+
+    The resolved commit when there is one, because that is the thing an author
+    can put in `ref:` to hold it still; otherwise a digest over the captured
+    files, which identifies the text without pretending to be a commit.
+    """
+    return (snap.git_sha or snap.content_digest)[:7]
 
 
 def _check_era(a: RunMeta, b: RunMeta) -> None:
@@ -193,6 +243,20 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
             "competitors, so some attempts may never activate the skill at all"
         )
 
+    # Drift is reported for every member but only *warned* about for a git
+    # source. Warning on a path source would fire on every iteration of the core
+    # loop — you edited your skill, which is what the run is measuring — and a
+    # warning trained past is worse than none, because it takes the confounding
+    # case down with it. See docs/adr/0017.
+    skill_drift = _drift(a, b)
+    for record in skill_drift:
+        if record.source_kind != "git":
+            continue
+        warnings.append(
+            f"{record.name} changed between runs — git source, "
+            f"{record.a_ref} → {record.b_ref}; pin `ref:` to hold it fixed"
+        )
+
     return RunComparison(
         a=a_run,
         b=b_run,
@@ -209,6 +273,7 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         k_mismatch=k_mismatch,
         spec_mismatch=spec_mismatch,
         neighbourhood_mismatch=neighbourhood_mismatch,
+        skill_drift=skill_drift,
         warnings=warnings,
         # Token/wall totals over each whole run. Shown alongside pass@k but never
         # folded into has_regression — a token drop is a win, not a regression.

@@ -8,6 +8,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from caliper.harness.base import HarnessConfigurationError
+from caliper.skillfetch import SkillFetcher
 from caliper.skills import SkillResolutionError
 from caliper.harness import get_harness
 from caliper.judge import EvalJudge
@@ -130,6 +131,12 @@ def run_cmd(
     task_names = [t.name for t in spec.tasks]
     progress, task_ids = make_progress(task_names, k)
 
+    # `run` fetches, unlike `validate`: the fetch happens before the first
+    # attempt, so an unreachable repo: costs nothing. Its warnings (a stale
+    # cache served because the remote was unreachable) print live, next to the
+    # attempt noise, rather than being buried after the results table.
+    fetcher = SkillFetcher()
+
     attempt_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
     pass_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
     unusable_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
@@ -195,9 +202,12 @@ def run_cmd(
                 timeout=timeout,
                 fail_fast_unusable=fail_fast_unusable,
                 ablate=list(ablate or []),
+                fetcher=fetcher,
                 on_attempt_done=on_attempt_done,
                 on_task_done=on_task_done,
             )
+            for warning in fetcher.warnings:
+                progress.console.print(f"[yellow]⚠[/yellow] [yellow]{warning}[/yellow]")
         except SkillResolutionError as exc:
             console.print(
                 Panel(
