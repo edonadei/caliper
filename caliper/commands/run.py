@@ -132,10 +132,15 @@ def run_cmd(
     progress, task_ids = make_progress(task_names, k)
 
     # `run` fetches, unlike `validate`: the fetch happens before the first
-    # attempt, so an unreachable repo: costs nothing. Its warnings (a stale
-    # cache served because the remote was unreachable) print live, next to the
-    # attempt noise, rather than being buried after the results table.
-    fetcher = SkillFetcher()
+    # attempt, so an unreachable repo: costs nothing. A stale-cache warning is
+    # pushed out as it happens rather than collected and printed afterwards —
+    # collecting would lose it entirely on the runs that then fail, which are
+    # exactly the runs where knowing a member was stale matters most.
+    fetcher = SkillFetcher(
+        on_warning=lambda message: progress.console.print(
+            f"[yellow]⚠[/yellow] [yellow]{message}[/yellow]"
+        )
+    )
 
     attempt_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
     pass_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
@@ -206,8 +211,6 @@ def run_cmd(
                 on_attempt_done=on_attempt_done,
                 on_task_done=on_task_done,
             )
-            for warning in fetcher.warnings:
-                progress.console.print(f"[yellow]⚠[/yellow] [yellow]{warning}[/yellow]")
         except SkillResolutionError as exc:
             console.print(
                 Panel(

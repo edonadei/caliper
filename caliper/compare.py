@@ -249,13 +249,7 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
     # warning trained past is worse than none, because it takes the confounding
     # case down with it. See docs/adr/0017.
     skill_drift = _drift(a, b)
-    for record in skill_drift:
-        if record.source_kind != "git":
-            continue
-        warnings.append(
-            f"{record.name} changed between runs — git source, "
-            f"{record.a_ref} → {record.b_ref}; pin `ref:` to hold it fixed"
-        )
+    warnings += [r.message for r in skill_drift if r.source_kind == "git"]
 
     return RunComparison(
         a=a_run,

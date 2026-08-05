@@ -18,7 +18,9 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -40,6 +42,16 @@ class SkillFetchError(ValueError):
     Wrapped into ``SkillResolutionError`` at the ``resolve_skills`` seam, so a
     caller handles one exception type for "the neighbourhood is unusable"
     however the entry was written.
+    """
+
+
+class _NoSuchRef(SkillFetchError):
+    """The remote answered, and has no ref by that name.
+
+    Distinguished from a general fetch failure because the two want opposite
+    handling: an unreachable remote may fall back to a cached commit, while a
+    *reachable* remote denying the ref is how we learn that a commit-shaped ref
+    is a commit rather than a hex-named branch.
     """
 
 
@@ -75,15 +87,27 @@ class SkillFetcher:
     instead of raising, so a schema check never becomes a connectivity check.
     """
 
+    # Where checkouts land. ``None`` means "wherever ``default_cache_dir`` says";
+    # ``root`` is the resolved answer and is what every path is built from, so
+    # no call site has to re-ask the question or narrow an Optional.
     cache_dir: Path | None = None
     offline: bool = False
+    # Called with each warning as it happens, so a stale-cache notice reaches
+    # the terminal at fetch time rather than after the run it applies to.
+    on_warning: Callable[[str], None] | None = None
     warnings: list[str] = field(default_factory=list)
     # Sources skipped because we are offline and they are not cached. Only ever
     # populated in offline mode — a run refuses instead.
     unresolved: list[str] = field(default_factory=list)
+    root: Path = field(init=False)
 
     def __post_init__(self) -> None:
-        self.cache_dir = Path(self.cache_dir or default_cache_dir() / "skills")
+        self.root = Path(self.cache_dir or default_cache_dir() / "skills")
+
+    def _warn(self, message: str) -> None:
+        self.warnings.append(message)
+        if self.on_warning:
+            self.on_warning(message)
 
     # ── public API ───────────────────────────────────────────────────────────
 
@@ -115,7 +139,7 @@ class SkillFetcher:
             )
 
         if stale:
-            self.warnings.append(
+            self._warn(
                 f"{self._label(src)}: cannot reach the remote to resolve "
                 f"'{src.ref or 'the default branch'}' — using cached {sha[:7]}"
             )
@@ -126,12 +150,14 @@ class SkillFetcher:
     def _resolve(self, src: GitSkillSource) -> tuple[str | None, bool]:
         """(commit, served-from-a-stale-cache) for this source.
 
-        A commit-shaped ref is taken at face value, which is what keeps a pinned
-        entry offline-clean. Anything else is a moving target and has to be
-        re-resolved every run.
+        The cache answers first, which is what makes a pinned entry offline-clean
+        — and it has to come before the offline gate, or a pinned-but-uncached
+        entry would reach the network from ``validate``. Anything the cache
+        cannot answer is a moving target and is re-resolved against the remote.
         """
-        if src.ref and _SHA_RE.match(src.ref):
-            return self._expand_short_sha(src), False
+        cached = self._cached_sha(src)
+        if cached is not None:
+            return cached, False
 
         if self.offline:
             remembered = self._remembered(src)
@@ -139,6 +165,14 @@ class SkillFetcher:
 
         try:
             return self._ls_remote(src), False
+        except _NoSuchRef:
+            # The remote answered and has no such ref. A commit-shaped ref is
+            # then exactly what it looks like — asking the remote first (rather
+            # than assuming) is what keeps a hex-named *branch* from being
+            # silently pinned as though it were a commit.
+            if src.ref and _SHA_RE.match(src.ref):
+                return src.ref, False
+            raise
         except SkillFetchError as exc:
             # The remote is unreachable. A cached commit for this ref is fully
             # auditable — it lands in the run's snapshot and `compare` reports
@@ -155,14 +189,19 @@ class SkillFetcher:
                 "activation against competition that was not there."
             ) from exc
 
-    def _expand_short_sha(self, src: GitSkillSource) -> str:
-        """The cached commit this pinned ref abbreviates, or the ref itself.
+    def _cached_sha(self, src: GitSkillSource) -> str | None:
+        """The already-checked-out commit this pinned ref names, if any.
 
-        Expanding from the cache is what lets ``ref: a1b2c3d`` hit a warm
-        checkout without a network round trip; an uncached abbreviation is
-        handed to ``git fetch`` to accept or reject.
+        Only a commit-shaped ref can be answered from the cache alone: a branch
+        or tag has to be re-resolved because it moves. This is the whole of
+        "a pinned entry is offline once fetched", and it must run *before* the
+        offline check so a pinned entry never reaches the network at all.
+
+        The prefix scan lets ``ref: a1b2c3d`` hit a checkout stored under its
+        full commit.
         """
-        assert src.ref is not None
+        if not (src.ref and _SHA_RE.match(src.ref)):
+            return None
         repo_dir = self._repo_dir(src.repo)
         if (repo_dir / src.ref / ".git").exists():
             return src.ref
@@ -170,7 +209,7 @@ class SkillFetcher:
             for child in sorted(repo_dir.iterdir()):
                 if child.name.startswith(src.ref) and (child / ".git").exists():
                     return child.name
-        return src.ref
+        return None
 
     def _ls_remote(self, src: GitSkillSource) -> str:
         ref = src.ref or "HEAD"
@@ -181,7 +220,7 @@ class SkillFetcher:
                 self._remember(src, sha.strip())
                 return sha.strip()
         if src.ref:
-            raise SkillFetchError(
+            raise _NoSuchRef(
                 f"{self._label(src)}: the remote has no ref '{src.ref}'.\n\n"
                 "Check the branch, tag or commit — or drop `ref:` to track the "
                 "default branch."
@@ -203,7 +242,7 @@ class SkillFetcher:
         except SkillFetchError:
             # A half-written checkout would be indistinguishable from a good one
             # on the next run, since the cache key is the commit.
-            _rmtree(dest)
+            shutil.rmtree(dest, ignore_errors=True)
             raise
 
     # ── the ref → commit memo ────────────────────────────────────────────────
@@ -246,8 +285,7 @@ class SkillFetcher:
     def _repo_dir(self, repo: str) -> Path:
         digest = hashlib.sha256(repo.encode()).hexdigest()[:12]
         slug = _SLUG_RE.sub("-", repo).strip("-")[-40:] or "repo"
-        assert self.cache_dir is not None
-        return self.cache_dir / f"{slug}-{digest}"
+        return self.root / f"{slug}-{digest}"
 
     def _checkout_dir(self, repo: str, sha: str) -> Path:
         return self._repo_dir(repo) / sha
@@ -284,9 +322,3 @@ class SkillFetcher:
                 f"git {args[0]} failed: {detail[0] if detail else 'unknown error'}"
             )
         return proc.stdout
-
-
-def _rmtree(path: Path) -> None:
-    import shutil
-
-    shutil.rmtree(path, ignore_errors=True)

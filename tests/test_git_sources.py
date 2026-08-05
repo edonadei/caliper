@@ -198,6 +198,44 @@ def test_offline_mode_never_touches_the_network(tmp_path: Path, origin: Path):
     assert fetcher.unresolved
 
 
+def test_offline_mode_does_not_fetch_an_uncached_pinned_sha(tmp_path: Path):
+    """A commit-shaped ref must not sneak past the offline gate into a clone."""
+    fetcher = SkillFetcher(cache_dir=tmp_path / "cache", offline=True)
+    src = GitSkillSource(repo="https://example.invalid/nope", ref="a" * 40)
+
+    assert fetcher.materialize(src) is None
+    assert fetcher.unresolved
+
+
+def test_a_hex_named_branch_is_resolved_not_assumed_to_be_a_commit(
+    tmp_path: Path, origin: Path
+):
+    """`ref: abcdef1` may be a branch; asking the remote is what tells them apart."""
+    _git("branch", "abcdef1", cwd=origin)
+
+    fetched = SkillFetcher(cache_dir=tmp_path / "cache").materialize(
+        GitSkillSource(repo=str(origin), ref="abcdef1")
+    )
+
+    assert fetched is not None
+    assert fetched.sha == _head(origin)
+
+
+def test_a_warning_is_pushed_out_as_it_happens(tmp_path: Path, origin: Path):
+    """Collected-and-printed-later loses the notice on runs that then fail."""
+    cache = tmp_path / "cache"
+    src = GitSkillSource(repo=str(origin), ref="main")
+    SkillFetcher(cache_dir=cache).materialize(src)
+    origin.rename(tmp_path / "origin-gone")
+
+    seen: list[str] = []
+    fetcher = SkillFetcher(cache_dir=cache, on_warning=seen.append)
+    fetcher.materialize(src)
+
+    assert seen == fetcher.warnings
+    assert seen
+
+
 def test_offline_mode_still_serves_a_warm_cache(tmp_path: Path, origin: Path):
     cache = tmp_path / "cache"
     src = GitSkillSource(repo=str(origin), ref=_head(origin))

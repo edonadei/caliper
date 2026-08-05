@@ -720,10 +720,7 @@ def print_comparison(comp: RunComparison, verbose: bool = False) -> None:
     for record in comp.skill_drift:
         if record.source_kind == "git":
             continue
-        console.print(
-            f"   [dim]{record.name} changed between runs — path, "
-            f"{record.a_ref} {_TO} {record.b_ref}[/dim]"
-        )
+        console.print(f"   [dim]{record.message}[/dim]")
     console.print()
 
     table = Table(

@@ -74,6 +74,7 @@ def validate_cmd(
 
     name = spec_name(spec_file)
     n_tasks = len(spec.tasks)
+    asserting = any(t.activates for t in spec.tasks)
     named = ", ".join(ref.name for ref in refs)
     if fetcher.unresolved:
         # Never "bare agent" here: the neighbourhood is *unknown*, not empty,
@@ -85,6 +86,16 @@ def validate_cmd(
     else:
         skills = named or "(bare agent — no skills)"
     asserted = sum(1 for t in spec.tasks if t.activates is not None)
+    # Standing the closure check down is invisible otherwise, and an author
+    # would read a green panel as "the names in activates: are known good".
+    # Say so instead: the check is deferred to the run, which has fetched.
+    caveat = (
+        "\n  [yellow]note[/yellow]     [dim]activates: names not checked — a "
+        "git source is uncached, so the\n           neighbourhood is not fully "
+        "known here. `caliper run` checks them.[/dim]"
+        if fetcher.unresolved and asserting
+        else ""
+    )
 
     console.print(
         Panel(
@@ -92,7 +103,8 @@ def validate_cmd(
             f"  skills   [cyan]{skills}[/cyan]\n"
             f"  tasks    [cyan]{n_tasks}[/cyan] "
             f"[dim]({asserted} asserting activates:)[/dim]\n"
-            "  engine   [dim]chosen at run time (--model / --judge-model)[/dim]",
+            "  engine   [dim]chosen at run time (--model / --judge-model)[/dim]"
+            f"{caveat}",
             title=f"[bold green]{CHECK} Spec is valid[/bold green]",
             border_style="green",
         )

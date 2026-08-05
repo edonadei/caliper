@@ -83,7 +83,6 @@ def test_a_drifted_git_source_warns():
 
     assert [d.name for d in comp.skill_drift] == ["tdd"]
     assert comp.skill_drift[0].source_kind == "git"
-    assert comp.has_skill_drift
     assert any("tdd" in w and "git source" in w for w in comp.warnings)
 
 

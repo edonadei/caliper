@@ -423,7 +423,12 @@ costs one `git ls-remote` per run.
 
 `caliper run` fetches before the first attempt, so a bad `repo:` costs you
 nothing. `caliper validate` never touches the network: it resolves git sources
-from the cache when it can and reports the rest as *not cached*.
+from the cache when it can and reports the rest as *not cached* (and says so
+when that means it couldn't check your `activates:` names).
+
+Checkouts land in `~/.cache/caliper/skills/` (or `$XDG_CACHE_HOME/caliper/…`),
+keyed by resolved commit — so they're immutable, shared across every spec that
+names them, and safe to delete. Set `CALIPER_CACHE_DIR` to put them elsewhere.
 
 If a git source can't be fetched and isn't cached, the run **refuses** — a
 member silently missing would measure your skill against competition that
@@ -621,7 +626,10 @@ How the diff reads:
   `has_regression`.
 
 `--format json` serializes the full comparison (per-task scores, deltas,
-regression flags, unmatched lists, warnings, and per-side usage) for scripting.
+regression flags, unmatched lists, warnings, `skill_drift`, and per-side usage)
+for scripting. Each `skill_drift` entry carries the member's `name`,
+`source_kind`, and the two sides' `a_ref`/`b_ref` — so a script sees drift for
+*every* member, including the path-sourced ones that don't raise a warning.
 
 ---
 
@@ -717,6 +725,10 @@ them up per run:
   turns (`role`, `content`, and tool `tool_name`/`tool_input`/`tool_output` when
   present). This preserves the full tool-call trace in saved results for later
   inspection; older JSON without the field still loads (`transcript` is `null`).
+- Each `SkillSnapshot` records `source_kind` (`"path"` or `"git"`) alongside
+  `git_repo`/`git_sha`, so a saved run says how each member of the neighbourhood
+  was obtained and — for a git source — the exact commit it was fetched at.
+  Older JSON without the field still loads and reads as `"path"`.
 - In the summary, **`in` = input + cache_read + cache_creation** and **`out` =
   output**. The **unusable** slice (timeout / infra / judge error) is broken out
   separately, so wasted spend stays visible without distorting the per-attempt

@@ -543,6 +543,22 @@ class SkillDriftRecord(BaseModel):
     a_ref: str
     b_ref: str
 
+    @property
+    def message(self) -> str:
+        """The one sentence describing this drift, wherever it is shown.
+
+        Written once here because both renderings need it — ``diff_runs`` puts
+        the git-sourced ones in ``warnings`` (so ``--format json`` sees them)
+        and the reporter prints the path-sourced ones dimmed — and a sentence
+        written twice is a sentence that drifts.
+        """
+        if self.source_kind == "git":
+            return (
+                f"{self.name} changed between runs — git source, "
+                f"{self.a_ref} → {self.b_ref}; pin `ref:` to hold it fixed"
+            )
+        return f"{self.name} changed between runs — path, {self.a_ref} → {self.b_ref}"
+
 
 class RunComparison(BaseModel):
     """The pure result of ``diff_runs(a, b)`` — the whole ``compare`` contract.
@@ -594,11 +610,6 @@ class RunComparison(BaseModel):
     # Human-readable guards, mirrored into both the table header and JSON so an
     # agent on --format json sees the exact warning a human sees.
     warnings: list[str]
-
-    @property
-    def has_skill_drift(self) -> bool:
-        """Whether any *claimed* member moved — the confounding kind."""
-        return any(d.source_kind == "git" for d in self.skill_drift)
 
     # Run usage totals per side (all tasks, not just matched). Token/wall deltas
     # are shown alongside pass@k but NEVER feed has_regression — a token drop is a
