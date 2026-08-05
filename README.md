@@ -490,7 +490,7 @@ When both `expect` and `assert` are present, both must pass.
 | `caliper validate <spec>` | Validate a spec file |
 | `caliper list [spec]` | List specs and saved runs |
 | `caliper report <spec-or-result>` | Re-render saved results |
-| `caliper compare <A> <B>` | Diff two saved runs of the same eval, task by task |
+| `caliper compare <A> <B>` | Diff two saved runs of the same eval, task by task. Each side is a spec name (that spec's **latest** run) or a results-JSON path; they must be two distinct runs |
 | `caliper update-cli [backend]` | Check or update installed agent CLI versions |
 
 ### `caliper run` flags

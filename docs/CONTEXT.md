@@ -165,6 +165,13 @@ reading half of an [[ablation]]: it never produces runs, only diffs saved ones.
 There is no within-run diff — an ablated arm is an ordinary saved run, so
 skill-vs-no-skill and candidate-vs-control travel one path rather than two.
 
+The two sides must be **distinct saved runs**, and naming them is the caller's
+job: a bare spec name always means that spec's *latest* run, so an
+[[ablation]] pair — two runs of one spec, in one folder — names the control arm
+by its results path. Naming one spec twice is refused rather than diffed,
+because a run compared with itself agrees with itself on every guard and renders
+a clean table of zeroes.
+
 A run records which skills it [[ablation|ablated]], so a deliberate ablation pair
 is recognised and labelled from that marker rather than inferred from its smaller
 neighbourhood — the same reason the era marker is explicit rather than sniffed
