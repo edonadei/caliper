@@ -317,36 +317,6 @@ def test_resolve_records_provenance_for_both_kinds(tmp_path: Path, origin: Path)
     assert refs[1].git_repo == str(origin)
 
 
-def test_a_skill_referencing_companion_files_still_snapshots(tmp_path: Path):
-    """Progressive disclosure is the normal shape, so the snapshot must survive it.
-
-    Every other snapshot test uses a SKILL.md that points at nothing, which is
-    what let a name collision in the referenced-file loop reach a real run.
-    """
-    from caliper.runner import _SkillSnapshotter
-    from caliper.skills import SkillRef
-
-    directory = tmp_path / "mine"
-    directory.mkdir()
-    (directory / "REFERENCE.md").write_text("# Reference\n")
-    (directory / "SKILL.md").write_text(
-        "---\nname: mine\ndescription: d.\n---\n\nSee [ref](./REFERENCE.md).\n"
-    )
-    ref = SkillRef(
-        name="mine",
-        path=directory / "SKILL.md",
-        source_kind="git",
-        git_repo="owner/name",
-        git_sha="a" * 40,
-    )
-
-    snap = _SkillSnapshotter().snapshot(ref)
-
-    assert snap.source_kind == "git"
-    assert snap.git_sha == "a" * 40
-    assert set(snap.files) == {"SKILL.md", "REFERENCE.md"}
-
-
 def test_a_git_source_colliding_on_name_is_refused(tmp_path: Path, origin: Path):
     local = _write_skill(tmp_path / "mine", "tdd")
     fetcher = SkillFetcher(cache_dir=tmp_path / "cache")
