@@ -319,6 +319,27 @@ delegating case: remove a parent skill and its neighbours correctly stop firing,
 so scoring that as a miss would report the finding as a failure. What each attempt
 actually reached for is still observed and shown; only the verdict is withheld.
 
+## Activation admissibility
+
+Whether an [[activation]] observation may be **counted**, as distinct from
+whether it was **made**. The two come apart only on a truncated transcript.
+
+An `infra_error` or `timeout` attempt is *inadmissible*: the transcript may have
+been cut, so nothing it shows can enter the [[activation score]]'s denominator.
+But truncation is asymmetric — it can hide evidence, never invent it — so a
+*positive* observation is still recorded, while an empty one is written as "not
+observed" rather than as a fabricated "the description never fired". An
+inadmissible attempt therefore carries an observation and **no verdict**: the
+observation is evidence for a person reading saved results, and nothing derives
+a score from it.
+
+So there are three states, not two: *observed and admissible*, *observed but
+inadmissible*, and *not observed at all* — the last being an [[ablation|ablated]]
+neighbourhood, where no choice existed to observe.
+_Avoid_: unusable activation (an attempt that is [[usable / unusable
+attempt|unusable]] for the [[success rate|score]] may still be
+activation-admissible — a `judge_error` is).
+
 ## Skill neighbourhood
 
 The set of skills declared by an [[eval spec]] and installed for a run. Its

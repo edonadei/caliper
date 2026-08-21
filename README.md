@@ -753,10 +753,14 @@ them up per run:
 - Each `AttemptRecord` carries `activated`, the skills the agent chose to load,
   recorded on every attempt whether or not the task asserted on it. It is
   `null` when nothing was *observable*: an attempt with the whole neighbourhood
-  ablated (no skills installed), or a timeout / infra failure whose transcript
-  may be truncated. A
-  bare `[]` in those cases would be a fabricated "the description never fired",
-  so caliper never writes one.
+  ablated (no skills installed), or a timeout / infra failure whose truncated
+  transcript showed no activation. A bare `[]` in those cases would be a
+  fabricated "the description never fired", so caliper never writes one.
+- A truncated transcript that *did* show an activation **keeps** it: truncation
+  can hide evidence, never invent it. The attempt stays out of the activation
+  score all the same (that denominator excludes `timeout` / `infra_error` by
+  outcome), and its `activation_passed` is `null` — an observation, never a
+  verdict. See [Activation admissibility](docs/CONTEXT.md).
 - `activation_passed` is the verdict: `null` = **not asserted** (a different
   `null` from `activated`'s, matching the existing `assert_passed` idiom).
 - `TaskResult` carries `activation_expected` (the task's `activates:` set) plus

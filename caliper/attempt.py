@@ -85,16 +85,25 @@ def assemble_attempt(
     pre_judge_outcome = classify_pre_judge(result)
 
     # Recorded on *every* attempt that produced a whole transcript, asserted only
-    # when the task said so. A timeout/infra failure yields ``None`` — *not
-    # observed*, never a fabricated empty set — because the transcript may have
-    # been truncated, where an empty result would be a confident "the description
-    # never fired" manufactured from nothing. (Ablating the whole neighbourhood
-    # yields ``None`` too, from the detector itself: nothing installed means no
-    # choice existed to observe.)
-    activated = (
-        activation.detect(result.transcript) if pre_judge_outcome is None else None
-    )
-    activation_passed = check_activation(activated, expected_activation)
+    # when the task said so. A timeout/infra failure may have cut the transcript
+    # short, and truncation is not symmetric: it can hide evidence, never invent
+    # it. So a *positive* observation survives as evidence, while an empty one
+    # collapses to ``None`` — a bare ``[]`` there would be a confident "the
+    # description never fired" manufactured from nothing. (Ablating the whole
+    # neighbourhood yields ``None`` too, from the detector itself: nothing
+    # installed means no choice existed to observe.)
+    #
+    # The verdict is withheld either way. A kept observation is *inadmissible*:
+    # evidence for a human reading saved results, never a judgement on an
+    # attempt the activation scoreboard already excludes by outcome. See
+    # docs/CONTEXT.md → Activation admissibility.
+    observed = activation.detect(result.transcript)
+    if pre_judge_outcome is None:
+        activated = observed
+        activation_passed = check_activation(activated, expected_activation)
+    else:
+        activated = observed or None
+        activation_passed = None
 
     def with_outcome(
         outcome: Outcome, judge_model: str | None = None, **verdict
