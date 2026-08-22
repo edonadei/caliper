@@ -84,19 +84,9 @@ def assemble_attempt(
     # can never drift apart.
     pre_judge_outcome = classify_pre_judge(result)
 
-    # Recorded on *every* attempt that produced a whole transcript, asserted only
-    # when the task said so. A timeout/infra failure may have cut the transcript
-    # short, and truncation is not symmetric: it can hide evidence, never invent
-    # it. So a *positive* observation survives as evidence, while an empty one
-    # collapses to ``None`` — a bare ``[]`` there would be a confident "the
-    # description never fired" manufactured from nothing. (Ablating the whole
-    # neighbourhood yields ``None`` too, from the detector itself: nothing
-    # installed means no choice existed to observe.)
-    #
-    # The verdict is withheld either way. A kept observation is *inadmissible*:
-    # evidence for a human reading saved results, never a judgement on an
-    # attempt the activation scoreboard already excludes by outcome. See
-    # docs/CONTEXT.md → Activation admissibility.
+    # Truncation hides an activation, never invents one: a positive observation
+    # survives a timeout/infra failure, an empty one collapses to ``None``. No
+    # verdict either way. See docs/CONTEXT.md → Activation admissibility.
     observed = activation.detect(result.transcript)
     if pre_judge_outcome is None:
         activated = observed
