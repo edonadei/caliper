@@ -84,9 +84,10 @@ def assemble_attempt(
     # can never drift apart.
     pre_judge_outcome = classify_pre_judge(result)
 
-    # Truncation hides an activation, never invents one: a positive observation
-    # survives a timeout/infra failure, an empty one collapses to ``None``. No
-    # verdict either way. See docs/CONTEXT.md → Activation admissibility.
+    # A timeout or infra failure can cut the transcript off partway. A skill we
+    # saw load before the cut still loaded, so keep it. Seeing nothing is
+    # ambiguous (nothing loaded, or we missed it), so record ``None``, not an
+    # empty list. Neither is graded. See docs/CONTEXT.md → Activation admissibility.
     observed = activation.detect(result.transcript)
     if pre_judge_outcome is None:
         activated = observed
