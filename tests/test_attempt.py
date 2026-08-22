@@ -289,3 +289,38 @@ def test_a_truncated_transcript_yields_no_observation_rather_than_an_empty_set()
     assert assembled.record.outcome is Outcome.TIMEOUT
     assert assembled.record.activated is None
     assert assembled.record.activation_passed is None
+
+
+def test_a_truncated_transcript_keeps_an_activation_it_did_see():
+    """Truncation hides evidence, never invents it: a positive survives as evidence."""
+    assembled = _assemble(
+        _result(
+            timed_out=True,
+            exit_code=124,
+            error="timeout",
+            transcript=[_read_turn("/skills/tdd/SKILL.md")],
+        ),
+        activation=_detector(),
+        expected_activation=["tdd"],
+    )
+
+    assert assembled.record.outcome is Outcome.TIMEOUT
+    assert assembled.record.activated == ["tdd"]
+
+
+def test_a_kept_observation_is_evidence_and_never_a_verdict():
+    """Inadmissible by outcome: the observation rides, the verdict is withheld."""
+    assembled = _assemble(
+        _result(
+            timed_out=True,
+            exit_code=124,
+            error="timeout",
+            transcript=[_read_turn("/skills/tdd/SKILL.md")],
+        ),
+        activation=_detector(),
+        expected_activation=["tdd"],
+    )
+
+    assert assembled.record.activation_passed is None
+    assert assembled.record.activation_scored is False
+    assert assembled.record.activation_observed is False
