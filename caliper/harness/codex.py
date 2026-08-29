@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
-import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -29,10 +27,15 @@ class CodexHarness(CliHarness):
         self._model = model
 
     supports_mcp = True
+    cli_name = "codex"
+    cli_path_env_var = "CODEX_CLI_PATH"
 
     @property
     def name(self) -> str:
         return "codex"
+
+    def cli_candidates(self) -> tuple[Path, ...]:
+        return (CODEX_APP_CLI,)
 
     def _ensure_ready(self, ctx: RunContext) -> None:
         if not self._cli_available():
@@ -47,8 +50,20 @@ class CodexHarness(CliHarness):
     def skills_root(self, ctx: RunContext) -> Path:
         return Path(ctx.isolated_home) / ".codex" / "skills"
 
+    def seed_files(self, ctx: RunContext) -> list[tuple[Path, Path]]:
+        real = Path.home() / ".codex"
+        codex_home = Path(ctx.isolated_home) / ".codex"
+        # config.toml is deliberately absent: it is rewritten rather than copied
+        # (see ``_materialize_config``), so seeding it verbatim would leak the
+        # user's ambient model pin and MCP servers into the attempt.
+        return [(real / "auth.json", codex_home / "auth.json")]
+
     def _prepare(self, ctx: RunContext) -> None:
-        self._copy_codex_config(ctx)
+        self._materialize_config(
+            ctx,
+            Path(ctx.isolated_home) / ".codex",
+            Path.home() / ".codex" / "config.toml",
+        )
 
     def _command(
         self, ctx: RunContext
@@ -57,7 +72,7 @@ class CodexHarness(CliHarness):
         # and caliper no longer invents one: the skill is installed at
         # .codex/skills/<name>/ and the agent discovers it (docs/adr/0013).
         full_prompt = ctx.prompt
-        codex = self._codex_command() or "codex"
+        codex = self.cli_path() or "codex"
         cmd = [
             codex,
             "exec",
@@ -73,10 +88,10 @@ class CodexHarness(CliHarness):
         return cmd, full_prompt, None
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
-        return self._build_env(ctx.isolated_home, ctx.extra_path)
+        return self._isolated_env(ctx)
 
     def _cli_available(self) -> bool:
-        codex = self._codex_command()
+        codex = self.cli_path()
         return codex is not None and self._version_ok(codex, timeout=5)
 
     def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
@@ -185,12 +200,6 @@ class CodexHarness(CliHarness):
                 )
             )
 
-        if not final_output and transcript:
-            for turn in reversed(transcript):
-                if turn.role == "assistant" and turn.content:
-                    final_output = turn.content
-                    break
-
         return transcript, final_output
 
     @staticmethod
@@ -245,31 +254,12 @@ class CodexHarness(CliHarness):
             )
         return turns
 
-    def _build_env(self, isolated_home: str, extra_path: list[str]) -> dict[str, str]:
-        path = os.environ.get("PATH", "")
-        if extra_path:
-            path = os.pathsep.join(extra_path) + os.pathsep + path
-
-        env = {
-            "HOME": isolated_home,
-            "PATH": path,
-        }
-        return self._passthrough(env, ("LANG", "LC_ALL", "TERM", "TMPDIR"))
-
-    def _codex_command(self) -> str | None:
-        configured = os.environ.get("CODEX_CLI_PATH")
-        if configured and Path(configured).exists():
-            return configured
-        if CODEX_APP_CLI.exists():
-            return str(CODEX_APP_CLI)
-        return shutil.which("codex")
-
     # --- bare prompt call (the judge's half of the seam) -------------------
 
     def _prompt_command(
         self, prompt: str, model: str | None, extras: dict
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
-        codex = self._codex_command()
+        codex = self.cli_path()
         if not codex:
             raise HarnessConfigurationError("codex CLI not found")
 
@@ -315,17 +305,6 @@ class CodexHarness(CliHarness):
         # Codex doesn't surface the resolved model in this mode, so we can only
         # report the one that was requested (None when its own default ran).
         return PromptResult(text=raw, resolved_model=model, error=None)
-
-    def _copy_codex_config(self, ctx: RunContext) -> None:
-        codex_home = Path(ctx.isolated_home) / ".codex"
-        real_codex_home = Path.home() / ".codex"
-
-        auth_src = real_codex_home / "auth.json"
-        if auth_src.exists():
-            codex_home.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(auth_src, codex_home / "auth.json")
-
-        self._materialize_config(ctx, codex_home, real_codex_home / "config.toml")
 
     def _materialize_config(
         self, ctx: RunContext, codex_home: Path, real_config: Path

@@ -11,7 +11,7 @@ from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
 
-from conftest import patch_cli_calls
+from conftest import patch_cli_calls, run_context
 
 
 def _ok_stream(cmd: list[str]) -> subprocess.CompletedProcess:
@@ -136,9 +136,8 @@ def test_claude_harness_prefers_even_major_nvm_node(monkeypatch, tmp_path) -> No
     monkeypatch.setattr("caliper.harness.claude_code.Path.home", lambda: tmp_path)
     monkeypatch.setenv("PATH", f"/opt/homebrew/bin:{node_22_bin}:/usr/bin")
 
-    env = ClaudeCodeHarness()._build_env(
-        isolated_home=str(tmp_path / "home"),
-        extra_path=[],
+    env = ClaudeCodeHarness()._environment(
+        run_context(isolated_home=str(tmp_path / "home"))
     )
 
     assert env["PATH"].split(":")[0] == str(node_22_bin)

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import sys
 from pathlib import Path
 from typing import Callable
@@ -57,24 +56,23 @@ class ClaudeCodeHarness(CliHarness):
     def skills_root(self, ctx: RunContext) -> Path:
         return Path(ctx.isolated_home) / ".claude" / "skills"
 
-    def _prepare(self, ctx: RunContext) -> None:
-        home = Path(ctx.isolated_home)
-        (home / ".claude").mkdir(parents=True, exist_ok=True)
-
-        # Copy auth files from the real HOME so the CLI finds its credentials.
-        # Without this, the isolated HOME causes claude to fall back to
+    def seed_files(self, ctx: RunContext) -> list[tuple[Path, Path]]:
+        # Auth files from the real HOME, so the CLI finds its credentials.
+        # Without them the isolated HOME makes claude fall back to
         # ANTHROPIC_API_KEY (which may be absent or unfunded).
         real_home = Path.home()
-        for src, dst in [
+        home = Path(ctx.isolated_home)
+        return [
             (real_home / ".claude.json", home / ".claude.json"),
             (
                 real_home / ".claude" / ".credentials.json",
                 home / ".claude" / ".credentials.json",
             ),
-        ]:
-            if src.exists():
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, dst)
+        ]
+
+    def _prepare(self, ctx: RunContext) -> None:
+        home = Path(ctx.isolated_home)
+        (home / ".claude").mkdir(parents=True, exist_ok=True)
 
         # On macOS, OAuth credentials may live in the Keychain rather than in
         # .credentials.json. Seed the isolated home so the subprocess can auth
@@ -148,11 +146,38 @@ class ClaudeCodeHarness(CliHarness):
         return config_path
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
-        return self._build_env(
-            ctx.isolated_home,
-            ctx.extra_path,
-            ctx.extras.get("has_file_credentials", False),
-        )
+        env = self._isolated_env(ctx, path_prefixes=self._path_prefixes())
+
+        # Only forward API keys when there are no file-based credentials and no
+        # Keychain credentials — avoids overriding valid OAuth auth with a
+        # potentially unfunded key.
+        if not ctx.extras.get("has_file_credentials", False):
+            for key in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
+                if key in os.environ:
+                    env[key] = os.environ[key]
+        return env
+
+    def _path_prefixes(self) -> list[str]:
+        """Interpreter and package-manager directories the CLI needs on ``PATH``.
+
+        The claude CLI is a Node program, so an nvm-managed Node has to be found
+        before the system one; on macOS an IDE-launched process often has a
+        stripped PATH that omits the Homebrew prefixes the agent's own tools live
+        in. Everything else about the environment is the shared isolated one.
+        """
+        prefixes: list[str] = []
+
+        nvm_node_bin = preferred_nvm_node_bin()
+        if nvm_node_bin:
+            prefixes.append(nvm_node_bin)
+
+        if sys.platform == "darwin":
+            prefixes.extend(
+                p
+                for p in ("/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin")
+                if os.path.isdir(p)
+            )
+        return prefixes
 
     def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
         text = "\n".join(part for part in (final_output, proc.stderr) if part).strip()
@@ -220,8 +245,8 @@ class ClaudeCodeHarness(CliHarness):
         final_output: str,
         proc: ProcessResult,
     ) -> tuple[list[ConversationTurn], str]:
-        # Claude's stream-json stdout is never salvageable as a raw turn; its own
-        # last-assistant fallback in _parse_stream is the only fallback.
+        # Claude's stream-json stdout is never salvageable as a raw turn; the
+        # template's last-assistant tail is the only fallback.
         return transcript, final_output
 
     def _error_field(self, proc: ProcessResult, final_output: str) -> str | None:
@@ -315,61 +340,6 @@ class ClaudeCodeHarness(CliHarness):
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_text(out)
 
-    def _build_env(
-        self,
-        isolated_home: str,
-        extra_path: list[str],
-        has_file_credentials: bool = False,
-    ) -> dict[str, str]:
-        base_path = os.environ.get("PATH", "")
-        path_prefixes = []
-
-        nvm_node_bin = preferred_nvm_node_bin()
-        if nvm_node_bin:
-            path_prefixes.append(nvm_node_bin)
-
-        # On macOS, IDE-launched processes often have a stripped PATH that
-        # omits Homebrew prefixes. Prepend them when present so tools installed
-        # via Homebrew (e.g. on Apple Silicon at /opt/homebrew/bin) are found.
-        if sys.platform == "darwin":
-            homebrew_candidates = [
-                "/opt/homebrew/bin",
-                "/opt/homebrew/sbin",
-                "/usr/local/bin",
-            ]
-            path_prefixes.extend(p for p in homebrew_candidates if os.path.isdir(p))
-
-        if extra_path:
-            path_prefixes = extra_path + path_prefixes
-
-        base_parts = [p for p in base_path.split(os.pathsep) if p]
-        path_prefixes = list(dict.fromkeys(path_prefixes))
-        prefix_set = set(path_prefixes)
-        base_parts = [p for p in base_parts if p not in prefix_set]
-        additions = path_prefixes
-        if additions:
-            base_path = os.pathsep.join(additions + base_parts)
-
-        env: dict[str, str] = {
-            "HOME": isolated_home,
-            "PATH": base_path,
-        }
-
-        # macOS uses TMPDIR for the per-user secure temp directory; Node.js
-        # (and therefore the claude CLI) reads it to locate scratch space.
-        if sys.platform == "darwin" and "TMPDIR" in os.environ:
-            env["TMPDIR"] = os.environ["TMPDIR"]
-
-        # Only forward API keys when there are no file-based credentials and
-        # no Keychain credentials — avoids overriding valid OAuth auth with a
-        # potentially unfunded key.
-        if not has_file_credentials:
-            for key in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
-                if key in os.environ:
-                    env[key] = os.environ[key]
-
-        return env
-
     def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
         """Read the ``result`` event's ``usage``. Claude's ``input_tokens`` is
         already non-cached, so the mapping is direct."""
@@ -440,12 +410,6 @@ class ClaudeCodeHarness(CliHarness):
 
             elif etype == "result":
                 final_output = event.get("result", "")
-
-        if not final_output and transcript:
-            for turn in reversed(transcript):
-                if turn.role == "assistant" and turn.content:
-                    final_output = turn.content
-                    break
 
         return transcript, final_output
 

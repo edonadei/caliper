@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
-import shutil
 from pathlib import Path
 from typing import Callable
 
@@ -41,6 +39,9 @@ class PiHarness(CliHarness):
         "caliper, run them on the claude-code backend (--model claude-code)."
     )
 
+    cli_name = "pi"
+    cli_path_env_var = "PI_CLI_PATH"
+
     @property
     def name(self) -> str:
         return "pi"
@@ -54,22 +55,36 @@ class PiHarness(CliHarness):
                 "`PI_CLI_PATH` to the pi binary, then rerun caliper."
             )
 
-    def _prepare(self, ctx: RunContext) -> None:
-        # pi reads auth/settings from its config dir. We copy the real config
+    def seed_files(self, ctx: RunContext) -> list[tuple[Path, Path]]:
+        # pi reads auth/settings from its config dir. The real config is copied
         # verbatim into a per-attempt directory (parallel-safe; never mutates
-        # the user's real ~/.pi) and point pi at it via PI_CODING_AGENT_DIR.
+        # the user's real ~/.pi) that PI_CODING_AGENT_DIR then points pi at.
         # The config's default model/provider is preserved on purpose; the
         # spec's `--model` overrides it when set. See issue #10 for why this
         # differs from codex (which strips its config default).
-        ctx.extras["agent_dir"] = self._copy_pi_config(ctx.isolated_home)
+        real = Path.home() / ".pi" / "agent"
+        agent_dir = self._agent_dir(ctx)
+        return [
+            (real / name, agent_dir / name) for name in ("auth.json", "settings.json")
+        ]
+
+    @staticmethod
+    def _agent_dir(ctx: RunContext) -> Path:
+        """The per-attempt config dir pi is pointed at via PI_CODING_AGENT_DIR.
+
+        Derived from the isolated home rather than stashed in ``ctx.extras``:
+        it is a function of the context, so there is nothing for a hook to
+        remember between them.
+        """
+        return Path(ctx.isolated_home) / ".pi" / "agent"
 
     def skills_root(self, ctx: RunContext) -> Path:
-        return Path(ctx.extras["agent_dir"]) / "skills"
+        return self._agent_dir(ctx) / "skills"
 
     def _command(
         self, ctx: RunContext
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
-        pi = self._pi_command() or "pi"
+        pi = self.cli_path() or "pi"
         cmd = [
             pi,
             "--print",
@@ -92,12 +107,12 @@ class PiHarness(CliHarness):
         return cmd, None, None
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
-        return self._build_env(
-            ctx.isolated_home, ctx.extras["agent_dir"], ctx.extra_path
+        return self._isolated_env(
+            ctx, extra={"PI_CODING_AGENT_DIR": str(self._agent_dir(ctx))}
         )
 
     def _cli_available(self) -> bool:
-        pi = self._pi_command()
+        pi = self.cli_path()
         return pi is not None and self._version_ok(pi, timeout=10)
 
     def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
@@ -184,12 +199,6 @@ class PiHarness(CliHarness):
                     transcript.append(ConversationTurn(role="assistant", content=text))
                     final_output = text
 
-        if not final_output and transcript:
-            for turn in reversed(transcript):
-                if turn.role == "assistant" and turn.content:
-                    final_output = turn.content
-                    break
-
         return transcript, final_output
 
     def _flatten_text(self, content: object) -> str:
@@ -211,32 +220,12 @@ class PiHarness(CliHarness):
             return result
         return ""
 
-    def _build_env(
-        self, isolated_home: str, agent_dir: Path, extra_path: list[str]
-    ) -> dict[str, str]:
-        path = os.environ.get("PATH", "")
-        if extra_path:
-            path = os.pathsep.join(extra_path) + os.pathsep + path
-
-        env = {
-            "HOME": isolated_home,
-            "PATH": path,
-            "PI_CODING_AGENT_DIR": str(agent_dir),
-        }
-        return self._passthrough(env, ("LANG", "LC_ALL", "TERM", "TMPDIR"))
-
-    def _pi_command(self) -> str | None:
-        configured = os.environ.get("PI_CLI_PATH")
-        if configured and Path(configured).exists():
-            return configured
-        return shutil.which("pi")
-
     # --- bare prompt call (the judge's half of the seam) -------------------
 
     def _prompt_command(
         self, prompt: str, model: str | None, extras: dict
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
-        pi = self._pi_command()
+        pi = self.cli_path()
         if not pi:
             raise HarnessConfigurationError("pi CLI not found")
 
@@ -250,18 +239,8 @@ class PiHarness(CliHarness):
 
     def _prompt_text(self, proc: ProcessResult) -> str:
         # The answer is the last assistant message of pi's JSON event stream —
-        # the same stream _parse_stream already reads for attempt runs.
-        return self._parse_stream(proc.stdout)[1]
-
-    def _copy_pi_config(self, isolated_home: str) -> Path:
-        agent_dir = Path(isolated_home) / ".pi" / "agent"
-        real_agent_dir = Path.home() / ".pi" / "agent"
-        for filename in ("auth.json", "settings.json"):
-            src = real_agent_dir / filename
-            if src.exists():
-                agent_dir.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, agent_dir / filename)
-        return agent_dir
+        # the same stream an attempt run reads, tail and all.
+        return self._parse_stream_with_tail(proc.stdout)[1]
 
     def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
         if proc.returncode == 0:

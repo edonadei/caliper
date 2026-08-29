@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
-import shutil
 from pathlib import Path
 from typing import Callable
 
@@ -43,6 +41,8 @@ class HermesHarness(CliHarness):
     """
 
     supports_mcp = True
+    cli_name = "hermes"
+    cli_path_env_var = "HERMES_CLI_PATH"
     # Hermes advertises installed skills to the model as name + truncated
     # description and exposes the model's choice as a named skill_view call —
     # the shape that makes a description measurable.
@@ -65,18 +65,22 @@ class HermesHarness(CliHarness):
                 "the hermes binary, then rerun caliper."
             )
 
-    def _prepare(self, ctx: RunContext) -> None:
+    def seed_files(self, ctx: RunContext) -> list[tuple[Path, Path]]:
         # Isolate Hermes' whole home per attempt (parallel-safe; never mutates
         # the user's real ~/.hermes). Seeding only auth/config — not SOUL.md or
         # MEMORY.md — is what neutralizes the agent; --ignore-rules on the
         # command completes the strip.
-        hermes_home = Path(ctx.isolated_home) / ".hermes"
         real_home = Path.home() / ".hermes"
+        hermes_home = self._hermes_home(ctx)
+        return [(real_home / name, hermes_home / name) for name in _SEED_FILES]
+
+    @staticmethod
+    def _hermes_home(ctx: RunContext) -> Path:
+        return Path(ctx.isolated_home) / ".hermes"
+
+    def _prepare(self, ctx: RunContext) -> None:
+        hermes_home = self._hermes_home(ctx)
         hermes_home.mkdir(parents=True, exist_ok=True)
-        for filename in _SEED_FILES:
-            src = real_home / filename
-            if src.exists():
-                shutil.copy2(src, hermes_home / filename)
         ctx.extras["hermes_home"] = str(hermes_home)
 
         self._configure_mcp(ctx, hermes_home)
@@ -157,37 +161,27 @@ class HermesHarness(CliHarness):
         return ["/bin/sh", "-c", script], None, None
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
-        path = os.environ.get("PATH", "")
-        if ctx.extra_path:
-            path = os.pathsep.join(ctx.extra_path) + os.pathsep + path
-
-        env = {
-            "HOME": ctx.isolated_home,
-            "PATH": path,
-            "HERMES_HOME": ctx.extras["hermes_home"],
-            "CALIPER_HERMES": self._hermes_command() or "hermes",
-            "CALIPER_PROMPT": ctx.prompt,
-        }
-        return self._passthrough(env, ("LANG", "LC_ALL", "TERM", "TMPDIR"))
+        return self._isolated_env(
+            ctx,
+            extra={
+                "HERMES_HOME": ctx.extras["hermes_home"],
+                "CALIPER_HERMES": self.cli_path() or "hermes",
+                "CALIPER_PROMPT": ctx.prompt,
+            },
+        )
 
     def _cli_available(self) -> bool:
-        hermes = self._hermes_command()
+        hermes = self.cli_path()
         return hermes is not None and self._version_ok(
             hermes, timeout=15, args=("--version",)
         )
-
-    def _hermes_command(self) -> str | None:
-        configured = os.environ.get("HERMES_CLI_PATH")
-        if configured and Path(configured).exists():
-            return configured
-        return shutil.which("hermes")
 
     # --- bare prompt call (the judge's half of the seam) -------------------
 
     def _prompt_command(
         self, prompt: str, model: str | None, extras: dict
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
-        hermes = self._hermes_command()
+        hermes = self.cli_path()
         if not hermes:
             raise HarnessConfigurationError("hermes CLI not found")
 
@@ -241,12 +235,6 @@ class HermesHarness(CliHarness):
             elif role == "user":
                 if text.strip():
                     transcript.append(ConversationTurn(role="user", content=text))
-
-        if not final_output:
-            for turn in reversed(transcript):
-                if turn.role == "assistant" and turn.content:
-                    final_output = turn.content
-                    break
 
         return transcript, final_output
 

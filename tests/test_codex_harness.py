@@ -47,7 +47,7 @@ def test_codex_installs_the_skill_and_leaves_the_prompt_alone(
         assert kwargs["cwd"] == str(tmp_path)
         return subprocess.CompletedProcess(cmd, 0, stdout="VALID\n", stderr="")
 
-    monkeypatch.setattr("caliper.harness.codex.shutil.which", fake_which)
+    monkeypatch.setattr("caliper.harness.base.shutil.which", fake_which)
     monkeypatch.setattr(
         "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )
@@ -87,7 +87,7 @@ def test_codex_cli_omits_model_when_unspecified(monkeypatch, tmp_path) -> None:
             )
         return subprocess.CompletedProcess(cmd, 0, stdout="OK\n", stderr="")
 
-    monkeypatch.setattr("caliper.harness.codex.shutil.which", lambda _name: "codex")
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "codex")
     monkeypatch.setattr(
         "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )
@@ -148,7 +148,7 @@ def test_codex_json_stream_captures_tool_calls(monkeypatch, tmp_path) -> None:
         stdout = "\n".join(json.dumps(event) for event in events)
         return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr("caliper.harness.codex.shutil.which", lambda _name: "codex")
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "codex")
     monkeypatch.setattr(
         "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )
@@ -203,7 +203,7 @@ def test_codex_json_stream_keeps_unknown_tool_items(monkeypatch, tmp_path) -> No
         stdout = "\n".join(json.dumps(event) for event in events)
         return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr("caliper.harness.codex.shutil.which", lambda _name: "codex")
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "codex")
     monkeypatch.setattr(
         "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )
@@ -231,9 +231,9 @@ def test_codex_prefers_app_bundled_cli(monkeypatch, tmp_path) -> None:
     app_cli.write_text("")
 
     monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", app_cli)
-    monkeypatch.setattr("caliper.harness.codex.shutil.which", lambda _name: "old-codex")
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "old-codex")
 
-    assert CodexHarness()._codex_command() == str(app_cli)
+    assert CodexHarness().cli_path() == str(app_cli)
 
 
 def test_codex_config_copy_strips_top_level_model(monkeypatch, tmp_path) -> None:
@@ -268,7 +268,9 @@ def test_codex_config_copy_strips_top_level_model(monkeypatch, tmp_path) -> None
         extra_path=[],
         mcp_servers=None,
     )
-    CodexHarness()._copy_codex_config(ctx)
+    harness = CodexHarness()
+    harness._seed_home(ctx)
+    harness._prepare(ctx)
 
     copied = (isolated_home / ".codex" / "config.toml").read_text()
     assert 'model = "gpt-5.5"' not in copied
@@ -278,7 +280,7 @@ def test_codex_config_copy_strips_top_level_model(monkeypatch, tmp_path) -> None
 
 
 def test_codex_fails_clearly_when_cli_is_not_runnable(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("caliper.harness.codex.shutil.which", lambda _name: "codex.exe")
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "codex.exe")
     monkeypatch.setattr(
         "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )
@@ -305,7 +307,7 @@ def test_codex_fails_clearly_when_cli_is_not_runnable(monkeypatch, tmp_path) -> 
 def test_codex_fails_clearly_when_cli_requires_newer_version(
     monkeypatch, tmp_path
 ) -> None:
-    monkeypatch.setattr("caliper.harness.codex.shutil.which", lambda _name: "codex")
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "codex")
     monkeypatch.setattr(
         "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )
@@ -385,7 +387,7 @@ def _run_codex_mcp(monkeypatch, tmp_path, mcp_servers, *, home=None):
 
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("CODEX_CLI_PATH", raising=False)
-    monkeypatch.setattr("caliper.harness.codex.shutil.which", lambda _n: "codex")
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "codex")
     monkeypatch.setattr(
         "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )
