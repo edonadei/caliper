@@ -230,6 +230,19 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         warnings.append(
             f"A ran k={a_run.k}, B ran k={b_run.k} — pass@k not directly comparable"
         )
+    # Fired on the *marker*, never on a depth threshold: "this run stopped early"
+    # is a provenance fact, and a threshold here would be a worse rewrite of the
+    # confidence intervals that belong on the score itself. A warning, not a
+    # refusal — the attempts are real and the diff is legible; the reader just
+    # has to know one side is a shallower sample of the same tasks.
+    interrupted = [
+        side for side, meta in (("A", a_run), ("B", b_run)) if meta.interrupted
+    ]
+    if interrupted:
+        warnings.append(
+            f"{' and '.join(interrupted)} stopped before every attempt ran — "
+            "scored over a shallower sample, so part of the delta may be noise"
+        )
     # On a recognised ablation pair the differing neighbourhood *is* the
     # experiment, so the generic warning would be describing the design as a
     # mistake — and the sides get titled from the marker instead.

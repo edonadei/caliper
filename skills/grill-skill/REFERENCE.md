@@ -72,7 +72,9 @@ after repeated `infra_error` / `timeout` outcomes, the report marks it as
 `ABORTED` and shows how many attempts ran. A run you stopped with Ctrl-C is
 saved too, headed by an `interrupted:` line: its rates are computed over the
 attempts that ran, so read them as a smaller sample rather than a worse skill —
-and re-run before drawing a conclusion from a handful of attempts. If a failure is still unclear, use
+and re-run before drawing a conclusion from a handful of attempts. `caliper list`
+marks such a run with `⊘`, and `caliper compare` warns when either side is one,
+so a shallow sample cannot quietly masquerade as a delta. If a failure is still unclear, use
 `--verbose` to see full output for all tasks (including passing ones):
 
 ```bash
