@@ -199,6 +199,13 @@ comparison|regression]] are computed on. Chosen over pass@k because Caliper test
 flatters flaky skills (`1/3 → 70.4%`), which is the wrong question when a skill
 runs once in production.
 
+`k` is the depth a run **requested**, not the depth it achieved: `RunMeta.k`
+records the invocation, while the realized attempt count is per task and can be
+lower for two unrelated reasons — a `--fail-fast` truncation (deliberate) or an
+[[interrupted run]] (external). Neither is a defect in the score: every
+denominator here is [[usable / unusable attempt|usable]] attempts, so a shallower
+sample scores correctly and simply carries less weight.
+
 **pass@k** and **pass^k** are kept as *secondary* views — on every task in the
 JSON (`pass_at_k` / `pass_hat_k`) and under `--verbose`. `pass@k = 1−(1−p)^k` is
 P(≥1 of k pass) — retry-optimistic; `pass^k = p^k` is P(all k pass) — the strict
@@ -523,9 +530,23 @@ the harness's `_execute`. It is **not** part of [[attempt usage]]: it is univers
 top-level field. It sits alongside tokens as the latency half of the cost/latency
 axis: a skill edit that holds the score while cutting tokens *or* wall-time is a win.
 
+## Judge time
+
+`AttemptRecord.judge_seconds` — wall-clock seconds the judge spent grading one
+attempt. A **sibling** of [[wall-clock time]], never part of it: that term is
+pinned to the harness spawn, and widening it would redefine the latency figure of
+every run already saved. `None` when no judge ran — an assert-only task, or an
+attempt that exited before reaching one — which is a different claim from `0.0`,
+and the reason the run roll-up averages it over *graded* attempts rather than all
+of them.
+
+Recorded before it is optimised: whether the judge deserves a scheduler of its
+own is a question about a number nobody had measured.
+
 ## Run usage totals
 
-The per-run roll-up of [[attempt usage]] and [[wall-clock time]], **derived** at
+The per-run roll-up of [[attempt usage]], [[wall-clock time]] and [[judge time]],
+**derived** at
 render time by summing over the run's `AttemptRecord`s — never stored on the
 schema (mirrors how [[run comparison]] keeps usable/unusable counts derivable
 rather than persisted). Every attempt counts toward the run total, because the
@@ -555,5 +576,10 @@ killed are **dropped**, not recorded as `infra_error`; they are the interrupt
 showing up in the sample, not a fact about the skill.
 
 Distinct from a task truncated by `--fail-fast`, which also has fewer than k
-attempts but stopped *on purpose* and does not set the marker. See
+attempts but stopped *on purpose* and does not set the marker. The two are the
+only ways realized depth falls short of the requested [[success rate|k]].
+
+The marker is what `compare` warns on and what `list` marks — always on the fact
+that a run stopped early, never on a depth threshold, which would be a worse
+rewrite of the confidence intervals that belong on the score itself. See
 docs/adr/0018-the-attempt-is-the-unit-of-parallelism.md.

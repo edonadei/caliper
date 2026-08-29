@@ -542,6 +542,13 @@ def _print_usage_summary(totals: UsageTotals) -> None:
 
     grid.add_row(" Tokens", tokens_val)
     grid.add_row(" Wall", wall_val)
+    # Only when a judge actually ran: an assert-only run would otherwise print a
+    # confident "0s", which reads as a free judge rather than no judge.
+    if totals.judged_attempts > 0:
+        judge_val = _fmt_duration(totals.judge_seconds)
+        avg_judge = totals.judge_seconds / totals.judged_attempts
+        judge_val += f"  [dim]{avg_judge:.1f}s per graded attempt[/dim]"
+        grid.add_row(" Judge", judge_val)
     console.print(grid)
 
     if totals.unusable_attempts > 0:

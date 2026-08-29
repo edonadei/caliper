@@ -228,6 +228,13 @@ class AttemptRecord(BaseModel):
     assert_evidence: str | None = None
     autorater_passed: bool | None = None
     autorater_reasoning: str | None = None
+    # Wall-clock seconds the judge spent grading this attempt. Deliberately a
+    # *sibling* of ``duration_seconds`` rather than folded into it: that field is
+    # pinned to the harness spawn (docs/CONTEXT.md → Wall-clock time), and
+    # widening it would silently redefine every saved run's latency figure.
+    # ``None`` when no judge ran — an assert-only task, or an attempt that
+    # exited before the judge (timeout, infra, cheat, not_checked).
+    judge_seconds: float | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -342,6 +349,13 @@ class UsageTotals(BaseModel):
     unusable_tokens: int = 0
     unusable_wall_seconds: float = 0.0
     unusable_attempts: int = 0
+    # Judge latency, summed over the attempts that actually reached a judge.
+    # Kept apart from ``wall_seconds`` for the same reason the per-attempt fields
+    # are (docs/CONTEXT.md → Judge time), and counted over its own denominator:
+    # an assert-only run grades nothing, and averaging its zero over every
+    # attempt would report a fast judge rather than no judge.
+    judge_seconds: float = 0.0
+    judged_attempts: int = 0
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -376,6 +390,9 @@ class UsageTotals(BaseModel):
             for att in tr.attempts:
                 totals.attempts += 1
                 totals.wall_seconds += att.duration_seconds
+                if att.judge_seconds is not None:
+                    totals.judge_seconds += att.judge_seconds
+                    totals.judged_attempts += 1
                 # Noise, not merely "not usable": a NOT_CHECKED trigger probe
                 # spent its tokens producing a real activation measurement, so
                 # it is not wasted spend.

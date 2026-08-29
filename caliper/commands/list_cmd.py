@@ -12,6 +12,28 @@ from caliper.schema.results import RunResults
 
 console = Console()
 
+# Marks a run that stopped before every attempt ran. Attached to the *score*
+# rather than given a column of its own: the score is the cell a reader would
+# otherwise take at face value, and the runs listing is already at its width
+# budget (the Run id is folded, not ellipsized, for exactly that reason).
+_INTERRUPTED = "⊘"
+
+
+def _score_cell(results: RunResults) -> str:
+    score = f"{results.aggregate.avg_score * 100:.1f}%"
+    if results.run.interrupted:
+        return f"{score} [yellow]{_INTERRUPTED}[/yellow]"
+    return score
+
+
+def _print_interrupted_legend(marked: bool) -> None:
+    """Explain the marker, only when one is on screen."""
+    if marked:
+        console.print(
+            f" [dim][yellow]{_INTERRUPTED}[/yellow] stopped early — scored over "
+            "fewer attempts than its k[/dim]"
+        )
+
 
 def list_cmd_fn(
     spec: Annotated[
@@ -42,6 +64,7 @@ def _list_specs(results_dir: Path) -> None:
     table.add_column("Latest run")
     table.add_column("pass@k", justify="right")
 
+    marked = False
     for spec_dir in sorted(results_dir.iterdir()):
         if not spec_dir.is_dir():
             continue
@@ -49,13 +72,16 @@ def _list_specs(results_dir: Path) -> None:
         if not files:
             continue
         latest_file = files[-1]
+        interrupted = False
         try:
             results = RunResults.model_validate_json(latest_file.read_text())
             ts = results.run.timestamp.strftime("%Y-%m-%d %H:%M")
-            score = f"{results.aggregate.avg_score * 100:.1f}%"
+            score = _score_cell(results)
+            interrupted = results.run.interrupted
         except Exception:
             ts = latest_file.stem
             score = "?"
+        marked = marked or interrupted
 
         table.add_row(spec_dir.name, str(len(files)), ts, score)
 
@@ -63,6 +89,7 @@ def _list_specs(results_dir: Path) -> None:
         console.print("[dim]No results yet.[/dim]")
     else:
         console.print(table)
+        _print_interrupted_legend(marked)
 
 
 def _list_runs(spec_dir: Path, spec_name: str) -> None:
@@ -92,14 +119,16 @@ def _list_runs(spec_dir: Path, spec_name: str) -> None:
     # every character on screen at any terminal width.
     table.add_column("Run", style="dim", overflow="fold")
 
+    marked = False
     for f in files:
         ablated = ""
         try:
             results = RunResults.model_validate_json(f.read_text())
-            score = f"{results.aggregate.avg_score * 100:.1f}%"
+            score = _score_cell(results)
             k = str(results.run.k)
             n_tasks = str(len(results.task_results))
             ablated = ", ".join(results.run.ablated)
+            marked = marked or results.run.interrupted
         except Exception:
             score = k = n_tasks = "?"
 
@@ -108,3 +137,4 @@ def _list_runs(spec_dir: Path, spec_name: str) -> None:
         table.add_row(k, n_tasks, score, ablated, f.stem)
 
     console.print(table)
+    _print_interrupted_legend(marked)

@@ -15,6 +15,7 @@ harness and a thread pool.
 
 from __future__ import annotations
 
+import time
 from dataclasses import asdict, dataclass
 from typing import Protocol
 
@@ -97,7 +98,10 @@ def assemble_attempt(
         activation_passed = None
 
     def with_outcome(
-        outcome: Outcome, judge_model: str | None = None, **verdict
+        outcome: Outcome,
+        judge_model: str | None = None,
+        judge_seconds: float | None = None,
+        **verdict,
     ) -> AssembledAttempt:
         """One attempt's record; only the verdict fields differ per exit path.
 
@@ -114,6 +118,7 @@ def assemble_attempt(
                 transcript=_persist_transcript(result.transcript),
                 activated=activated,
                 activation_passed=activation_passed,
+                judge_seconds=judge_seconds,
                 **verdict,
             ),
             judge_model=judge_model,
@@ -138,15 +143,22 @@ def assemble_attempt(
             classify_outcome(result, [], None, has_execution_check=False)
         )
 
+    judge_started = time.monotonic()
     judge_result = judge.evaluate(
         task=task,
         transcript=result.transcript,
         final_output=result.final_output,
         spec_dir=spec_dir,
     )
+    # Timed here rather than inside the judge: this is the only place that knows
+    # an attempt reached one at all, and every earlier exit above leaves
+    # ``judge_seconds`` None — which is the difference between "the judge was
+    # fast" and "no judge ran".
+    judge_seconds = time.monotonic() - judge_started
     return with_outcome(
         classify_outcome(result, [], judge_result),
         judge_model=judge_result.resolved_model,
+        judge_seconds=judge_seconds,
         assert_passed=judge_result.assert_passed,
         assert_evidence=judge_result.assert_evidence,
         autorater_passed=judge_result.autorater_passed,

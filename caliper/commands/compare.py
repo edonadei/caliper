@@ -58,6 +58,11 @@ def _refuse_self_diff(a: str, a_path: Path, b: str, b_path: Path) -> None:
     raise typer.Exit(1)
 
 
+# Deliberately no gate flag and no verdict exit code: `has_regression` fires on
+# the any-below rule (docs/CONTEXT.md → Regression), which at small k is noise as
+# often as signal, so it is not a thing to fail a pipeline on. Gating belongs on
+# `run` against a *pre-registered* bar; exit 3 is reserved for it in the README's
+# exit-code contract.
 def compare_cmd(
     a: Annotated[
         str,
