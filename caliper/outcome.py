@@ -31,27 +31,27 @@ _CAP_SIGNALS = re.compile(
 )
 
 
-# Longest output still readable as "the CLI bailed with a one-line message".
-# An agent that actually answered the task writes far more than this, and the
-# difference is what stops an *answer about* rate limits from being read as one.
-_BAILED_OUTPUT_CHARS = 400
+def answered(result: AttemptResult) -> bool:
+    """Whether the agent actually produced an answer, rather than the CLI talking.
 
+    The discriminator a bare regex over the output cannot supply. Signals are
+    matched even on a zero exit, because a capped CLI exits 0 with the cap
+    message as its only output — but an agent *answering* a task about API error
+    handling writes "rate limit" and "quota exceeded" too, and treating that as a
+    provider signal mislabels a passing attempt (and, at the retry seam, would
+    respawn it or abort the run).
 
-def carries_provider_signal(result_text: str, *, produced_answer: bool) -> bool:
-    """Whether this text is the invocation's *outcome* rather than its content.
-
-    The discriminator the retry seam needs, and the one thing a bare regex over
-    the output cannot answer. A capped CLI exits 0 with the cap message as its
-    only output — which is why signals are matched on a zero exit at all — but an
-    agent that *answered* a task about API error handling writes "rate limit"
-    too, and retrying (or aborting) on that is acting on the agent's prose.
-
-    So a signal only counts when the invocation produced no answer, or when the
-    whole output is short enough to be a bail-out message rather than a result.
+    The tell is whether the backend's stream parser produced anything: a real run
+    is a conversation, while a CLI that bailed parses to nothing and survives only
+    via the raw-stdout salvage. Length is deliberately not the test — "Done,
+    added 429 handling." is a short genuine answer.
     """
-    if not produced_answer:
-        return True
-    return len(result_text.strip()) <= _BAILED_OUTPUT_CHARS
+    return (
+        result.exit_code == 0
+        and not result.timed_out
+        and bool(result.transcript)
+        and not result.salvaged
+    )
 
 
 def looks_like_throttle(text: str) -> bool:
@@ -103,8 +103,13 @@ def classify_pre_judge(harness: AttemptResult) -> Outcome | None:
     if harness.timed_out:
         return Outcome.TIMEOUT
 
-    text = signal_text(harness)
-    if harness.exit_code != 0 or looks_like_infra_failure(text):
+    if harness.exit_code != 0:
+        return Outcome.INFRA_ERROR
+
+    # Zero exit: a provider signal here is only real if the agent never answered.
+    # Otherwise this is an attempt that *passed* while writing about rate limits
+    # — which, for a tool that evaluates skills, is an ordinary task.
+    if not answered(harness) and looks_like_infra_failure(signal_text(harness)):
         return Outcome.INFRA_ERROR
 
     return None

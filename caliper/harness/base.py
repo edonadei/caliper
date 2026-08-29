@@ -55,6 +55,12 @@ class AttemptResult:
     # discarded rather than recorded: it is the interrupt showing up in the
     # sample, not an observation about the skill (docs/adr/0018).
     cancelled: bool = False
+    # True when nothing parsed out of the agent's stream and the raw stdout had
+    # to be salvaged as a single turn. The agent did not converse: whatever is in
+    # ``final_output`` is the CLI talking, not the agent answering — which is how
+    # a provider signal is told apart from an agent *writing about* one
+    # (docs/adr/0019).
+    salvaged: bool = False
 
 
 @dataclass
@@ -264,6 +270,9 @@ class CliHarness(HarnessBackend):
         if diagnostic:
             raise HarnessConfigurationError(diagnostic)
 
+        # Whether the agent actually conversed, captured before the salvage below
+        # can paper over the difference.
+        parsed = bool(transcript)
         transcript, final_output = self._fallback(transcript, final_output, proc)
 
         return AttemptResult(
@@ -278,6 +287,7 @@ class CliHarness(HarnessBackend):
             resolved_model=self._resolved_model(proc, ctx),
             usage=self._safe_usage(proc, ctx),
             cancelled=proc.cancelled,
+            salvaged=not parsed,
         )
 
     def run_prompt(

@@ -26,7 +26,7 @@ from typing import Callable
 from caliper import cancel
 from caliper.harness.base import AttemptResult
 from caliper.outcome import (
-    carries_provider_signal,
+    answered,
     looks_like_spending_cap,
     looks_like_throttle,
     signal_text,
@@ -155,16 +155,14 @@ def invoke_with_retry(
         if result.timed_out:
             break
 
-        text = signal_text(result)
-        # Only when the signal is the invocation's *outcome* — see
-        # ``carries_provider_signal``. Without this, an attempt that passes while
-        # answering a question about rate limits gets respawned, and one that
-        # mentions a usage limit kills the whole run.
-        if not carries_provider_signal(
-            text, produced_answer=result.exit_code == 0 and bool(result.final_output)
-        ):
+        # An invocation that answered has already proved the provider served us,
+        # whatever its prose says. Without this, an attempt that passes while
+        # writing about rate limits gets respawned, and one that mentions a usage
+        # limit kills the whole run. See ``answered``.
+        if answered(result):
             break
 
+        text = signal_text(result)
         if looks_like_spending_cap(text):
             raise SpendingCapReached(
                 "The provider reports a spending cap or usage limit reached:\n\n"

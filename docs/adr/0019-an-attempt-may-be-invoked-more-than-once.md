@@ -39,16 +39,21 @@ job is running agents that write prose. An agent answering a task **about** API
 error handling writes "rate limit", "quota exceeded", "503" — and a bare match
 would respawn that passing attempt twice, or abort the run on it.
 
-So a match is only honoured when it is what the invocation *produced* rather than
-something inside what it produced: the invocation failed (non-zero exit, or no
-output at all), or its entire output is short enough to be a bail-out message
-rather than a result. That second clause is why the check survives at all — a
-capped CLI exits **0** with the cap message as its only output, which is the case
-`outcome.py` has always matched on a zero exit.
+So a match is only honoured when the agent never **answered**. The tell is
+whether the backend's stream parser produced anything: a real run is a
+conversation, while a CLI that bailed parses to nothing and reaches the record
+only through the raw-stdout salvage. That salvage is now marked, because it was
+the one thing hiding the difference.
 
-The pre-existing regex had the same false-positive surface, but the consequence
-was one attempt mislabelled `infra_error`. Retrying and aborting raise the stakes
-enough that the discriminator has to exist.
+Output *length* was tried first and rejected — it fails on "Done, added 429
+handling", a short genuine answer — and the smoke run is what caught it, on an
+agent answer four hundred characters long that the unit test's happened to
+clear by twenty.
+
+The same false positive was in the label all along: `classify_pre_judge` matched
+the regex on a zero exit and recorded a passing attempt as `infra_error`,
+silently dropping it from the score's denominator. It now shares this
+discriminator, so the fix lands on both.
 
 A timeout is excluded explicitly rather than by falling through the match, so a
 backend that returns partial output alongside a timeout cannot earn a respawn on

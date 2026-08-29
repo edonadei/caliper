@@ -37,7 +37,15 @@ def _result(
     duration: float = 1.0,
     usage: TokenUsage | None = None,
     timed_out: bool = False,
+    salvaged: bool = False,
 ) -> AttemptResult:
+    """One invocation's result.
+
+    ``salvaged`` models the shape that matters to the retry seam: nothing parsed
+    out of the agent's stream, so the raw stdout was rescued as a single turn.
+    That is what a CLI bailing looks like, as against an agent answering — see
+    ``caliper.outcome.answered``.
+    """
     return AttemptResult(
         task_id="task-001",
         attempt=1,
@@ -48,11 +56,17 @@ def _result(
         error=error,
         usage=usage,
         timed_out=timed_out,
+        salvaged=salvaged,
     )
 
 
-THROTTLED = dict(output="", error="Error 429: rate limit exceeded", exit_code=1)
-CAPPED = dict(output="You have reached your usage limit for this month.")
+# A throttled CLI exits non-zero with the refusal on stderr and nothing parsed.
+THROTTLED = dict(
+    output="", error="Error 429: rate limit exceeded", exit_code=1, salvaged=True
+)
+# A capped CLI exits *zero* with the cap message as its only output — the case
+# that forces signals to be matched on a clean exit at all.
+CAPPED = dict(output="You have reached your usage limit for this month.", salvaged=True)
 
 
 def _queue(*results: AttemptResult):
@@ -373,8 +387,10 @@ def test_a_passing_attempt_that_mentions_a_throttle_is_not_respawned() -> None:
 
 
 def test_a_capped_cli_is_still_caught_when_the_message_is_the_whole_output() -> None:
-    """The shape the detection exists for: exit 0, cap message, nothing else."""
-    invoke, _ = _queue(_result(output="Your spending cap has been reached."))
+    """The shape the detection exists for: exit 0, cap message, nothing parsed."""
+    invoke, _ = _queue(
+        _result(output="Your spending cap has been reached.", salvaged=True)
+    )
 
     with pytest.raises(SpendingCapReached):
         invoke_with_retry(invoke, NO_WAIT)

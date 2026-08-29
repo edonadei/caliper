@@ -34,7 +34,7 @@ def _print_interrupted_legend(marked: bool) -> None:
     """Explain the marker, only when one is on screen."""
     if marked:
         console.print(
-            f" [dim][yellow]{_INTERRUPTED}[/yellow] stopped early — scored over "
+            f" [dim][yellow]{_INTERRUPTED}[/yellow] stopped early: scored over "
             "fewer attempts than its k[/dim]"
         )
 
