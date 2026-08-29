@@ -214,36 +214,17 @@ def test_list_is_unmarked_when_every_run_completed(tmp_path) -> None:
     assert "stopped early" not in result.stdout
 
 
-def test_compare_gate_exits_3_on_a_regression(tmp_path) -> None:
-    _save(tmp_path, _run(interrupted=False, successes=4), "a")
-    _save(tmp_path, _run(interrupted=False, successes=1), "b")
-    base = tmp_path / ".caliper" / "results" / "demo"
+def test_compare_reports_a_regression_without_failing(tmp_path) -> None:
+    """`compare` is a reporting command: the regression is rendered, not exited on.
 
-    result = runner.invoke(
-        app, ["compare", str(base / "a.json"), str(base / "b.json"), "--gate"]
-    )
-
-    assert result.exit_code == 3
-
-
-def test_compare_without_the_gate_still_exits_0_on_a_regression(tmp_path) -> None:
-    """The default stays a pure reporting command — no silent break."""
+    Its regression flag is the any-below rule, which at small k fires on noise
+    as often as on a real change — see docs/CONTEXT.md → Regression. Gating
+    belongs on a pre-registered bar, which is what exit 3 is reserved for.
+    """
     _save(tmp_path, _run(interrupted=False, successes=4), "a")
     _save(tmp_path, _run(interrupted=False, successes=1), "b")
     base = tmp_path / ".caliper" / "results" / "demo"
 
     result = runner.invoke(app, ["compare", str(base / "a.json"), str(base / "b.json")])
-
-    assert result.exit_code == 0
-
-
-def test_compare_gate_exits_0_when_nothing_regressed(tmp_path) -> None:
-    _save(tmp_path, _run(interrupted=False, successes=1), "a")
-    _save(tmp_path, _run(interrupted=False, successes=4), "b")
-    base = tmp_path / ".caliper" / "results" / "demo"
-
-    result = runner.invoke(
-        app, ["compare", str(base / "a.json"), str(base / "b.json"), "--gate"]
-    )
 
     assert result.exit_code == 0

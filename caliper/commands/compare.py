@@ -58,6 +58,11 @@ def _refuse_self_diff(a: str, a_path: Path, b: str, b_path: Path) -> None:
     raise typer.Exit(1)
 
 
+# Deliberately no gate flag and no verdict exit code: `has_regression` fires on
+# the any-below rule (docs/CONTEXT.md → Regression), which at small k is noise as
+# often as signal, so it is not a thing to fail a pipeline on. Gating belongs on
+# `run` against a *pre-registered* bar; exit 3 is reserved for it in the README's
+# exit-code contract.
 def compare_cmd(
     a: Annotated[
         str,
@@ -72,13 +77,6 @@ def compare_cmd(
     ] = "table",
     verbose: Annotated[
         bool, typer.Option("--verbose", "-v", help="Also show pass@k and pass^k")
-    ] = False,
-    gate: Annotated[
-        bool,
-        typer.Option(
-            "--gate",
-            help="Exit 3 when B regresses against A (for CI); off by default",
-        ),
     ] = False,
 ) -> None:
     a_path, b_path = _resolve(a), _resolve(b)
@@ -95,13 +93,3 @@ def compare_cmd(
         console.print_json(comparison_to_json(comparison))
     else:
         print_comparison(comparison, verbose=verbose)
-
-    # Opt-in, never the default: caliper ships on PyPI, and flipping a
-    # successful compare from 0 to non-zero would break an existing caller's
-    # pipeline with a red exit and no message explaining it. The flag also reads
-    # as the intent ("I am gating on this"), which a bare exit code cannot.
-    # Exit 3 is the shared "ran cleanly, the verdict is bad" code — the same
-    # meaning a declared-bar gate on `run` will carry, because two codes for one
-    # concept is the mistake.
-    if gate and comparison.has_regression:
-        raise typer.Exit(3)

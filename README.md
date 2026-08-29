@@ -563,18 +563,6 @@ When both `expect` and `assert` are present, both must pass.
 | `--verbose` | off | Show per-attempt judge reasoning |
 | `--output PATH` | — | Also save results JSON to a specific path |
 
-### `caliper compare` flags
-
-| Flag | Default | Description |
-|---|---|---|
-| `--format table\|json` | `table` | Output format |
-| `--verbose` | off | Also show `pass@k` and `pass^k` |
-| `--gate` | off | Exit `3` when B regresses against A — for CI |
-
-`--gate` is opt-in on purpose: `compare` exits `0` on a successful diff whether
-or not it found a regression, and changing that silently would break any
-pipeline already scripting the command.
-
 ### Exit codes
 
 | Code | Meaning |
@@ -582,11 +570,17 @@ pipeline already scripting the command.
 | `0` | Ran, and nothing asked for a verdict said no |
 | `1` | Bad input — spec not found, invalid spec, unresolvable skills, two references naming one run |
 | `2` | Could not run — backend misconfiguration, a retired flag |
-| `3` | Ran cleanly, the verdict is bad — today `compare --gate` on a regression |
+| `3` | Reserved: ran cleanly, but a declared bar was not met |
 | `130` | Interrupted with Ctrl-C; the partial run was saved |
 
 `2` and `3` are the distinction CI needs: *the eval could not run* is a broken
 pipeline, *the skill did not clear the bar* is the answer you asked for.
+
+`caliper compare` deliberately does **not** gate. A regression there is the
+any-below rule — B under A by any amount — which at small k fires on noise about
+as often as on a real change, so it is not something to fail a pipeline on.
+Gating is a job for a *pre-registered* bar on `run`, which is what `3` is
+reserved for.
 
 #### `--model` and `--judge-model` syntax
 
