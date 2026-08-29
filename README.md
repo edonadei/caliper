@@ -555,7 +555,7 @@ When both `expect` and `assert` are present, both must pass.
 |---|---|---|
 | `--k INT` | `3` | Attempts per task |
 | `--ablate NAME` | none | Run without this declared skill installed (repeatable; name them all for the bare agent) |
-| `--workers INT` | `4` | Parallel task workers |
+| `--workers INT` | `4` | Attempts to run in parallel, across all tasks |
 | `--timeout INT` | `120` | Seconds per attempt |
 | `--fail-fast INT` | `0` | Stop a task after N consecutive `infra_error`/`timeout` attempts (`0` disables) |
 | `--model TARGET` | `claude-code` | Skill engine: backend and/or model (see below) |
@@ -695,6 +695,27 @@ attempts. To get a delta against the bare agent, run the same tasks with
 `infra_error` or `timeout` outcomes (default `0` runs all k). An early-stopped
 task shows as `ABORTED`; if every completed attempt was unusable, its `score`
 stays `null` and it's skipped in the aggregate.
+
+### Parallelism and stopping a run
+
+`--workers` counts **attempts**, not tasks: every (task, attempt) pair is
+scheduled independently, so `--k 10 --workers 4` on a one-task spec runs four
+attempts at a time. They are ordered round-robin — attempt 1 of every task, then
+attempt 2 of every task — so a run that stops early leaves a shallower sample of
+*every* task rather than a complete one of the first few. The exception is `--fail-fast N`, which keeps each task's
+attempts in order — the streak it counts is only meaningful sequentially — while
+still running different tasks side by side. Raise `--workers` deliberately:
+concurrent agents share your upstream rate limit, and a throttled attempt lands
+as an `infra_error` that costs money and measures nothing.
+
+**Ctrl-C stops a run without losing it.** The first interrupt kills the agents in
+flight, skips the attempts that had not started, and saves everything that
+already ran as an ordinary run file — scored over the attempts it has, with
+`interrupted: true` in `RunMeta` and an `interrupted:` line on the report. The
+exit code is `130`. Attempts the interrupt itself killed are dropped rather than
+recorded as failures. Press Ctrl-C again to quit immediately without saving. A
+fatal backend error mid-run (an expired credential, say) saves the same way
+before reporting the error.
 
 ---
 

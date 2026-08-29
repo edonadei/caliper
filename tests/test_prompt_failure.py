@@ -17,6 +17,8 @@ from caliper.harness.prompt_failure import (
 from caliper.judge.script_assert import EvalJudge
 from caliper.schema.spec import DEFAULT_JUDGE_MODEL, TaskSpec
 
+from conftest import patch_cli_calls
+
 # Recorded from `claude -p "say ok" --output-format json --model claude-sonnet-4-20250514`
 # against a retired model (issue #75).
 RETIRED_MODEL_ENVELOPE = {
@@ -71,7 +73,7 @@ def test_claude_prompt_output_classifies_in_harness_not_downstream(
     def fake_run(cmd, **kwargs):
         return subprocess.CompletedProcess(cmd, 1, stdout=stdout, stderr="")
 
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    patch_cli_calls(monkeypatch, fake_run)
     monkeypatch.setattr(
         "caliper.harness.claude_code.shutil.which", lambda _name: "claude"
     )
@@ -100,7 +102,7 @@ def test_claude_prompt_output_unclassified_is_error_passes_text_through(
     def fake_run(cmd, **kwargs):
         return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    patch_cli_calls(monkeypatch, fake_run)
     monkeypatch.setattr(
         "caliper.harness.claude_code.shutil.which", lambda _name: "claude"
     )
@@ -126,7 +128,7 @@ def test_eval_judge_surfaces_classified_model_unavailable(
     def fake_run(cmd, **kwargs):
         return subprocess.CompletedProcess(cmd, 1, stdout=stdout, stderr="")
 
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    patch_cli_calls(monkeypatch, fake_run)
     monkeypatch.setattr(
         "caliper.harness.claude_code.shutil.which", lambda _name: "claude"
     )

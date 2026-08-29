@@ -69,7 +69,10 @@ read as `⊘` and are excluded from the score denominator, with a separate
 "N unusable" count in the summary — so a throttled or judge-flaked run is not
 mistaken for a skill regression. If `caliper run --fail-fast N` stopped a task
 after repeated `infra_error` / `timeout` outcomes, the report marks it as
-`ABORTED` and shows how many attempts ran. If a failure is still unclear, use
+`ABORTED` and shows how many attempts ran. A run you stopped with Ctrl-C is
+saved too, headed by an `interrupted:` line: its rates are computed over the
+attempts that ran, so read them as a smaller sample rather than a worse skill —
+and re-run before drawing a conclusion from a handful of attempts. If a failure is still unclear, use
 `--verbose` to see full output for all tasks (including passing ones):
 
 ```bash

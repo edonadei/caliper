@@ -543,3 +543,17 @@ and `cheat` all count. `judge_error`, `infra_error`, and `timeout` are *unusable
 denominator**, reported instead as a separate "unusable attempts" count. A
 throttled or judge-flaked run therefore can no longer masquerade as a
 regression.
+
+## Interrupted run
+
+A run that **stopped before every attempt ran** — a Ctrl-C, or a fatal
+misconfiguration diagnosed mid-run — saved as an ordinary run with
+`RunMeta.interrupted: true`. The attempts that finished are kept and scored
+normally: every denominator is [[usable / unusable attempt|usable attempts]]
+rather than k, so a short sample needs no special case. Attempts the stop itself
+killed are **dropped**, not recorded as `infra_error`; they are the interrupt
+showing up in the sample, not a fact about the skill.
+
+Distinct from a task truncated by `--fail-fast`, which also has fewer than k
+attempts but stopped *on purpose* and does not set the marker. See
+docs/adr/0018-the-attempt-is-the-unit-of-parallelism.md.

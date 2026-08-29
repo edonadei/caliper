@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import signal
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
 
+from caliper import cancel
 from caliper.harness.base import HarnessConfigurationError
 from caliper.skillfetch import SkillFetcher
 from caliper.skills import SkillResolutionError
@@ -19,8 +22,8 @@ from caliper.reporter import (
     save_results,
     update_progress,
 )
-from caliper.runner import run, AttemptEvent
-from caliper.schema.results import Outcome, TaskResult
+from caliper.runner import run, AttemptEvent, RunAborted
+from caliper.schema.results import Outcome, RunResults, TaskResult
 from caliper.schema.spec import (
     DEFAULT_BACKEND,
     load_spec,
@@ -31,10 +34,49 @@ from caliper.schema.spec import (
 console = Console()
 
 
+@contextmanager
+def _interrupt_guard(console: Console) -> Iterator[None]:
+    """Make the first Ctrl-C a graceful stop and the second a hard quit.
+
+    The first interrupt asks the run to stop and kills the agents in flight, so
+    the attempts already paid for can be saved. It deliberately does **not**
+    raise: a ``KeyboardInterrupt`` here would unwind through
+    ``ThreadPoolExecutor.__exit__``, which waits for every in-flight attempt —
+    up to ``--timeout`` each — before the exception is even seen, and then
+    discards the whole run. The default handler is restored on the way in, so a
+    caller who wants out *now* just presses it again.
+    """
+
+    def handle(signum: int, frame: object) -> None:
+        signal.signal(signal.SIGINT, previous)
+        console.print(
+            "\n[yellow]⊘ Stopping.[/yellow] Killing the attempts in flight and "
+            "saving what already ran.\n[dim]  Ctrl-C again to quit without "
+            "saving.[/dim]"
+        )
+        cancel.request()
+
+    previous = signal.getsignal(signal.SIGINT)
+    try:
+        signal.signal(signal.SIGINT, handle)
+    except ValueError:
+        # Not the main thread (an embedder calling the command directly), where
+        # a handler cannot be installed. The run still works; Ctrl-C just falls
+        # back to the default behaviour.
+        yield
+        return
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous)
+
+
 def run_cmd(
     spec_file: Path = typer.Argument(..., help="Path to .eval.yaml spec file"),
     k: int = typer.Option(3, "--k", help="Attempts per task"),
-    workers: int = typer.Option(4, "--workers", help="Parallel task workers"),
+    workers: int = typer.Option(
+        4, "--workers", help="Attempts to run in parallel, across all tasks"
+    ),
     timeout: int = typer.Option(120, "--timeout", help="Seconds per attempt"),
     fail_fast_unusable: int = typer.Option(
         0,
@@ -191,7 +233,8 @@ def run_cmd(
             finished=True,
         )
 
-    with progress:
+    aborted: RunAborted | None = None
+    with progress, _interrupt_guard(progress.console):
         try:
             results = run(
                 spec=spec,
@@ -229,7 +272,39 @@ def run_cmd(
                 )
             )
             raise typer.Exit(2)
+        except RunAborted as exc:
+            # A fatal error mid-run. The attempts that already ran are on the
+            # exception, and they get saved and rendered exactly like any other
+            # run before the cause is shown.
+            aborted, results = exc, exc.results
 
+    _save_and_report(results, spec_file, output, verbose)
+
+    if aborted is not None:
+        console.print(
+            Panel(
+                str(aborted.cause),
+                title="[bold red]Run stopped: backend configuration error[/bold red]",
+                border_style="red",
+            )
+        )
+        raise typer.Exit(2)
+    if results.run.interrupted:
+        # 130 is the shell's own convention for SIGINT, so a script that stopped
+        # a run does not read the partial results as a completed one.
+        raise typer.Exit(130)
+
+
+def _save_and_report(
+    results: RunResults, spec_file: Path, output: Optional[Path], verbose: bool
+) -> None:
+    """Persist the run and render it — the same path for a whole or partial run.
+
+    An interrupted run is saved as an ordinary run file: every metric already
+    divides by *usable* attempts rather than k (docs/adr/0007), so a smaller
+    sample scores correctly, and ``RunMeta.interrupted`` is what says the sample
+    is short. Nothing about the file needs a reader to know it was cut off.
+    """
     saved_path = save_results(results, str(spec_file))
     if output:
         Path(output).write_text(results.model_dump_json(indent=2))
