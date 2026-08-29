@@ -9,6 +9,8 @@ from caliper.harness.base import HarnessConfigurationError
 from caliper.harness.pi import PiHarness
 from caliper.skills import resolve_skills
 
+from conftest import patch_cli_calls
+
 
 def _version(cmd):
     return subprocess.CompletedProcess(cmd, 0, stdout="0.80.2\n", stderr="")
@@ -32,7 +34,7 @@ def test_pi_installs_the_skill_and_passes_no_preload_flag(
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     monkeypatch.setattr("caliper.harness.pi.shutil.which", lambda _n: "pi")
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    patch_cli_calls(monkeypatch, fake_run)
 
     PiHarness().run(
         task_id="task-001",
@@ -75,7 +77,7 @@ def test_pi_omits_model_and_skill_when_unspecified(monkeypatch, tmp_path) -> Non
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     monkeypatch.setattr("caliper.harness.pi.shutil.which", lambda _n: "pi")
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    patch_cli_calls(monkeypatch, fake_run)
 
     PiHarness().run(
         task_id="task-001",
@@ -134,7 +136,7 @@ def test_pi_json_stream_captures_tool_calls(monkeypatch, tmp_path) -> None:
         return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
     monkeypatch.setattr("caliper.harness.pi.shutil.which", lambda _n: "pi")
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    patch_cli_calls(monkeypatch, fake_run)
 
     result = PiHarness().run(
         task_id="task-001",
@@ -204,7 +206,7 @@ def test_pi_run_captures_token_usage_end_to_end(monkeypatch, tmp_path) -> None:
         return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
     monkeypatch.setattr("caliper.harness.pi.shutil.which", lambda _n: "pi")
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    patch_cli_calls(monkeypatch, fake_run)
 
     result = PiHarness().run(
         task_id="task-001",
@@ -251,7 +253,7 @@ def test_pi_auth_failure_raises_configuration_error(monkeypatch, tmp_path) -> No
         )
 
     monkeypatch.setattr("caliper.harness.pi.shutil.which", lambda _n: "pi")
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    patch_cli_calls(monkeypatch, fake_run)
 
     with pytest.raises(HarnessConfigurationError, match="authentication"):
         PiHarness().run(

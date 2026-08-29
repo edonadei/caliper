@@ -173,6 +173,14 @@ class RunMeta(BaseModel):
     # judge provenance was recorded still load (they render as an unknown judge).
     judge_backend: str | None = None
     judge_model: str | None = None
+    # True when the run stopped before every attempt ran — Ctrl-C, or a fatal
+    # error diagnosed mid-run. The attempts that *did* run are saved and scored
+    # normally (every denominator is usable attempts, not k), so this is the
+    # marker that says the sample is smaller than the invocation asked for.
+    # Recorded rather than inferred from a short attempt list: `--fail-fast`
+    # truncates tasks on purpose, and the two must not read alike. Defaults
+    # False so runs saved before this existed still load.
+    interrupted: bool = False
 
 
 class AttemptRecord(BaseModel):

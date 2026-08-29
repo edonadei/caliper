@@ -11,6 +11,8 @@ from caliper.harness.hermes import HermesHarness
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
 
+from conftest import patch_cli_calls
+
 
 def _version(cmd):
     return subprocess.CompletedProcess(
@@ -34,7 +36,7 @@ def _install(monkeypatch, home, on_run):
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("HERMES_CLI_PATH", raising=False)
     monkeypatch.setattr("caliper.harness.hermes.shutil.which", lambda _n: "hermes")
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", on_run)
+    patch_cli_calls(monkeypatch, on_run)
 
 
 def test_hermes_seeds_only_neutral_config_and_ignores_rules(
@@ -139,8 +141,8 @@ def test_hermes_no_skills_flag_without_skill(monkeypatch, tmp_path) -> None:
     _install(monkeypatch, home, fake_run)
 
     result_calls = []
-    monkeypatch.setattr(
-        "caliper.harness.base.subprocess.run",
+    patch_cli_calls(
+        monkeypatch,
         lambda cmd, **kw: result_calls.append((cmd, kw)) or fake_run(cmd, **kw),
     )
 

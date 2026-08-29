@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from caliper import cancel
 from caliper.harness.prompt_failure import (
     PromptFailure,
     PromptFailureKind,
@@ -464,26 +465,39 @@ class CliHarness(HarnessBackend):
         timeout: int,
         stdin: str | None,
     ) -> ProcessResult:
-        """Spawn the agent once, timing out into a 124/timeout ProcessResult."""
+        """Spawn the agent once, timing out into a 124/timeout ProcessResult.
+
+        ``Popen`` rather than ``subprocess.run`` so the live process is
+        registered with :mod:`caliper.cancel`: an interrupt has to be able to
+        kill an agent mid-flight, or Ctrl-C waits out the full ``--timeout`` of
+        every attempt already running. ``start_new_session`` gives each agent
+        its own process group, which is what lets a timeout or a cancellation
+        take the tools it spawned down with it instead of orphaning them.
+        """
         try:
-            proc = subprocess.run(
+            with subprocess.Popen(
                 cmd,
-                input=stdin,
-                stdin=subprocess.DEVNULL if stdin is None else None,
-                capture_output=True,
+                stdin=subprocess.DEVNULL if stdin is None else subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 encoding="utf-8",
                 text=True,
-                timeout=timeout,
                 env=env,
                 cwd=cwd,
-            )
-        except subprocess.TimeoutExpired:
-            return ProcessResult("", "timeout", 124, True)
+                start_new_session=True,
+            ) as proc:
+                with cancel.track(proc):
+                    try:
+                        stdout, stderr = proc.communicate(input=stdin, timeout=timeout)
+                    except subprocess.TimeoutExpired:
+                        cancel.kill(proc)
+                        proc.communicate()
+                        return ProcessResult("", "timeout", 124, True)
         except OSError as exc:
             return ProcessResult("", f"{self.name} CLI failed: {exc}", 1, False)
         return ProcessResult(
-            stdout=proc.stdout.strip(),
-            stderr=(proc.stderr or "").strip(),
+            stdout=(stdout or "").strip(),
+            stderr=(stderr or "").strip(),
             returncode=proc.returncode,
             timed_out=False,
         )

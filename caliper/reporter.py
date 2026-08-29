@@ -189,6 +189,15 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
             f"    [yellow]ablated:[/yellow] {', '.join(results.run.ablated)}"
             f"   {_SEP}   [dim]activation observed, not scored[/dim]"
         )
+    # A short sample is the one thing a reader must not mistake for a full one:
+    # the rates below are computed over the attempts that ran, which is fewer
+    # than the invocation asked for. Said once, up front, next to the ablation
+    # marker it rhymes with.
+    if results.run.interrupted:
+        console.print(
+            f"    [yellow]interrupted:[/yellow] stopped early"
+            f"   {_SEP}   [dim]scored over the attempts that ran[/dim]"
+        )
     console.print()
 
     _print_score(results)

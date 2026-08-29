@@ -11,6 +11,8 @@ from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
 
+from conftest import patch_cli_calls
+
 
 def _ok_stream(cmd: list[str]) -> subprocess.CompletedProcess:
     stdout = "\n".join(
@@ -53,7 +55,7 @@ def test_claude_harness_accepts_runner_contract_with_extra_path(
         )
         return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    patch_cli_calls(monkeypatch, fake_run)
 
     result = ClaudeCodeHarness(model="claude-test").run(
         task_id="task-001",
@@ -102,7 +104,7 @@ def test_claude_harness_reports_cli_startup_crash_before_auth(
         )
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr=stderr)
 
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    patch_cli_calls(monkeypatch, fake_run)
 
     with pytest.raises(HarnessConfigurationError) as exc:
         ClaudeCodeHarness().run(
@@ -158,7 +160,7 @@ def test_claude_harness_materializes_mcp_config(monkeypatch, tmp_path) -> None:
         captured["config"] = json.loads(path.read_text())
         return _ok_stream(cmd)
 
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    patch_cli_calls(monkeypatch, fake_run)
     home = tmp_path / "home"
     home.mkdir()
 
@@ -208,7 +210,7 @@ def test_claude_harness_materializes_remote_mcp_config(monkeypatch, tmp_path) ->
         captured["config"] = json.loads(captured["path"].read_text())
         return _ok_stream(cmd)
 
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    patch_cli_calls(monkeypatch, fake_run)
     home = tmp_path / "home"
     home.mkdir()
 
@@ -254,7 +256,7 @@ def test_claude_harness_errors_on_unset_remote_header_var(
             raise AssertionError("agent must not spawn when an MCP env var is unset")
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
 
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    patch_cli_calls(monkeypatch, fake_run)
     home = tmp_path / "home"
     home.mkdir()
 
@@ -287,7 +289,7 @@ def test_claude_harness_omits_mcp_flags_when_no_servers(monkeypatch, tmp_path) -
         captured["cmd"] = cmd
         return _ok_stream(cmd)
 
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    patch_cli_calls(monkeypatch, fake_run)
     home = tmp_path / "home"
     home.mkdir()
 
@@ -315,7 +317,7 @@ def test_claude_harness_errors_on_unset_mcp_env_var(monkeypatch, tmp_path) -> No
             raise AssertionError("agent must not spawn when an MCP env var is unset")
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
 
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    patch_cli_calls(monkeypatch, fake_run)
     home = tmp_path / "home"
     home.mkdir()
 

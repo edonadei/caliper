@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+from caliper import cancel
 from caliper.activation import ActivationDetector
 from caliper.attempt import assemble_attempt
 from caliper.harness.base import (
@@ -40,6 +41,20 @@ from caliper.skillsnapshot import snapshot_skill
 _FAIL_FAST_OUTCOMES = {Outcome.INFRA_ERROR, Outcome.TIMEOUT}
 
 
+class RunAborted(RuntimeError):
+    """A fatal error stopped the run; the attempts already paid for ride along.
+
+    Carries the partial :class:`RunResults` so the caller can save them *before*
+    surfacing ``cause``. A credential that expires at attempt 30 should cost the
+    remaining attempts, not the 29 that already ran.
+    """
+
+    def __init__(self, cause: Exception, results: RunResults) -> None:
+        super().__init__(str(cause))
+        self.cause = cause
+        self.results = results
+
+
 @dataclass
 class AttemptEvent:
     task_id: str
@@ -51,8 +66,8 @@ class AttemptEvent:
 class _RunEnv:
     """Everything constant across a run's tasks and attempts.
 
-    Threaded as one value so ``_run_task``/``_run_attempt`` keep a readable
-    signature — they vary only by task and attempt number.
+    Threaded as one value so the scheduling functions and ``_run_attempt``
+    keep a readable signature — they vary only by task and attempt number.
     """
 
     harness: HarnessBackend
@@ -75,6 +90,10 @@ class _RunEnv:
     # the GIL, so these are safe to share across the pool's worker threads.
     resolved_models: list[str]
     judge_models: list[str]
+    # The first fatal misconfiguration a worker diagnosed, if any. Collected
+    # rather than raised through the pool so the run can be saved before it is
+    # surfaced; same append-only, GIL-safe discipline as the two lists above.
+    fatal: list[Exception]
 
     def expected_activation(self, task: TaskSpec) -> list[str] | None:
         """What this run asserts the task should activate — ``None`` if ablated.
@@ -113,6 +132,10 @@ def run(
     # here so a caller with a path-only spec never has to think about it.
     fetcher: SkillFetcher | None = None,
 ) -> RunResults:
+    # Before anything that can block: a Ctrl-C during skill fetching has to be
+    # honoured by the attempts that would otherwise start right after it.
+    cancel.reset()
+
     # A spec's mcp: servers configure the agent-under-test's tool environment
     # for the eval (a run-environment concern, like sandbox:). If the chosen
     # backend cannot materialize them, the declared tools would simply be
@@ -182,14 +205,45 @@ def run(
         on_task_done=on_task_done,
         resolved_models=[],
         judge_models=[],
+        fatal=[],
     )
 
-    task_results: list[TaskResult] = []
+    # One pool job per *attempt*, not per task. Attempts are independent — each
+    # gets its own isolated home and its own agent process — so scheduling them
+    # per task capped a run's concurrency at the task count: `--workers 8` on a
+    # 3-task spec ran three at a time, and a single-task spec ran its k attempts
+    # strictly back to back. See
+    # docs/adr/0018-the-attempt-is-the-unit-of-parallelism.md.
+    #
+    # `--fail-fast` is the one thing that couples a task's attempts (it counts
+    # *consecutive* unusable ones, which needs an order), so that mode keeps a
+    # per-task chain. Opting into fail-fast is opting into spending fewer
+    # attempts, not into spending them faster.
+    collected: dict[str, list[AttemptRecord]] = {task.id: [] for task in spec.tasks}
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(_run_task, task, env, k) for task in spec.tasks]
+        if fail_fast_unusable > 0:
+            futures = [
+                pool.submit(_run_task_chain, task, env, k) for task in spec.tasks
+            ]
+        else:
+            # Round-robin: attempt 1 of every task, then attempt 2 of every
+            # task. Task-major submission would spend the whole budget on the
+            # first tasks, so a run that stops early — a Ctrl-C, a rate limit —
+            # would leave the last tasks with no attempts at all. This way a
+            # partial run is a *shallower* sample of every task rather than a
+            # complete one of a few, which is the sample you can still read.
+            futures = [
+                pool.submit(_run_attempt_job, task, attempt, env)
+                for attempt in range(1, k + 1)
+                for task in spec.tasks
+            ]
         for fut in as_completed(futures):
-            task_results.append(fut.result())
+            for task_id, record in fut.result():
+                collected[task_id].append(record)
 
+    task_results = [
+        _finish_task(task, collected[task.id], env, k) for task in spec.tasks
+    ]
     task_results.sort(key=lambda r: r.task_id)
 
     pass_counts = {
@@ -203,7 +257,7 @@ def run(
     aggregate.activation_asserted = activation.asserted
     aggregate.activation_per_skill = activation.per_skill
 
-    return RunResults(
+    results = RunResults(
         run=RunMeta(
             spec=spec_name(spec_path),
             timestamp=datetime.now(tz=timezone.utc),
@@ -221,19 +275,76 @@ def run(
             or (env.judge_models[0] if env.judge_models else None),
             era=ERA_INSTALL_AND_DISCOVER,
             ablated=ablated,
+            # True when attempts were left unrun: Ctrl-C, or a fatal error the
+            # run stopped for. Deliberately not inferred from a short attempt
+            # list, which fail-fast also produces on purpose.
+            interrupted=cancel.requested(),
         ),
         skill_snapshots=skill_snapshots,
         task_results=task_results,
         aggregate=aggregate,
     )
+    # Assembled first, raised second: the caller saves the partial run off the
+    # exception before it surfaces the cause.
+    if env.fatal:
+        raise RunAborted(env.fatal[0], results)
+    return results
 
 
-def _run_task(task: TaskSpec, env: _RunEnv, k: int) -> TaskResult:
-    attempts: list[AttemptRecord] = []
+def _run_attempt_job(
+    task: TaskSpec, attempt: int, env: _RunEnv
+) -> list[tuple[str, AttemptRecord]]:
+    """One attempt as a pool job: its record tagged with the task it belongs to.
+
+    Returns *zero* records when the run is already stopping — a cancelled
+    attempt is one that never ran, not a failed one, and inventing an outcome
+    for it would put an infrastructure artefact into the sample.
+
+    The tagged-pair shape is what lets the flat schedule and the fail-fast chain
+    feed one collector: neither can return a bare record, because a job may
+    produce none.
+    """
+    if cancel.requested():
+        return []
+    try:
+        record = _run_attempt(task, attempt, env)
+        # An attempt the cancellation itself killed is not evidence about the
+        # skill — it is the interrupt showing up in the sample as an
+        # infrastructure failure. Dropped, exactly like one that never started.
+        # Anything that finished on its own is kept, cancelled run or not.
+        if cancel.requested() and record.outcome.is_execution_noise:
+            return []
+        _announce(record, task, env.on_attempt_done)
+        return [(task.id, record)]
+    except HarnessConfigurationError as exc:
+        # A misconfiguration diagnosed mid-run (an expired credential, a CLI
+        # that stopped resolving) is fatal for every attempt still to come, so
+        # stop the run — but keep what it already paid for. ``run`` re-raises it
+        # as ``RunAborted`` once the partial results are assembled.
+        env.fatal.append(exc)
+        cancel.request()
+        return []
+
+
+def _run_task_chain(
+    task: TaskSpec, env: _RunEnv, k: int
+) -> list[tuple[str, AttemptRecord]]:
+    """A task's k attempts in order, stopping on the fail-fast streak.
+
+    The `--fail-fast` schedule. Sequential by necessity: the streak counts
+    *consecutive* unusable attempts, and "consecutive" is not defined over
+    attempts running side by side.
+    """
+    collected: list[tuple[str, AttemptRecord]] = []
     consecutive_fail_fast_triggers = 0
     for attempt_num in range(1, k + 1):
-        record = _run_attempt(task, attempt_num, env)
-        attempts.append(record)
+        produced = _run_attempt_job(task, attempt_num, env)
+        if not produced:
+            # Cancelled, or a fatal error stopped the run. Either way the
+            # remaining attempts of this task are not going to run.
+            break
+        collected.extend(produced)
+        record = produced[0][1]
         if record.outcome in _FAIL_FAST_OUTCOMES:
             consecutive_fail_fast_triggers += 1
         elif not record.outcome.is_execution_noise:
@@ -243,12 +354,24 @@ def _run_task(task: TaskSpec, env: _RunEnv, k: int) -> TaskResult:
             # silently truncate the activation sample. `judge_error` is noise and
             # still does not reset (see docs/adr/0001).
             consecutive_fail_fast_triggers = 0
-        if (
-            env.fail_fast_unusable > 0
-            and consecutive_fail_fast_triggers >= env.fail_fast_unusable
-        ):
+        if consecutive_fail_fast_triggers >= env.fail_fast_unusable:
             break
+    return collected
 
+
+def _finish_task(
+    task: TaskSpec, records: list[AttemptRecord], env: _RunEnv, k: int
+) -> TaskResult:
+    """Score one task's attempts into its result.
+
+    Sorted by attempt number: under the flat schedule they finish in whatever
+    order the pool hands them back, and a results file whose attempts are out of
+    order is unreadable next to a transcript. A task can also land here with
+    *fewer* than k records — fail-fast truncated it, or an interrupt stopped the
+    run — which the metrics already handle, since every denominator is the
+    usable attempts rather than k (docs/adr/0007).
+    """
+    attempts = sorted(records, key=lambda r: r.attempt)
     scores = score_outcomes(a.outcome for a in attempts)
     result = TaskResult(
         task_id=task.id,
@@ -313,24 +436,29 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord:
         if assembled.judge_model:
             env.judge_models.append(assembled.judge_model)
 
-        return _finish(assembled.record, task, env.on_attempt_done)
+        return assembled.record
     finally:
         _run_shell(task.cleanup)
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def _finish(
+def _announce(
     record: AttemptRecord,
     task: TaskSpec,
     on_attempt_done: Callable[[AttemptEvent], None] | None,
-) -> AttemptRecord:
+) -> None:
+    """Tell the caller an attempt landed — only for records that count.
+
+    Fired from the job rather than from ``_run_attempt`` so a record the run
+    then discards is never announced: a live ``⊘ infra_error`` printed for an
+    attempt the user's own Ctrl-C killed reads as a problem with the eval.
+    """
     if on_attempt_done:
         on_attempt_done(
             AttemptEvent(
                 task_id=task.id, attempt=record.attempt, outcome=record.outcome
             )
         )
-    return record
 
 
 def _run_shell(cmd: str | None) -> None:

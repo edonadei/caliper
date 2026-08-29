@@ -17,6 +17,8 @@ from caliper.harness.pi import PiHarness
 from caliper.judge.script_assert import EvalJudge
 from caliper.schema.spec import TaskSpec
 
+from conftest import patch_cli_calls
+
 
 def _task(**overrides) -> TaskSpec:
     fields = {"id": "t1", "name": "t", "prompt": "p", "expect": "says ok"}
@@ -34,7 +36,7 @@ def _spawn(monkeypatch, stdout: str = "", returncode: int = 0, stderr: str = "")
             cmd, returncode, stdout=stdout, stderr=stderr
         )
 
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    patch_cli_calls(monkeypatch, fake_run)
     return calls
 
 
@@ -285,7 +287,7 @@ def test_codex_judge_uses_output_last_message(monkeypatch, tmp_path) -> None:
         )
 
     _codex_cli_present(monkeypatch, tmp_path)
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    patch_cli_calls(monkeypatch, fake_run)
 
     result = EvalJudge(backend="codex", model="test-model").evaluate(
         task=_task(expect="The assistant says hello."),
