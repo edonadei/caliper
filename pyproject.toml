@@ -37,7 +37,14 @@ dependencies = [
 
 [project.optional-dependencies]
 codex = ["openai>=1.0"]
-dev = ["pytest", "ruff==0.15.20", "pre-commit"]
+dev = [
+    "pytest",
+    "ruff==0.15.20",
+    "pre-commit",
+    # tomllib is stdlib from 3.11; the codex harness tests read the config
+    # it writes, and `requires-python` still claims 3.10.
+    "tomli; python_version < '3.11'",
+]
 
 [project.scripts]
 caliper = "caliper.main:app"

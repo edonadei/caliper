@@ -1,4 +1,4 @@
-name: lint
+name: ci
 
 on:
   pull_request:
@@ -19,3 +19,27 @@ jobs:
         run: ruff format --check .
       - name: Lint
         run: ruff check .
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      # One red version should not hide the others: a failure on the 3.10 floor
+      # is a different bug from one on the newest interpreter.
+      fail-fast: false
+      matrix:
+        # Every version `requires-python` and the classifiers claim. Testing
+        # only the newest is how an import that is stdlib from 3.11 sat unnoticed
+        # in a suite that claimed to support 3.10.
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Test
+        # No network and no agent CLIs on the runner: every backend is faked at
+        # the subprocess boundary (tests/conftest.py), so the suite is
+        # self-contained.
+        run: pytest -q

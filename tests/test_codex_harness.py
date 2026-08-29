@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import json
 import subprocess
-import tomllib
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10, where tomllib is not yet stdlib
+    import tomli as tomllib
 
 import pytest
 
