@@ -32,6 +32,28 @@ The labels themselves are unchanged. All three still earn `INFRA_ERROR` when
 they reach the end of the line; the split only decides what happens *before* the
 label is reached.
 
+## A signal only counts when it is the outcome, not the content
+
+The three-way split above is a regex over provider prose, and caliper's whole
+job is running agents that write prose. An agent answering a task **about** API
+error handling writes "rate limit", "quota exceeded", "503" — and a bare match
+would respawn that passing attempt twice, or abort the run on it.
+
+So a match is only honoured when it is what the invocation *produced* rather than
+something inside what it produced: the invocation failed (non-zero exit, or no
+output at all), or its entire output is short enough to be a bail-out message
+rather than a result. That second clause is why the check survives at all — a
+capped CLI exits **0** with the cap message as its only output, which is the case
+`outcome.py` has always matched on a zero exit.
+
+The pre-existing regex had the same false-positive surface, but the consequence
+was one attempt mislabelled `infra_error`. Retrying and aborting raise the stakes
+enough that the discriminator has to exist.
+
+A timeout is excluded explicitly rather than by falling through the match, so a
+backend that returns partial output alongside a timeout cannot earn a respawn on
+the strength of text the agent wrote before it hung.
+
 ## A spending cap stops the run
 
 The precedent already existed one line above in `outcome.py`: startup auth

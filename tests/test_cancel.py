@@ -62,9 +62,10 @@ class CancellingHarness(HarnessBackend):
         self.started.append(attempt)
         if attempt >= self.cancel_after:
             cancel.request()
-        if self.then_fail and attempt > self.cancel_after:
-            # What a killed agent looks like coming back: a non-zero exit and
-            # nothing to show for it.
+        if self.then_fail:
+            # What a killed agent looks like coming back: a non-zero exit,
+            # nothing to show for it, and — the part only the spawn knows —
+            # `cancelled`, saying *we* killed it rather than it failing.
             return AttemptResult(
                 task_id=task_id,
                 attempt=attempt,
@@ -73,6 +74,7 @@ class CancellingHarness(HarnessBackend):
                 exit_code=-9,
                 duration_seconds=0.01,
                 error="killed",
+                cancelled=True,
             )
         return AttemptResult(
             task_id=task_id,
@@ -185,10 +187,35 @@ def test_a_cancelled_run_does_not_start_the_remaining_attempts(tmp_path) -> None
     assert harness.started == [1]
 
 
+class FailsOnItsOwnHarness(HarnessBackend):
+    """Fails for real, and cancels the run from underneath itself.
+
+    The awkward case: an attempt that was dying of its own causes while the
+    interrupt landed. It was never killed, so its failure is a real observation.
+    """
+
+    @property
+    def name(self) -> str:
+        return "failing"
+
+    def run(self, task_id: str, attempt: int, prompt: str, **kwargs) -> AttemptResult:
+        cancel.request()
+        return AttemptResult(
+            task_id=task_id,
+            attempt=attempt,
+            transcript=[],
+            final_output="",
+            exit_code=1,
+            duration_seconds=0.01,
+            error="Error 503: service unavailable",
+            # Not cancelled: nothing killed this, it fell over on its own.
+        )
+
+
 def test_attempts_killed_by_the_cancellation_are_not_recorded(tmp_path) -> None:
     """An interrupt must not show up in the sample as an infrastructure failure."""
-    # Cancels on attempt 1 and returns a killed-looking result for every attempt
-    # after it, which the chain would otherwise record as infra_error.
+    # Attempt 1 is killed by the very cancellation it triggers — the shape of a
+    # SIGKILL landing on an agent that was mid-flight.
     harness = CancellingHarness(cancel_after=1, then_fail=True)
 
     results = run(
@@ -199,12 +226,34 @@ def test_attempts_killed_by_the_cancellation_are_not_recorded(tmp_path) -> None:
         k=3,
         workers=1,
         timeout=5,
-        fail_fast_unusable=2,
+    )
+
+    assert harness.started == [1]
+    assert results.task_results[0].attempts == []
+    assert results.run.interrupted is True
+
+
+def test_an_attempt_that_failed_on_its_own_is_kept(tmp_path) -> None:
+    """Dropping on the outcome would delete the evidence you interrupted.
+
+    Interrupt a run during a real throttling storm and the dead attempts are of
+    two kinds: the ones the storm killed (observations) and the ones the
+    interrupt killed (artefacts). Only the spawn knows which is which.
+    """
+    results = run(
+        spec=_spec(),
+        spec_path=_spec_file(tmp_path),
+        harness=FailsOnItsOwnHarness(),
+        judge=PassingJudge(),
+        k=3,
+        workers=1,
+        timeout=5,
     )
 
     attempts = results.task_results[0].attempts
-    assert [a.outcome for a in attempts] == [Outcome.PASS]
-    assert results.task_results[0].unusable == 0
+    assert [a.outcome for a in attempts] == [Outcome.INFRA_ERROR]
+    assert results.task_results[0].unusable == 1
+    assert results.run.interrupted is True
 
 
 def test_a_fatal_error_mid_run_salvages_the_attempts_that_ran(tmp_path) -> None:

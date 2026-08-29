@@ -540,9 +540,6 @@ attempt that exited before reaching one — which is a different claim from `0.0
 and the reason the run roll-up averages it over *graded* attempts rather than all
 of them.
 
-Recorded before it is optimised: whether the judge deserves a scheduler of its
-own is a question about a number nobody had measured.
-
 ## Run usage totals
 
 The per-run roll-up of [[attempt usage]], [[wall-clock time]] and [[judge time]],
@@ -561,8 +558,8 @@ the score denominator.
 One **attempt** is one measured shot at the task; one **invocation** is one spawn
 of the agent. Usually the same thing — they part company when the provider
 refuses the invocation (a 429, an overload, a 503), which produces no measurement
-at all. Such an invocation is retried, twice, backing off; the invocations fold
-into a single attempt carrying a `retries` count.
+at all. Such an invocation is retried, and the invocations fold into a single
+attempt carrying a `retries` count.
 
 The question that sorts the failures is **would another invocation behave
 differently?** A throttle: yes, retry it. A **spending cap**: no, and it will
@@ -570,9 +567,12 @@ still say no on every remaining attempt, so the run stops (an [[interrupted
 run]], with the cap as its cause). A bare crash: no, it reproduces, so it is
 recorded as-is rather than retried into looking flaky.
 
-`retries` is recorded rather than hidden because it is the one signal that says a
-run was fighting the API — which a reader needs before trusting its timings,
-since [[wall-clock time]] counts the spawns and not the waiting between them. See
+A signal only counts when it is the invocation's *outcome* rather than its
+content: an attempt that answered a task **about** rate limiting is not a
+throttled attempt. `retries` is recorded rather than hidden because it is the one
+signal that says a run was fighting the API — which a reader needs before
+trusting its timings, since [[wall-clock time]] counts the spawns and not the
+waiting between them. See
 docs/adr/0019-an-attempt-may-be-invoked-more-than-once.md.
 
 ## Usable / unusable attempt

@@ -576,6 +576,10 @@ When both `expect` and `assert` are present, both must pass.
 `2` and `3` are the distinction CI needs: *the eval could not run* is a broken
 pipeline, *the skill did not clear the bar* is the answer you asked for.
 
+A run that stopped before **any** attempt finished writes no results file — there
+is nothing to save, and an empty run would render as `0.0%` in `caliper list`.
+Exits `2` and `130` can therefore leave nothing on disk.
+
 `caliper compare` deliberately does **not** gate. A regression there is the
 any-below rule — B under A by any amount — which at small k fires on noise about
 as often as on a real change, so it is not something to fail a pipeline on.

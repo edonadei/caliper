@@ -66,6 +66,13 @@ Three consequences worth naming:
   their own are kept; ones the stop broke are discarded exactly like ones that
   never started.
 
+  The two are told apart by *who killed the process*, not by the outcome —
+  `cancel` remembers what it signalled, and the flag rides out on the
+  `AttemptResult`. Dropping on the outcome instead would delete the very
+  evidence you were interrupting: cancel a run during a real throttling storm
+  and the storm's own dead attempts are observations, while the ones this
+  module killed are artefacts, and both exit non-zero.
+
 A fatal misconfiguration diagnosed mid-run (an expired credential, a CLI that
 stopped resolving) travels the same path: it cancels the run, and `RunAborted`
 carries the partial results out so the CLI saves them *before* it reports the

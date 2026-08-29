@@ -25,7 +25,12 @@ from typing import Callable
 
 from caliper import cancel
 from caliper.harness.base import AttemptResult
-from caliper.outcome import looks_like_spending_cap, looks_like_throttle
+from caliper.outcome import (
+    carries_provider_signal,
+    looks_like_spending_cap,
+    looks_like_throttle,
+    signal_text,
+)
 from caliper.schema.results import TokenUsage
 
 
@@ -57,10 +62,6 @@ class RetryPolicy:
         """Seconds to wait before retry number ``retry_index`` (0-based)."""
         base = self.base_delay_seconds * (2**retry_index)
         return base * (1 + random.random() * self.jitter)
-
-
-def _text_of(result: AttemptResult) -> str:
-    return "\n".join(part for part in (result.final_output, result.error) if part)
 
 
 def merge(invocations: list[AttemptResult]) -> AttemptResult:
@@ -135,7 +136,9 @@ def invoke_with_retry(
 
     Only a *throttle* is retried. A timeout is not (nothing says the next spawn
     would be faster), and neither is a bare non-zero exit with no signal in it —
-    that is a crash, and retrying one hides a defect that reproduces.
+    that is a crash, and retrying one hides a defect that reproduces. Nor is an
+    invocation that *answered*: a passing attempt whose output discusses rate
+    limits has already proved the provider served us.
     """
     policy = policy or RetryPolicy()
     invocations: list[AttemptResult] = []
@@ -143,7 +146,24 @@ def invoke_with_retry(
     for retry_index in range(policy.max_retries + 1):
         result = invoke()
         invocations.append(result)
-        text = _text_of(result)
+
+        # A timeout is never a retry or an abort, whatever its output happens to
+        # say. Checked explicitly rather than left to fall through the signal
+        # match: a backend that returns partial output alongside a timeout would
+        # otherwise be respawned on the strength of text the agent wrote before
+        # it hung.
+        if result.timed_out:
+            break
+
+        text = signal_text(result)
+        # Only when the signal is the invocation's *outcome* — see
+        # ``carries_provider_signal``. Without this, an attempt that passes while
+        # answering a question about rate limits gets respawned, and one that
+        # mentions a usage limit kills the whole run.
+        if not carries_provider_signal(
+            text, produced_answer=result.exit_code == 0 and bool(result.final_output)
+        ):
+            break
 
         if looks_like_spending_cap(text):
             raise SpendingCapReached(
@@ -156,7 +176,7 @@ def invoke_with_retry(
             break
         if retry_index == policy.max_retries:
             break
-        if cancel.sleep(policy.delay_for(retry_index)):
+        if cancel.sleep_unless_stopped(policy.delay_for(retry_index)):
             break
 
     return RetriedInvocation(merge(invocations), retries=len(invocations) - 1)

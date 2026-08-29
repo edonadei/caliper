@@ -31,6 +31,29 @@ _CAP_SIGNALS = re.compile(
 )
 
 
+# Longest output still readable as "the CLI bailed with a one-line message".
+# An agent that actually answered the task writes far more than this, and the
+# difference is what stops an *answer about* rate limits from being read as one.
+_BAILED_OUTPUT_CHARS = 400
+
+
+def carries_provider_signal(result_text: str, *, produced_answer: bool) -> bool:
+    """Whether this text is the invocation's *outcome* rather than its content.
+
+    The discriminator the retry seam needs, and the one thing a bare regex over
+    the output cannot answer. A capped CLI exits 0 with the cap message as its
+    only output — which is why signals are matched on a zero exit at all — but an
+    agent that *answered* a task about API error handling writes "rate limit"
+    too, and retrying (or aborting) on that is acting on the agent's prose.
+
+    So a signal only counts when the invocation produced no answer, or when the
+    whole output is short enough to be a bail-out message rather than a result.
+    """
+    if not produced_answer:
+        return True
+    return len(result_text.strip()) <= _BAILED_OUTPUT_CHARS
+
+
 def looks_like_throttle(text: str) -> bool:
     """True when free text says the provider is busy — a retryable signal."""
     return bool(text) and bool(_THROTTLE_SIGNALS.search(text))
@@ -58,6 +81,15 @@ def looks_like_infra_failure(text: str) -> bool:
     return looks_like_throttle(text) or looks_like_spending_cap(text)
 
 
+def signal_text(result: AttemptResult) -> str:
+    """The text a provider signal could be hiding in: the output plus the error.
+
+    One definition, used by the label (``classify_pre_judge``) and by the retry
+    seam, so the two can never disagree about *where* they looked.
+    """
+    return "\n".join(part for part in (result.final_output, result.error) if part)
+
+
 def classify_pre_judge(harness: AttemptResult) -> Outcome | None:
     """The terminal outcome an attempt earns from its harness result alone.
 
@@ -71,7 +103,7 @@ def classify_pre_judge(harness: AttemptResult) -> Outcome | None:
     if harness.timed_out:
         return Outcome.TIMEOUT
 
-    text = "\n".join(part for part in (harness.final_output, harness.error) if part)
+    text = signal_text(harness)
     if harness.exit_code != 0 or looks_like_infra_failure(text):
         return Outcome.INFRA_ERROR
 

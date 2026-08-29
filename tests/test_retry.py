@@ -335,3 +335,64 @@ def test_a_run_that_measured_nothing_is_not_saved(tmp_path, monkeypatch) -> None
     assert result.exit_code == 2
     assert "Spending cap" in result.stdout
     assert not (tmp_path / ".caliper").exists()
+
+
+# ---------------------------------------------------------------------------
+# A signal in an *answer* is prose, not an outcome. caliper evaluates skills,
+# and a plausible eval task is about API error handling — so an agent writing
+# "handle the rate limit" is the expected case, not an edge case.
+# ---------------------------------------------------------------------------
+
+ANSWER_ABOUT_LIMITS = (
+    "I added a retry wrapper around the client. When the API returns a rate "
+    "limit error (HTTP 429) the call now backs off and retries twice before "
+    "surfacing the failure, and I extended the same handling to the quota "
+    "exceeded case so a usage limit no longer crashes the ingest job. The "
+    "tests cover both paths, including the 503 service unavailable branch, "
+    "and I ran the suite to confirm nothing else regressed by these changes."
+)
+
+
+def test_a_passing_attempt_that_mentions_a_cap_does_not_abort_the_run() -> None:
+    invoke, calls = _queue(_result(output=ANSWER_ABOUT_LIMITS))
+
+    invoked = invoke_with_retry(invoke, NO_WAIT)
+
+    assert len(calls) == 1
+    assert invoked.retries == 0
+    assert invoked.result.final_output == ANSWER_ABOUT_LIMITS
+
+
+def test_a_passing_attempt_that_mentions_a_throttle_is_not_respawned() -> None:
+    """Retrying here would triple the spend of an attempt that already worked."""
+    invoke, calls = _queue(_result(output=ANSWER_ABOUT_LIMITS), _result())
+
+    invoke_with_retry(invoke, NO_WAIT)
+
+    assert len(calls) == 1
+
+
+def test_a_capped_cli_is_still_caught_when_the_message_is_the_whole_output() -> None:
+    """The shape the detection exists for: exit 0, cap message, nothing else."""
+    invoke, _ = _queue(_result(output="Your spending cap has been reached."))
+
+    with pytest.raises(SpendingCapReached):
+        invoke_with_retry(invoke, NO_WAIT)
+
+
+def test_a_timeout_carrying_throttle_text_is_still_not_retried() -> None:
+    """Explicit, not incidental: partial output must not earn a respawn."""
+    invoke, calls = _queue(
+        _result(
+            output="429 rate limit",
+            error="timeout",
+            exit_code=124,
+            timed_out=True,
+        ),
+        _result(),
+    )
+
+    invoked = invoke_with_retry(invoke, NO_WAIT)
+
+    assert len(calls) == 1
+    assert invoked.result.timed_out is True

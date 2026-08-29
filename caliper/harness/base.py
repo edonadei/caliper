@@ -51,6 +51,10 @@ class AttemptResult:
     # Token accounting for this attempt, when the backend can extract it from its
     # own output. ``None`` when the backend cannot report it (see ``_usage``).
     usage: TokenUsage | None = None
+    # True when a cancellation killed this invocation. Such an attempt is
+    # discarded rather than recorded: it is the interrupt showing up in the
+    # sample, not an observation about the skill (docs/adr/0018).
+    cancelled: bool = False
 
 
 @dataclass
@@ -93,6 +97,10 @@ class ProcessResult:
     stderr: str
     returncode: int
     timed_out: bool
+    # True when this process was killed by a cancellation rather than by its own
+    # failure or the timeout. Carried so the runner can drop the attempt instead
+    # of recording an interrupt as an infrastructure failure (docs/adr/0018).
+    cancelled: bool = False
 
     @property
     def error(self) -> str | None:
@@ -269,6 +277,7 @@ class CliHarness(HarnessBackend):
             timed_out=proc.timed_out,
             resolved_model=self._resolved_model(proc, ctx),
             usage=self._safe_usage(proc, ctx),
+            cancelled=proc.cancelled,
         )
 
     def run_prompt(
@@ -500,6 +509,7 @@ class CliHarness(HarnessBackend):
             stderr=(stderr or "").strip(),
             returncode=proc.returncode,
             timed_out=False,
+            cancelled=cancel.was_killed(proc),
         )
 
     def _version_ok(

@@ -80,6 +80,9 @@ _TO = "→" if _UNICODE else "->"
 _BAR_FULL = "█" if _UNICODE else "#"
 _BAR_EMPTY = "░" if _UNICODE else "-"
 _UNUSABLE = "⊘" if _UNICODE else "o"
+# Re-exported: `list` marks an interrupted run with the same glyph, and a
+# second literal would be a second thing to forget the ASCII fallback on.
+UNUSABLE_GLYPH = _UNUSABLE
 
 # Per-outcome glyph for the per-attempt detail view. Usable failures read as
 # failures; the three noise outcomes get the distinct ⊘ marker.
