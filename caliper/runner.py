@@ -19,6 +19,7 @@ from caliper.harness.base import (
     HarnessConfigurationError,
 )
 from caliper.judge.base import Judge
+from caliper.retry import SpendingCapReached, invoke_with_retry
 from caliper.schema.results import (
     ERA_INSTALL_AND_DISCOVER,
     AttemptRecord,
@@ -316,10 +317,12 @@ def _run_attempt_job(
             return []
         _announce(record, task, env.on_attempt_done)
         return [(task.id, record)]
-    except HarnessConfigurationError as exc:
-        # A misconfiguration diagnosed mid-run (an expired credential, a CLI
-        # that stopped resolving) is fatal for every attempt still to come, so
-        # stop the run — but keep what it already paid for. ``run`` re-raises it
+    except (HarnessConfigurationError, SpendingCapReached) as exc:
+        # Two different diagnoses, one response: a misconfiguration found
+        # mid-run (an expired credential, a CLI that stopped resolving) and a
+        # spending cap are both fatal for every attempt still to come, because
+        # neither would behave differently on the next invocation. Stop the run
+        # — but keep what it already paid for. ``run`` re-raises the first one
         # as ``RunAborted`` once the partial results are assembled.
         env.fatal.append(exc)
         cancel.request()
@@ -402,24 +405,35 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord:
         resolved_extra_path = [
             str((spec_path.parent / p).resolve()) for p in spec.sandbox.extra_path
         ]
+
         # The neighbourhood is *installed* by the harness at its own skills root
         # and never preloaded. ``env.skill_refs`` is already the ablated set.
-        attempt_result = env.harness.run(
-            task_id=task.id,
-            attempt=attempt,
-            prompt=task.prompt,
-            skill_refs=env.skill_refs,
-            # None → the harness uses the model it was constructed with; the
-            # engine is resolved once at the run seam (ADR 0004), not per spec.
-            model=None,
-            timeout=env.timeout,
-            isolated_home=tmp_dir,
-            extra_path=resolved_extra_path,
-            # Declared MCP servers are the agent's tool environment for the
-            # eval; the backend materializes them. ``None`` when none declared.
-            mcp_servers=dict(spec.mcp) or None,
-            forbidden_files=list(spec.sandbox.forbidden_files),
-        )
+        def invoke():
+            return env.harness.run(
+                task_id=task.id,
+                attempt=attempt,
+                prompt=task.prompt,
+                skill_refs=env.skill_refs,
+                # None → the harness uses the model it was constructed with; the
+                # engine is resolved once at the run seam (ADR 0004), not per spec.
+                model=None,
+                timeout=env.timeout,
+                isolated_home=tmp_dir,
+                extra_path=resolved_extra_path,
+                # Declared MCP servers are the agent's tool environment for the
+                # eval; the backend materializes them. ``None`` when none declared.
+                mcp_servers=dict(spec.mcp) or None,
+                forbidden_files=list(spec.sandbox.forbidden_files),
+            )
+
+        # A throttled invocation measured nothing, so it is retried rather than
+        # recorded — the attempt is the shot at the task, not the spawn
+        # (docs/adr/0019). The retry holds this worker: under throttling there is
+        # no other work to give the slot, since every peer is meeting the same
+        # 429. Raises SpendingCapReached, which the job above turns into a run
+        # abort.
+        invoked = invoke_with_retry(invoke)
+        attempt_result = invoked.result
         if attempt_result.resolved_model:
             env.resolved_models.append(attempt_result.resolved_model)
 
@@ -432,6 +446,7 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord:
             activation=env.activation,
             cheat=env.cheat,
             judge=env.judge,
+            retries=invoked.retries,
         )
         if assembled.judge_model:
             env.judge_models.append(assembled.judge_model)

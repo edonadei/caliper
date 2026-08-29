@@ -235,6 +235,13 @@ class AttemptRecord(BaseModel):
     # ``None`` when no judge ran — an assert-only task, or an attempt that
     # exited before the judge (timeout, infra, cheat, not_checked).
     judge_seconds: float | None = None
+    # Extra invocations this attempt needed because the provider was throttling
+    # (docs/adr/0019). Still **one** attempt: a throttled invocation produced no
+    # measurement, so counting it would put the provider's queue depth into the
+    # score's denominator. Recorded rather than hidden because it is the one
+    # signal that says a run was fighting the API — which a reader needs before
+    # trusting its timings. 0 on the overwhelming majority of attempts.
+    retries: int = 0
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -356,6 +363,11 @@ class UsageTotals(BaseModel):
     # attempt would report a fast judge rather than no judge.
     judge_seconds: float = 0.0
     judged_attempts: int = 0
+    # Extra invocations across the run, and how many attempts needed any. Both,
+    # because "9 retries" reads very differently spread over nine attempts than
+    # concentrated in one wedged attempt.
+    retries: int = 0
+    retried_attempts: int = 0
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -393,6 +405,9 @@ class UsageTotals(BaseModel):
                 if att.judge_seconds is not None:
                     totals.judge_seconds += att.judge_seconds
                     totals.judged_attempts += 1
+                if att.retries:
+                    totals.retries += att.retries
+                    totals.retried_attempts += 1
                 # Noise, not merely "not usable": a NOT_CHECKED trigger probe
                 # spent its tokens producing a real activation measurement, so
                 # it is not wasted spend.

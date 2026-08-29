@@ -551,6 +551,16 @@ def _print_usage_summary(totals: UsageTotals) -> None:
         grid.add_row(" Judge", judge_val)
     console.print(grid)
 
+    # Only when something was actually retried. A run that never met a throttle
+    # says nothing, which is the common case and the quiet one.
+    if totals.retried_attempts > 0:
+        plural = "s" if totals.retried_attempts > 1 else ""
+        console.print(
+            f" [yellow]{_WARN} throttled:[/yellow] [dim]{totals.retries} retries "
+            f"across {totals.retried_attempts} attempt{plural} "
+            f"(wall excludes the waiting)[/dim]"
+        )
+
     if totals.unusable_attempts > 0:
         pieces = []
         if totals.tokens_reported:

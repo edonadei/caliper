@@ -556,6 +556,25 @@ timed-out attempt's wasted tokens/time are visible without distorting per-attemp
 economics. The per-attempt average is taken over usable attempts only, matching
 the score denominator.
 
+## Retry
+
+One **attempt** is one measured shot at the task; one **invocation** is one spawn
+of the agent. Usually the same thing — they part company when the provider
+refuses the invocation (a 429, an overload, a 503), which produces no measurement
+at all. Such an invocation is retried, twice, backing off; the invocations fold
+into a single attempt carrying a `retries` count.
+
+The question that sorts the failures is **would another invocation behave
+differently?** A throttle: yes, retry it. A **spending cap**: no, and it will
+still say no on every remaining attempt, so the run stops (an [[interrupted
+run]], with the cap as its cause). A bare crash: no, it reproduces, so it is
+recorded as-is rather than retried into looking flaky.
+
+`retries` is recorded rather than hidden because it is the one signal that says a
+run was fighting the API — which a reader needs before trusting its timings,
+since [[wall-clock time]] counts the spawns and not the waiting between them. See
+docs/adr/0019-an-attempt-may-be-invoked-more-than-once.md.
+
 ## Usable / unusable attempt
 
 An attempt that got a **fair shot** at the task is *usable*: `pass`, `task_fail`,
@@ -564,6 +583,11 @@ and `cheat` all count. `judge_error`, `infra_error`, and `timeout` are *unusable
 denominator**, reported instead as a separate "unusable attempts" count. A
 throttled or judge-flaked run therefore can no longer masquerade as a
 regression.
+
+Read at the level of the attempt, not the invocation: a throttled invocation that
+was [[retry|retried]] and then ran is part of a perfectly usable attempt. What
+earns *unusable* is an attempt that had no fair shot after its retries were
+spent.
 
 ## Interrupted run
 

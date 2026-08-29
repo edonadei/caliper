@@ -55,6 +55,16 @@ def requested() -> bool:
     return _requested.is_set()
 
 
+def sleep(seconds: float) -> bool:
+    """Wait, unless the run is cancelled first. True when it was.
+
+    A retry backoff has to be interruptible, or Ctrl-C during one would sit out
+    the whole delay for no reason — the attempt it is waiting to retry is
+    already never going to run.
+    """
+    return _requested.wait(timeout=seconds)
+
+
 @contextmanager
 def track(proc: subprocess.Popen) -> Iterator[subprocess.Popen]:
     """Register a spawned agent so :func:`request` can reach it.

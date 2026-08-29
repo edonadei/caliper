@@ -63,6 +63,7 @@ def assemble_attempt(
     activation: ActivationDetector,
     cheat: CheatDetector,
     judge: Judge,
+    retries: int = 0,
 ) -> AssembledAttempt:
     """Grade one finished harness run into an ``AttemptRecord``.
 
@@ -119,6 +120,9 @@ def assemble_attempt(
                 activated=activated,
                 activation_passed=activation_passed,
                 judge_seconds=judge_seconds,
+                # A lifecycle fact the runner hands in: how many invocations it
+                # took to produce this one result. Nothing here re-derives it.
+                retries=retries,
                 **verdict,
             ),
             judge_model=judge_model,

@@ -30,9 +30,11 @@ from caliper.main import app
 from caliper.runner import RunAborted, run
 from caliper.schema.results import (
     AggregateScore,
+    AttemptRecord,
     Outcome,
     RunMeta,
     RunResults,
+    TaskResult,
 )
 from caliper.schema.spec import EvalSpec, TaskSpec
 
@@ -255,6 +257,38 @@ def test_cancel_kills_an_agent_in_flight(tmp_path) -> None:
     assert box["result"].returncode != 0
 
 
+def _one_attempt_run(k: int = 3) -> RunResults:
+    """A partial run with something in it — the shape salvage exists to keep."""
+    return RunResults(
+        run=RunMeta(
+            spec="sample",
+            timestamp=datetime(2026, 7, 3, tzinfo=timezone.utc),
+            k=k,
+            backend="claude-code",
+            interrupted=True,
+        ),
+        skill_snapshots=[],
+        task_results=[
+            TaskResult(
+                task_id="task-001",
+                task_name="One",
+                attempts=[
+                    AttemptRecord(
+                        attempt=1,
+                        output="ok",
+                        duration_seconds=1.0,
+                        outcome=Outcome.PASS,
+                    )
+                ],
+                successes=1,
+                unusable=0,
+                pass_at_k=1.0,
+            )
+        ],
+        aggregate=AggregateScore(avg_score=1.0, per_task=[]),
+    )
+
+
 def test_run_cli_exits_130_and_saves_an_interrupted_run(monkeypatch, tmp_path) -> None:
     spec_file = tmp_path / "sample.eval.yaml"
     spec_file.write_text(
@@ -262,18 +296,7 @@ def test_run_cli_exits_130_and_saves_an_interrupted_run(monkeypatch, tmp_path) -
     )
 
     def fake_run(**kwargs):
-        return RunResults(
-            run=RunMeta(
-                spec="sample",
-                timestamp=datetime(2026, 7, 3, tzinfo=timezone.utc),
-                k=kwargs["k"],
-                backend="claude-code",
-                interrupted=True,
-            ),
-            skill_snapshots=[],
-            task_results=[],
-            aggregate=AggregateScore(avg_score=0.0, per_task=[]),
-        )
+        return _one_attempt_run(k=kwargs["k"])
 
     monkeypatch.setattr("caliper.commands.run.get_harness", lambda *a, **kw: object())
     monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **kw: object())
@@ -293,18 +316,7 @@ def test_run_cli_saves_before_reporting_a_fatal_error(monkeypatch, tmp_path) -> 
         "tasks:\n  - name: One\n    prompt: Do it\n    assert: 'assert True'\n"
     )
 
-    partial = RunResults(
-        run=RunMeta(
-            spec="sample",
-            timestamp=datetime(2026, 7, 3, tzinfo=timezone.utc),
-            k=3,
-            backend="claude-code",
-            interrupted=True,
-        ),
-        skill_snapshots=[],
-        task_results=[],
-        aggregate=AggregateScore(avg_score=0.0, per_task=[]),
-    )
+    partial = _one_attempt_run()
 
     def fake_run(**kwargs):
         raise RunAborted(HarnessConfigurationError("credentials expired"), partial)

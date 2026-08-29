@@ -6,17 +6,44 @@ from caliper.harness.base import AttemptResult
 from caliper.judge.base import JudgeResult
 from caliper.schema.results import Outcome
 
-# Transient, mid-run harness signals that mean the skill was never fairly run —
-# a spending cap, a rate limit, an overloaded provider. Matched over the
-# attempt's output + error even on a zero exit, because a spending cap typically
-# lets the CLI exit 0 with the cap message as its only "output". Startup auth /
-# login misconfiguration is deliberately NOT here: that raises
+# Mid-run harness signals that mean the skill was never fairly run. Matched over
+# the attempt's output + error even on a zero exit, because these typically let
+# the CLI exit 0 with the message as its only "output". Startup auth / login
+# misconfiguration is deliberately NOT here: that raises
 # HarnessConfigurationError and aborts the whole run instead.
-_INFRA_SIGNALS = re.compile(
-    r"spending cap|rate.?limit|\b429\b|overloaded|quota (?:exceeded|reached)"
-    r"|usage limit|too many requests|service unavailable|\b503\b",
+#
+# Split in two because the right response differs, not because the labels do —
+# both still earn INFRA_ERROR when they reach the end of the line. The question
+# each half answers is "would another invocation behave differently?"
+
+# Yes: the provider is busy or we are going too fast. Worth retrying in seconds
+# (docs/adr/0019-an-attempt-may-be-invoked-more-than-once.md).
+_THROTTLE_SIGNALS = re.compile(
+    r"rate.?limit|\b429\b|overloaded|too many requests|service unavailable|\b503\b",
     re.IGNORECASE,
 )
+
+# No: the account is out of budget, and every remaining attempt of the run would
+# meet the same wall. Aborts the run rather than being retried or repeated.
+_CAP_SIGNALS = re.compile(
+    r"spending cap|quota (?:exceeded|reached)|usage limit",
+    re.IGNORECASE,
+)
+
+
+def looks_like_throttle(text: str) -> bool:
+    """True when free text says the provider is busy — a retryable signal."""
+    return bool(text) and bool(_THROTTLE_SIGNALS.search(text))
+
+
+def looks_like_spending_cap(text: str) -> bool:
+    """True when free text says the account is out of budget.
+
+    Not retryable and not survivable: the cap does not clear inside a run, so
+    the runner aborts rather than spending every remaining attempt discovering
+    the same wall. See docs/adr/0019.
+    """
+    return bool(text) and bool(_CAP_SIGNALS.search(text))
 
 
 def looks_like_infra_failure(text: str) -> bool:
@@ -24,9 +51,11 @@ def looks_like_infra_failure(text: str) -> bool:
 
     The single source of truth for infra detection, shared by the runner (to
     decide whether to skip a paid judge call) and ``classify_outcome`` (to label
-    the attempt), so the two can never disagree about what counts as noise.
+    the attempt), so the two can never disagree about what counts as noise. The
+    union of both halves above: how an attempt is *labelled* is unchanged by the
+    split, which only decides what the runner does before the label is reached.
     """
-    return bool(text) and bool(_INFRA_SIGNALS.search(text))
+    return looks_like_throttle(text) or looks_like_spending_cap(text)
 
 
 def classify_pre_judge(harness: AttemptResult) -> Outcome | None:
