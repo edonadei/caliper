@@ -64,7 +64,8 @@ the separate neighbourhood warning.
 After any `caliper run`, failed tasks are shown automatically with their output
 and `assert_evidence` — no extra command needed. Each attempt is tagged with an
 `outcome`: a real `task_fail` reads as `✗`, while *unusable* attempts
-(`infra_error` from a rate-limit / spending-cap, `timeout`, or `judge_error`)
+(`infra_error` from a rate limit that outlasted its retries, `timeout`, or
+`judge_error`)
 read as `⊘` and are excluded from the score denominator, with a separate
 "N unusable" count in the summary — so a throttled or judge-flaked run is not
 mistaken for a skill regression. If `caliper run --fail-fast N` stopped a task
@@ -74,7 +75,11 @@ saved too, headed by an `interrupted:` line: its rates are computed over the
 attempts that ran, so read them as a smaller sample rather than a worse skill —
 and re-run before drawing a conclusion from a handful of attempts. `caliper list`
 marks such a run with `⊘`, and `caliper compare` warns when either side is one,
-so a shallow sample cannot quietly masquerade as a delta. If a failure is still unclear, use
+so a shallow sample cannot quietly masquerade as a delta. A run that hit a
+**spending cap** stops the same way, with the cap named as the cause — top up and
+re-run rather than reading its numbers. A `throttled:` line under the usage
+summary means attempts were retried before they landed: the scores are sound, but
+the wall times were fought for. If a failure is still unclear, use
 `--verbose` to see full output for all tasks (including passing ones):
 
 ```bash

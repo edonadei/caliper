@@ -27,6 +27,7 @@ from typing import Iterator
 
 _lock = threading.Lock()
 _live: set[subprocess.Popen] = set()
+_killed: set[int] = set()
 _requested = threading.Event()
 
 
@@ -35,6 +36,7 @@ def reset() -> None:
     _requested.clear()
     with _lock:
         _live.clear()
+        _killed.clear()
 
 
 def request() -> None:
@@ -53,6 +55,19 @@ def request() -> None:
 def requested() -> bool:
     """Whether the run has been asked to stop."""
     return _requested.is_set()
+
+
+def sleep_unless_stopped(seconds: float) -> bool:
+    """Sleep, unless the run stops first. Returns **True when it stopped**.
+
+    Named for what the return value means rather than for the wait, because the
+    call site reads as a question: ``if cancel.sleep_unless_stopped(delay):``.
+
+    A retry backoff has to be interruptible, or Ctrl-C during one would sit out
+    the whole delay for no reason — the attempt it is waiting to retry is
+    already never going to run.
+    """
+    return _requested.wait(timeout=seconds)
 
 
 @contextmanager
@@ -74,6 +89,19 @@ def track(proc: subprocess.Popen) -> Iterator[subprocess.Popen]:
             _live.discard(proc)
 
 
+def was_killed(proc: subprocess.Popen) -> bool:
+    """Whether *we* killed this process, rather than it failing on its own.
+
+    The difference decides whether an attempt is evidence. A run that is
+    cancelled mid-throttling-storm has two kinds of dead attempt in it — the
+    ones the storm killed, which are real observations, and the ones this module
+    killed, which are artefacts of the interrupt — and an outcome alone cannot
+    tell them apart, since both come back as a non-zero exit.
+    """
+    with _lock:
+        return proc.pid in _killed
+
+
 def kill(proc: subprocess.Popen) -> None:
     """Kill an agent and everything it spawned.
 
@@ -85,6 +113,8 @@ def kill(proc: subprocess.Popen) -> None:
     """
     if proc.poll() is not None:
         return
+    with _lock:
+        _killed.add(proc.pid)
     try:
         if hasattr(os, "killpg"):
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)

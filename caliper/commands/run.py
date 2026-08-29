@@ -22,6 +22,7 @@ from caliper.reporter import (
     save_results,
     update_progress,
 )
+from caliper.retry import SpendingCapReached
 from caliper.runner import run, AttemptEvent, RunAborted
 from caliper.schema.results import Outcome, RunResults, TaskResult
 from caliper.schema.spec import (
@@ -82,7 +83,11 @@ def run_cmd(
         0,
         "--fail-fast",
         min=0,
-        help="Stop a task after N consecutive infra_error/timeout attempts (0 disables)",
+        help=(
+            "Stop a task after N consecutive infra_error/timeout attempts "
+            "(0 disables). Counts attempts, not invocations: a throttled "
+            "attempt that retried and then ran is one healthy attempt."
+        ),
     ),
     ablate: Optional[list[str]] = typer.Option(
         None,
@@ -281,10 +286,18 @@ def run_cmd(
     _save_and_report(results, spec_file, output, verbose)
 
     if aborted is not None:
+        # Two causes reach here (see the runner's job wrapper), and they read
+        # very differently to whoever has to act on them: one is a machine to
+        # fix, the other is an account to top up.
+        title = (
+            "Spending cap reached"
+            if isinstance(aborted.cause, SpendingCapReached)
+            else "Backend configuration error"
+        )
         console.print(
             Panel(
                 str(aborted.cause),
-                title="[bold red]Run stopped: backend configuration error[/bold red]",
+                title=f"[bold red]Run stopped: {title}[/bold red]",
                 border_style="red",
             )
         )
@@ -304,7 +317,18 @@ def _save_and_report(
     divides by *usable* attempts rather than k (docs/adr/0007), so a smaller
     sample scores correctly, and ``RunMeta.interrupted`` is what says the sample
     is short. Nothing about the file needs a reader to know it was cut off.
+
+    The exception is a run where **nothing** ran — a spending cap on the first
+    invocation, a Ctrl-C during skill fetching. Salvage exists to keep what you
+    paid for, and here you paid for nothing; worse, an empty run has an
+    ``avg_score`` of 0.0 over zero scored tasks, so saving it puts a row reading
+    "0.0%" into ``caliper list`` — which is exactly the misreading the
+    interrupted marker exists to prevent.
     """
+    if not any(task.attempts for task in results.task_results):
+        console.print("[dim]Nothing ran — no results saved.[/dim]")
+        return
+
     saved_path = save_results(results, str(spec_file))
     if output:
         Path(output).write_text(results.model_dump_json(indent=2))

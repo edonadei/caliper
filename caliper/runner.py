@@ -19,6 +19,7 @@ from caliper.harness.base import (
     HarnessConfigurationError,
 )
 from caliper.judge.base import Judge
+from caliper.retry import SpendingCapReached, invoke_with_retry
 from caliper.schema.results import (
     ERA_INSTALL_AND_DISCOVER,
     AttemptRecord,
@@ -222,9 +223,9 @@ def run(
     collected: dict[str, list[AttemptRecord]] = {task.id: [] for task in spec.tasks}
     with ThreadPoolExecutor(max_workers=workers) as pool:
         if fail_fast_unusable > 0:
-            futures = [
-                pool.submit(_run_task_chain, task, env, k) for task in spec.tasks
-            ]
+            futures = {
+                pool.submit(_run_task_chain, task, env, k): task for task in spec.tasks
+            }
         else:
             # Round-robin: attempt 1 of every task, then attempt 2 of every
             # task. Task-major submission would spend the whole budget on the
@@ -232,14 +233,13 @@ def run(
             # would leave the last tasks with no attempts at all. This way a
             # partial run is a *shallower* sample of every task rather than a
             # complete one of a few, which is the sample you can still read.
-            futures = [
-                pool.submit(_run_attempt_job, task, attempt, env)
+            futures = {
+                pool.submit(_run_attempt_job, task, attempt, env): task
                 for attempt in range(1, k + 1)
                 for task in spec.tasks
-            ]
+            }
         for fut in as_completed(futures):
-            for task_id, record in fut.result():
-                collected[task_id].append(record)
+            collected[futures[fut].id].extend(fut.result())
 
     task_results = [
         _finish_task(task, collected[task.id], env, k) for task in spec.tasks
@@ -291,60 +291,72 @@ def run(
     return results
 
 
-def _run_attempt_job(
+def _attempt_or_none(
     task: TaskSpec, attempt: int, env: _RunEnv
-) -> list[tuple[str, AttemptRecord]]:
-    """One attempt as a pool job: its record tagged with the task it belongs to.
+) -> AttemptRecord | None:
+    """One attempt, or ``None`` when it produced nothing worth recording.
 
-    Returns *zero* records when the run is already stopping — a cancelled
-    attempt is one that never ran, not a failed one, and inventing an outcome
-    for it would put an infrastructure artefact into the sample.
+    ``None`` covers the two ways an attempt can fail to be evidence: it never
+    started because the run is stopping, or a cancellation killed it mid-flight.
+    Neither is an observation about the skill, and inventing an outcome for
+    either would put an artefact of the interrupt into the sample.
 
-    The tagged-pair shape is what lets the flat schedule and the fail-fast chain
-    feed one collector: neither can return a bare record, because a job may
-    produce none.
+    Note what is *not* here: an attempt that failed on its own — a real timeout,
+    a genuine infra error — is kept even when the run is being cancelled around
+    it. Dropping on the outcome would have discarded exactly the evidence of the
+    storm you were interrupting.
     """
     if cancel.requested():
-        return []
+        return None
     try:
         record = _run_attempt(task, attempt, env)
-        # An attempt the cancellation itself killed is not evidence about the
-        # skill — it is the interrupt showing up in the sample as an
-        # infrastructure failure. Dropped, exactly like one that never started.
-        # Anything that finished on its own is kept, cancelled run or not.
-        if cancel.requested() and record.outcome.is_execution_noise:
-            return []
+        if record is None:
+            return None
         _announce(record, task, env.on_attempt_done)
-        return [(task.id, record)]
-    except HarnessConfigurationError as exc:
-        # A misconfiguration diagnosed mid-run (an expired credential, a CLI
-        # that stopped resolving) is fatal for every attempt still to come, so
-        # stop the run — but keep what it already paid for. ``run`` re-raises it
+        return record
+    except (HarnessConfigurationError, SpendingCapReached) as exc:
+        # Two different diagnoses, one response: a misconfiguration found
+        # mid-run (an expired credential, a CLI that stopped resolving) and a
+        # spending cap are both fatal for every attempt still to come, because
+        # neither would behave differently on the next invocation. Stop the run
+        # — but keep what it already paid for. ``run`` re-raises the first one
         # as ``RunAborted`` once the partial results are assembled.
         env.fatal.append(exc)
         cancel.request()
-        return []
+        return None
 
 
-def _run_task_chain(
-    task: TaskSpec, env: _RunEnv, k: int
-) -> list[tuple[str, AttemptRecord]]:
+def _run_attempt_job(task: TaskSpec, attempt: int, env: _RunEnv) -> list[AttemptRecord]:
+    """One attempt as a pool job — a list of zero or one, matching the chain.
+
+    Both schedules hand the collector the same shape, so it needs no branch;
+    which task a job belongs to is known from the future, not carried in the
+    result.
+    """
+    record = _attempt_or_none(task, attempt, env)
+    return [record] if record is not None else []
+
+
+def _run_task_chain(task: TaskSpec, env: _RunEnv, k: int) -> list[AttemptRecord]:
     """A task's k attempts in order, stopping on the fail-fast streak.
 
     The `--fail-fast` schedule. Sequential by necessity: the streak counts
     *consecutive* unusable attempts, and "consecutive" is not defined over
     attempts running side by side.
+
+    Only ever called with ``env.fail_fast_unusable > 0`` — the run seam picks
+    this schedule precisely because a threshold was set. The streak check below
+    relies on it: at 0 it would break after the first attempt.
     """
-    collected: list[tuple[str, AttemptRecord]] = []
+    collected: list[AttemptRecord] = []
     consecutive_fail_fast_triggers = 0
     for attempt_num in range(1, k + 1):
-        produced = _run_attempt_job(task, attempt_num, env)
-        if not produced:
+        record = _attempt_or_none(task, attempt_num, env)
+        if record is None:
             # Cancelled, or a fatal error stopped the run. Either way the
             # remaining attempts of this task are not going to run.
             break
-        collected.extend(produced)
-        record = produced[0][1]
+        collected.append(record)
         if record.outcome in _FAIL_FAST_OUTCOMES:
             consecutive_fail_fast_triggers += 1
         elif not record.outcome.is_execution_noise:
@@ -387,7 +399,7 @@ def _finish_task(
     return result
 
 
-def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord:
+def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord | None:
     """Run one attempt end to end: its lifecycle here, its verdict next door.
 
     This function owns what an attempt *costs* — a fresh isolated home, the
@@ -402,26 +414,44 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord:
         resolved_extra_path = [
             str((spec_path.parent / p).resolve()) for p in spec.sandbox.extra_path
         ]
+
         # The neighbourhood is *installed* by the harness at its own skills root
         # and never preloaded. ``env.skill_refs`` is already the ablated set.
-        attempt_result = env.harness.run(
-            task_id=task.id,
-            attempt=attempt,
-            prompt=task.prompt,
-            skill_refs=env.skill_refs,
-            # None → the harness uses the model it was constructed with; the
-            # engine is resolved once at the run seam (ADR 0004), not per spec.
-            model=None,
-            timeout=env.timeout,
-            isolated_home=tmp_dir,
-            extra_path=resolved_extra_path,
-            # Declared MCP servers are the agent's tool environment for the
-            # eval; the backend materializes them. ``None`` when none declared.
-            mcp_servers=dict(spec.mcp) or None,
-            forbidden_files=list(spec.sandbox.forbidden_files),
-        )
+        def invoke():
+            return env.harness.run(
+                task_id=task.id,
+                attempt=attempt,
+                prompt=task.prompt,
+                skill_refs=env.skill_refs,
+                # None → the harness uses the model it was constructed with; the
+                # engine is resolved once at the run seam (ADR 0004), not per spec.
+                model=None,
+                timeout=env.timeout,
+                isolated_home=tmp_dir,
+                extra_path=resolved_extra_path,
+                # Declared MCP servers are the agent's tool environment for the
+                # eval; the backend materializes them. ``None`` when none declared.
+                mcp_servers=dict(spec.mcp) or None,
+                forbidden_files=list(spec.sandbox.forbidden_files),
+            )
+
+        # A throttled invocation measured nothing, so it is retried rather than
+        # recorded — the attempt is the shot at the task, not the spawn
+        # (docs/adr/0019). The retry holds this worker: under throttling there is
+        # no other work to give the slot, since every peer is meeting the same
+        # 429. Raises SpendingCapReached, which the job above turns into a run
+        # abort.
+        invoked = invoke_with_retry(invoke)
+        attempt_result = invoked.result
         if attempt_result.resolved_model:
             env.resolved_models.append(attempt_result.resolved_model)
+
+        # Killed by the cancellation, not by anything about the skill. Returned
+        # as nothing at all rather than assembled into an infra_error — the one
+        # place that can tell the two apart, because only the spawn knows who
+        # killed it.
+        if attempt_result.cancelled:
+            return None
 
         assembled = assemble_attempt(
             attempt_result,
@@ -432,6 +462,7 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord:
             activation=env.activation,
             cheat=env.cheat,
             judge=env.judge,
+            retries=invoked.retries,
         )
         if assembled.judge_model:
             env.judge_models.append(assembled.judge_model)

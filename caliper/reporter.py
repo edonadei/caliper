@@ -80,6 +80,9 @@ _TO = "→" if _UNICODE else "->"
 _BAR_FULL = "█" if _UNICODE else "#"
 _BAR_EMPTY = "░" if _UNICODE else "-"
 _UNUSABLE = "⊘" if _UNICODE else "o"
+# Re-exported: `list` marks an interrupted run with the same glyph, and a
+# second literal would be a second thing to forget the ASCII fallback on.
+UNUSABLE_GLYPH = _UNUSABLE
 
 # Per-outcome glyph for the per-attempt detail view. Usable failures read as
 # failures; the three noise outcomes get the distinct ⊘ marker.
@@ -550,6 +553,16 @@ def _print_usage_summary(totals: UsageTotals) -> None:
         judge_val += f"  [dim]{avg_judge:.1f}s per graded attempt[/dim]"
         grid.add_row(" Judge", judge_val)
     console.print(grid)
+
+    # Only when something was actually retried. A run that never met a throttle
+    # says nothing, which is the common case and the quiet one.
+    if totals.retried_attempts > 0:
+        plural = "s" if totals.retried_attempts > 1 else ""
+        console.print(
+            f" [yellow]{_WARN} throttled:[/yellow] [dim]{totals.retries} retries "
+            f"across {totals.retried_attempts} attempt{plural} "
+            f"(wall excludes the waiting)[/dim]"
+        )
 
     if totals.unusable_attempts > 0:
         pieces = []

@@ -8,6 +8,7 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
+from caliper.reporter import UNUSABLE_GLYPH
 from caliper.schema.results import RunResults
 
 console = Console()
@@ -16,7 +17,10 @@ console = Console()
 # rather than given a column of its own: the score is the cell a reader would
 # otherwise take at face value, and the runs listing is already at its width
 # budget (the Run id is folded, not ellipsized, for exactly that reason).
-_INTERRUPTED = "⊘"
+#
+# Shares the reporter's glyph rather than hardcoding one, so it degrades on a
+# non-UTF-8 terminal exactly like every other marker caliper prints.
+_INTERRUPTED = UNUSABLE_GLYPH
 
 
 def _score_cell(results: RunResults) -> str:
@@ -30,7 +34,7 @@ def _print_interrupted_legend(marked: bool) -> None:
     """Explain the marker, only when one is on screen."""
     if marked:
         console.print(
-            f" [dim][yellow]{_INTERRUPTED}[/yellow] stopped early — scored over "
+            f" [dim][yellow]{_INTERRUPTED}[/yellow] stopped early: scored over "
             "fewer attempts than its k[/dim]"
         )
 

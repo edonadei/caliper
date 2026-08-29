@@ -557,7 +557,7 @@ When both `expect` and `assert` are present, both must pass.
 | `--ablate NAME` | none | Run without this declared skill installed (repeatable; name them all for the bare agent) |
 | `--workers INT` | `4` | Attempts to run in parallel, across all tasks |
 | `--timeout INT` | `120` | Seconds per attempt |
-| `--fail-fast INT` | `0` | Stop a task after N consecutive `infra_error`/`timeout` attempts (`0` disables) |
+| `--fail-fast INT` | `0` | Stop a task after N consecutive `infra_error`/`timeout` attempts (`0` disables; counts attempts, not invocations) |
 | `--model TARGET` | `claude-code` | Skill engine: backend and/or model (see below) |
 | `--judge-model TARGET` | `claude-code` | Judge engine: backend and/or model (see below) |
 | `--verbose` | off | Show per-attempt judge reasoning |
@@ -575,6 +575,10 @@ When both `expect` and `assert` are present, both must pass.
 
 `2` and `3` are the distinction CI needs: *the eval could not run* is a broken
 pipeline, *the skill did not clear the bar* is the answer you asked for.
+
+A run that stopped before **any** attempt finished writes no results file — there
+is nothing to save, and an empty run would render as `0.0%` in `caliper list`.
+Exits `2` and `130` can therefore leave nothing on disk.
 
 `caliper compare` deliberately does **not** gate. A regression there is the
 any-below rule — B under A by any amount — which at small k fires on noise about
@@ -730,6 +734,20 @@ as an `infra_error` that costs money and measures nothing.
 An interrupted run is marked wherever it is read: `caliper list` flags its score
 with `⊘`, and `caliper compare` warns when either side stopped early, since a
 shallower sample can move a delta on its own.
+
+**A throttled attempt is retried, not counted.** When the provider answers 429 /
+overloaded / 503, that invocation measured nothing, so caliper retries it twice
+(2s then 4s, jittered) and records the result as **one** attempt with a `retries`
+count — the score's denominator is attempts, never spawns. A run that retried
+anything says so under its usage summary. Two failures are deliberately *not*
+retried: a timeout (nothing says the next spawn is faster) and a bare crash
+(retrying one hides a defect that reproduces).
+
+**A spending cap stops the run.** A cap or usage limit will not clear before the
+last attempt, so caliper aborts rather than spending every remaining attempt
+discovering the same wall — saving what already ran, and reporting the cap as the
+cause. `--fail-fast` still counts *attempts*: one retried attempt is one attempt,
+so the flag can cost up to three times the spawns it used to.
 
 **Ctrl-C stops a run without losing it.** The first interrupt kills the agents in
 flight, skips the attempts that had not started, and saves everything that
