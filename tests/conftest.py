@@ -24,6 +24,27 @@ from typing import Callable
 import pytest
 
 from caliper import cancel
+from caliper.harness.base import RunContext
+
+
+def run_context(**overrides) -> RunContext:
+    """A ``RunContext`` with everything a hook needs already filled in.
+
+    Shared so a test that cares about one field (the isolated home, the extra
+    path) says only that field, and so the conformance suite can hand the same
+    context to all four adapters.
+    """
+    fields = {
+        "task_id": "task-001",
+        "attempt": 1,
+        "prompt": "Hello",
+        "skill_refs": [],
+        "model": None,
+        "timeout": 12,
+        "isolated_home": "/tmp/caliper-test-home",
+        "extra_path": [],
+    }
+    return RunContext(**{**fields, **overrides})
 
 
 class _FakePopen:

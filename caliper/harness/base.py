@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import time
 from abc import ABC, abstractmethod
@@ -217,6 +218,11 @@ class CliHarness(HarnessBackend):
     stream, and assembles the ``AttemptResult``. A backend only implements the
     parts that genuinely differ between CLI agents — the command, the
     environment, and how to read that agent's stream.
+
+    Where a chore is the same for every CLI agent, the backend *declares* what
+    varies and this class performs it: ``seed_files``, ``cli_name`` and friends,
+    ``env_passthrough``. See
+    docs/adr/0020-a-backend-declares-its-chores-rather-than-performing-them.md.
     """
 
     def run(
@@ -247,6 +253,7 @@ class CliHarness(HarnessBackend):
         )
 
         self._ensure_ready(ctx)
+        self._seed_home(ctx)
         self._prepare(ctx)
         # After _prepare: a backend's skills root can depend on state _prepare
         # sets up (hermes' HERMES_HOME, pi's agent dir).
@@ -264,7 +271,7 @@ class CliHarness(HarnessBackend):
                 cleanup()
         duration = time.monotonic() - start
 
-        transcript, final_output = self._parse_stream(proc.stdout)
+        transcript, final_output = self._parse_stream_with_tail(proc.stdout)
 
         diagnostic = self._diagnose(proc, final_output)
         if diagnostic:
@@ -341,8 +348,37 @@ class CliHarness(HarnessBackend):
     def _ensure_ready(self, ctx: RunContext) -> None:
         """Raise ``HarnessConfigurationError`` if the CLI can't run. Default: skip."""
 
+    def seed_files(self, ctx: RunContext) -> list[tuple[Path, Path]]:
+        """The ``(real, isolated)`` config files to copy verbatim into the home.
+
+        Declared as *data* rather than copied by hand, because the policy is the
+        same for every CLI agent (copy verbatim, skip what isn't there) while the
+        file list is the only part that differs — including its deliberate
+        omissions: hermes leaves out SOUL.md/MEMORY.md to normalize the agent
+        (docs/adr/0005), and codex's ``config.toml`` is absent here because it is
+        rewritten rather than copied. Default: nothing to seed.
+
+        See docs/adr/0012-cli-harnesses-copy-cli-config-verbatim.md and
+        docs/adr/0020-a-backend-declares-its-chores-rather-than-performing-them.md.
+        """
+        return []
+
+    def _seed_home(self, ctx: RunContext) -> None:
+        """Copy each declared seed file that exists, creating parents as needed."""
+        for src, dst in self.seed_files(ctx):
+            if src.exists():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+
     def _prepare(self, ctx: RunContext) -> None:
-        """Seed the isolated home with auth/config before the agent runs."""
+        """Seed the isolated home with anything ``seed_files`` cannot express.
+
+        Runs after :meth:`_seed_home`, so a backend that has to *rewrite* a
+        config (codex's stripped ``config.toml``, hermes' normalized
+        ``mcp_servers``) sees the verbatim copy already in place, and so
+        claude-code can tell whether credentials were seeded before it falls
+        back to the Keychain. That order is part of the contract (docs/adr/0020).
+        """
 
     @abstractmethod
     def skills_root(self, ctx: RunContext) -> Path:
@@ -376,7 +412,36 @@ class CliHarness(HarnessBackend):
     def _environment(self, ctx: RunContext) -> dict[str, str]: ...
 
     @abstractmethod
-    def _parse_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]: ...
+    def _parse_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:
+        """Read this agent's stream into turns plus whatever it named as final.
+
+        Return ``""`` for the final output when the stream carried no explicit
+        final-answer event; :meth:`_parse_stream_with_tail` supplies the tail. A backend
+        never walks the transcript backwards itself.
+        """
+
+    def _parse_stream_with_tail(
+        self, stdout: str
+    ) -> tuple[list[ConversationTurn], str]:
+        """Parse the agent's stream, falling back to its last assistant turn.
+
+        Every CLI agent has some shape of stream that may end without naming a
+        final answer — a tool call last, a truncated run — and the answer in that
+        case is the same for all of them: the last thing the assistant said. So
+        the tail lives here rather than at the end of four ``_parse_stream``
+        implementations. Distinct from :meth:`_fallback`, which salvages raw
+        stdout when *nothing* parsed at all.
+        """
+        transcript, final_output = self._parse_stream(stdout)
+        return transcript, final_output or self._last_assistant(transcript)
+
+    @staticmethod
+    def _last_assistant(transcript: list[ConversationTurn]) -> str:
+        """The most recent non-empty assistant turn's content, or ``""``."""
+        for turn in reversed(transcript):
+            if turn.role == "assistant" and turn.content:
+                return turn.content
+        return ""
 
     def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
         """Return a human-readable misconfiguration message, or ``None``."""
@@ -474,6 +539,76 @@ class CliHarness(HarnessBackend):
         return proc.stdout.strip()
 
     # --- shared machinery -------------------------------------------------
+
+    #: The binary :meth:`cli_path` looks for on ``PATH``. ``None`` for a backend
+    #: that resolves its command some other way (claude-code spawns ``claude``
+    #: through the shell's own lookup).
+    cli_name: str | None = None
+
+    #: The env var that overrides :attr:`cli_name` with an explicit path. Honored
+    #: only when it points at something that exists, so a stale export falls
+    #: through to discovery rather than failing the run with a confusing message.
+    cli_path_env_var: str | None = None
+
+    def cli_candidates(self) -> tuple[Path, ...]:
+        """Well-known install locations to try before ``PATH``. Default: none.
+
+        For an agent shipped inside an application bundle, which is where the
+        current build lives even when an older copy is on ``PATH``. Resolved at
+        call time, so a candidate may depend on state the process picks up.
+        """
+        return ()
+
+    def cli_path(self) -> str | None:
+        """Locate this backend's CLI: env-var override, then candidates, then PATH.
+
+        One order for every backend. Without it each adapter spelled the same
+        three steps itself, and they drifted — the override was checked for
+        existence in some and not others.
+        """
+        if self.cli_path_env_var:
+            configured = os.environ.get(self.cli_path_env_var)
+            if configured and Path(configured).exists():
+                return configured
+        for candidate in self.cli_candidates():
+            if candidate.exists():
+                return str(candidate)
+        return shutil.which(self.cli_name) if self.cli_name else None
+
+    #: Vars forwarded from the parent environment into an isolated run. Locale
+    #: and terminal shape are not state the agent carries between attempts, and
+    #: an agent that cannot find its scratch space fails for reasons that have
+    #: nothing to do with the skill under test.
+    env_passthrough: tuple[str, ...] = ("LANG", "LC_ALL", "TERM", "TMPDIR")
+
+    def _isolated_env(
+        self,
+        ctx: RunContext,
+        *,
+        extra: dict[str, str] | None = None,
+        path_prefixes: list[str] | None = None,
+    ) -> dict[str, str]:
+        """Build the attempt's environment: a stripped ``HOME`` plus a usable ``PATH``.
+
+        The ``HOME`` is the isolated one — that is the whole point of the
+        per-attempt home — and everything else is opt-in, so an attempt cannot
+        quietly inherit the developer's ambient state. ``ctx.extra_path`` comes
+        first (the run's own staged binaries win), then any backend prefixes,
+        then the real ``PATH`` with those entries removed so a prefix genuinely
+        takes precedence instead of merely appearing twice.
+        """
+        prefixes = list(dict.fromkeys([*ctx.extra_path, *(path_prefixes or [])]))
+        rest = [
+            part
+            for part in os.environ.get("PATH", "").split(os.pathsep)
+            if part and part not in set(prefixes)
+        ]
+        env = {
+            "HOME": ctx.isolated_home,
+            "PATH": os.pathsep.join(prefixes + rest),
+            **(extra or {}),
+        }
+        return self._passthrough(env, self.env_passthrough)
 
     def _execute(
         self,

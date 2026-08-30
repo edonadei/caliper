@@ -35,7 +35,7 @@ def _fake_home(tmp_path):
 def _install(monkeypatch, home, on_run):
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("HERMES_CLI_PATH", raising=False)
-    monkeypatch.setattr("caliper.harness.hermes.shutil.which", lambda _n: "hermes")
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "hermes")
     patch_cli_calls(monkeypatch, on_run)
 
 
@@ -474,7 +474,7 @@ def test_hermes_run_captures_token_usage_end_to_end(monkeypatch, tmp_path) -> No
 
 
 def test_hermes_missing_cli_raises_configuration_error(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("caliper.harness.hermes.shutil.which", lambda _n: None)
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: None)
     monkeypatch.delenv("HERMES_CLI_PATH", raising=False)
 
     with pytest.raises(HarnessConfigurationError, match="hermes CLI is not available"):

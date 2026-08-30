@@ -260,7 +260,7 @@ def test_claude_judge_extracts_concrete_model_from_envelope(
 
 
 def _codex_cli_present(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("caliper.harness.codex.shutil.which", lambda _name: "codex.cmd")
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "codex.cmd")
     monkeypatch.setattr(
         "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )
@@ -308,7 +308,7 @@ def test_codex_judge_uses_output_last_message(monkeypatch, tmp_path) -> None:
 
 
 def test_codex_missing_cli_errors(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("caliper.harness.codex.shutil.which", lambda _name: None)
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: None)
     monkeypatch.setattr(
         "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )
@@ -338,7 +338,7 @@ ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","mes
 
 def _hermes_cli_present(monkeypatch) -> None:
     monkeypatch.setattr(
-        "caliper.harness.hermes.shutil.which", lambda _: "/usr/bin/hermes"
+        "caliper.harness.base.shutil.which", lambda _: "/usr/bin/hermes"
     )
     monkeypatch.delenv("HERMES_CLI_PATH", raising=False)
 
@@ -395,7 +395,7 @@ def test_hermes_judge_reports_cli_error_as_errored(monkeypatch, tmp_path) -> Non
 
 
 def test_hermes_judge_missing_cli_errors(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("caliper.harness.hermes.shutil.which", lambda _: None)
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _: None)
     monkeypatch.delenv("HERMES_CLI_PATH", raising=False)
 
     result = HermesHarness().run_prompt("anything", cwd=str(tmp_path))
@@ -422,7 +422,7 @@ def _pi_stream(text: str) -> str:
 
 def test_pi_backend_is_a_valid_judge(monkeypatch, tmp_path) -> None:
     """Regression: `--judge-model pi` must dispatch, not report 'Unknown judge backend'."""
-    monkeypatch.setattr("caliper.harness.pi.shutil.which", lambda _: "/usr/bin/pi")
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _: "/usr/bin/pi")
     monkeypatch.delenv("PI_CLI_PATH", raising=False)
     calls = _spawn(
         monkeypatch,
@@ -445,7 +445,7 @@ def test_pi_backend_is_a_valid_judge(monkeypatch, tmp_path) -> None:
 
 
 def test_pi_judge_reports_cli_error_as_errored(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("caliper.harness.pi.shutil.which", lambda _: "/usr/bin/pi")
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _: "/usr/bin/pi")
     monkeypatch.delenv("PI_CLI_PATH", raising=False)
     _spawn(monkeypatch, returncode=1, stderr="not logged in")
 
@@ -456,7 +456,7 @@ def test_pi_judge_reports_cli_error_as_errored(monkeypatch, tmp_path) -> None:
 
 
 def test_pi_judge_missing_cli_errors(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("caliper.harness.pi.shutil.which", lambda _: None)
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _: None)
     monkeypatch.delenv("PI_CLI_PATH", raising=False)
 
     result = PiHarness().run_prompt("anything", cwd=str(tmp_path))

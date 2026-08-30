@@ -74,9 +74,6 @@ def test_claude_prompt_output_classifies_in_harness_not_downstream(
         return subprocess.CompletedProcess(cmd, 1, stdout=stdout, stderr="")
 
     patch_cli_calls(monkeypatch, fake_run)
-    monkeypatch.setattr(
-        "caliper.harness.claude_code.shutil.which", lambda _name: "claude"
-    )
 
     result = ClaudeCodeHarness(model=DEFAULT_JUDGE_MODEL).run_prompt(
         "anything", cwd="."
@@ -103,9 +100,6 @@ def test_claude_prompt_output_unclassified_is_error_passes_text_through(
         return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
     patch_cli_calls(monkeypatch, fake_run)
-    monkeypatch.setattr(
-        "caliper.harness.claude_code.shutil.which", lambda _name: "claude"
-    )
 
     result = ClaudeCodeHarness().run_prompt("anything", cwd=".")
 
@@ -129,9 +123,6 @@ def test_eval_judge_surfaces_classified_model_unavailable(
         return subprocess.CompletedProcess(cmd, 1, stdout=stdout, stderr="")
 
     patch_cli_calls(monkeypatch, fake_run)
-    monkeypatch.setattr(
-        "caliper.harness.claude_code.shutil.which", lambda _name: "claude"
-    )
 
     result = EvalJudge(backend="claude-code").evaluate(
         task=_task(expect="x"),
