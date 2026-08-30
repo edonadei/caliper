@@ -232,9 +232,6 @@ def _run_example() -> RunResults:
                 (3, 8.4, 26_300, 431),
             )
         ],
-        successes=3,
-        unusable=0,
-        pass_at_k=1.0,
         activation_expected=["commit-writer"],
     )
     subject = TaskResult(
@@ -284,9 +281,6 @@ def _run_example() -> RunResults:
                 ),
             )
         ],
-        successes=2,
-        unusable=0,
-        pass_at_k=1.0,
         activation_expected=["commit-writer"],
     )
     # A release-notes request belongs to the changelog-writer neighbour. Cheap:
@@ -311,9 +305,6 @@ def _run_example() -> RunResults:
                 (3, 3.9, 4_400, 143, ["commit-writer"]),
             )
         ],
-        successes=0,
-        unusable=0,
-        pass_at_k=None,
         activation_expected=["changelog-writer"],
     )
     task_results = [message, subject, probe]

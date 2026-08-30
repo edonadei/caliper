@@ -329,9 +329,6 @@ def _one_attempt_run(k: int = 3) -> RunResults:
                         outcome=Outcome.PASS,
                     )
                 ],
-                successes=1,
-                unusable=0,
-                pass_at_k=1.0,
             )
         ],
         aggregate=AggregateScore(avg_score=1.0, per_task=[]),

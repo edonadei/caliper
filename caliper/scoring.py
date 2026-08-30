@@ -1,114 +1,52 @@
-"""Caliper's scoring module — the one place the usable-only denominator lives.
+"""Caliper's scoring module — rolling many tasks up into a run's scoreboards.
 
-Every metric divides by *usable* attempts (those that got a fair shot), never
-by raw k — see docs/adr/0007-raw-success-rate-is-the-primary-metric.md and
-docs/CONTEXT.md → Usable / unusable attempt. ``score_outcomes`` is the seam
-where a task's attempt outcomes become counts and metrics; callers should go
-through it rather than re-deriving ``usable`` themselves.
+One task's own numbers belong to :class:`~caliper.schema.results.TaskResult`,
+which derives every one of them from its attempts; this module is what spans
+tasks. The metric *formulas* live beside that model (``success_rate`` and
+friends), so the usable-only denominator is written once and nothing here
+re-derives it — see docs/adr/0007-raw-success-rate-is-the-primary-metric.md and
+docs/CONTEXT.md → Usable / unusable attempt.
+
+Two scoreboards, deliberately never merged: the execution rate
+(``aggregate_scores``) and activation (``aggregate_activation``).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Iterable
 
 from caliper.schema.results import (
     AggregateScore,
-    Outcome,
     SkillActivationStats,
+    TaskResult,
     TaskScore,
 )
 
-if TYPE_CHECKING:
-    from caliper.schema.results import TaskResult
 
+def aggregate_scores(task_results: list[TaskResult], k: int) -> AggregateScore:
+    """The run's execution scoreboard: one row per task, plus their average.
 
-def success_rate(successes: int, usable: int) -> float | None:
-    """The **raw** per-attempt success rate — Caliper's primary metric. ``None``
-    when no attempt got a fair shot (usable == 0)."""
-    return successes / usable if usable > 0 else None
+    Takes the results themselves rather than counts pulled out of them — each
+    task already knows its own successes, usable denominator and score, and
+    re-passing them was an invitation for the two to disagree.
 
+    A task with no usable attempts scores ``None`` and is **excluded** from the
+    average rather than dragged to 0%: it was never measured, and averaging a
+    non-measurement in would understate the skill (docs/adr/0007).
 
-def pass_at_k(successes: int, usable: int) -> float | None:
-    """P(at least one of k attempts passes) at the observed rate. A secondary,
-    retry-friendly view — see docs/CONTEXT.md → Success rate.
-
-    The denominator (and exponent) is the *usable* attempt count, not the
-    requested k. ``None`` when no attempt got a fair shot.
+    ``k`` is the run's requested depth, recorded per row so a reader can see a
+    task that ran short of it.
     """
-    if usable == 0:
-        return None
-    p = successes / usable
-    return 1.0 - (1.0 - p) ** usable
-
-
-def pass_hat_k(successes: int, usable: int) -> float | None:
-    """P(all k attempts pass) at the observed rate — the strict, consistency view.
-
-    Same *usable* denominator and exponent as ``pass_at_k``; ``None`` when no
-    attempt got a fair shot.
-    """
-    if usable == 0:
-        return None
-    return (successes / usable) ** usable
-
-
-@dataclass(frozen=True)
-class OutcomeScores:
-    """The counts and every metric for one task's attempt outcomes."""
-
-    successes: int
-    usable: int
-    unusable: int
-    score: float | None
-    pass_at_k: float | None
-    pass_hat_k: float | None
-
-
-def score_outcomes(outcomes: Iterable[Outcome]) -> OutcomeScores:
-    """Score one task's attempt outcomes.
-
-    The single step where attempts become metrics: split usable from unusable
-    once, then compute every metric over the usable denominator. All three
-    metrics are ``None`` when no attempt got a fair shot.
-    """
-    materialized = list(outcomes)
-    successes = sum(1 for o in materialized if o == Outcome.PASS)
-    usable = sum(1 for o in materialized if o.is_usable)
-    return OutcomeScores(
-        successes=successes,
-        usable=usable,
-        # Only the outcomes where an execution check *went wrong*. NOT_CHECKED is
-        # excluded from the denominator without being reported as noise: a
-        # correct activates-only spec must never read as an error.
-        unusable=sum(1 for o in materialized if o.is_execution_noise),
-        score=success_rate(successes, usable),
-        pass_at_k=pass_at_k(successes, usable),
-        pass_hat_k=pass_hat_k(successes, usable),
-    )
-
-
-def aggregate_scores(
-    task_pass_counts: dict[str, tuple[str, int, int, int]],
-) -> AggregateScore:
-    """
-    task_pass_counts: {task_id: (task_name, successes, usable, k)}
-
-    ``score`` is the raw success rate over the *usable* attempts (those that got a
-    fair shot). A task with no usable attempts scores ``None`` and is excluded
-    from the aggregate average rather than dragged to 0%.
-    """
-    per_task: list[TaskScore] = []
-    for task_id, (task_name, successes, usable, k) in task_pass_counts.items():
-        per_task.append(
-            TaskScore(
-                task_id=task_id,
-                task_name=task_name,
-                k=k,
-                successes=successes,
-                score=success_rate(successes, usable),
-            )
+    per_task = [
+        TaskScore(
+            task_id=task.task_id,
+            task_name=task.task_name,
+            k=k,
+            successes=task.successes,
+            score=task.score,
         )
+        for task in task_results
+    ]
 
     scored = [t.score for t in per_task if t.score is not None]
     avg = sum(scored) / len(scored) if scored else 0.0
@@ -142,7 +80,7 @@ class ObservedActivation:
 
 
 def observed_activations(
-    task_results: list["TaskResult"], declared: list[str] | None = None
+    task_results: list[TaskResult], declared: list[str] | None = None
 ) -> list[ObservedActivation]:
     """Per-skill activation counts over attempts where activation was *observed*.
 
@@ -174,7 +112,7 @@ def observed_activations(
 
 
 def aggregate_activation(
-    task_results: list["TaskResult"], declared: list[str] | None = None
+    task_results: list[TaskResult], declared: list[str] | None = None
 ) -> ActivationAggregate:
     """Roll up the second scoreboard over the tasks that asserted ``activates:``.
 

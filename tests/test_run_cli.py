@@ -235,9 +235,6 @@ def test_run_cli_saves_the_run_beside_its_spec(monkeypatch, tmp_path) -> None:
                         outcome=Outcome.PASS,
                     )
                 ],
-                successes=1,
-                unusable=0,
-                pass_at_k=1.0,
             )
         ],
         aggregate=AggregateScore(avg_score=1.0, per_task=[]),

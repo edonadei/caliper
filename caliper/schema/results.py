@@ -255,20 +255,77 @@ class AttemptRecord(BaseModel):
         return self.outcome == Outcome.CHEAT
 
 
+def success_rate(successes: int, usable: int) -> float | None:
+    """The **raw** per-attempt success rate — Caliper's primary metric.
+
+    ``None`` when no attempt got a fair shot (``usable == 0``): a task that was
+    never measured has no rate, which is not the same claim as ``0.0``.
+
+    This and its two siblings live beside :class:`Outcome` and
+    :class:`TaskResult` because they are defined over an attempt set and
+    ``Outcome.is_usable`` is what carves that set out. ``caliper.scoring``
+    imports them for its cross-task roll-ups; nothing re-derives them. See
+    docs/adr/0007-raw-success-rate-is-the-primary-metric.md and
+    docs/CONTEXT.md → Usable / unusable attempt.
+    """
+    return successes / usable if usable > 0 else None
+
+
+def pass_at_k(successes: int, usable: int) -> float | None:
+    """P(at least one of k attempts passes) at the observed rate.
+
+    A secondary, retry-friendly view — see docs/CONTEXT.md → Success rate. The
+    denominator *and* the exponent are the **usable** attempt count, not the
+    requested k. ``None`` when no attempt got a fair shot.
+    """
+    rate = success_rate(successes, usable)
+    return None if rate is None else 1.0 - (1.0 - rate) ** usable
+
+
+def pass_hat_k(successes: int, usable: int) -> float | None:
+    """P(all k attempts pass) at the observed rate — the strict consistency view.
+
+    Same usable denominator and exponent as :func:`pass_at_k`; ``None`` when no
+    attempt got a fair shot.
+    """
+    rate = success_rate(successes, usable)
+    return None if rate is None else rate**usable
+
+
 class TaskResult(BaseModel):
+    """One task's attempts, and every number that follows from them.
+
+    Only the attempts and the task's identity are stored; ``successes``,
+    ``usable``, ``unusable`` and all four metrics are **derived**, so no two of
+    them can disagree and a hand-edited or older file cannot carry a rate
+    inconsistent with the attempts beside it. They are still serialized
+    (``computed_field``), so a saved run reads the same as it always did.
+    """
+
     task_id: str
     task_name: str
     attempts: list[AttemptRecord]
-    successes: int
-    unusable: int = 0
     # The task's `activates:` set, carried so the aggregate can compute per-skill
     # recall/precision and the report can say *what* was expected when a row
     # fails. ``None`` = the task asserted nothing.
     activation_expected: list[str] | None = None
-    # pass@k (P(≥1 of k pass)) — kept as a secondary, retry-friendly view. The
-    # *primary* metric is ``score`` (raw success rate) below. None when every
-    # attempt was unusable — the task was never fairly measured.
-    pass_at_k: float | None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def successes(self) -> int:
+        """Attempts that passed."""
+        return sum(1 for a in self.attempts if a.outcome == Outcome.PASS)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def unusable(self) -> int:
+        """Attempts where an execution check *went wrong*.
+
+        Not ``len(attempts) - usable``: ``NOT_CHECKED`` is neither usable nor
+        noise, so it leaves the denominator without being reported as an error —
+        a correct ``activates:``-only spec must never read as one.
+        """
+        return sum(1 for a in self.attempts if a.outcome.is_execution_noise)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -286,18 +343,18 @@ class TaskResult(BaseModel):
     def score(self) -> float | None:
         """The **raw success rate** over usable attempts — Caliper's primary
         metric. ``None`` when no attempt was fairly measured."""
-        # Deferred import: caliper.scoring imports this module, and the formulas
-        # deliberately live there — the one place the usable denominator is set.
-        from caliper.scoring import success_rate
-
         return success_rate(self.successes, self.usable)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def pass_at_k(self) -> float | None:
+        """pass@k: P(at least one usable attempt passes) — the retry-friendly view."""
+        return pass_at_k(self.successes, self.usable)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def pass_hat_k(self) -> float | None:
         """pass^k: P(all usable attempts pass) — the strict consistency view."""
-        from caliper.scoring import pass_hat_k
-
         return pass_hat_k(self.successes, self.usable)
 
     # --- the second scoreboard, which never merges with the first ----------
@@ -327,8 +384,6 @@ class TaskResult(BaseModel):
         ``None`` when the task asserted nothing (or nothing was measurable) —
         rendered *skipped*, never ``0%``.
         """
-        from caliper.scoring import success_rate
-
         return success_rate(self.activation_successes, self.activation_usable)
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Callable
 
 from rich import box
 from rich.console import Console
@@ -23,6 +24,8 @@ from caliper.schema.results import (
     TaskComparison,
     TaskResult,
     UsageTotals,
+    pass_at_k,
+    pass_hat_k,
 )
 
 console = Console()
@@ -781,8 +784,8 @@ def print_comparison(comp: RunComparison, verbose: bool = False) -> None:
         row = [name, _score_cell(tc), _delta_cell(tc)]
         if verbose:
             row += [
-                _alt_metric_cell(tc, "pass_at_k"),
-                _alt_metric_cell(tc, "pass_hat_k"),
+                _alt_metric_cell(tc, pass_at_k),
+                _alt_metric_cell(tc, pass_hat_k),
             ]
         if show_activation:
             row += [_activation_score_cell(tc), _activation_delta_cell(tc)]
@@ -809,14 +812,20 @@ def _score_cell(tc: TaskComparison) -> Text:
     )
 
 
-def _alt_metric_cell(tc: TaskComparison, metric: str) -> Text:
-    """`x% → y%` for a secondary metric (pass@k / pass^k), derived from the stored
-    per-attempt outcomes so no extra fields are needed on the model."""
-    from caliper.scoring import score_outcomes
+def _alt_metric_cell(
+    tc: TaskComparison, formula: Callable[[int, int], float | None]
+) -> Text:
+    """`x% → y%` for a secondary metric (pass@k / pass^k).
+
+    Derived from the stored per-attempt outcomes, so a comparison needs no extra
+    fields on the model — and through the same formulas ``TaskResult`` uses, so a
+    secondary column can never disagree with the run it came from.
+    """
 
     def val(outcomes: list[Outcome]) -> float | None:
-        # score_outcomes owns the usable-denominator rule; render its result.
-        return getattr(score_outcomes(outcomes), metric)
+        successes = sum(1 for o in outcomes if o == Outcome.PASS)
+        usable = sum(1 for o in outcomes if o.is_usable)
+        return formula(successes, usable)
 
     return _score_pair(
         _fmt_score(val(tc.a_outcomes)), _fmt_score(val(tc.b_outcomes)), "", ""

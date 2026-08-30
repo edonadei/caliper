@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from caliper.compare import diff_runs
+from caliper.reporter import print_comparison
 from caliper.schema.results import (
     AggregateScore,
     AttemptRecord,
@@ -12,8 +13,10 @@ from caliper.schema.results import (
     SkillSnapshot,
     TaskResult,
     TaskScore,
+    pass_at_k,
+    pass_hat_k,
+    success_rate,
 )
-from caliper.scoring import pass_at_k, success_rate
 
 
 def _attempt(i: int, outcome: Outcome) -> AttemptRecord:
@@ -21,16 +24,11 @@ def _attempt(i: int, outcome: Outcome) -> AttemptRecord:
 
 
 def _task(name: str, outcomes: list[Outcome], task_id: str = "task-000") -> TaskResult:
-    usable = sum(1 for o in outcomes if o.is_usable)
-    successes = sum(1 for o in outcomes if o == Outcome.PASS)
-    score = pass_at_k(successes, usable) if usable > 0 else None
+    # Hand it the attempts and it derives its own counts and metrics.
     return TaskResult(
         task_id=task_id,
         task_name=name,
         attempts=[_attempt(i + 1, o) for i, o in enumerate(outcomes)],
-        successes=successes,
-        unusable=len(outcomes) - usable,
-        pass_at_k=score,
     )
 
 
@@ -39,8 +37,8 @@ def _run(tasks: list[TaskResult], *, spec: str = "demo", k: int = 5) -> RunResul
         TaskScore(
             task_id=t.task_id,
             task_name=t.task_name,
-            k=k,
             successes=t.successes,
+            k=k,
             score=t.pass_at_k,
         )
         for t in tasks
@@ -203,3 +201,39 @@ def test_matching_specs_and_k_produce_no_warnings() -> None:
     assert not comp.spec_mismatch
     assert not comp.k_mismatch
     assert comp.warnings == []
+
+
+# --- the verbose columns ------------------------------------------------------
+
+
+def test_verbose_comparison_renders_the_secondary_metric_columns(capsys) -> None:
+    """``compare --verbose`` adds pass@k / pass^k, derived from the stored outcomes.
+
+    Rendered nowhere else, so nothing else would catch this path breaking — which
+    is how a dead import of a deleted scorer survived a green suite.
+    """
+    a = _run([_task("alpha", [P, P, F, F])])
+    b = _run([_task("alpha", [P, P, P, F])])
+
+    print_comparison(diff_runs(a, b), verbose=True)
+
+    out = capsys.readouterr().out
+    assert "pass@k" in out
+    assert "pass^k" in out
+
+
+def test_the_secondary_columns_agree_with_the_task_metrics() -> None:
+    """A comparison column can never disagree with the run it came from."""
+    task = _task("alpha", [P, P, F, INF])
+    comp = diff_runs(_run([task]), _run([task]))
+    tc = comp.matched[0]
+
+    assert pass_at_k(*_counts(tc.b_outcomes)) == task.pass_at_k
+    assert pass_hat_k(*_counts(tc.b_outcomes)) == task.pass_hat_k
+
+
+def _counts(outcomes: list[Outcome]) -> tuple[int, int]:
+    return (
+        sum(1 for o in outcomes if o == Outcome.PASS),
+        sum(1 for o in outcomes if o.is_usable),
+    )

@@ -115,9 +115,6 @@ def _task_result(judge_seconds: list[float | None]) -> TaskResult:
             )
             for i, js in enumerate(judge_seconds)
         ],
-        successes=len(judge_seconds),
-        unusable=0,
-        pass_at_k=1.0,
     )
 
 
@@ -161,9 +158,6 @@ def _run(interrupted: bool, *, spec: str = "demo", successes: int = 2) -> RunRes
                     )
                     for i in range(4)
                 ],
-                successes=successes,
-                unusable=0,
-                pass_at_k=1.0,
             )
         ],
         aggregate=AggregateScore(avg_score=successes / 4, per_task=[]),

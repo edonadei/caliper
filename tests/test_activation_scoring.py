@@ -34,9 +34,6 @@ def task(
         task_id="task-001",
         task_name=name,
         attempts=attempts,
-        successes=sum(1 for a in attempts if a.outcome == Outcome.PASS),
-        unusable=sum(1 for a in attempts if not a.outcome.is_usable),
-        pass_at_k=None,
         activation_expected=expected,
     )
 
