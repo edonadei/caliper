@@ -1,62 +1,54 @@
-# Caliper: prove your agent skill earns its context
+# Caliper: find out if your agent customizations help or hurt
 
 [![PyPI](https://img.shields.io/pypi/v/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Python](https://img.shields.io/pypi/pyversions/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Skills](https://skills.sh/b/edonadei/caliper)](https://skills.sh/edonadei/caliper)
 
-Every skill you add to an agent is a bet. You are wagering that these
-instructions will make it finish the task more often, on fewer tokens, with
-less correcting from you. Most people never settle the bet. The skill goes in,
-the agent seems better, and the file stays forever.
+Every skill, every MCP, every custom rule you add to your agent harness charges rent. It's paid in tokens, on every single run, whether or not it earns them. You are hoping that these
+instructions will make succed your task more often. With fewer tokens. Without you needing to babysit it. But have you tested that assumption? I can bet you've added it once, it looked fine, and now you forgot it exists.
 
-Caliper settles it. It is a small evaluation harness for agent skills. You
-write a short spec of what "good" looks like, and Caliper runs your real agent
-against it: k times with the skill installed, k times without. It then reports
-the two numbers that decide whether the file stays. How often it passed, and
-what it cost.
+I get it, evaluation is boring, it's intimidating because you might not know where to start. I got you. That's why I built Caliper. It's an evaluation framework that works on top of the harnesses you already use. It creates a realistic sandbox that allows us to test every scenario.
+
+Caliper helps you define what your agent is supposed to achieve in a YAML file that lives with your agent customizations. It runs your real harness on it. It also runs that same agent without your customization. It then reports
+the two numbers that will finally help you answer that question. Are you indeed improving your agent? Or making it worse? (Empirically you're often making it worse)
 
 <!-- Terminal output of `caliper compare`, rendered to SVG so the box-drawing
      table stays aligned on every screen. Regenerate with:
        python docs/render_readme_samples.py -->
 ![caliper compare, without commit-commands vs full neighbourhood on commit-commands: both tasks go 33.3% to 100.0% (+66.7%); tokens 290K to 180K, wall 1m 1s to 42s](docs/assets/compare-ablation.svg)
 
-Same tasks, same agent, one variable. The skill took the pass rate from 33% to
-100% and cut the run from 290K tokens to 180K, 1m 1s to 42s. Run only the first
-of those two, and you get the score with no idea what you paid for it.
+After writing the evaluation, you'll be able to answer this kind of question. Here adding my skill pushed the pass rate from 33% to
+100%. It saved more than 100K tokens, and slashed 20s of execution.
 
-## Why cost belongs next to the score
+Caliper never pastes your skill into the prompt. It installs it where your harness looks for skills and lets the agent decide whether to load it, so a run measures both halves of the question at once: does it fire, and does it work?
+
+## Reducing tokens is not just about cost
+
+A common issue with agents is that they easily enter the [dumb zone](https://www.aihero.dev/ai-coding-dictionary/smart-zone) after ~200k tokens. If you save tokens, your agent will be able to stay smart, longer.
 
 A good skill does not only make the agent correct. It makes the agent correct
-sooner, which is where the practical payoff sits.
-
-Fewer tokens leave more of the context window for the problem you actually care
-about, instead of the agent rediscovering your conventions every session. Fewer
-turns mean less waiting and less re-prompting. Together those are what let you
-hand a task over and walk away from it.
-
-The reverse case is the one to watch for. A skill that lifts the pass rate
-while doubling the token count has relocated the work rather than removed it.
-Caliper prints both columns so you can tell which one you got.
+sooner, with fewer tokens. Allowing you to tackle bigger more ambitious tasks. Hell you can even give these complex tasks to your dumber models!
 
 ## Questions Caliper answers
 
-- Is this skill pulling its weight, or would the bare agent have passed anyway?
-- Did my prompt edit improve the skill, or just relocate the failures?
-- Does the skill fire when it should, and stay quiet when it should not?
+- Is that skill bringing anything, or would the bare agent have done better?
+- When I rewrite my prompt, am I even improving anything?
+- Does the skill even trigger when it should?
+- Is my skill parasiting the other skills? Triggering when it shouldn't?
 - Does it still pass the workflows it passed last week?
 - Is the agent behaving the same on the new model?
-- Which agent (Claude Code, Codex, Pi, or Hermes) runs this skill most reliably,
-  and most cheaply?
+- Which harness (Claude Code, Codex, Pi, or Hermes) runs my skill most efficiently?
+- Which harness is the cheapest for my tasks?
 
 ## Try it
 
-**Teach your agent to evaluate:**
+**(Easy) Use the skills:**
 
 ```bash
 npx skills@latest add edonadei/caliper
 ```
 
-**Or run it yourself:**
+**Directly through the CLI:**
 
 ```bash
 # Run the evaluation.
