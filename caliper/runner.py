@@ -20,6 +20,7 @@ from caliper.harness.base import (
 )
 from caliper.judge.base import Judge
 from caliper.retry import SpendingCapReached, invoke_with_retry
+from caliper.runstore import RunStore
 from caliper.schema.results import (
     ERA_INSTALL_AND_DISCOVER,
     AttemptRecord,
@@ -187,7 +188,7 @@ def run(
 
     auto_forbidden = [
         re.escape(str(spec_path.resolve())),
-        re.escape(str((spec_path.parent / ".caliper").resolve())),
+        re.escape(str(RunStore(spec_path.parent).caliper_dir.resolve())),
     ]
     cheat = _CheatDetector(list(spec.sandbox.forbidden_files) + auto_forbidden)
 

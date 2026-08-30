@@ -19,10 +19,10 @@ from caliper.reporter import (
     make_progress,
     print_banner,
     print_results,
-    save_results,
     update_progress,
 )
 from caliper.retry import SpendingCapReached
+from caliper.runstore import RunStore
 from caliper.runner import run, AttemptEvent, RunAborted
 from caliper.schema.results import Outcome, RunResults, TaskResult
 from caliper.schema.spec import (
@@ -329,7 +329,9 @@ def _save_and_report(
         console.print("[dim]Nothing ran — no results saved.[/dim]")
         return
 
-    saved_path = save_results(results, str(spec_file))
+    # Rooted at the spec's own directory, so a run's results land beside the
+    # spec that produced them (docs/CONTEXT.md → Saved run).
+    saved_path = RunStore(spec_file.parent).save(results)
     if output:
         Path(output).write_text(results.model_dump_json(indent=2))
 

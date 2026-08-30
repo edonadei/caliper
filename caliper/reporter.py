@@ -939,15 +939,3 @@ def results_to_json(results: RunResults) -> str:
 
 def comparison_to_json(comp: RunComparison) -> str:
     return comp.model_dump_json(indent=2)
-
-
-def save_results(results: RunResults, spec_path: str) -> str:
-    from pathlib import Path
-
-    spec_p = Path(spec_path)
-    out_dir = spec_p.parent / ".caliper" / "results" / results.run.spec
-    out_dir.mkdir(parents=True, exist_ok=True)
-    ts = results.run.timestamp.strftime("%Y-%m-%dT%H-%M-%SZ")
-    out_file = out_dir / f"{ts}.json"
-    out_file.write_text(results_to_json(results))
-    return str(out_file)
