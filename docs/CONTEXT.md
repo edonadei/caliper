@@ -207,7 +207,8 @@ in only one run is **unmatched**.
 The **primary metric**: the raw per-attempt success rate, `successes / usable`
 (how often a *single* run works), computed over [[usable / unusable
 attempt|usable]] attempts only. It is `TaskResult.score` and the aggregate
-`avg_score`, and it is what every table headline, the `Δ`, and [[regression in a
+`avg_score` — a task derives every one of its own numbers from its attempts, so
+no two of them can disagree — and it is what every table headline, the `Δ`, and [[regression in a
 comparison|regression]] are computed on. Chosen over pass@k because Caliper tests
 *reliability*: pass@k (below) is a code-generation metric that rewards retries and
 flatters flaky skills (`1/3 → 70.4%`), which is the wrong question when a skill

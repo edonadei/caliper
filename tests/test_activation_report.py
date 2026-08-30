@@ -36,9 +36,6 @@ def task(attempts, expected=None, name="t"):
         task_id="task-001",
         task_name=name,
         attempts=attempts,
-        successes=sum(1 for a in attempts if a.outcome == Outcome.PASS),
-        unusable=sum(1 for a in attempts if not a.outcome.is_usable),
-        pass_at_k=None,
         activation_expected=expected,
     )
 
@@ -240,9 +237,6 @@ def _act_task(name, expected, passed_flags):
             )
             for i, p in enumerate(passed_flags)
         ],
-        successes=0,
-        unusable=0,
-        pass_at_k=None,
         activation_expected=expected,
     )
 
@@ -309,9 +303,6 @@ def test_execution_headline_is_skipped_when_nothing_was_measured():
                     activation_passed=True,
                 )
             ],
-            successes=0,
-            unusable=0,
-            pass_at_k=None,
             activation_expected=[],
         )
     ]

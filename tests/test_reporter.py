@@ -92,8 +92,6 @@ def _make_task(
         task_id=task_id,
         task_name=f"Task {task_id}",
         attempts=[attempt],
-        successes=1 if passed else 0,
-        pass_at_k=1.0 if passed else 0.0,
     )
 
 
@@ -102,8 +100,8 @@ def _make_results(task_results: list[TaskResult]) -> RunResults:
         TaskScore(
             task_id=tr.task_id,
             task_name=tr.task_name,
-            k=1,
             successes=tr.successes,
+            k=1,
             score=tr.pass_at_k,
         )
         for tr in task_results
@@ -278,9 +276,6 @@ def test_aborted_unusable_task_is_reported_as_aborted() -> None:
                 assert_evidence="spending cap",
             )
         ],
-        successes=0,
-        unusable=1,
-        pass_at_k=None,
     )
     results = RunResults(
         run=RunMeta(
@@ -297,8 +292,8 @@ def test_aborted_unusable_task_is_reported_as_aborted() -> None:
                 TaskScore(
                     task_id=task.task_id,
                     task_name=task.task_name,
+                    successes=task.successes,
                     k=3,
-                    successes=0,
                     score=None,
                 )
             ],
@@ -337,9 +332,6 @@ def test_early_stopped_task_with_usable_pass_is_not_reported_as_aborted() -> Non
                 assert_evidence="spending cap",
             ),
         ],
-        successes=1,
-        unusable=2,
-        pass_at_k=1.0,
     )
     results = RunResults(
         run=RunMeta(
@@ -356,8 +348,8 @@ def test_early_stopped_task_with_usable_pass_is_not_reported_as_aborted() -> Non
                 TaskScore(
                     task_id=task.task_id,
                     task_name=task.task_name,
+                    successes=task.successes,
                     k=5,
-                    successes=1,
                     score=1.0,
                 )
             ],

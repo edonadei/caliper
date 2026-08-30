@@ -1,46 +1,29 @@
+"""The metric formulas, and the run-level roll-up over many tasks.
+
+One task's own numbers are :class:`TaskResult`'s and are tested in
+``tests/test_task_metrics.py``; this file covers the formulas themselves and
+what ``aggregate_scores`` does across tasks.
+"""
+
 from __future__ import annotations
 
-from caliper.schema.results import Outcome
-from caliper.scoring import (
-    aggregate_scores,
+from caliper.schema.results import (
+    Outcome,
+    TaskResult,
     pass_at_k,
     pass_hat_k,
-    score_outcomes,
     success_rate,
 )
+from caliper.scoring import aggregate_scores
+
+from conftest import task_result
 
 
-def test_score_is_raw_rate_over_usable_only() -> None:
-    # 3 pass, 1 task_fail, 1 infra_error at k=5 -> usable=4, successes=3.
-    agg = aggregate_scores({"t1": ("Task", 3, 4, 5)})
-    score = agg.per_task[0].score
-    # The primary score is the raw success rate over usable attempts.
-    assert score == success_rate(3, 4) == 0.75
-    # The infra attempt left the denominator: rate is over 4 usable, not 5.
-    assert score != success_rate(3, 5)
+def _task(task_id: str, name: str, *outcomes: Outcome) -> TaskResult:
+    return task_result(*outcomes, task_id=task_id, name=name)
 
 
-def test_all_unusable_scores_none_and_is_excluded_from_average() -> None:
-    agg = aggregate_scores(
-        {
-            "t1": ("Throttled", 0, 0, 5),  # every attempt unusable
-            "t2": ("Clean", 5, 5, 5),  # perfect
-        }
-    )
-    by_id = {t.task_id: t for t in agg.per_task}
-    assert by_id["t1"].score is None
-    # The fully-unusable task must not drag the average toward 0.
-    assert agg.avg_score == by_id["t2"].score == 1.0
-
-
-def test_average_ignores_none_scores() -> None:
-    agg = aggregate_scores(
-        {
-            "t1": ("A", 2, 4, 4),
-            "t2": ("B", 0, 0, 4),  # excluded
-        }
-    )
-    assert agg.avg_score == success_rate(2, 4) == 0.5
+# --- the formulas ------------------------------------------------------------
 
 
 def test_pass_at_k_and_pass_hat_k_are_secondary_views() -> None:
@@ -49,47 +32,78 @@ def test_pass_at_k_and_pass_hat_k_are_secondary_views() -> None:
     assert pass_hat_k(1, 3) == (1 / 3) ** 3  # ~0.037, strict
     assert pass_hat_k(3, 3) == 1.0
     assert pass_at_k(0, 3) == 0.0
-    # No usable attempt -> no metric, uniformly across all three views.
+
+
+def test_no_usable_attempt_yields_no_metric_at_all() -> None:
+    """Uniformly ``None``, never ``0.0`` — a task never measured has no rate."""
+    assert success_rate(0, 0) is None
     assert pass_at_k(0, 0) is None
     assert pass_hat_k(0, 0) is None
-    assert success_rate(0, 0) is None
 
 
-def test_score_outcomes_uses_usable_denominator_everywhere() -> None:
-    # 3 pass, 1 task_fail, 1 infra_error: usable=4 — the infra attempt leaves
-    # every denominator at once.
-    scores = score_outcomes(
+# --- the run-level roll-up ---------------------------------------------------
+
+
+def test_score_is_the_raw_rate_over_usable_only() -> None:
+    # 3 pass, 1 task_fail, 1 infra_error -> usable=4, successes=3.
+    agg = aggregate_scores(
         [
-            Outcome.PASS,
-            Outcome.PASS,
-            Outcome.PASS,
-            Outcome.TASK_FAIL,
-            Outcome.INFRA_ERROR,
-        ]
+            _task(
+                "t1",
+                "Task",
+                Outcome.PASS,
+                Outcome.PASS,
+                Outcome.PASS,
+                Outcome.TASK_FAIL,
+                Outcome.INFRA_ERROR,
+            )
+        ],
+        k=5,
     )
 
-    assert (scores.successes, scores.usable, scores.unusable) == (3, 4, 1)
-    assert scores.score == success_rate(3, 4) == 0.75
-    assert scores.pass_at_k == pass_at_k(3, 4)
-    assert scores.pass_hat_k == pass_hat_k(3, 4)
+    # The infra attempt left the denominator: the rate is over 4, not 5.
+    assert agg.per_task[0].score == success_rate(3, 4) == 0.75
 
 
-def test_score_outcomes_cheat_counts_as_usable_failure() -> None:
-    # A cheat got a fair shot: it stays in the denominator as a non-success.
-    scores = score_outcomes([Outcome.PASS, Outcome.CHEAT])
-    assert (scores.successes, scores.usable, scores.unusable) == (1, 2, 0)
-    assert scores.score == 0.5
+def test_a_fully_unusable_task_scores_none_and_leaves_the_average_alone() -> None:
+    agg = aggregate_scores(
+        [
+            _task("t1", "Throttled", Outcome.INFRA_ERROR, Outcome.TIMEOUT),
+            _task("t2", "Clean", Outcome.PASS, Outcome.PASS),
+        ],
+        k=2,
+    )
+
+    by_id = {t.task_id: t for t in agg.per_task}
+    assert by_id["t1"].score is None
+    # The unmeasured task must not drag the average toward 0.
+    assert agg.avg_score == by_id["t2"].score == 1.0
+    assert agg.scored_tasks == 1
 
 
-def test_score_outcomes_all_unusable_yields_no_metrics() -> None:
-    scores = score_outcomes([Outcome.TIMEOUT, Outcome.JUDGE_ERROR])
-    assert (scores.successes, scores.usable, scores.unusable) == (0, 0, 2)
-    assert scores.score is None
-    assert scores.pass_at_k is None
-    assert scores.pass_hat_k is None
+def test_average_ignores_none_scores() -> None:
+    agg = aggregate_scores(
+        [
+            _task("t1", "A", Outcome.PASS, Outcome.TASK_FAIL),
+            _task("t2", "B", Outcome.JUDGE_ERROR),  # excluded
+        ],
+        k=2,
+    )
+
+    assert agg.avg_score == success_rate(1, 2) == 0.5
 
 
-def test_score_outcomes_empty() -> None:
-    scores = score_outcomes([])
-    assert (scores.successes, scores.usable, scores.unusable) == (0, 0, 0)
-    assert scores.score is None
+def test_every_row_records_the_runs_requested_depth() -> None:
+    """A task that ran short of k is visible as such, not silently rescaled."""
+    agg = aggregate_scores([_task("t1", "Cut short", Outcome.PASS)], k=5)
+
+    assert agg.per_task[0].k == 5
+    assert agg.per_task[0].successes == 1
+
+
+def test_no_tasks_averages_to_zero_rather_than_none() -> None:
+    """An empty run is 0.0%, which is what `list` renders; it is never saved."""
+    agg = aggregate_scores([], k=3)
+
+    assert agg.avg_score == 0.0
+    assert agg.per_task == []

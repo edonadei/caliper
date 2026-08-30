@@ -228,9 +228,6 @@ def test_usage_totals_sum_all_attempts_and_break_out_unusable() -> None:
                     Outcome.TIMEOUT, 30.0, TokenUsage(input_tokens=40, output_tokens=0)
                 ),
             ],
-            successes=1,
-            unusable=1,
-            pass_at_k=1.0,
         )
     ]
     totals = UsageTotals.from_task_results(tasks)
@@ -255,9 +252,6 @@ def test_usage_totals_tokens_unreported_when_no_backend_data() -> None:
             task_id="task-001",
             task_name="alpha",
             attempts=[_att(Outcome.PASS, 5.0, None)],
-            successes=1,
-            unusable=0,
-            pass_at_k=1.0,
         )
     ]
     totals = UsageTotals.from_task_results(tasks)
@@ -312,9 +306,6 @@ def _task_with_tokens(name: str, per_attempt_tokens: int, dur: float) -> TaskRes
             _att(Outcome.PASS, dur, TokenUsage(input_tokens=per_attempt_tokens)),
             _att(Outcome.PASS, dur, TokenUsage(input_tokens=per_attempt_tokens)),
         ],
-        successes=2,
-        unusable=0,
-        pass_at_k=1.0,
     )
 
 
@@ -400,9 +391,6 @@ def test_an_ablated_run_shows_observations_on_a_passing_task(capsys) -> None:
                 activated=["keeper"],
             )
         ],
-        successes=1,
-        unusable=0,
-        pass_at_k=1.0,
     )
     results = _run([passing], k=1)
     results.run.ablated = ["subject"]
@@ -440,9 +428,6 @@ def test_failure_details_still_show_why_an_attempt_failed(capsys) -> None:
         task_id="task-001",
         task_name="alpha",
         attempts=[_att(Outcome.PASS, 3.0, None), fail, _att(Outcome.PASS, 3.0, None)],
-        successes=2,
-        unusable=0,
-        pass_at_k=0.963,
     )
     print_results(_run([task], k=3))
     out = capsys.readouterr().out
@@ -454,9 +439,6 @@ def test_print_results_per_task_tokens_dash_when_unreported(capsys) -> None:
         task_id="task-001",
         task_name="alpha",
         attempts=[_att(Outcome.PASS, 3.0, None)],
-        successes=1,
-        unusable=0,
-        pass_at_k=1.0,
     )
     print_results(_run([task]))
     out = capsys.readouterr().out

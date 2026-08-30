@@ -25,6 +25,29 @@ import pytest
 
 from caliper import cancel
 from caliper.harness.base import RunContext
+from caliper.schema.results import AttemptRecord, Outcome, TaskResult
+
+
+def task_result(
+    *outcomes: Outcome,
+    task_id: str = "task-001",
+    name: str = "One",
+    expected: list[str] | None = None,
+) -> TaskResult:
+    """A task result built from nothing but its attempt outcomes.
+
+    Which is all a task result needs: it derives every count and metric from the
+    attempts it is handed, so a test states the outcomes and nothing else.
+    """
+    return TaskResult(
+        task_id=task_id,
+        task_name=name,
+        attempts=[
+            AttemptRecord(attempt=i, output="", duration_seconds=0.0, outcome=outcome)
+            for i, outcome in enumerate(outcomes, start=1)
+        ],
+        activation_expected=expected,
+    )
 
 
 def run_context(**overrides) -> RunContext:

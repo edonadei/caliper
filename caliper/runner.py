@@ -30,7 +30,7 @@ from caliper.schema.results import (
     TaskResult,
 )
 from caliper.schema.spec import DEFAULT_BACKEND, EvalSpec, TaskSpec, spec_name
-from caliper.scoring import aggregate_activation, aggregate_scores, score_outcomes
+from caliper.scoring import aggregate_activation, aggregate_scores
 from caliper.skillfetch import SkillFetcher
 from caliper.skills import (
     SkillRef,
@@ -247,10 +247,7 @@ def run(
     ]
     task_results.sort(key=lambda r: r.task_id)
 
-    pass_counts = {
-        r.task_id: (r.task_name, r.successes, r.usable, k) for r in task_results
-    }
-    aggregate = aggregate_scores(pass_counts)
+    aggregate = aggregate_scores(task_results, k)
     # The second scoreboard, carried alongside — never folded into avg_score.
     activation = aggregate_activation(task_results, [ref.name for ref in skill_refs])
     aggregate.avg_activation_score = activation.avg_score
@@ -383,19 +380,17 @@ def _finish_task(
     *fewer* than k records — fail-fast truncated it, or an interrupt stopped the
     run — which the metrics already handle, since every denominator is the
     usable attempts rather than k (docs/adr/0007).
+
+    Nothing is counted here: the result derives its own successes, denominator
+    and metrics from the attempts it is handed.
     """
-    attempts = sorted(records, key=lambda r: r.attempt)
-    scores = score_outcomes(a.outcome for a in attempts)
     result = TaskResult(
         task_id=task.id,
         task_name=task.name,
-        attempts=attempts,
-        successes=scores.successes,
-        unusable=scores.unusable,
-        pass_at_k=scores.pass_at_k,
+        attempts=sorted(records, key=lambda r: r.attempt),
         activation_expected=env.expected_activation(task),
     )
-    if env.on_task_done and len(attempts) < k:
+    if env.on_task_done and len(result.attempts) < k:
         env.on_task_done(result)
     return result
 

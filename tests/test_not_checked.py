@@ -7,7 +7,8 @@ from caliper.reporter import _is_trigger_only, _status_cell
 from caliper.runner import run
 from caliper.schema.results import AttemptRecord, Outcome, TaskResult
 from caliper.schema.spec import EvalSpec, TaskSpec
-from caliper.scoring import score_outcomes
+
+from conftest import task_result
 
 
 # --- classification -------------------------------------------------------
@@ -70,15 +71,14 @@ def test_not_checked_is_neither_usable_nor_noise():
 
 
 def test_not_checked_does_not_inflate_the_unusable_count():
-    scores = score_outcomes([Outcome.NOT_CHECKED] * 3)
-    assert scores.usable == 0
-    assert scores.unusable == 0
-    assert scores.score is None
+    task = task_result(*[Outcome.NOT_CHECKED] * 3)
+    assert task.usable == 0
+    assert task.unusable == 0
+    assert task.score is None
 
 
 def test_judge_errors_are_still_counted_as_noise():
-    scores = score_outcomes([Outcome.JUDGE_ERROR, Outcome.PASS])
-    assert scores.unusable == 1
+    assert task_result(Outcome.JUDGE_ERROR, Outcome.PASS).unusable == 1
 
 
 def test_usable_is_derived_not_subtracted():
@@ -97,9 +97,6 @@ def test_usable_is_derived_not_subtracted():
                 attempt=3, output="", duration_seconds=1.0, outcome=Outcome.PASS
             ),
         ],
-        successes=1,
-        unusable=0,
-        pass_at_k=None,
     )
     assert tr.usable == 1
     assert tr.score == 1.0
@@ -197,9 +194,6 @@ def _trigger_task() -> TaskResult:
             )
             for n in (1, 2)
         ],
-        successes=0,
-        unusable=0,
-        pass_at_k=None,
         activation_expected=[],
     )
 
@@ -231,9 +225,6 @@ def test_a_trigger_probes_tokens_are_not_reported_as_wasted_spend():
                 usage=TokenUsage(input_tokens=24000, output_tokens=10),
             )
         ],
-        successes=0,
-        unusable=0,
-        pass_at_k=None,
     )
     totals = UsageTotals.from_task_results([tr])
     assert totals.unusable_attempts == 0
@@ -258,9 +249,6 @@ def test_trigger_only_survives_one_timeout_among_k():
                 attempt=2, output="", duration_seconds=1.0, outcome=Outcome.TIMEOUT
             ),
         ],
-        successes=0,
-        unusable=1,
-        pass_at_k=None,
         activation_expected=[],
     )
     assert _is_trigger_only(tr) is True
@@ -279,9 +267,6 @@ def test_a_task_with_a_real_verdict_is_not_trigger_only():
                 attempt=2, output="", duration_seconds=1.0, outcome=Outcome.NOT_CHECKED
             ),
         ],
-        successes=1,
-        unusable=0,
-        pass_at_k=None,
     )
     assert _is_trigger_only(tr) is False
 

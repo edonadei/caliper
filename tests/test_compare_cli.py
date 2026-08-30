@@ -53,9 +53,6 @@ def _write_run(
                         attempt=1, output="", duration_seconds=1.0, outcome=Outcome.PASS
                     )
                 ],
-                successes=1,
-                unusable=0,
-                pass_at_k=1.0,
             )
         ],
         aggregate=AggregateScore(avg_score=1.0, scored_tasks=1, per_task=[]),

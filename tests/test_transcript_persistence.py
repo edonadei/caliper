@@ -87,9 +87,6 @@ def test_run_results_transcript_round_trips_through_json() -> None:
                         ],
                     )
                 ],
-                successes=0,
-                unusable=1,
-                pass_at_k=None,
             )
         ],
         aggregate=AggregateScore(avg_score=0.0, per_task=[]),

@@ -243,9 +243,6 @@ def _saved(*, skills: list[str], ablated: list[str]) -> RunResults:
                         attempt=1, output="", duration_seconds=1.0, outcome=Outcome.PASS
                     )
                 ],
-                successes=1,
-                unusable=0,
-                pass_at_k=1.0,
             )
         ],
         aggregate=AggregateScore(avg_score=1.0, per_task=[]),
