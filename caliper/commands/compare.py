@@ -6,6 +6,7 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
+from caliper.commands.diagnosis import BadInput, fail
 from caliper.compare import IncomparableRunsError, diff_runs
 from caliper.reporter import comparison_to_json, print_comparison
 from caliper.runstore import RunStore, UnreadableRun
@@ -19,17 +20,20 @@ _STORE = RunStore()
 def _resolve(ref: str) -> Path:
     path = _STORE.resolve(ref)
     if path is None:
-        console.print(f"[bold red]Error:[/bold red] No results found for {ref!r}")
-        raise typer.Exit(1)
+        fail(BadInput(f"No results found for {ref!r}"))
     return path
 
 
-def _load_run(ref: str, path: Path) -> RunResults:
+def _load_run(path: Path) -> RunResults:
+    """One saved run, or the diagnosis for a file that will not parse.
+
+    The reference the user typed is not carried in: ``UnreadableRun`` names the
+    file itself, which is what a reader has to go and look at.
+    """
     try:
         return _STORE.load(path)
     except UnreadableRun as exc:
-        console.print(f"[bold red]Error parsing results ({ref}):[/bold red] {exc}")
-        raise typer.Exit(1)
+        fail(exc)
 
 
 def _refuse_self_diff(a: str, a_path: Path, b: str, b_path: Path) -> None:
@@ -49,15 +53,17 @@ def _refuse_self_diff(a: str, a_path: Path, b: str, b_path: Path) -> None:
     """
     if a_path.resolve() != b_path.resolve():
         return
-    console.print(
-        f"[bold red]Refusing to compare:[/bold red] {a!r} and {b!r} are the same "
-        f"run ({a_path.stem}).\n\n"
-        "A bare spec name always resolves to that spec's latest run, so naming "
-        "one twice diffs a run against itself — every delta zero, nothing "
-        "flagged. Name two distinct runs; address the older side by its path:\n"
-        f"  caliper compare {_STORE.spec_dir('<spec>') / '<timestamp>.json'} {b}"
+    fail(
+        BadInput(
+            f"{a!r} and {b!r} are the same run ({a_path.stem}).\n\n"
+            "A bare spec name always resolves to that spec's latest run, so "
+            "naming one twice diffs a run against itself — every delta zero, "
+            "nothing flagged. Name two distinct runs; address the older side by "
+            "its path:\n"
+            f"  caliper compare {_STORE.spec_dir('<spec>') / '<timestamp>.json'} {b}",
+            title="Refusing to compare",
+        )
     )
-    raise typer.Exit(1)
 
 
 # Deliberately no gate flag and no verdict exit code: `has_regression` fires on
@@ -83,13 +89,14 @@ def compare_cmd(
 ) -> None:
     a_path, b_path = _resolve(a), _resolve(b)
     _refuse_self_diff(a, a_path, b, b_path)
+    # Loaded before the try, not inside it: ``_load_run`` exits through ``fail``,
+    # and ``typer.Exit`` is a RuntimeError — so a load that failed here would be
+    # caught by any except clause wide enough to name one.
+    run_a, run_b = _load_run(a_path), _load_run(b_path)
     try:
-        comparison = diff_runs(_load_run(a, a_path), _load_run(b, b_path))
+        comparison = diff_runs(run_a, run_b)
     except IncomparableRunsError as exc:
-        # A hard stop, unlike the k/spec/neighbourhood warnings: a cross-era diff
-        # looks entirely normal and would be believed (docs/adr/0013).
-        console.print(f"[bold red]Refusing to compare:[/bold red] {exc}")
-        raise typer.Exit(1)
+        fail(exc)
 
     if fmt == "json":
         console.print_json(comparison_to_json(comparison))

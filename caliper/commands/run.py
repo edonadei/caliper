@@ -6,10 +6,11 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 import typer
+from pydantic import ValidationError
 from rich.console import Console
-from rich.panel import Panel
 
 from caliper import cancel
+from caliper.commands.diagnosis import BadInput, CannotRun, ExitCode, fail
 from caliper.harness.base import HarnessConfigurationError
 from caliper.skillfetch import SkillFetcher
 from caliper.skills import SkillResolutionError
@@ -21,7 +22,6 @@ from caliper.reporter import (
     print_results,
     update_progress,
 )
-from caliper.retry import SpendingCapReached
 from caliper.runstore import RunStore
 from caliper.runner import run, AttemptEvent, RunAborted
 from caliper.schema.results import Outcome, RunResults, TaskResult
@@ -127,8 +127,8 @@ def run_cmd(
     # reading. See
     # docs/adr/0015-ablation-names-its-subject-at-the-invocation.md.
     if baseline:
-        console.print(
-            Panel(
+        fail(
+            CannotRun(
                 "`--baseline` has been retired.\n\n"
                 "It ran a second, no-skill arm inside every invocation, re-paying "
                 "for a number that cannot move when the skill changes: the "
@@ -138,21 +138,23 @@ def run_cmd(
                 "  caliper compare <that-run> <your-run>\n\n"
                 "Name every declared skill to get the bare agent. The saved arm "
                 "is reusable across every later iteration of the skill.",
-                title="[bold red]Retired flag[/bold red]",
-                border_style="red",
+                title="Retired flag",
             )
         )
-        raise typer.Exit(2)
 
     if not spec_file.exists():
-        console.print(f"[bold red]Error:[/bold red] File not found: {spec_file}")
-        raise typer.Exit(1)
+        fail(BadInput(f"File not found: {spec_file}"))
 
     try:
         spec = load_spec(spec_file)
+    except ValidationError as exc:
+        # A schema failure gets the table's panel — the same verdict `validate`
+        # reaches, rather than a second opinion in a different shape.
+        fail(exc)
     except Exception as exc:
-        console.print(f"[bold red]Invalid spec:[/bold red] {exc}")
-        raise typer.Exit(1)
+        # A YAML syntax error, or a retired key (ADR 0004). Not a schema
+        # verdict, so it stays a one-line statement of what is wrong.
+        fail(BadInput(f"Invalid spec: {exc}"))
 
     # The engine is a runtime axis, not a spec field (ADR 0004): resolve it here
     # from the flags, defaulting to claude-code. The resolved (backend, model)
@@ -259,24 +261,8 @@ def run_cmd(
                 on_attempt_done=on_attempt_done,
                 on_task_done=on_task_done,
             )
-        except SkillResolutionError as exc:
-            console.print(
-                Panel(
-                    str(exc),
-                    title="[bold red]Invalid skills:[/bold red]",
-                    border_style="red",
-                )
-            )
-            raise typer.Exit(1)
-        except HarnessConfigurationError as exc:
-            console.print(
-                Panel(
-                    str(exc),
-                    title="[bold red]Backend configuration error[/bold red]",
-                    border_style="red",
-                )
-            )
-            raise typer.Exit(2)
+        except (SkillResolutionError, HarnessConfigurationError) as exc:
+            fail(exc)
         except RunAborted as exc:
             # A fatal error mid-run. The attempts that already ran are on the
             # exception, and they get saved and rendered exactly like any other
@@ -286,26 +272,11 @@ def run_cmd(
     _save_and_report(results, spec_file, output, verbose)
 
     if aborted is not None:
-        # Two causes reach here (see the runner's job wrapper), and they read
-        # very differently to whoever has to act on them: one is a machine to
-        # fix, the other is an account to top up.
-        title = (
-            "Spending cap reached"
-            if isinstance(aborted.cause, SpendingCapReached)
-            else "Backend configuration error"
-        )
-        console.print(
-            Panel(
-                str(aborted.cause),
-                title=f"[bold red]Run stopped: {title}[/bold red]",
-                border_style="red",
-            )
-        )
-        raise typer.Exit(2)
+        # Which of the two causes it was, and what that exits with, is the
+        # diagnosis table's call — not this module's.
+        fail(aborted)
     if results.run.interrupted:
-        # 130 is the shell's own convention for SIGINT, so a script that stopped
-        # a run does not read the partial results as a completed one.
-        raise typer.Exit(130)
+        raise typer.Exit(ExitCode.INTERRUPTED)
 
 
 def _save_and_report(

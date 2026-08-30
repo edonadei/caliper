@@ -5,6 +5,7 @@ from typing import Annotated, Optional
 import typer
 from rich.console import Console
 
+from caliper.commands.diagnosis import BadInput, fail
 from caliper.reporter import print_results
 from caliper.runstore import RunStore, UnreadableRun
 from caliper.schema.results import UsageTotals
@@ -28,16 +29,12 @@ def report_cmd(
 ) -> None:
     results_path = _STORE.resolve(spec_or_file, run)
     if results_path is None:
-        console.print(
-            f"[bold red]Error:[/bold red] No results found for {spec_or_file!r}"
-        )
-        raise typer.Exit(1)
+        fail(BadInput(f"No results found for {spec_or_file!r}"))
 
     try:
         results = _STORE.load(results_path)
     except UnreadableRun as exc:
-        console.print(f"[bold red]Error parsing results:[/bold red] {exc}")
-        raise typer.Exit(1)
+        fail(exc)
 
     if fmt == "json":
         # Derive the run usage totals on the fly (never persisted on RunResults —
