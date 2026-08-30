@@ -1,10 +1,54 @@
-# Caliper: Know if your agent skill actually works
+# Caliper: prove your agent skill earns its context
 
 [![PyPI](https://img.shields.io/pypi/v/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Python](https://img.shields.io/pypi/pyversions/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Skills](https://skills.sh/b/edonadei/caliper)](https://skills.sh/edonadei/caliper)
 
-Caliper is a lightweight evaluation harness for agent skills. Write a short spec of what "good" looks like, run it, and get a **success rate** you can track. Works with the agent you already use: **Claude Code, Codex, Pi, or Hermes**. Caliper installs the skill where the agent looks for skills and lets the agent choose.
+Every skill you add to an agent is a bet. You are wagering that these
+instructions will make it finish the task more often, on fewer tokens, with
+less correcting from you. Most people never settle the bet. The skill goes in,
+the agent seems better, and the file stays forever.
+
+Caliper settles it. It is a small evaluation harness for agent skills. You
+write a short spec of what "good" looks like, and Caliper runs your real agent
+against it: k times with the skill installed, k times without. It then reports
+the two numbers that decide whether the file stays. How often it passed, and
+what it cost.
+
+<!-- Terminal output of `caliper compare`, rendered to SVG so the box-drawing
+     table stays aligned on every screen. Regenerate with:
+       python docs/render_readme_samples.py -->
+![caliper compare, without commit-commands vs full neighbourhood on commit-commands: both tasks go 33.3% to 100.0% (+66.7%); tokens 290K to 180K, wall 1m 1s to 42s](docs/assets/compare-ablation.svg)
+
+Same tasks, same agent, one variable. The skill took the pass rate from 33% to
+100% and cut the run from 290K tokens to 180K, 1m 1s to 42s. Run only the first
+of those two, and you get the score with no idea what you paid for it.
+
+## Why cost belongs next to the score
+
+A good skill does not only make the agent correct. It makes the agent correct
+sooner, which is where the practical payoff sits.
+
+Fewer tokens leave more of the context window for the problem you actually care
+about, instead of the agent rediscovering your conventions every session. Fewer
+turns mean less waiting and less re-prompting. Together those are what let you
+hand a task over and walk away from it.
+
+The reverse case is the one to watch for. A skill that lifts the pass rate
+while doubling the token count has relocated the work rather than removed it.
+Caliper prints both columns so you can tell which one you got.
+
+## Questions Caliper answers
+
+- Is this skill pulling its weight, or would the bare agent have passed anyway?
+- Did my prompt edit improve the skill, or just relocate the failures?
+- Does the skill fire when it should, and stay quiet when it should not?
+- Does it still pass the workflows it passed last week?
+- Is the agent behaving the same on the new model?
+- Which agent (Claude Code, Codex, Pi, or Hermes) runs this skill most reliably,
+  and most cheaply?
+
+## Try it
 
 **Teach your agent to evaluate:**
 
@@ -25,25 +69,11 @@ caliper run commit-commands.eval.yaml --k 3 --ablate commit-commands
 caliper compare .caliper/results/commit-commands/<evaluation-run>.json .caliper/results/commit-commands/<ablated-run>.json
 ```
 
-You write a spec, a YAML file describing what "working" means. Either hand-write it or have `/grill-skill` generate it for you. `--ablate` runs the same tasks with that skill *removed*, and `caliper compare` diffs the two runs task by task:
-
-<!-- Terminal output of `caliper compare`, rendered to SVG so the box-drawing
-     table stays aligned on every screen. Regenerate with:
-       python docs/render_readme_samples.py -->
-![caliper compare, without commit-commands vs full neighbourhood on commit-commands: both tasks go 33.3% to 100.0% (+66.7%); tokens 290K to 180K, wall 1m 1s to 42s](docs/assets/compare-ablation.svg)
-
----
-
-Agent skills are hard to test. A skill that works on your machine, on this prompt, today, might fail tomorrow after a model update or a one-line prompt edit. Caliper makes reliability measurable: define what success looks like, run the skill repeatedly, and get a success rate you can track over time.
-
-Use Caliper to answer questions like:
-
-- Is my agent still working the same with this new model?
-- Did my prompt edit improved the skill?
-- Does my skill fire when it should, and stay quiet when it needs to not trigger?
-- Is the skill worth the context? Or would the base agent pass without it?
-- Does it still pass the workflows it passed last week?
-- Which agent (Claude Code, Codex, Pi, or Hermes) runs this skill more reliably?
+The spec is a YAML file describing what "working" means. Write it by hand, or
+have `/grill-skill` generate it for you. `--ablate` re-runs the same tasks with
+that skill removed, and `caliper compare` diffs the two runs task by task.
+Caliper works with the agent you already use: Claude Code, Codex, Pi, or
+Hermes.
 
 ---
 
@@ -673,9 +703,10 @@ How the diff reads:
   renders red and flags a **regression**.
 - **Unusable attempts can't fake a loss.** A side with no usable attempts
   (rate-limit / timeout / judge error) shows `—` and never counts as a regression.
-- **Token and wall-clock deltas are secondary** and never a regression: a drop is
+- **Token and wall-clock deltas never flag a regression on their own**: a drop is
   green (cheaper), a rise red (a trade-off to weigh). Only the score feeds
-  `has_regression`.
+  `has_regression`. Still read both columns: a skill that buys a higher score
+  with more tokens has relocated the work rather than removed it.
 
 `--format json` serializes the full comparison (per-task scores, deltas,
 regression flags, unmatched lists, warnings, `skill_drift`, and per-side usage)
