@@ -191,20 +191,27 @@ def _save(tmp_path: Path, results: RunResults, stem: str) -> None:
     (out / f"{stem}.json").write_text(results.model_dump_json())
 
 
-def test_list_marks_an_interrupted_run(tmp_path) -> None:
+def test_list_marks_an_interrupted_run(monkeypatch, tmp_path) -> None:
     _save(tmp_path, _run(interrupted=True), "2026-07-03T10-00-00Z")
+    monkeypatch.chdir(tmp_path)
 
-    result = runner.invoke(app, ["list", "demo", "--dir", str(tmp_path)])
+    result = runner.invoke(app, ["list", "demo"])
 
+    assert result.exit_code == 0, result.stdout
     assert "⊘" in result.stdout
     assert "stopped early" in result.stdout
 
 
-def test_list_is_unmarked_when_every_run_completed(tmp_path) -> None:
+def test_list_is_unmarked_when_every_run_completed(monkeypatch, tmp_path) -> None:
     _save(tmp_path, _run(interrupted=False), "2026-07-03T10-00-00Z")
+    monkeypatch.chdir(tmp_path)
 
-    result = runner.invoke(app, ["list", "demo", "--dir", str(tmp_path)])
+    result = runner.invoke(app, ["list", "demo"])
 
+    # Asserted on a run that actually rendered: this test only checks an
+    # *absence*, so a listing that failed to find anything would pass it.
+    assert result.exit_code == 0, result.stdout
+    assert "2026-07-03T10-00-00Z" in result.stdout
     assert "stopped early" not in result.stdout
 
 

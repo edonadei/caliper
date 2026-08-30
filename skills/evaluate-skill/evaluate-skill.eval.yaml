@@ -4,9 +4,10 @@ skills:
 # The engine (backend + model) is a runtime axis, not a spec field — run this
 # eval with `--model codex --judge-model codex` (or any other engine).
 
-sandbox:
-  forbidden_files:
-    - "./.caliper/.*"
+# No explicit sandbox.forbidden_files: caliper auto-forbids this spec and any
+# .caliper/results/ directory. Listing "./.caliper/.*" by hand risks a false
+# cheat flag, because these tasks legitimately WRITE caliper specs whose text
+# contains that very pattern — see the same note in grill-skill.eval.yaml.
 
 tasks:
   - name: Validates a well-formed spec and reports it as valid

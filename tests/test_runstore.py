@@ -154,3 +154,77 @@ def test_load_rejects_json_that_is_not_a_run(tmp_path) -> None:
 
     with pytest.raises(UnreadableRun):
         store.load(bad)
+
+
+# --- discovery ---------------------------------------------------------------
+
+
+def test_discover_finds_the_nearest_root(monkeypatch, tmp_path) -> None:
+    """Nearest wins, so a package given its own root keeps its own history."""
+    (tmp_path / ".git").mkdir()
+    package = tmp_path / "packages" / "foo"
+    (package / ".caliper").mkdir(parents=True)
+    (tmp_path / ".caliper").mkdir()
+    monkeypatch.chdir(package)
+
+    assert RunStore.discover().root == package.resolve()
+
+
+def test_discover_walks_up_to_an_existing_root(monkeypatch, tmp_path) -> None:
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".caliper").mkdir()
+    deep = tmp_path / "evals" / "nested"
+    deep.mkdir(parents=True)
+    monkeypatch.chdir(deep)
+
+    assert RunStore.discover().root == tmp_path.resolve()
+
+
+def test_discover_names_the_repo_root_when_no_root_exists(monkeypatch, tmp_path):
+    """The first run of a project must not plant its root wherever you stood.
+
+    Rooting at the working directory would make the very first `caliper run`
+    decide the layout, and a later run from elsewhere in the same project would
+    silently create a second root (docs/adr/0022).
+    """
+    (tmp_path / ".git").mkdir()
+    spec_dir = tmp_path / "evals"
+    spec_dir.mkdir()
+    monkeypatch.chdir(spec_dir)
+
+    store = RunStore.discover()
+
+    assert store.root == tmp_path.resolve()
+    # Named, not created: `save` is what writes.
+    assert not store.caliper_dir.exists()
+
+
+def test_discover_does_not_reach_past_the_repo_boundary(monkeypatch, tmp_path) -> None:
+    """A stray `.caliper/` above the repo must not become the repo's store."""
+    (tmp_path / ".caliper").mkdir()
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    monkeypatch.chdir(repo)
+
+    assert RunStore.discover().root == repo.resolve()
+
+
+def test_discover_falls_back_to_the_working_directory_outside_a_repo(
+    monkeypatch, tmp_path
+) -> None:
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+
+    # tmp_path itself has no .git and no .caliper, so the walk finds nothing and
+    # the working directory stands in for a project root.
+    assert RunStore.discover(work).root == work.resolve()
+
+
+def test_discover_accepts_an_explicit_start(tmp_path) -> None:
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".caliper").mkdir()
+    deep = tmp_path / "a" / "b"
+    deep.mkdir(parents=True)
+
+    assert RunStore.discover(deep).root == tmp_path.resolve()

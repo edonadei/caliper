@@ -175,8 +175,13 @@ trajectory by running `hermes -z` then `hermes sessions export`.
 ## Results storage
 
 Results are saved automatically to `.caliper/results/<spec-name>/<timestamp>.json`
-alongside the spec file. Each result includes a full skill snapshot (content + git SHA
-of the skill file and any referenced scripts) for reproducibility. Each attempt
+under the project's **results root** — the nearest `.caliper/` at or above your
+working directory, bounded by the git repo. `run`, `report`, `compare` and
+`list` all resolve the same root, so a run saved from a spec's own subdirectory
+is findable by `caliper report <spec-name>` from anywhere in the project.
+
+Each result includes a full skill snapshot (content + git SHA of the skill file
+and any referenced scripts) for reproducibility. Each attempt
 records its `outcome` (see above), an optional `usage` block (token counts), an
 optional `transcript` array (ordered turns with `tool_name`/`tool_input`/`tool_output`
 when present), and per-task results include an `unusable` count; a task with no usable

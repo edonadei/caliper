@@ -150,7 +150,7 @@ caliper run my-skill.eval.yaml --k 3          # --ablate <skill> for a run to di
 
 ![caliper run of commit-writer at k=3. Three rows: 'Writes a conventional commit message' passes 3/3 (100.0%, 80K tokens) with a green tick in the act column; 'Keeps the subject line under 72 characters' 2/3 (66.7%, PARTIAL, 84K tokens) with a green tick; 'A release summary belongs to changelog-writer' shows no execution score, a red cross in the act column, and reads 'trigger only'. Score 83.3% over 2 tasks scored. Activation 77.8% over 3 asserted tasks. A per-skill table shows, for each skill, how many of the 9 attempts wanted it and how often it fired: commit-writer was wanted on 6 of 9, fired on 6/6 of those (100.0%) but also on 2/3 of the attempts that did not want it (66.7%); changelog-writer was wanted on 3 of 9, fired on only 1/3 (33.3%), and never fired unwanted (0/6, 0.0%). commit-writer is taking prompts that belong to changelog-writer. Failure panels below show the assertion error and the attempts where commit-writer activated on the changelog prompt](docs/assets/run-output.svg)
 
-The report ends with the per-task failure panels: for each attempt that didn't pass, the output plus the assertion or autorater reason *why*. Full results are also saved as JSON under `.caliper/results/<spec>/` for you to inspect or `caliper compare` later. `--verbose` adds `pass@k` and `pass^k` columns (both derived from the raw rate) and a panel for every task.
+The report ends with the per-task failure panels: for each attempt that didn't pass, the output plus the assertion or autorater reason *why*. Full results are also saved as JSON under `.caliper/results/<spec>/` at the project's [results root](#where-results-are-saved), for you to inspect or `caliper compare` later. `--verbose` adds `pass@k` and `pass^k` columns (both derived from the raw rate) and a panel for every task.
 
 ### Not sure what to put in a spec?
 
@@ -340,9 +340,8 @@ skills:                         # installed where the agent looks for skills,
 sandbox:
   extra_path:
     - ./bin                     # prepended to PATH inside each attempt
-  forbidden_files:
-    - ".*\\.eval\\.yaml$"       # prevents agent from reading the spec
-    - "./.caliper/.*"           # prevents agent from reading saved results
+  forbidden_files:            # extra patterns; the spec itself and any
+    - "./answers/.*"          #   .caliper/ directory are always forbidden
 
 mcp:                            # optional: MCP servers the agent may use
   weather:                      # server name → a mcp__weather__<tool> call in the transcript
@@ -548,6 +547,32 @@ When both `expect` and `assert` are present, both must pass.
 | `caliper report <spec-or-result>` | Re-render saved results |
 | `caliper compare <A> <B>` | Diff two saved runs of the same eval, task by task. Each side is a spec name (that spec's **latest** run) or a results-JSON path; they must be two distinct runs |
 | `caliper update-cli [backend]` | Check or update installed agent CLI versions |
+
+### Where results are saved
+
+Runs are saved under a **results root** — a directory with a `.caliper/` in it —
+and every command resolves the same one: the nearest `.caliper/` at or above
+your working directory, without leaving the git repository. The first run of a
+project creates it at the repository root.
+
+```
+my-project/            <- .caliper/results/<spec>/<run id>.json lands here
+├── .git/
+├── .caliper/
+└── evals/
+    └── my.eval.yaml   <- `caliper run` from here finds the root above
+```
+
+So `caliper run evals/my.eval.yaml` and `caliper report my` agree wherever in
+the project you run them from. To give a subdirectory its own separate history —
+a package in a monorepo with its own eval suite — create the marker yourself:
+
+```bash
+mkdir .caliper
+```
+
+The nearest root wins, so everything under that directory then files its runs
+there. See [docs/adr/0022](docs/adr/0022-saved-runs-live-at-a-discovered-results-root.md).
 
 ### `caliper run` flags
 

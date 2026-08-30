@@ -163,12 +163,31 @@ is the *only* thing `report`, `compare` and `list` ever read — none of them
 re-runs anything — so a run is measured once and read back as often as you like.
 An [[interrupted run]] is a saved run like any other.
 
+A saved run belongs to a [[results root]], not to the folder its spec sits in.
+
 Its **run id** names it uniquely among that spec's runs and orders it against
 them (see [[0021-a-run-is-addressed-by-its-timestamp]]).
 
 A **run reference** is how a caller names a saved run: either a direct path, or a
 spec name, which always means that spec's *latest* run. See [[run comparison
 (`compare`)]] for why an [[ablation]] pair has to name its control arm by path.
+
+## Results root
+
+The directory whose `.caliper/` holds a project's [[saved run]]s. Every command
+resolves the same one, so a run that `caliper run` writes is a run that
+`report`, `compare` and `list` can find.
+
+A results root governs the directories beneath it: the *nearest* one at or above
+where caliper is invoked wins, which is what lets a package inside a larger
+repository keep an eval history of its own. Marking a directory as one is how a
+caller chooses — there is no flag.
+
+_Avoid_: project root (a results root need not be the whole project's, and the
+name invites the assumption that caliper decides where a project begins).
+
+See [[0022-saved-runs-live-at-a-discovered-results-root]] for how one is found
+and why runs belong to a root rather than to a spec file.
 
 ## Run comparison (`compare`)
 
@@ -515,13 +534,19 @@ What the agent-under-test may **not** touch during a run — the sibling of the
 declared [[MCP server (declared)|mcp:]] block, which grants capabilities where
 `sandbox:` takes them away. Its `forbidden_files` are regexes the spec author
 writes; caliper adds two of its own on every run, without being asked: the
-`.eval.yaml` spec itself (which holds every `expect:`) and `.caliper/` (which
-holds every [[saved run]]). Both are answer keys.
+`.eval.yaml` spec itself (which holds every `expect:`) and any saved results
+directory. Both are answer keys.
+
+The two additions are not the same *kind* of thing. The spec is a path this run
+resolved. Saved results are a directory **shape**, matched wherever they are
+filed: a [[results root]] is discovered, so a run may be filed under one this
+run never resolved — an older root, a sibling package's — and a resolved path
+would forbid one and leave the rest readable.
 
 The sandbox is read at two moments, against two different lists. At **install**
 time it filters a skill's files, using the *declared* patterns alone — the
-additions are absolute host paths, and could only match a skill's relative
-install path by accident. At **grading** time it scans the finished transcript
+additions are absolute host paths or shapes no skill file has, and could only
+match a skill's relative install path by accident. At **grading** time it scans the finished transcript
 for forbidden paths, using declared and added patterns together; a hit is the
 evidence behind a `cheat` [[outcome]], so the offending paths are reported and
 not merely counted.

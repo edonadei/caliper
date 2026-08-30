@@ -300,9 +300,9 @@ def _save_and_report(
         console.print("[dim]Nothing ran — no results saved.[/dim]")
         return
 
-    # Rooted at the spec's own directory, so a run's results land beside the
-    # spec that produced them (docs/CONTEXT.md → Saved run).
-    saved_path = RunStore(spec_file.parent).save(results)
+    # The same root every reading command resolves, discovered the same way
+    # (docs/adr/0022-saved-runs-live-at-a-discovered-results-root.md).
+    saved_path = RunStore.discover().save(results)
     if output:
         Path(output).write_text(results.model_dump_json(indent=2))
 
