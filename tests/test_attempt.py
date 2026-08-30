@@ -29,14 +29,14 @@ class RecordingJudge:
         return self.result
 
 
-class StubCheatDetector:
+class StubSandbox:
     """Reports a fixed violation list, whatever the transcript says."""
 
-    def __init__(self, violations: list[str] | None = None) -> None:
-        self.violations = violations or []
+    def __init__(self, found: list[str] | None = None) -> None:
+        self.found = found or []
 
-    def check(self, transcript: list[ConversationTurn]) -> list[str]:
-        return list(self.violations)
+    def violations(self, transcript: list[ConversationTurn]) -> list[str]:
+        return list(self.found)
 
 
 def _task(**overrides) -> TaskSpec:
@@ -74,7 +74,7 @@ def _assemble(result: AttemptResult, **overrides):
         spec_dir="/tmp",
         expected_activation=None,
         activation=ActivationDetector([], frozenset()),
-        cheat=StubCheatDetector(),
+        sandbox=StubSandbox(),
         judge=RecordingJudge(),
     )
     kwargs.update(overrides)
@@ -182,7 +182,7 @@ def test_a_forbidden_file_read_is_a_cheat_and_skips_the_judge():
     judge = RecordingJudge()
 
     assembled = _assemble(
-        _result(), cheat=StubCheatDetector(["/x/answers.txt"]), judge=judge
+        _result(), sandbox=StubSandbox(["/x/answers.txt"]), judge=judge
     )
 
     assert assembled.record.outcome is Outcome.CHEAT
@@ -206,7 +206,7 @@ def test_a_cheat_outranks_a_missing_execution_check():
     assembled = _assemble(
         _result(),
         task=_task(expect=None, activates=["tdd"]),
-        cheat=StubCheatDetector(["/x/answers.txt"]),
+        sandbox=StubSandbox(["/x/answers.txt"]),
     )
 
     assert assembled.record.outcome is Outcome.CHEAT
@@ -258,7 +258,7 @@ def test_activation_rides_on_a_cheat_too():
         _result(transcript=[_read_turn("/skills/tdd/SKILL.md")]),
         activation=_detector(),
         expected_activation=["tdd"],
-        cheat=StubCheatDetector(["/x/answers.txt"]),
+        sandbox=StubSandbox(["/x/answers.txt"]),
     )
 
     assert assembled.record.outcome is Outcome.CHEAT

@@ -17,25 +17,14 @@ from __future__ import annotations
 
 import time
 from dataclasses import asdict, dataclass
-from typing import Protocol
 
 from caliper.activation import ActivationDetector, check_activation
 from caliper.harness.base import AttemptResult, ConversationTurn
 from caliper.judge.base import Judge
 from caliper.outcome import classify_outcome, classify_pre_judge
+from caliper.sandbox import Sandbox
 from caliper.schema.results import AttemptRecord, Outcome, TranscriptTurn
 from caliper.schema.spec import TaskSpec
-
-
-class CheatDetector(Protocol):
-    """What this module needs of a cheat detector: violations from a transcript.
-
-    A structural seam, like :class:`caliper.judge.base.Judge` — the production
-    detector lives with the runner that configures it from
-    ``sandbox.forbidden_files``, and a test double conforms by shape.
-    """
-
-    def check(self, transcript: list[ConversationTurn]) -> list[str]: ...
 
 
 @dataclass(frozen=True)
@@ -61,7 +50,7 @@ def assemble_attempt(
     spec_dir: str,
     expected_activation: list[str] | None,
     activation: ActivationDetector,
-    cheat: CheatDetector,
+    sandbox: Sandbox,
     judge: Judge,
     retries: int = 0,
 ) -> AssembledAttempt:
@@ -132,7 +121,7 @@ def assemble_attempt(
         evidence = result.error or f"harness exited {result.exit_code}"
         return with_outcome(pre_judge_outcome, assert_evidence=evidence)
 
-    cheat_violations = cheat.check(result.transcript)
+    cheat_violations = sandbox.violations(result.transcript)
     if cheat_violations:
         return with_outcome(
             classify_outcome(result, cheat_violations, None),
