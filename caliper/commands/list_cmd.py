@@ -60,11 +60,12 @@ def list_cmd_fn(
     spec: Annotated[
         Optional[str], typer.Argument(help="Spec name to list runs for")
     ] = None,
-    directory: Annotated[
-        Path, typer.Option("--dir", help="Directory to search")
-    ] = Path("."),
 ) -> None:
-    store = RunStore(directory)
+    # No `--dir`: the results root is discovered, the same way for every command
+    # (docs/adr/0022-saved-runs-live-at-a-discovered-results-root.md). A flag
+    # that pointed the listing at a root `report` and `compare` could not follow
+    # was the asymmetry discovery removes. To read another project, work from it.
+    store = RunStore.discover()
 
     if spec:
         _list_runs(store, spec)
@@ -76,7 +77,8 @@ def _list_specs(store: RunStore) -> None:
     specs = store.specs()
     if not specs:
         console.print(
-            "[dim]No evaluation results found. Run [bold]caliper run[/bold] first.[/dim]"
+            f"[dim]No evaluation results under {store.root}. "
+            "Run [bold]caliper run[/bold] first.[/dim]"
         )
         return
 
@@ -108,7 +110,7 @@ def _list_specs(store: RunStore) -> None:
 
 def _list_runs(store: RunStore, spec_name: str) -> None:
     if not store.has_spec(spec_name):
-        fail(BadInput(f"No results for spec {spec_name!r}"))
+        fail(BadInput(store.no_results(spec_name)))
 
     runs = store.runs(spec_name)
     if not runs:

@@ -5,7 +5,7 @@ skills:
 # runs on whatever `--model` / `--judge-model` select (default claude-code).
 
 # No explicit sandbox.forbidden_files: caliper already auto-forbids the eval
-# spec and .caliper/ by absolute path. Listing "./.caliper/.*" here caused a
+# spec and any .caliper/results/ directory. Listing "./.caliper/.*" here caused a
 # false cheat flag, because these grill-skill tasks legitimately WRITE caliper
 # specs whose text contains that very pattern.
 

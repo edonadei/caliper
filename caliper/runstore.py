@@ -15,13 +15,13 @@ The run id is the run's timestamp; see
 docs/adr/0021-a-run-is-addressed-by-its-timestamp.md for what that buys and
 costs.
 
-**The root is the caller's choice, and the callers disagree.** ``run`` roots the
-store at the *spec file's parent*, so results land beside the spec that produced
-them; the reading commands root it at the working directory (``list --dir``
-makes that explicit). Those agree only when caliper is invoked from the spec's
-own directory — a genuine defect, left alone here because settling it means
-deciding where results belong, not who knows the path. Concentrating the layout
-does mean there is now one line to change when it is settled.
+**Every command resolves the same root, by discovering it.** ``run`` used to
+root the store at the spec file's parent while the reading commands rooted
+theirs at the working directory, so ``caliper run evals/my.eval.yaml`` filed a
+run that ``caliper report my`` could not find. Both sides now call
+:meth:`RunStore.discover`, which walks up from the working directory for the
+nearest ``.caliper/``. See
+docs/adr/0022-saved-runs-live-at-a-discovered-results-root.md.
 """
 
 from __future__ import annotations
@@ -30,6 +30,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from caliper.schema.results import RunResults
+
+#: Caliper's own directory, and the marker that says "a results root is here".
+CALIPER_DIR = ".caliper"
+
+#: Where runs are filed within it.
+RESULTS_DIR = "results"
 
 #: The run id: a UTC timestamp that sorts lexicographically, so "latest" needs
 #: no parsing and a directory listing is already in run order.
@@ -56,6 +62,38 @@ class RunStore:
 
     root: Path = Path(".")
 
+    @classmethod
+    def discover(cls, start: Path | None = None) -> RunStore:
+        """The results root that governs ``start`` (default: the working directory).
+
+        The nearest ``.caliper/`` at or above ``start`` wins, so a package inside
+        a monorepo that has deliberately been given its own root keeps its own
+        eval history rather than pooling it with the repo's. The walk stops at
+        the enclosing git repository: caliper will not reach past a repo
+        boundary to adopt a root belonging to some unrelated parent — a stray
+        ``.caliper/`` in ``$HOME`` must not silently become every repo's store.
+
+        When no root exists yet, one is *named* (not created — ``save`` does
+        that) at the repository root, falling back to ``start`` outside a
+        repository. Deliberately not ``start`` itself: the first run of a
+        project would otherwise plant the root wherever the caller happened to
+        be standing, and every later run from elsewhere in the same project
+        would create a second one. Nothing about that is visible until a
+        ``report`` comes up empty.
+
+        The escape hatch is the marker itself: ``mkdir .caliper`` in a directory
+        makes it a results root, and nearest-wins does the rest.
+        """
+        start = (start or Path.cwd()).resolve()
+        repo_root: Path | None = None
+        for directory in (start, *start.parents):
+            if (directory / CALIPER_DIR).is_dir():
+                return cls(directory)
+            if (directory / ".git").exists():
+                repo_root = directory
+                break
+        return cls(repo_root or start)
+
     @property
     def caliper_dir(self) -> Path:
         """Caliper's own directory under this root — everything it writes.
@@ -63,15 +101,42 @@ class RunStore:
         The run sandbox forbids the agent-under-test from reading it: a skill
         that opens last run's results is reading the answer key.
         """
-        return self.root / ".caliper"
+        return self.root / CALIPER_DIR
 
     @property
     def results_dir(self) -> Path:
-        return self.caliper_dir / "results"
+        return self.caliper_dir / RESULTS_DIR
 
     def spec_dir(self, spec: str) -> Path:
         """Where this spec's runs are filed. May not exist yet."""
         return self.results_dir / spec
+
+    def no_results(self, ref: str) -> str:
+        """Why a reference did not resolve, as a message that names the root.
+
+        Two failures reach a reader as the same empty answer, and they need
+        different fixes: the spec name is wrong, or the command is being run
+        somewhere other than the project. The second is the one a bare "no
+        results for 'x'" hides — it reads as a typo. Both name the root that was
+        searched, because a *discovered* root is the one thing the caller cannot
+        see (docs/CONTEXT.md → Results root).
+        """
+        if not self.has_any_results():
+            return (
+                f"No evaluation results under {self.root}.\n\n"
+                "Run `caliper run` first, or work from the directory you ran it in."
+            )
+        return f"No results found for {ref!r} under {self.root}"
+
+    def has_any_results(self) -> bool:
+        """Whether caliper has ever saved a run under this root.
+
+        Separates two failures a reader hits with the same symptom: an unknown
+        spec name, and a results root that has never been written to at all —
+        which usually means the command was run somewhere other than the project
+        (docs/CONTEXT.md → Results root).
+        """
+        return self.results_dir.is_dir()
 
     def has_spec(self, spec: str) -> bool:
         """Whether this spec has ever been run here, even if every run was deleted.

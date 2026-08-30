@@ -14,29 +14,29 @@ from caliper.schema.results import RunResults
 
 console = Console()
 
-_STORE = RunStore()
 
-
-def _resolve(ref: str) -> Path:
-    path = _STORE.resolve(ref)
+def _resolve(store: RunStore, ref: str) -> Path:
+    path = store.resolve(ref)
     if path is None:
-        fail(BadInput(f"No results found for {ref!r}"))
+        fail(BadInput(store.no_results(ref)))
     return path
 
 
-def _load_run(path: Path) -> RunResults:
+def _load_run(store: RunStore, path: Path) -> RunResults:
     """One saved run, or the diagnosis for a file that will not parse.
 
     The reference the user typed is not carried in: ``UnreadableRun`` names the
     file itself, which is what a reader has to go and look at.
     """
     try:
-        return _STORE.load(path)
+        return store.load(path)
     except UnreadableRun as exc:
         fail(exc)
 
 
-def _refuse_self_diff(a: str, a_path: Path, b: str, b_path: Path) -> None:
+def _refuse_self_diff(
+    store: RunStore, a: str, a_path: Path, b: str, b_path: Path
+) -> None:
     """Refuse two references that name the same saved run.
 
     ``compare`` addresses runs but cannot *qualify* them: a bare spec name always
@@ -60,7 +60,7 @@ def _refuse_self_diff(a: str, a_path: Path, b: str, b_path: Path) -> None:
             "naming one twice diffs a run against itself — every delta zero, "
             "nothing flagged. Name two distinct runs; address the older side by "
             "its path:\n"
-            f"  caliper compare {_STORE.spec_dir('<spec>') / '<timestamp>.json'} {b}",
+            f"  caliper compare {store.spec_dir('<spec>') / '<timestamp>.json'} {b}",
             title="Refusing to compare",
         )
     )
@@ -87,12 +87,15 @@ def compare_cmd(
         bool, typer.Option("--verbose", "-v", help="Also show pass@k and pass^k")
     ] = False,
 ) -> None:
-    a_path, b_path = _resolve(a), _resolve(b)
-    _refuse_self_diff(a, a_path, b, b_path)
+    # One root for both sides: a bare spec name is resolved against it, so
+    # discovering per reference could address two different projects.
+    store = RunStore.discover()
+    a_path, b_path = _resolve(store, a), _resolve(store, b)
+    _refuse_self_diff(store, a, a_path, b, b_path)
     # Loaded before the try, not inside it: ``_load_run`` exits through ``fail``,
     # and ``typer.Exit`` is a RuntimeError — so a load that failed here would be
     # caught by any except clause wide enough to name one.
-    run_a, run_b = _load_run(a_path), _load_run(b_path)
+    run_a, run_b = _load_run(store, a_path), _load_run(store, b_path)
     try:
         comparison = diff_runs(run_a, run_b)
     except IncomparableRunsError as exc:

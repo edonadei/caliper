@@ -336,6 +336,9 @@ def _one_attempt_run(k: int = 3) -> RunResults:
 
 
 def test_run_cli_exits_130_and_saves_an_interrupted_run(monkeypatch, tmp_path) -> None:
+    # `run` roots its store at the cwd (docs/adr/0022), so the run this asserts
+    # on lands under tmp_path only if that is where caliper is invoked from.
+    monkeypatch.chdir(tmp_path)
     spec_file = tmp_path / "sample.eval.yaml"
     spec_file.write_text(
         "tasks:\n  - name: One\n    prompt: Do it\n    assert: 'assert True'\n"
@@ -357,6 +360,9 @@ def test_run_cli_exits_130_and_saves_an_interrupted_run(monkeypatch, tmp_path) -
 
 
 def test_run_cli_saves_before_reporting_a_fatal_error(monkeypatch, tmp_path) -> None:
+    # `run` roots its store at the cwd (docs/adr/0022), so the run this asserts
+    # on lands under tmp_path only if that is where caliper is invoked from.
+    monkeypatch.chdir(tmp_path)
     spec_file = tmp_path / "sample.eval.yaml"
     spec_file.write_text(
         "tasks:\n  - name: One\n    prompt: Do it\n    assert: 'assert True'\n"

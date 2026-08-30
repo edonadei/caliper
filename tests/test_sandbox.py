@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from caliper.harness.base import ConversationTurn
 from caliper.sandbox import SpecSandbox
 from caliper.schema.spec import EvalSpec, SandboxConfig, TaskSpec
@@ -75,12 +77,60 @@ def test_from_spec_forbids_the_spec_file_itself(tmp_path: Path) -> None:
     assert sandbox.violations([_read(str(spec_file))]) == [str(spec_file)]
 
 
-def test_from_spec_forbids_calipers_own_directory(tmp_path: Path) -> None:
+def test_from_spec_forbids_saved_results(tmp_path: Path) -> None:
     """Last run's saved results are an answer key too."""
     saved = tmp_path / ".caliper" / "results" / "demo" / "2026-01-01T00-00-00.json"
     sandbox = SpecSandbox.from_spec(_spec(), tmp_path / "demo.eval.yaml")
 
     assert sandbox.violations([_read(str(saved))]) == [str(saved)]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/elsewhere/.caliper/results/demo/2026-07-03T10-00-00Z.json",
+        ".caliper/results/demo",
+        "cat ../../.caliper/results/demo/latest.json",
+        "C:\\project\\.caliper\\results\\demo",
+    ],
+)
+def test_saved_results_are_forbidden_wherever_they_are_filed(
+    tmp_path: Path, path: str
+) -> None:
+    """The rule is "no results directory", not "not *this* run's".
+
+    The results root is discovered rather than fixed (docs/adr/0022), so a run
+    can be filed under a root this sandbox never resolved — an older one, a
+    sibling package's, another checkout's. A pattern forbids them all; a
+    resolved path would forbid exactly one and leave the rest readable.
+    """
+    sandbox = SpecSandbox.from_spec(_spec(), tmp_path / "demo.eval.yaml")
+
+    assert sandbox.violations([_read(path)]) == [path]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        # A task that writes a caliper spec puts this very text in a tool input.
+        # grill-skill's own eval does exactly that, and a bare `.caliper` marker
+        # flagged those attempts as cheats when it was declared by hand.
+        'forbidden_files:\n    - "./.caliper/.*"',
+        # The MCP config the harness writes into the agent's *own* home.
+        "/home/agent/.caliper-mcp.json",
+        # Listing the directory is not reading the answer key inside it.
+        "ls -la /home/agent/project/.caliper",
+        "/home/agent/caliper/src/main.py",
+        "notes.caliper",
+        "/x/my.caliperish/y",
+    ],
+)
+def test_the_saved_results_rule_does_not_swallow_neighbouring_names(
+    tmp_path: Path, path: str
+) -> None:
+    sandbox = SpecSandbox.from_spec(_spec(), tmp_path / "demo.eval.yaml")
+
+    assert sandbox.violations([_read(path)]) == []
 
 
 def test_from_spec_keeps_the_declared_patterns(tmp_path: Path) -> None:

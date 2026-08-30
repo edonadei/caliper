@@ -106,9 +106,8 @@ skills:                   # installed at the agent's own skills root, never
     path: skills/tdd/SKILL.md   # optional — defaults to SKILL.md at the root
 
 sandbox:
-  forbidden_files:
-    - ".*\\.eval\\.yaml$"
-    - "./.caliper/.*"
+  forbidden_files:               # extra patterns only — the spec itself and any
+    - "./answers/.*"             #   .caliper/ directory are forbidden already
 
 # Optional — only if the skill needs MCP tools. claude-code, hermes, codex backends.
 mcp:
@@ -221,8 +220,12 @@ The skill engine (`--model`) and judge engine (`--judge-model`) are chosen indep
 ## Results storage
 
 Results are saved automatically to `.caliper/results/<spec-name>/<timestamp>.json`
-alongside the spec file. Each attempt records its `outcome`, optional `usage`, and
-optional `transcript` (ordered turns with `tool_name`/`tool_input`/`tool_output` when present)
+under the project's **results root** — the nearest `.caliper/` at or above your
+working directory, bounded by the git repo. `run`, `report`, `compare` and
+`list` all resolve the same root, so a run saved from a spec's own subdirectory
+is findable by `caliper report <spec-name>` from anywhere in the project.
+
+Each attempt records its `outcome`, optional `usage`, and optional `transcript` (ordered turns with `tool_name`/`tool_input`/`tool_output` when present)
 so saved runs remain inspectable after the fact — including which MCP tools fired.
 Older JSON without `transcript` still loads (`null`). `report` and `compare` do not
 render the transcript; it is stored for later analysis.

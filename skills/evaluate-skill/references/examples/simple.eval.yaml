@@ -3,8 +3,7 @@ skills:
 
 sandbox:
   forbidden_files:
-    - ".*\\.eval\\.yaml$"
-    - "./.caliper/.*"
+    - ".*\\.eval\\.yaml$"    # .caliper/results/ is auto-forbidden already
 
 tasks:
   # The prompt never names the skill: it is installed, not preloaded, so the

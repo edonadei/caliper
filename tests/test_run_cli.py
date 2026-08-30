@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -200,25 +201,12 @@ def test_run_cli_collects_repeated_ablate_flags(monkeypatch, tmp_path) -> None:
     assert calls["ablate"] == ["grilling", "docs"]
 
 
-def test_run_cli_saves_the_run_beside_its_spec(monkeypatch, tmp_path) -> None:
-    """`run` hands the finished run to the store, rooted at the spec's directory.
-
-    Where the file lands is the store's business, but *which* root the CLI picks
-    is the CLI's — and it is the one thing that differs from every reading
-    command (see caliper/runstore.py).
-    """
-    spec_dir = tmp_path / "evals"
-    spec_dir.mkdir()
-    spec_file = spec_dir / "sample.eval.yaml"
-    spec_file.write_text(
-        "skills:\n  - ./SKILL.md\n"
-        "tasks:\n  - name: One\n    prompt: Do it\n    assert: assert True\n"
-    )
-    # One real attempt: a run where nothing ran is deliberately not saved.
-    finished = RunResults(
+def _finished(timestamp: datetime) -> RunResults:
+    """A one-attempt run: a run where nothing ran is deliberately not saved."""
+    return RunResults(
         run=RunMeta(
             spec="sample",
-            timestamp=datetime(2026, 7, 3, 12, 30, 0, tzinfo=timezone.utc),
+            timestamp=timestamp,
             k=1,
             backend="claude-code",
         ),
@@ -240,6 +228,8 @@ def test_run_cli_saves_the_run_beside_its_spec(monkeypatch, tmp_path) -> None:
         aggregate=AggregateScore(avg_score=1.0, per_task=[]),
     )
 
+
+def _stub_a_run(monkeypatch, finished: RunResults) -> None:
     monkeypatch.setattr("caliper.commands.run.get_harness", lambda *a, **k: object())
     monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **k: object())
     monkeypatch.setattr(
@@ -250,12 +240,88 @@ def test_run_cli_saves_the_run_beside_its_spec(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("caliper.commands.run.print_results", lambda *a, **k: None)
     monkeypatch.setattr("caliper.commands.run.run", lambda **kwargs: finished)
 
-    result = runner.invoke(app, ["run", str(spec_file)])
+
+def _project(root: Path) -> Path:
+    """A git project with its spec in a subdirectory, and no results root yet."""
+    (root / ".git").mkdir(parents=True)
+    spec_dir = root / "evals"
+    spec_dir.mkdir()
+    (spec_dir / "sample.eval.yaml").write_text(
+        "skills:\n  - ./SKILL.md\n"
+        "tasks:\n  - name: One\n    prompt: Do it\n    assert: assert True\n"
+    )
+    return spec_dir
+
+
+def test_run_cli_saves_the_run_at_the_discovered_root(monkeypatch, tmp_path) -> None:
+    """`run` files the run at the results root, not beside the spec file.
+
+    Where the file lands *within* a root is the store's business, but which root
+    the CLI picks is the CLI's — and it has to be the root every reading command
+    resolves, or a spec in a subdirectory files its runs where `report` never
+    looks (docs/adr/0022).
+    """
+    spec_dir = _project(tmp_path)
+    _stub_a_run(
+        monkeypatch, _finished(datetime(2026, 7, 3, 12, 30, tzinfo=timezone.utc))
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["run", "evals/sample.eval.yaml"])
 
     assert result.exit_code == 0, result.output
-    saved = RunStore(spec_dir).resolve("sample")
-    assert saved is not None, "the run was not filed beside its spec"
-    assert RunStore.load(saved).run.timestamp == finished.run.timestamp
+    assert not (spec_dir / ".caliper").exists(), "the run was filed beside its spec"
+    saved = RunStore(tmp_path).resolve("sample")
+    assert saved is not None, "the run was not filed at the project's results root"
+
+
+def test_a_run_is_findable_by_report_from_another_directory(
+    monkeypatch, tmp_path
+) -> None:
+    """The bug this rooting exists to close, end to end through the CLI.
+
+    `run` is invoked from the spec's *own* subdirectory — the case that used to
+    file results into `evals/.caliper/` — and `report` is then invoked from the
+    project root, addressing the run by spec name with no path in hand. Both
+    commands discover the same root, so the second finds what the first wrote.
+    """
+    project = tmp_path / "project"
+    spec_dir = _project(project)
+    _stub_a_run(monkeypatch, _finished(datetime(2026, 7, 4, 9, 0, tzinfo=timezone.utc)))
+
+    monkeypatch.chdir(spec_dir)
+    run_result = runner.invoke(app, ["run", "sample.eval.yaml"])
+    assert run_result.exit_code == 0, run_result.output
+
+    monkeypatch.chdir(project)
+    report_result = runner.invoke(app, ["report", "sample", "--format", "json"])
+    assert report_result.exit_code == 0, report_result.output
+    assert "2026-07-04T09:00:00" in report_result.output
+
+
+def test_report_outside_the_project_does_not_find_its_runs(
+    monkeypatch, tmp_path
+) -> None:
+    """Discovery walks up, never sideways, and stops at the repo boundary.
+
+    The run belongs to `project/`; a sibling directory outside it must not reach
+    in, and the message has to say so rather than reading like a typo.
+    """
+    project = tmp_path / "project"
+    _project(project)
+    _stub_a_run(monkeypatch, _finished(datetime(2026, 7, 5, 9, 0, tzinfo=timezone.utc)))
+
+    monkeypatch.chdir(project)
+    assert runner.invoke(app, ["run", "evals/sample.eval.yaml"]).exit_code == 0
+
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / ".git").mkdir(parents=True)
+    monkeypatch.chdir(elsewhere)
+
+    result = runner.invoke(app, ["report", "sample"])
+
+    assert result.exit_code == 1
+    assert "No evaluation results" in result.output
 
 
 def test_baseline_is_retired_and_says_where_the_capability_went(tmp_path) -> None:

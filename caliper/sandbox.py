@@ -15,9 +15,8 @@ them (docs/adr/0020), so what it carries stays the spec's own data. The
 Two audiences, deliberately not the same list:
 
 - :meth:`SpecSandbox.violations` scans a finished transcript, and uses the
-  declared patterns **plus** the auto-forbidden ones (the spec file, caliper's
-  own directory) — the answer keys an author should not have to think to
-  declare.
+  declared patterns **plus** the auto-forbidden ones (the spec file, any saved
+  results) — the answer keys an author should not have to think to declare.
 - :meth:`SpecSandbox.permits_install` filters a skill's files at install time,
   and uses the declared patterns **alone**. The auto-forbidden entries are
   absolute host paths; matching them against a skill's relative install paths
@@ -37,9 +36,30 @@ if TYPE_CHECKING:  # Import-time only: harness.base reaches back into skills.py,
     from caliper.harness.base import ConversationTurn
     from caliper.schema.spec import EvalSpec
 
+from caliper.runstore import CALIPER_DIR, RESULTS_DIR
+
 # How deep into an agent-supplied ``tool_input`` the scan walks. The input is
 # arbitrary JSON the agent wrote, so the walk is bounded rather than trusted.
 _MAX_DEPTH = 5
+
+#: Any saved run, wherever it is filed — a real regex, unlike the ``auto``
+#: entries, and the only forbidden rule that is not a resolved path.
+#:
+#: It cannot be one. The results root is *discovered* rather than fixed
+#: (docs/adr/0022-saved-runs-live-at-a-discovered-results-root.md), so resolving
+#: it would forbid the one location this run happens to write to and leave every
+#: other readable: an older root, another checkout's, the one a monorepo sibling
+#: owns. Reading last run's results is reading the answer key wherever they are.
+#:
+#: Narrow on both sides on purpose. It matches ``.caliper/results/`` and not
+#: ``.caliper`` alone, because a task may legitimately *write a caliper spec*
+#: whose text contains ``./.caliper/.*`` — grill-skill's own eval does, and a
+#: bare marker flagged those attempts as cheats when the pattern was declared by
+#: hand. The leading boundary keeps ``.caliper-mcp.json``, the MCP config the
+#: harness writes into the agent's own home, out of it.
+SAVED_RESULTS = (
+    rf"(?<![\w.-]){re.escape(CALIPER_DIR)}[/\\]{re.escape(RESULTS_DIR)}[/\\]"
+)
 
 
 class Sandbox(Protocol):
@@ -58,10 +78,12 @@ class SpecSandbox:
     """The sandbox an eval spec describes, plus caliper's own additions.
 
     ``declared`` is verbatim ``sandbox.forbidden_files`` — regexes, written by
-    the spec author. ``auto`` is what caliper forbids on every run; the entries
-    are real paths, so they are escaped into literal patterns rather than
-    honoured as regexes (a spec living at ``demo+v2.eval.yaml`` must match
-    itself, not a repetition).
+    the spec author. ``auto`` is the *paths* caliper forbids on every run; the
+    entries are real paths, so they are escaped into literal patterns rather
+    than honoured as regexes (a spec living at ``demo+v2.eval.yaml`` must match
+    itself, not a repetition). :data:`SAVED_RESULTS` is forbidden on top of
+    both, always: it is a rule about a directory *shape*, not a location, so
+    there is no path for it to be an entry of.
     """
 
     declared: list[str] = field(default_factory=list)
@@ -72,17 +94,14 @@ class SpecSandbox:
         """The sandbox for a run of ``spec``, loaded from ``spec_path``.
 
         Two answer keys are forbidden without the author declaring them: the
-        spec file (which holds every ``expect:``) and caliper's own directory
-        under the spec's root (which holds every saved run).
+        spec file, which holds every ``expect:``, and any saved run — the
+        latter via :data:`SAVED_RESULTS` rather than a path, because the results
+        root is discovered and a run may be filed under one this call never
+        resolved.
         """
-        from caliper.runstore import RunStore
-
         return cls(
             declared=list(spec.sandbox.forbidden_files),
-            auto=[
-                str(spec_path.resolve()),
-                str(RunStore(spec_path.parent).caliper_dir.resolve()),
-            ],
+            auto=[str(spec_path.resolve())],
         )
 
     def violations(self, transcript: list[ConversationTurn]) -> list[str]:
@@ -121,7 +140,11 @@ class SpecSandbox:
 
     @cached_property
     def _compiled(self) -> list[re.Pattern[str]]:
-        return self._declared_compiled + [re.compile(re.escape(p)) for p in self.auto]
+        return [
+            *self._declared_compiled,
+            *(re.compile(re.escape(p)) for p in self.auto),
+            re.compile(SAVED_RESULTS),
+        ]
 
 
 def _paths_in(obj: object, depth: int = 0) -> list[str]:

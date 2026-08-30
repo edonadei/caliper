@@ -12,8 +12,6 @@ from caliper.schema.results import UsageTotals
 
 console = Console()
 
-_STORE = RunStore()
-
 
 def report_cmd(
     spec_or_file: Annotated[
@@ -27,12 +25,13 @@ def report_cmd(
     ] = "table",
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
-    results_path = _STORE.resolve(spec_or_file, run)
+    store = RunStore.discover()
+    results_path = store.resolve(spec_or_file, run)
     if results_path is None:
-        fail(BadInput(f"No results found for {spec_or_file!r}"))
+        fail(BadInput(store.no_results(spec_or_file)))
 
     try:
-        results = _STORE.load(results_path)
+        results = store.load(results_path)
     except UnreadableRun as exc:
         fail(exc)
 
