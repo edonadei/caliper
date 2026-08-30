@@ -5,7 +5,15 @@ from datetime import datetime, timezone
 from typer.testing import CliRunner
 
 from caliper.main import app
-from caliper.schema.results import AggregateScore, RunMeta, RunResults
+from caliper.runstore import RunStore
+from caliper.schema.results import (
+    AggregateScore,
+    AttemptRecord,
+    Outcome,
+    RunMeta,
+    RunResults,
+    TaskResult,
+)
 
 
 runner = CliRunner()
@@ -66,10 +74,6 @@ tasks:
     )
     monkeypatch.setattr(
         "caliper.commands.run.print_results", lambda *args, **kwargs: None
-    )
-    monkeypatch.setattr(
-        "caliper.commands.run.save_results",
-        lambda *args, **kwargs: tmp_path / "results.json",
     )
     monkeypatch.setattr("caliper.commands.run.run", fake_run)
 
@@ -136,9 +140,6 @@ def test_run_cli_resolves_backend_and_judge_model_targets(
     monkeypatch.setattr("caliper.commands.run.update_progress", lambda *a, **k: None)
     monkeypatch.setattr("caliper.commands.run.print_banner", lambda *a, **k: None)
     monkeypatch.setattr("caliper.commands.run.print_results", lambda *a, **k: None)
-    monkeypatch.setattr(
-        "caliper.commands.run.save_results", lambda *a, **k: tmp_path / "r.json"
-    )
     monkeypatch.setattr("caliper.commands.run.run", fake_run)
 
     result = runner.invoke(
@@ -189,9 +190,6 @@ def test_run_cli_collects_repeated_ablate_flags(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("caliper.commands.run.update_progress", lambda *a, **k: None)
     monkeypatch.setattr("caliper.commands.run.print_banner", lambda *a, **k: None)
     monkeypatch.setattr("caliper.commands.run.print_results", lambda *a, **k: None)
-    monkeypatch.setattr(
-        "caliper.commands.run.save_results", lambda *a, **k: tmp_path / "r.json"
-    )
     monkeypatch.setattr("caliper.commands.run.run", fake_run)
 
     result = runner.invoke(
@@ -200,6 +198,67 @@ def test_run_cli_collects_repeated_ablate_flags(monkeypatch, tmp_path) -> None:
 
     assert result.exit_code == 0, result.output
     assert calls["ablate"] == ["grilling", "docs"]
+
+
+def test_run_cli_saves_the_run_beside_its_spec(monkeypatch, tmp_path) -> None:
+    """`run` hands the finished run to the store, rooted at the spec's directory.
+
+    Where the file lands is the store's business, but *which* root the CLI picks
+    is the CLI's — and it is the one thing that differs from every reading
+    command (see caliper/runstore.py).
+    """
+    spec_dir = tmp_path / "evals"
+    spec_dir.mkdir()
+    spec_file = spec_dir / "sample.eval.yaml"
+    spec_file.write_text(
+        "skills:\n  - ./SKILL.md\n"
+        "tasks:\n  - name: One\n    prompt: Do it\n    assert: assert True\n"
+    )
+    # One real attempt: a run where nothing ran is deliberately not saved.
+    finished = RunResults(
+        run=RunMeta(
+            spec="sample",
+            timestamp=datetime(2026, 7, 3, 12, 30, 0, tzinfo=timezone.utc),
+            k=1,
+            backend="claude-code",
+        ),
+        skill_snapshots=[],
+        task_results=[
+            TaskResult(
+                task_id="task-001",
+                task_name="One",
+                attempts=[
+                    AttemptRecord(
+                        attempt=1,
+                        output="done",
+                        duration_seconds=0.1,
+                        outcome=Outcome.PASS,
+                    )
+                ],
+                successes=1,
+                unusable=0,
+                pass_at_k=1.0,
+            )
+        ],
+        aggregate=AggregateScore(avg_score=1.0, per_task=[]),
+    )
+
+    monkeypatch.setattr("caliper.commands.run.get_harness", lambda *a, **k: object())
+    monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **k: object())
+    monkeypatch.setattr(
+        "caliper.commands.run.make_progress", lambda *a, **k: (_Progress(), {})
+    )
+    monkeypatch.setattr("caliper.commands.run.update_progress", lambda *a, **k: None)
+    monkeypatch.setattr("caliper.commands.run.print_banner", lambda *a, **k: None)
+    monkeypatch.setattr("caliper.commands.run.print_results", lambda *a, **k: None)
+    monkeypatch.setattr("caliper.commands.run.run", lambda **kwargs: finished)
+
+    result = runner.invoke(app, ["run", str(spec_file)])
+
+    assert result.exit_code == 0, result.output
+    saved = RunStore(spec_dir).resolve("sample")
+    assert saved is not None, "the run was not filed beside its spec"
+    assert RunStore.load(saved).run.timestamp == finished.run.timestamp
 
 
 def test_baseline_is_retired_and_says_where_the_capability_went(tmp_path) -> None:

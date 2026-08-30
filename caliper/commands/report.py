@@ -5,11 +5,13 @@ from typing import Annotated, Optional
 import typer
 from rich.console import Console
 
-from caliper.commands._addressing import resolve_run_path
 from caliper.reporter import print_results
-from caliper.schema.results import RunResults, UsageTotals
+from caliper.runstore import RunStore, UnreadableRun
+from caliper.schema.results import UsageTotals
 
 console = Console()
+
+_STORE = RunStore()
 
 
 def report_cmd(
@@ -24,7 +26,7 @@ def report_cmd(
     ] = "table",
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
-    results_path = resolve_run_path(spec_or_file, run)
+    results_path = _STORE.resolve(spec_or_file, run)
     if results_path is None:
         console.print(
             f"[bold red]Error:[/bold red] No results found for {spec_or_file!r}"
@@ -32,8 +34,8 @@ def report_cmd(
         raise typer.Exit(1)
 
     try:
-        results = RunResults.model_validate_json(results_path.read_text())
-    except Exception as exc:
+        results = _STORE.load(results_path)
+    except UnreadableRun as exc:
         console.print(f"[bold red]Error parsing results:[/bold red] {exc}")
         raise typer.Exit(1)
 

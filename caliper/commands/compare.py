@@ -6,16 +6,18 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
-from caliper.commands._addressing import resolve_run_path
 from caliper.compare import IncomparableRunsError, diff_runs
 from caliper.reporter import comparison_to_json, print_comparison
+from caliper.runstore import RunStore, UnreadableRun
 from caliper.schema.results import RunResults
 
 console = Console()
 
+_STORE = RunStore()
+
 
 def _resolve(ref: str) -> Path:
-    path = resolve_run_path(ref)
+    path = _STORE.resolve(ref)
     if path is None:
         console.print(f"[bold red]Error:[/bold red] No results found for {ref!r}")
         raise typer.Exit(1)
@@ -24,8 +26,8 @@ def _resolve(ref: str) -> Path:
 
 def _load_run(ref: str, path: Path) -> RunResults:
     try:
-        return RunResults.model_validate_json(path.read_text())
-    except Exception as exc:
+        return _STORE.load(path)
+    except UnreadableRun as exc:
         console.print(f"[bold red]Error parsing results ({ref}):[/bold red] {exc}")
         raise typer.Exit(1)
 
@@ -53,7 +55,7 @@ def _refuse_self_diff(a: str, a_path: Path, b: str, b_path: Path) -> None:
         "A bare spec name always resolves to that spec's latest run, so naming "
         "one twice diffs a run against itself — every delta zero, nothing "
         "flagged. Name two distinct runs; address the older side by its path:\n"
-        f"  caliper compare .caliper/results/<spec>/<timestamp>.json {b}"
+        f"  caliper compare {_STORE.spec_dir('<spec>') / '<timestamp>.json'} {b}"
     )
     raise typer.Exit(1)
 

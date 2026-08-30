@@ -156,6 +156,20 @@ reproducible without it.
 _Avoid_: baseline (the retired `--baseline` flag ran both arms inside a single
 invocation, and so re-paid for the removed arm on every run).
 
+## Saved run
+
+A finished run, persisted and filed under the spec that produced it. A saved run
+is the *only* thing `report`, `compare` and `list` ever read — none of them
+re-runs anything — so a run is measured once and read back as often as you like.
+An [[interrupted run]] is a saved run like any other.
+
+Its **run id** names it uniquely among that spec's runs and orders it against
+them (see [[0021-a-run-is-addressed-by-its-timestamp]]).
+
+A **run reference** is how a caller names a saved run: either a direct path, or a
+spec name, which always means that spec's *latest* run. See [[run comparison
+(`compare`)]] for why an [[ablation]] pair has to name its control arm by path.
+
 ## Run comparison (`compare`)
 
 A side-by-side of two **already-saved** runs of the same eval — control vs.

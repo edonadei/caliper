@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from caliper.reporter import UNUSABLE_GLYPH
+from caliper.runstore import RunStore, UnreadableRun
 from caliper.schema.results import RunResults
 
 console = Console()
@@ -39,6 +40,21 @@ def _print_interrupted_legend(marked: bool) -> None:
         )
 
 
+def _read(store: RunStore, path: Path) -> RunResults | None:
+    """One run, or ``None`` with a warning when the file will not parse.
+
+    The listing is the one command that must survive a corrupt run: it renders a
+    row per file, and refusing the whole table over one bad one would hide every
+    good run beside it. So the row degrades to "?" — but the file is named, which
+    a bare ``except`` never did.
+    """
+    try:
+        return store.load(path)
+    except UnreadableRun as exc:
+        console.print(f"[yellow]Skipping unreadable run:[/yellow] [dim]{exc}[/dim]")
+        return None
+
+
 def list_cmd_fn(
     spec: Annotated[
         Optional[str], typer.Argument(help="Spec name to list runs for")
@@ -47,16 +63,17 @@ def list_cmd_fn(
         Path, typer.Option("--dir", help="Directory to search")
     ] = Path("."),
 ) -> None:
-    caliper_dir = directory / ".caliper" / "results"
+    store = RunStore(directory)
 
     if spec:
-        _list_runs(caliper_dir / spec, spec)
+        _list_runs(store, spec)
     else:
-        _list_specs(caliper_dir)
+        _list_specs(store)
 
 
-def _list_specs(results_dir: Path) -> None:
-    if not results_dir.exists():
+def _list_specs(store: RunStore) -> None:
+    specs = store.specs()
+    if not specs:
         console.print(
             "[dim]No evaluation results found. Run [bold]caliper run[/bold] first.[/dim]"
         )
@@ -69,40 +86,32 @@ def _list_specs(results_dir: Path) -> None:
     table.add_column("pass@k", justify="right")
 
     marked = False
-    for spec_dir in sorted(results_dir.iterdir()):
-        if not spec_dir.is_dir():
-            continue
-        files = sorted(spec_dir.glob("*.json"))
-        if not files:
-            continue
-        latest_file = files[-1]
-        interrupted = False
-        try:
-            results = RunResults.model_validate_json(latest_file.read_text())
+    for name in specs:
+        runs = store.runs(name)
+        latest = runs[-1]
+        results = _read(store, latest)
+        if results is None:
+            # The run id is the timestamp, so a file we cannot parse still knows
+            # when it ran — that much is in its name.
+            ts, score = latest.stem, "?"
+        else:
             ts = results.run.timestamp.strftime("%Y-%m-%d %H:%M")
             score = _score_cell(results)
-            interrupted = results.run.interrupted
-        except Exception:
-            ts = latest_file.stem
-            score = "?"
-        marked = marked or interrupted
+            marked = marked or results.run.interrupted
 
-        table.add_row(spec_dir.name, str(len(files)), ts, score)
+        table.add_row(name, str(len(runs)), ts, score)
 
-    if table.row_count == 0:
-        console.print("[dim]No results yet.[/dim]")
-    else:
-        console.print(table)
-        _print_interrupted_legend(marked)
+    console.print(table)
+    _print_interrupted_legend(marked)
 
 
-def _list_runs(spec_dir: Path, spec_name: str) -> None:
-    if not spec_dir.exists():
+def _list_runs(store: RunStore, spec_name: str) -> None:
+    if not store.has_spec(spec_name):
         console.print(f"[bold red]Error:[/bold red] No results for spec {spec_name!r}")
         raise typer.Exit(1)
 
-    files = sorted(spec_dir.glob("*.json"))
-    if not files:
+    runs = store.runs(spec_name)
+    if not runs:
         console.print(f"[dim]No runs for {spec_name}.[/dim]")
         return
 
@@ -124,21 +133,21 @@ def _list_runs(spec_dir: Path, spec_name: str) -> None:
     table.add_column("Run", style="dim", overflow="fold")
 
     marked = False
-    for f in files:
-        ablated = ""
-        try:
-            results = RunResults.model_validate_json(f.read_text())
+    for path in runs:
+        results = _read(store, path)
+        if results is None:
+            score = k = n_tasks = "?"
+            ablated = ""
+        else:
             score = _score_cell(results)
             k = str(results.run.k)
             n_tasks = str(len(results.task_results))
             ablated = ", ".join(results.run.ablated)
             marked = marked or results.run.interrupted
-        except Exception:
-            score = k = n_tasks = "?"
 
         # The stem, not the filename: it is what `report --run` takes verbatim,
         # and what a `compare` path is built from.
-        table.add_row(k, n_tasks, score, ablated, f.stem)
+        table.add_row(k, n_tasks, score, ablated, path.stem)
 
     console.print(table)
     _print_interrupted_legend(marked)
