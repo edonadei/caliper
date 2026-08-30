@@ -493,6 +493,22 @@ toward the [[success rate|score]]?"; **execution noise** asks "should this be
 which is excluded from the denominator without being an error — so a correct
 trigger-probe spec never reads as broken.
 
+## Exit code
+
+What a `caliper` command tells the shell, and the one part of the CLI a CI job
+reads instead of looking at. `0` ran, `1` the request was wrong (a missing spec,
+an invalid one, a reference naming no run), `2` caliper could not run the eval
+(a misconfigured backend, an exhausted account), `130` a Ctrl-C whose partial
+run was saved. `3` is **reserved**: a clean run that did not clear a
+*pre-registered* bar.
+
+The distinction `2` and `3` draw is the one CI needs — *the eval could not run*
+is a broken pipeline, *the skill did not clear the bar* is the answer you asked
+for — so it is a contract, not an implementation detail, and a failure's code is
+decided in one place rather than at each command. A [[regression]] in `compare`
+is deliberately **not** an exit code: the any-below rule fires on noise about as
+often as on a real change at small k.
+
 ## Sandbox
 
 What the agent-under-test may **not** touch during a run — the sibling of the

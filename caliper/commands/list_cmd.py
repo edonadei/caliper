@@ -8,6 +8,7 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
+from caliper.commands.diagnosis import BadInput, fail
 from caliper.reporter import UNUSABLE_GLYPH
 from caliper.runstore import RunStore, UnreadableRun
 from caliper.schema.results import RunResults
@@ -107,8 +108,7 @@ def _list_specs(store: RunStore) -> None:
 
 def _list_runs(store: RunStore, spec_name: str) -> None:
     if not store.has_spec(spec_name):
-        console.print(f"[bold red]Error:[/bold red] No results for spec {spec_name!r}")
-        raise typer.Exit(1)
+        fail(BadInput(f"No results for spec {spec_name!r}"))
 
     runs = store.runs(spec_name)
     if not runs:

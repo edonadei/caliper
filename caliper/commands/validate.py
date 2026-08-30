@@ -5,6 +5,7 @@ from pydantic import ValidationError
 from rich.console import Console
 from rich.panel import Panel
 
+from caliper.commands.diagnosis import BadInput, fail
 from caliper.schema.spec import load_spec, spec_name
 from caliper.skillfetch import SkillFetcher
 from caliper.skills import (
@@ -29,23 +30,18 @@ def validate_cmd(
     spec_file: Path = typer.Argument(..., help="Path to .eval.yaml spec file"),
 ) -> None:
     if not spec_file.exists():
-        console.print(f"[bold red]Error:[/bold red] File not found: {spec_file}")
-        raise typer.Exit(1)
+        fail(BadInput(f"File not found: {spec_file}"))
 
     try:
         spec = load_spec(spec_file)
     except ValidationError as exc:
-        console.print(
-            Panel(
-                _format_validation_errors(exc),
-                title="[bold red]Validation failed[/bold red]",
-                border_style="red",
-            )
-        )
-        raise typer.Exit(1)
+        # Rendered here rather than by the diagnosis table: the per-field
+        # `loc → msg` layout is what makes a spec author's error actionable, and
+        # it is worth more than the generic pydantic string every other command
+        # would get.
+        fail(BadInput(_format_validation_errors(exc), title="Validation failed"))
     except Exception as exc:
-        console.print(f"[bold red]Error parsing YAML:[/bold red] {exc}")
-        raise typer.Exit(1)
+        fail(BadInput(f"Error parsing YAML: {exc}"))
 
     # Resolve the neighbourhood here too: a lone slash-command .md, a missing
     # frontmatter name:, or two skills claiming one name are all things
@@ -63,14 +59,7 @@ def validate_cmd(
         # connectivity reason.
         validate_activates(spec.tasks, refs, closed=not fetcher.unresolved)
     except SkillResolutionError as exc:
-        console.print(
-            Panel(
-                str(exc),
-                title="[bold red]Validation failed[/bold red]",
-                border_style="red",
-            )
-        )
-        raise typer.Exit(1)
+        fail(BadInput(str(exc), title="Validation failed"))
 
     name = spec_name(spec_file)
     n_tasks = len(spec.tasks)

@@ -133,3 +133,22 @@ def test_list_names_which_run_was_the_control_arm(monkeypatch, tmp_path) -> None
     assert result.exit_code == 0, result.output
     assert "ablated" in result.output
     assert "my-skill" in result.output
+
+
+def test_an_unreadable_side_is_diagnosed_not_swallowed(monkeypatch, tmp_path) -> None:
+    """A corrupt file on either side is diagnosed, not rendered as a diff.
+
+    Covers the load path itself. It does *not* pin the fact that the loads
+    happen before ``compare_cmd``'s ``try`` — with the narrow
+    ``except IncomparableRunsError`` there today, both arrangements pass. That
+    hoist is defence against widening the clause later, and the reason lives in
+    a comment beside it.
+    """
+    ablated, full = _two_runs(tmp_path)
+    full.write_text("not json at all")
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["compare", str(ablated), str(full)])
+
+    assert result.exit_code == 1
+    assert "parsing results" in result.output
