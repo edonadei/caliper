@@ -493,6 +493,26 @@ toward the [[success rate|score]]?"; **execution noise** asks "should this be
 which is excluded from the denominator without being an error — so a correct
 trigger-probe spec never reads as broken.
 
+## Sandbox
+
+What the agent-under-test may **not** touch during a run — the sibling of the
+declared [[MCP server (declared)|mcp:]] block, which grants capabilities where
+`sandbox:` takes them away. Its `forbidden_files` are regexes the spec author
+writes; caliper adds two of its own on every run, without being asked: the
+`.eval.yaml` spec itself (which holds every `expect:`) and `.caliper/` (which
+holds every [[saved run]]). Both are answer keys.
+
+The sandbox is read at two moments, against two different lists. At **install**
+time it filters a skill's files, using the *declared* patterns alone — the
+additions are absolute host paths, and could only match a skill's relative
+install path by accident. At **grading** time it scans the finished transcript
+for forbidden paths, using declared and added patterns together; a hit is the
+evidence behind a `cheat` [[outcome]], so the offending paths are reported and
+not merely counted.
+
+A sandbox is not a claim that the agent was *contained* — nothing stops the
+read; the run observes it and grades accordingly.
+
 ## Trigger probe
 
 A task that authors `activates:` and no `expect:`/`assert:` — its whole claim is

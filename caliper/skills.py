@@ -21,6 +21,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from caliper.sandbox import SpecSandbox
 from caliper.schema.spec import GitSkillSource
 from caliper.skillfetch import SkillFetchError, SkillFetcher
 
@@ -242,8 +243,10 @@ def install_skills(
 
     Cheat surfaces are never installed, and the exclusions apply to **every**
     ref: a neighbour's ``.eval.yaml`` is as much an answer key as the subject's.
+    Which paths those are is the sandbox's rule, not this module's — it is asked
+    rather than re-derived (docs/CONTEXT.md → Sandbox).
     """
-    forbidden = [re.compile(p) for p in forbidden_files]
+    sandbox = SpecSandbox(declared=list(forbidden_files))
 
     for ref in refs:
         dest = skills_root / ref.name
@@ -255,10 +258,7 @@ def install_skills(
                 continue
             if item.name.endswith(".eval.yaml"):
                 continue
-            rel_posix = rel.as_posix()
-            if any(
-                r.search(rel_posix) or r.search("./" + rel_posix) for r in forbidden
-            ):
+            if not sandbox.permits_install(rel.as_posix()):
                 continue
             try:
                 if item.stat().st_size > _MAX_FILE_BYTES:

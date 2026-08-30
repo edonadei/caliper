@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import shutil
 import subprocess
 import tempfile
@@ -14,13 +13,12 @@ from caliper import cancel
 from caliper.activation import ActivationDetector
 from caliper.attempt import assemble_attempt
 from caliper.harness.base import (
-    ConversationTurn,
     HarnessBackend,
     HarnessConfigurationError,
 )
 from caliper.judge.base import Judge
 from caliper.retry import SpendingCapReached, invoke_with_retry
-from caliper.runstore import RunStore
+from caliper.sandbox import SpecSandbox
 from caliper.schema.results import (
     ERA_INSTALL_AND_DISCOVER,
     AttemptRecord,
@@ -74,7 +72,7 @@ class _RunEnv:
 
     harness: HarnessBackend
     judge: Judge
-    cheat: _CheatDetector
+    sandbox: SpecSandbox
     activation: ActivationDetector
     spec: EvalSpec
     spec_path: Path
@@ -186,16 +184,14 @@ def run(
         [ref.name for ref in skill_refs], harness.activation_tool_names
     )
 
-    auto_forbidden = [
-        re.escape(str(spec_path.resolve())),
-        re.escape(str(RunStore(spec_path.parent).caliper_dir.resolve())),
-    ]
-    cheat = _CheatDetector(list(spec.sandbox.forbidden_files) + auto_forbidden)
+    # Owns the whole forbidden-path rule, the spec's own entries and caliper's
+    # additions alike (docs/CONTEXT.md → Sandbox).
+    sandbox = SpecSandbox.from_spec(spec, spec_path)
 
     env = _RunEnv(
         harness=harness,
         judge=judge,
-        cheat=cheat,
+        sandbox=sandbox,
         activation=detector,
         spec=spec,
         spec_path=spec_path,
@@ -456,7 +452,7 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord | 
             spec_dir=str(spec_path.parent),
             expected_activation=env.expected_activation(task),
             activation=env.activation,
-            cheat=env.cheat,
+            sandbox=env.sandbox,
             judge=env.judge,
             retries=invoked.retries,
         )
@@ -491,34 +487,3 @@ def _announce(
 def _run_shell(cmd: str | None) -> None:
     if cmd:
         subprocess.run(cmd, shell=True, check=False)
-
-
-class _CheatDetector:
-    def __init__(self, patterns: list[str]) -> None:
-        self._compiled = [re.compile(p) for p in patterns]
-
-    def check(self, transcript: list[ConversationTurn]) -> list[str]:
-        violations: list[str] = []
-        for turn in transcript:
-            if turn.tool_input:
-                for value in self._extract_paths(turn.tool_input):
-                    if any(r.search(value) for r in self._compiled):
-                        violations.append(value)
-        return violations
-
-    def _extract_paths(self, obj: dict | list | str, depth: int = 0) -> list[str]:
-        if depth > 5:
-            return []
-        if isinstance(obj, str):
-            return [obj] if ("/" in obj or "." in obj) else []
-        if isinstance(obj, dict):
-            results: list[str] = []
-            for v in obj.values():
-                results.extend(self._extract_paths(v, depth + 1))
-            return results
-        if isinstance(obj, list):
-            results = []
-            for item in obj:
-                results.extend(self._extract_paths(item, depth + 1))
-            return results
-        return []

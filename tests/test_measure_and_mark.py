@@ -34,8 +34,8 @@ from caliper.schema.spec import TaskSpec
 runner = CliRunner()
 
 
-class NoCheat:
-    def check(self, transcript: list[ConversationTurn]) -> list[str]:
+class OpenSandbox:
+    def violations(self, transcript: list[ConversationTurn]) -> list[str]:
         return []
 
 
@@ -66,7 +66,7 @@ def _assemble(task: TaskSpec, result: AttemptResult) -> AttemptRecord:
         spec_dir=".",
         expected_activation=None,
         activation=ActivationDetector([], frozenset()),
-        cheat=NoCheat(),
+        sandbox=OpenSandbox(),
         judge=SlowJudge(),
     ).record
 
