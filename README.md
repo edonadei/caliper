@@ -1,18 +1,54 @@
-# Caliper: Know if your agent skill actually works
+# Caliper: find out if your agent customizations help or hurt
 
 [![PyPI](https://img.shields.io/pypi/v/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Python](https://img.shields.io/pypi/pyversions/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Skills](https://skills.sh/b/edonadei/caliper)](https://skills.sh/edonadei/caliper)
 
-Caliper is a lightweight evaluation harness for agent skills. Write a short spec of what "good" looks like, run it, and get a **success rate** you can track. Works with the agent you already use: **Claude Code, Codex, Pi, or Hermes**. Caliper installs the skill where the agent looks for skills and lets the agent choose.
+Every skill, every MCP, every custom rule you add to your agent harness charges rent. It's paid in tokens, on every single run, whether or not it earns them. You are hoping that these
+instructions will make your task succeed more often. With fewer tokens. Without you needing to babysit it. But have you tested that assumption? I can bet you've added it once, it looked fine, and now you forgot it exists.
 
-**Teach your agent to evaluate:**
+I get it, evaluation is boring, it's intimidating because you might not know where to start. I got you. That's why I built Caliper. It's an evaluation framework that works on top of the harnesses you already use. It creates a realistic sandbox that allows us to test every scenario.
+
+Caliper helps you define what your agent is supposed to achieve in a YAML file that lives with your agent customizations. It runs your real harness on it. It also runs that same agent without your customization. It then reports
+the two numbers that will finally help you answer that question. Are you indeed improving your agent? Or making it worse? (Empirically you're often making it worse)
+
+<!-- Terminal output of `caliper compare`, rendered to SVG so the box-drawing
+     table stays aligned on every screen. Regenerate with:
+       python docs/render_readme_samples.py -->
+![caliper compare, without commit-commands vs full neighbourhood on commit-commands: both tasks go 33.3% to 100.0% (+66.7%); tokens 290K to 180K, wall 1m 1s to 42s](docs/assets/compare-ablation.svg)
+
+After writing the evaluation, you'll be able to answer this kind of question. Here adding my skill pushed the pass rate from 33% to
+100%. It saved more than 100K tokens, and slashed 20s of execution.
+
+Caliper never pastes your skill into the prompt. It installs it where your harness looks for skills and lets the agent decide whether to load it, so a run measures both halves of the question at once: does it fire, and does it work?
+
+## Reducing tokens is not just about cost
+
+A common issue with agents is that they easily enter the [dumb zone](https://www.aihero.dev/ai-coding-dictionary/smart-zone) after ~200k tokens. If you save tokens, your agent will be able to stay smart, longer.
+
+A good skill does not only make the agent correct. It makes the agent correct
+sooner, with fewer tokens. Allowing you to tackle bigger more ambitious tasks. Hell you can even give these complex tasks to your dumber models!
+
+## Questions Caliper answers
+
+- Is that skill bringing anything, or would the bare agent have done better?
+- When I rewrite my prompt, am I even improving anything?
+- Does the skill even trigger when it should?
+- Is my skill parasiting the other skills? Triggering when it shouldn't?
+- Does it still pass the workflows it passed last week?
+- Is the agent behaving the same on the new model?
+- Which harness (Claude Code, Codex, Pi, or Hermes) runs my skill most efficiently?
+- Which harness is the cheapest for my tasks?
+
+## Try it
+
+**(Easy) Use the skills:**
 
 ```bash
 npx skills@latest add edonadei/caliper
 ```
 
-**Or run it yourself:**
+**Directly through the CLI:**
 
 ```bash
 # Run the evaluation.
@@ -25,25 +61,11 @@ caliper run commit-commands.eval.yaml --k 3 --ablate commit-commands
 caliper compare .caliper/results/commit-commands/<evaluation-run>.json .caliper/results/commit-commands/<ablated-run>.json
 ```
 
-You write a spec, a YAML file describing what "working" means. Either hand-write it or have `/grill-skill` generate it for you. `--ablate` runs the same tasks with that skill *removed*, and `caliper compare` diffs the two runs task by task:
-
-<!-- Terminal output of `caliper compare`, rendered to SVG so the box-drawing
-     table stays aligned on every screen. Regenerate with:
-       python docs/render_readme_samples.py -->
-![caliper compare, without commit-commands vs full neighbourhood on commit-commands: both tasks go 33.3% to 100.0% (+66.7%); tokens 290K to 180K, wall 1m 1s to 42s](docs/assets/compare-ablation.svg)
-
----
-
-Agent skills are hard to test. A skill that works on your machine, on this prompt, today, might fail tomorrow after a model update or a one-line prompt edit. Caliper makes reliability measurable: define what success looks like, run the skill repeatedly, and get a success rate you can track over time.
-
-Use Caliper to answer questions like:
-
-- Is my agent still working the same with this new model?
-- Did my prompt edit improved the skill?
-- Does my skill fire when it should, and stay quiet when it needs to not trigger?
-- Is the skill worth the context? Or would the base agent pass without it?
-- Does it still pass the workflows it passed last week?
-- Which agent (Claude Code, Codex, Pi, or Hermes) runs this skill more reliably?
+The spec is a YAML file describing what "working" means. Write it by hand, or
+have `/grill-skill` generate it for you. `--ablate` re-runs the same tasks with
+that skill removed, and `caliper compare` diffs the two runs task by task.
+Caliper works with the agent you already use: Claude Code, Codex, Pi, or
+Hermes.
 
 ---
 
@@ -673,9 +695,10 @@ How the diff reads:
   renders red and flags a **regression**.
 - **Unusable attempts can't fake a loss.** A side with no usable attempts
   (rate-limit / timeout / judge error) shows `—` and never counts as a regression.
-- **Token and wall-clock deltas are secondary** and never a regression: a drop is
+- **Token and wall-clock deltas never flag a regression on their own**: a drop is
   green (cheaper), a rise red (a trade-off to weigh). Only the score feeds
-  `has_regression`.
+  `has_regression`. Still read both columns: a skill that buys a higher score
+  with more tokens has relocated the work rather than removed it.
 
 `--format json` serializes the full comparison (per-task scores, deltas,
 regression flags, unmatched lists, warnings, `skill_drift`, and per-side usage)
