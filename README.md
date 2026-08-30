@@ -5,7 +5,7 @@
 [![Skills](https://skills.sh/b/edonadei/caliper)](https://skills.sh/edonadei/caliper)
 
 Every skill, every MCP, every custom rule you add to your agent harness charges rent. It's paid in tokens, on every single run, whether or not it earns them. You are hoping that these
-instructions will make succed your task more often. With fewer tokens. Without you needing to babysit it. But have you tested that assumption? I can bet you've added it once, it looked fine, and now you forgot it exists.
+instructions will make your task succeed more often. With fewer tokens. Without you needing to babysit it. But have you tested that assumption? I can bet you've added it once, it looked fine, and now you forgot it exists.
 
 I get it, evaluation is boring, it's intimidating because you might not know where to start. I got you. That's why I built Caliper. It's an evaluation framework that works on top of the harnesses you already use. It creates a realistic sandbox that allows us to test every scenario.
 
