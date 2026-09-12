@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 
@@ -263,8 +264,8 @@ def success_rate(successes: int, usable: int) -> float | None:
 
     This and its two siblings live beside :class:`Outcome` and
     :class:`TaskResult` because they are defined over an attempt set and
-    ``Outcome.is_usable`` is what carves that set out. ``caliper.scoring``
-    imports them for its cross-task roll-ups; nothing re-derives them. See
+    ``Outcome.is_usable`` is what carves that set out. The run-level roll-ups
+    below build on them; nothing re-derives them. See
     docs/adr/0007-raw-success-rate-is-the-primary-metric.md and
     docs/CONTEXT.md → Usable / unusable attempt.
     """
@@ -290,6 +291,36 @@ def pass_hat_k(successes: int, usable: int) -> float | None:
     """
     rate = success_rate(successes, usable)
     return None if rate is None else rate**usable
+
+
+def rows_in_spec_order(declared: list[str] | None, seen: set[str]) -> list[str]:
+    """Which skills get a row, and in what order.
+
+    The author's own ordering first — every declared member of the
+    neighbourhood, even one that never fired and was never expected, because a
+    dormant neighbour is itself informative: it says the probes never exercised
+    the skill you declared *because* you were worried about it. Then anything
+    observed that was somehow not declared, which the closed neighbourhood
+    should prevent, so it is a safety net rather than an expected case.
+    """
+    names = list(declared or [])
+    return names + sorted(seen - set(names))
+
+
+def mean_rate(rates: list[float]) -> float:
+    """The average of rates that were actually measured.
+
+    Written once because three readers need it — a run's headline, its
+    activation headline, and ``compare``'s matched average — and each selects a
+    different set of rates to hand it. What none of them may do is average an
+    unmeasured task in as a zero (docs/adr/0007), so the caller filters and this
+    only divides.
+
+    Empty averages to ``0.0``. That is not a claim that nothing worked: the
+    count it was taken over travels beside it (``scored_tasks``), and readers
+    branch on that rather than on the number.
+    """
+    return sum(rates) / len(rates) if rates else 0.0
 
 
 class TaskResult(BaseModel):
@@ -629,6 +660,113 @@ class AggregateScore(BaseModel):
     activation_asserted: int = 0
     activation_per_skill: list[SkillActivationStats] = Field(default_factory=list)
 
+    @classmethod
+    def from_task_results(
+        cls,
+        task_results: list[TaskResult],
+        k: int,
+        declared: list[str] | None = None,
+    ) -> AggregateScore:
+        """Both of a run's scoreboards, built from the tasks that produced them.
+
+        One call, because they are two fields of one object: assembling them
+        separately and copying the activation half across field by field meant a
+        field added to one side and forgotten on the other went unnoticed.
+
+        Takes the results themselves rather than counts pulled out of them —
+        each task already knows its own successes, usable denominator and score
+        (docs/adr/0007) — and ``k`` is the run's requested depth, recorded per
+        row so a reader can see a task that ran short of it.
+
+        ``declared`` is the whole neighbourhood, in spec order; see
+        :meth:`_activation_rows` for why a dormant member still gets a row.
+
+        The two scoreboards are **never blended**: a bad ``description`` and a
+        bad body have opposite fixes, so a single headline mixing them would
+        point at neither (docs/adr/0014). They meet here and nowhere else.
+        """
+        per_task = [
+            TaskScore(
+                task_id=task.task_id,
+                task_name=task.task_name,
+                k=k,
+                successes=task.successes,
+                score=task.score,
+            )
+            for task in task_results
+        ]
+
+        # A task with no usable attempts scores ``None`` and is excluded rather
+        # than dragged to 0%: it was never measured, and averaging a
+        # non-measurement in would understate the skill (docs/adr/0007).
+        scored = [t.score for t in per_task if t.score is not None]
+
+        # Activation averages to ``None`` where execution averages to 0.0: an
+        # unasserted run claimed nothing, so it is rendered skipped, while an
+        # unmeasured execution run is reported through ``scored_tasks`` instead.
+        activation_scores = [
+            t.activation_score for t in task_results if t.activation_score is not None
+        ]
+
+        return cls(
+            avg_score=mean_rate(scored),
+            scored_tasks=len(scored),
+            per_task=per_task,
+            avg_activation_score=(
+                mean_rate(activation_scores) if activation_scores else None
+            ),
+            activation_tasks=len(activation_scores),
+            activation_asserted=sum(
+                1 for t in task_results if t.activation_expected is not None
+            ),
+            activation_per_skill=cls._activation_rows(task_results, declared),
+        )
+
+    @staticmethod
+    def _activation_rows(
+        task_results: list[TaskResult], declared: list[str] | None
+    ) -> list[SkillActivationStats]:
+        """Per-skill recall and precision over the attempts that asserted.
+
+        Counts **attempts**, not tasks, so the per-skill diagnostic shares units
+        with the rate above it. Only activation-usable attempts of asserted
+        tasks are counted — an unasserted task contributes nothing.
+        Which skills get a row is :func:`rows_in_spec_order`'s rule.
+        """
+        expected: dict[str, int] = {}
+        fired: dict[str, int] = {}
+        hits: dict[str, int] = {}
+        # Every skill in the neighbourhood is in scope for every scored attempt,
+        # so one counter serves them all: it is what both rates are carved from.
+        considered = 0
+
+        for task in task_results:
+            if task.activation_expected is None:
+                continue
+            wanted = set(task.activation_expected)
+            for att in task.attempts:
+                if not att.activation_scored:
+                    continue
+                considered += 1
+                observed = set(att.activated or [])
+                for name in wanted:
+                    expected[name] = expected.get(name, 0) + 1
+                for name in observed:
+                    fired[name] = fired.get(name, 0) + 1
+                for name in wanted & observed:
+                    hits[name] = hits.get(name, 0) + 1
+
+        return [
+            SkillActivationStats(
+                skill=name,
+                total=considered,
+                expected=expected.get(name, 0),
+                fired=fired.get(name, 0),
+                hits=hits.get(name, 0),
+            )
+            for name in rows_in_spec_order(declared, set(expected) | set(fired))
+        ]
+
     @model_validator(mode="before")
     @classmethod
     def _count_scored_tasks_of_a_legacy_run(cls, data: object) -> object:
@@ -668,6 +806,51 @@ class AggregateScore(BaseModel):
         failure of a run in which nothing failed.
         """
         return self.scored_tasks > 0
+
+
+@dataclass(frozen=True)
+class ObservedActivation:
+    """How often one installed skill fired, with nothing asserted about it.
+
+    The counting half of activation without the scoring half — what an ablated
+    run has, since it drops every expectation but keeps every observation
+    (docs/adr/0015-ablation-names-its-subject-at-the-invocation.md).
+
+    Deliberately not :class:`SkillActivationStats`: with nothing expected, that
+    type's recall is undefined and its unwanted rate would read 100% — "fires
+    when not wanted" — for a skill that fired exactly when a reader would hope.
+    Nothing was wanted because nothing was asserted, which is not the same
+    claim.
+    """
+
+    skill: str
+    fired: int
+    observed: int
+
+    @classmethod
+    def from_task_results(
+        cls, task_results: list[TaskResult], declared: list[str] | None = None
+    ) -> list[ObservedActivation]:
+        """Per-skill counts over the attempts where activation was *observed*.
+
+        The denominator is ``activation_observed`` (a whole transcript), not
+        ``activation_scored`` (which additionally requires an assertion),
+        because an ablated run has no assertions left to require.
+        """
+        fired: dict[str, int] = {}
+        observed = 0
+        for task in task_results:
+            for att in task.attempts:
+                if not att.activation_observed:
+                    continue
+                observed += 1
+                for name in att.activated or []:
+                    fired[name] = fired.get(name, 0) + 1
+
+        return [
+            cls(skill=name, fired=fired.get(name, 0), observed=observed)
+            for name in rows_in_spec_order(declared, set(fired))
+        ]
 
 
 class RunResults(BaseModel):

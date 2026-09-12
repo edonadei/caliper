@@ -56,6 +56,30 @@ rule this ADR is about is unchanged — every denominator is still usable attemp
 contradict the attempt list it sits next to. The metric formulas moved to
 `caliper/schema/results.py`, beside the `Outcome.is_usable` that carves out the
 denominator; `caliper/scoring.py` keeps the roll-ups across tasks.
+*(Amended again: those roll-ups moved too — see below.)*
 
 The numbers are still **serialized**, so a saved run reads exactly as before; the
 stored values are simply ignored on load.
+
+## Amendment: the run's roll-ups are built by the type that stores them
+
+The amendment above left the cross-task roll-ups in `caliper/scoring.py`, and
+that was the wrong half to leave behind. `aggregate_scores` built the run's
+`AggregateScore` while `aggregate_activation` returned a *separate* frozen
+dataclass carrying the activation half, which the runner then copied across one
+field at a time. A field added to one side and forgotten in that copy was a
+silent gap, and the same average rule was written a second time in
+`caliper/compare.py` for its matched aggregate.
+
+`AggregateScore.from_task_results(task_results, k, declared)` now builds both
+scoreboards in one call, beside `UsageTotals.from_task_results` — so every
+derived number in a run is built by the type that stores it, which is what the
+amendment above established for a *task* and this extends to the *run*.
+`caliper/scoring.py` is deleted; the observation-only roll-up an ablated run
+needs moved with it, as `ObservedActivation.from_task_results`.
+
+The rule this ADR is about is again unchanged. The two scoreboards still never
+blend (see [0014](0014-activation-is-a-check-type-not-a-separate-command.md)):
+they are two fields of one object, and meeting in one constructor is what makes
+that separation checkable in one place rather than trusted across a hand-copy.
+The serialized shape is untouched.

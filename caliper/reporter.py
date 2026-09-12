@@ -16,8 +16,8 @@ from rich.table import Table
 from rich.table import Column
 from rich.text import Text
 
-from caliper.scoring import observed_activations
 from caliper.schema.results import (
+    ObservedActivation,
     Outcome,
     RunComparison,
     RunResults,
@@ -268,7 +268,7 @@ def _print_observed_activations(results: RunResults) -> None:
     "with the parent removed, did its neighbours pick up the work?" — the whole
     reason a partial ablation is interesting — would be invisible.
     """
-    rows = observed_activations(
+    rows = ObservedActivation.from_task_results(
         results.task_results, [s.name for s in results.skill_snapshots if s.name]
     )
     if not rows or not rows[0].observed:

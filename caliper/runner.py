@@ -21,6 +21,7 @@ from caliper.retry import SpendingCapReached, invoke_with_retry
 from caliper.sandbox import SpecSandbox
 from caliper.schema.results import (
     ERA_INSTALL_AND_DISCOVER,
+    AggregateScore,
     AttemptRecord,
     Outcome,
     RunMeta,
@@ -28,7 +29,6 @@ from caliper.schema.results import (
     TaskResult,
 )
 from caliper.schema.spec import DEFAULT_BACKEND, EvalSpec, TaskSpec, spec_name
-from caliper.scoring import aggregate_activation, aggregate_scores
 from caliper.skillfetch import SkillFetcher
 from caliper.skills import (
     SkillRef,
@@ -243,13 +243,11 @@ def run(
     ]
     task_results.sort(key=lambda r: r.task_id)
 
-    aggregate = aggregate_scores(task_results, k)
-    # The second scoreboard, carried alongside — never folded into avg_score.
-    activation = aggregate_activation(task_results, [ref.name for ref in skill_refs])
-    aggregate.avg_activation_score = activation.avg_score
-    aggregate.activation_tasks = activation.tasks
-    aggregate.activation_asserted = activation.asserted
-    aggregate.activation_per_skill = activation.per_skill
+    # Both scoreboards at once — they are two fields of one object, and the
+    # activation half is never folded into avg_score (docs/adr/0014).
+    aggregate = AggregateScore.from_task_results(
+        task_results, k, declared=[ref.name for ref in skill_refs]
+    )
 
     results = RunResults(
         run=RunMeta(

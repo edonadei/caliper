@@ -36,10 +36,8 @@ from caliper.schema.results import (
     RunComparison,
     RunMeta,
     RunResults,
-    SkillActivationStats,
     SkillSnapshot,
     TaskResult,
-    TaskScore,
     TokenUsage,
     UsageTotals,
 )
@@ -308,7 +306,6 @@ def _run_example() -> RunResults:
         activation_expected=["changelog-writer"],
     )
     task_results = [message, subject, probe]
-    scored = [tr for tr in task_results if tr.score is not None]
     return RunResults(
         run=run,
         skill_snapshots=[
@@ -316,36 +313,15 @@ def _run_example() -> RunResults:
             SkillSnapshot(name="changelog-writer", path="../changelog-writer/SKILL.md"),
         ],
         task_results=task_results,
-        aggregate=AggregateScore(
-            avg_score=sum(tr.score for tr in scored) / len(scored),
-            scored_tasks=len(scored),
-            avg_activation_score=sum(
-                tr.activation_score
-                for tr in task_results
-                if tr.activation_score is not None
-            )
-            / 3,
-            activation_tasks=3,
-            activation_per_skill=[
-                # 9 scored attempts: 6 wanted commit-writer (all fired), 3 did
-                # not (it fired on 2 of them).
-                SkillActivationStats(
-                    skill="commit-writer", total=9, expected=6, fired=8, hits=6
-                ),
-                SkillActivationStats(
-                    skill="changelog-writer", total=9, expected=3, fired=1, hits=1
-                ),
-            ],
-            per_task=[
-                TaskScore(
-                    task_id=tr.task_id,
-                    task_name=tr.task_name,
-                    k=run.k,
-                    successes=tr.successes,
-                    score=tr.score,
-                )
-                for tr in task_results
-            ],
+        # Built the way a real run builds it, so the sample cannot drift from
+        # what caliper actually renders. The neighbourhood is the declared one:
+        # 9 scored attempts, 6 wanting commit-writer (it fires on 8) and 3
+        # wanting changelog-writer (it fires on 1) — the hijack this sample is
+        # about.
+        aggregate=AggregateScore.from_task_results(
+            task_results,
+            k=run.k,
+            declared=["commit-writer", "changelog-writer"],
         ),
     )
 

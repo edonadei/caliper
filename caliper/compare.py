@@ -18,6 +18,7 @@ from caliper.schema.results import (
     TaskComparison,
     TaskResult,
     UsageTotals,
+    mean_rate,
 )
 
 
@@ -211,12 +212,10 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
     comparable = [
         tc for tc in matched if tc.a_score is not None and tc.b_score is not None
     ]
-    a_avg = (
-        sum(tc.a_score for tc in comparable) / len(comparable) if comparable else 0.0
-    )
-    b_avg = (
-        sum(tc.b_score for tc in comparable) / len(comparable) if comparable else 0.0
-    )
+    # The same average rule the run's own headline uses, so a delta is a
+    # difference between two numbers built the same way.
+    a_avg = mean_rate([tc.a_score for tc in comparable])
+    b_avg = mean_rate([tc.b_score for tc in comparable])
 
     spec_mismatch = a_run.spec != b_run.spec
     k_mismatch = a_run.k != b_run.k
