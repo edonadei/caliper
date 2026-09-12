@@ -4,7 +4,7 @@ import hashlib
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 
 class Outcome(str, Enum):
@@ -386,6 +386,50 @@ class TaskResult(BaseModel):
         """
         return success_rate(self.activation_successes, self.activation_usable)
 
+    # --- read-side facts ---------------------------------------------------
+    #
+    # Plain properties, deliberately **not** ``computed_field``: these are how a
+    # task result is *read*, not part of what is stored, so the saved file keeps
+    # the shape it has always had. They live here rather than in the reporter
+    # because four readers need them — the run report, ``list``, ``report`` and
+    # ``compare`` — and a predicate that only one of them can see is how the
+    # listing came to print ``0.0%`` for a run the report renders as "no
+    # execution checks".
+
+    @property
+    def trigger_only(self) -> bool:
+        """True when the task authored no execution check (`activates:` alone).
+
+        Keyed on the *absence of any execution verdict*, not on unanimity: a
+        single timeout among k would otherwise flip a correct trigger probe back
+        to "0/3 UNUSABLE" — the exact reading ``not_checked`` exists to prevent.
+        """
+        if not any(a.outcome == Outcome.NOT_CHECKED for a in self.attempts):
+            return False
+        return not any(
+            a.outcome in (Outcome.PASS, Outcome.TASK_FAIL) for a in self.attempts
+        )
+
+    @property
+    def any_cheat(self) -> bool:
+        """Whether any attempt touched something the sandbox forbade."""
+        return any(a.cheated for a in self.attempts)
+
+    def aborted(self, k: int) -> bool:
+        """Whether the task stopped short of its k attempts with nothing measured.
+
+        Distinct from merely unusable: an aborted task ran *fewer* attempts than
+        asked for (a spending cap, a Ctrl-C), so "0 of 3" would overstate what
+        was tried. A trigger probe is never aborted — its ``score`` is ``None``
+        by construction, not by running short.
+        """
+        return len(self.attempts) < k and self.score is None and not self.trigger_only
+
+    @property
+    def usage(self) -> UsageTotals:
+        """This task's own token/wall roll-up, on the same rules as the run's."""
+        return UsageTotals.from_task_results([self])
+
 
 class UsageTotals(BaseModel):
     """Run-level roll-up of per-attempt token usage + wall-clock time.
@@ -585,6 +629,46 @@ class AggregateScore(BaseModel):
     activation_asserted: int = 0
     activation_per_skill: list[SkillActivationStats] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _count_scored_tasks_of_a_legacy_run(cls, data: object) -> object:
+        """Fill in ``scored_tasks`` for a run saved before the field existed.
+
+        The field arrived with install-and-discover (#80), so a file without it
+        is a legacy run (``era: None``) — and taking the ``0`` default at face
+        value would claim that run measured nothing, which is the fabricated
+        reading ``measured`` exists to prevent, pointed the other way. Its
+        per-task rows are still there, so they are what answers the question.
+
+        Only the *absent* key is filled: a stored ``0`` is a real claim by a
+        current run that every task was a trigger probe, and stays one.
+        """
+        if not isinstance(data, dict) or "scored_tasks" in data:
+            return data
+        rows = data.get("per_task") or []
+        scored = sum(
+            1
+            for row in rows
+            if (
+                row.get("score")
+                if isinstance(row, dict)
+                else getattr(row, "score", None)
+            )
+            is not None
+        )
+        return {**data, "scored_tasks": scored}
+
+    @property
+    def measured(self) -> bool:
+        """Whether ``avg_score`` describes anything at all.
+
+        False on an all-trigger-probe spec, where no task asked an execution
+        question. Every reader of the headline branches on this rather than on
+        the number, because ``0.0%`` over zero scored tasks is a fabricated
+        failure of a run in which nothing failed.
+        """
+        return self.scored_tasks > 0
+
 
 class RunResults(BaseModel):
     run: RunMeta
@@ -595,6 +679,12 @@ class RunResults(BaseModel):
     skill_snapshots: list[SkillSnapshot] = Field(default_factory=list)
     task_results: list[TaskResult]
     aggregate: AggregateScore
+
+    @property
+    def usage(self) -> UsageTotals:
+        """The run's usage roll-up, derived on read and never persisted here
+        (docs/CONTEXT.md → Run usage totals)."""
+        return UsageTotals.from_task_results(self.task_results)
 
 
 class TaskComparison(BaseModel):

@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from caliper.commands.diagnosis import BadInput, fail
-from caliper.reporter import UNUSABLE_GLYPH
+from caliper.reporter import RULE_GLYPH, UNUSABLE_GLYPH
 from caliper.runstore import RunStore, UnreadableRun
 from caliper.schema.results import RunResults
 
@@ -26,19 +26,34 @@ _INTERRUPTED = UNUSABLE_GLYPH
 
 
 def _score_cell(results: RunResults) -> str:
-    score = f"{results.aggregate.avg_score * 100:.1f}%"
+    """The run's headline, on the same rule the report renders it by.
+
+    A run whose every task is a trigger probe measured no execution question, so
+    it has no headline — and printing ``avg_score`` regardless is what made the
+    listing disagree with the report about the same file, calling "nothing was
+    asked" a total failure.
+    """
+    if results.aggregate.measured:
+        score = f"{results.aggregate.avg_score * 100:.1f}%"
+    else:
+        score = f"[dim]{RULE_GLYPH}[/dim]"
+    # Marked whichever way the cell reads: a run that stopped early is still one
+    # that stopped early, and dropping the glyph here would leave the legend
+    # below explaining a marker that is nowhere on screen.
     if results.run.interrupted:
         return f"{score} [yellow]{_INTERRUPTED}[/yellow]"
     return score
 
 
-def _print_interrupted_legend(marked: bool) -> None:
-    """Explain the marker, only when one is on screen."""
-    if marked:
+def _print_legend(*, interrupted: bool, unmeasured: bool) -> None:
+    """Explain the markers, only the ones on screen."""
+    if interrupted:
         console.print(
             f" [dim][yellow]{_INTERRUPTED}[/yellow] stopped early: scored over "
             "fewer attempts than its k[/dim]"
         )
+    if unmeasured:
+        console.print(f" [dim]{RULE_GLYPH} no execution checks[/dim]")
 
 
 def _read(store: RunStore, path: Path) -> RunResults | None:
@@ -86,9 +101,11 @@ def _list_specs(store: RunStore) -> None:
     table.add_column("Spec")
     table.add_column("Runs", justify="right")
     table.add_column("Latest run")
-    table.add_column("pass@k", justify="right")
+    # The raw success rate, as the report heads it (docs/adr/0007). The cell has
+    # always held ``avg_score``; only the label was left behind by the rename.
+    table.add_column("success", justify="right")
 
-    marked = False
+    marked = unmeasured = False
     for name in specs:
         runs = store.runs(name)
         latest = runs[-1]
@@ -101,11 +118,12 @@ def _list_specs(store: RunStore) -> None:
             ts = results.run.timestamp.strftime("%Y-%m-%d %H:%M")
             score = _score_cell(results)
             marked = marked or results.run.interrupted
+            unmeasured = unmeasured or not results.aggregate.measured
 
         table.add_row(name, str(len(runs)), ts, score)
 
     console.print(table)
-    _print_interrupted_legend(marked)
+    _print_legend(interrupted=marked, unmeasured=unmeasured)
 
 
 def _list_runs(store: RunStore, spec_name: str) -> None:
@@ -123,7 +141,7 @@ def _list_runs(store: RunStore, spec_name: str) -> None:
     # into an ellipsis.
     table.add_column("k", justify="right")
     table.add_column("Tasks", justify="right")
-    table.add_column("pass@k", justify="right")
+    table.add_column("success", justify="right")
     # Which run was a control arm. Without it two runs of one spec are
     # indistinguishable here, and `compare` needs the older side named by path
     # (docs/CONTEXT.md → Run comparison) — so this is where you find out which
@@ -134,7 +152,7 @@ def _list_runs(store: RunStore, spec_name: str) -> None:
     # every character on screen at any terminal width.
     table.add_column("Run", style="dim", overflow="fold")
 
-    marked = False
+    marked = unmeasured = False
     for path in runs:
         results = _read(store, path)
         if results is None:
@@ -146,10 +164,11 @@ def _list_runs(store: RunStore, spec_name: str) -> None:
             n_tasks = str(len(results.task_results))
             ablated = ", ".join(results.run.ablated)
             marked = marked or results.run.interrupted
+            unmeasured = unmeasured or not results.aggregate.measured
 
         # The stem, not the filename: it is what `report --run` takes verbatim,
         # and what a `compare` path is built from.
         table.add_row(k, n_tasks, score, ablated, path.stem)
 
     console.print(table)
-    _print_interrupted_legend(marked)
+    _print_legend(interrupted=marked, unmeasured=unmeasured)
