@@ -1,11 +1,24 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+from typer.testing import CliRunner
+
+from caliper.commands.list_cmd import _score_cell
 from caliper.harness.base import AttemptResult, ConversationTurn, HarnessBackend
 from caliper.judge.base import JudgeResult
 from caliper.outcome import classify_outcome
-from caliper.reporter import _is_trigger_only, _status_cell
+from caliper.reporter import _status_cell
+from caliper.main import app
 from caliper.runner import run
-from caliper.schema.results import AttemptRecord, Outcome, TaskResult
+from caliper.schema.results import (
+    AggregateScore,
+    AttemptRecord,
+    Outcome,
+    RunMeta,
+    RunResults,
+    TaskResult,
+)
 from caliper.schema.spec import EvalSpec, TaskSpec
 
 from conftest import task_result
@@ -199,11 +212,11 @@ def _trigger_task() -> TaskResult:
 
 
 def test_trigger_only_task_is_detected():
-    assert _is_trigger_only(_trigger_task()) is True
+    assert _trigger_task().trigger_only is True
 
 
 def test_trigger_only_task_reads_as_a_skip_not_an_error():
-    cell = _status_cell(_trigger_task(), k=2, any_cheat=False)
+    cell = _status_cell(_trigger_task(), k=2)
     assert "UNUSABLE" not in cell.plain
     assert "trigger only" in cell.plain
     assert cell.style == "dim"
@@ -251,8 +264,8 @@ def test_trigger_only_survives_one_timeout_among_k():
         ],
         activation_expected=[],
     )
-    assert _is_trigger_only(tr) is True
-    assert "trigger only" in _status_cell(tr, k=2, any_cheat=False).plain
+    assert tr.trigger_only is True
+    assert "trigger only" in _status_cell(tr, k=2).plain
 
 
 def test_a_task_with_a_real_verdict_is_not_trigger_only():
@@ -268,7 +281,7 @@ def test_a_task_with_a_real_verdict_is_not_trigger_only():
             ),
         ],
     )
-    assert _is_trigger_only(tr) is False
+    assert tr.trigger_only is False
 
 
 class TimingOutHarness(HarnessBackend):
@@ -334,3 +347,61 @@ def test_a_healthy_trigger_probe_resets_the_fail_fast_streak():
     # mid-way and silently truncate the activation sample.
     assert Outcome.NOT_CHECKED.is_execution_noise is False
     assert Outcome.JUDGE_ERROR.is_execution_noise is True
+
+
+# --- every reader tells the same story ------------------------------------
+
+
+def _trigger_only_run() -> RunResults:
+    """A spec whose every task is a trigger probe: nothing execution was asked."""
+    return RunResults(
+        run=RunMeta(
+            spec="probes",
+            timestamp=datetime(2026, 7, 3, tzinfo=timezone.utc),
+            k=2,
+            backend="claude-code",
+            era="install-and-discover",
+        ),
+        skill_snapshots=[],
+        task_results=[_trigger_task()],
+        # What the runner builds for such a run: an average over no scored task.
+        aggregate=AggregateScore(avg_score=0.0, scored_tasks=0, per_task=[]),
+    )
+
+
+def test_an_unmeasured_run_has_no_headline() -> None:
+    assert _trigger_only_run().aggregate.measured is False
+
+
+def test_list_renders_an_unmeasured_run_as_skipped_not_zero(
+    monkeypatch, tmp_path
+) -> None:
+    """The listing and the report must not disagree about the same file.
+
+    `list` printed ``avg_score`` unconditionally, so an all-trigger-probe run —
+    in which nothing failed, because nothing was asked — read as ``0.0%``: the
+    exact fabricated failure ``not_checked`` exists to prevent.
+    """
+    results = _trigger_only_run()
+    out = tmp_path / ".caliper" / "results" / "probes"
+    out.mkdir(parents=True)
+    (out / "2026-07-03T10-00-00Z.json").write_text(results.model_dump_json())
+    monkeypatch.chdir(tmp_path)
+
+    listed = CliRunner().invoke(app, ["list", "probes"])
+
+    assert listed.exit_code == 0, listed.stdout
+    assert "2026-07-03T10-00-00Z" in listed.stdout
+    assert "0.0%" not in listed.stdout
+    assert "no execution checks" in listed.stdout
+
+
+def test_list_still_prints_a_measured_score() -> None:
+    """The skip is keyed on `measured`, not on the number being zero.
+
+    A run that really did score 0% must still say so.
+    """
+    results = _trigger_only_run()
+    results.aggregate = AggregateScore(avg_score=0.0, scored_tasks=1, per_task=[])
+
+    assert _score_cell(results) == "0.0%"

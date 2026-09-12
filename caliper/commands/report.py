@@ -8,7 +8,6 @@ from rich.console import Console
 from caliper.commands.diagnosis import BadInput, fail
 from caliper.reporter import print_results
 from caliper.runstore import RunStore, UnreadableRun
-from caliper.schema.results import UsageTotals
 
 console = Console()
 
@@ -40,9 +39,7 @@ def report_cmd(
         # see docs/CONTEXT.md → Run usage totals); the saved file keeps only the raw
         # per-attempt usage.
         data = results.model_dump(mode="json")
-        data["usage_totals"] = UsageTotals.from_task_results(
-            results.task_results
-        ).model_dump(mode="json")
+        data["usage_totals"] = results.usage.model_dump(mode="json")
         console.print_json(data=data)
     else:
         print_results(results, verbose=verbose)

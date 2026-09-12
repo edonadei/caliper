@@ -86,6 +86,9 @@ _UNUSABLE = "⊘" if _UNICODE else "o"
 # Re-exported: `list` marks an interrupted run with the same glyph, and a
 # second literal would be a second thing to forget the ASCII fallback on.
 UNUSABLE_GLYPH = _UNUSABLE
+# Likewise: `list` renders an unmeasured run's score with the same rule the
+# report uses for "nothing to show here".
+RULE_GLYPH = _RULE
 
 # Per-outcome glyph for the per-attempt detail view. Usable failures read as
 # failures; the three noise outcomes get the distinct ⊘ marker.
@@ -226,16 +229,15 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     table.add_column("", justify="center")
 
     for tr in results.task_results:
-        cheated_count = sum(1 for a in tr.attempts if a.cheated)
-        status_text = _status_cell(tr, k, cheated_count > 0)
-        totals = UsageTotals.from_task_results([tr])
+        status_text = _status_cell(tr, k)
+        totals = tr.usage
         tokens_cell = (
             _fmt_tokens(totals.total_tokens) if totals.tokens_reported else _RULE
         )
         wall_cell = _fmt_duration(totals.wall_seconds)
         # A trigger-only task has no execution numbers to show; "0/3" would read
         # as three failures rather than three questions never asked.
-        k_cell = _RULE if _is_trigger_only(tr) else f"{tr.successes}/{k}"
+        k_cell = _RULE if tr.trigger_only else f"{tr.successes}/{k}"
         row = [tr.task_name, k_cell, _fmt_score(tr.score)]
         if verbose:
             row += [_fmt_score(tr.pass_at_k), _fmt_score(tr.pass_hat_k)]
@@ -252,7 +254,7 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
         _print_observed_activations(results)
     _print_unusable_summary(results)
     console.print()
-    _print_usage_summary(UsageTotals.from_task_results(results.task_results))
+    _print_usage_summary(results.usage)
     console.print()
     _print_task_details(results.task_results, k, verbose)
 
@@ -307,21 +309,9 @@ def _needs_detail(tr: TaskResult) -> bool:
     print a panel for every correct trigger probe.
     """
     activation_short = tr.activation_score is not None and tr.activation_score < 1.0
-    if _is_trigger_only(tr):
+    if tr.trigger_only:
         return activation_short
     return tr.score is None or tr.score < 1.0 or activation_short
-
-
-def _is_trigger_only(tr: TaskResult) -> bool:
-    """True when the task authored no execution check (`activates:` alone).
-
-    Keyed on the *absence of any execution verdict*, not on unanimity: a single
-    timeout among k would otherwise flip a correct trigger probe back to
-    "0/3 UNUSABLE" — the exact reading `not_checked` exists to prevent.
-    """
-    if not any(a.outcome == Outcome.NOT_CHECKED for a in tr.attempts):
-        return False
-    return not any(a.outcome in (Outcome.PASS, Outcome.TASK_FAIL) for a in tr.attempts)
 
 
 def _activation_cell(tr: TaskResult) -> Text:
@@ -345,14 +335,14 @@ def _activation_cell(tr: TaskResult) -> Text:
     return Text(_CROSS, style="red")
 
 
-def _status_cell(tr: TaskResult, k: int, any_cheat: bool) -> Text:
-    if any_cheat:
+def _status_cell(tr: TaskResult, k: int) -> Text:
+    if tr.any_cheat:
         return Text(f"{_WARN} CHEAT", style="bold yellow")
     # An activates:-only task asked no execution question. Its silence is the
     # correct answer, so it reads as a dim skip — never a yellow error.
-    if _is_trigger_only(tr):
+    if tr.trigger_only:
         return Text(f"{_RULE} trigger only", style="dim")
-    if len(tr.attempts) < k and tr.score is None:
+    if tr.aborted(k):
         return Text(f"{_UNUSABLE} ABORTED", style="bold yellow")
     if tr.score is None:
         return Text(f"{_UNUSABLE} UNUSABLE", style="bold yellow")
@@ -380,7 +370,7 @@ def _print_score(results: RunResults) -> None:
     """The execution headline, printed *above* the per-task table it sums up."""
     agg = results.aggregate
 
-    if agg.scored_tasks:
+    if agg.measured:
         plural = "s" if agg.scored_tasks != 1 else ""
         console.print(
             f" [bold]Score[/bold]       [cyan]{agg.avg_score * 100:.1f}%[/cyan]"
@@ -595,7 +585,7 @@ def _format_output(output: str) -> str:
 
 def _print_task_detail(tr: TaskResult, k: int) -> None:
     lines: list[str] = []
-    if len(tr.attempts) < k and tr.score is None and not _is_trigger_only(tr):
+    if tr.aborted(k):
         lines.append(
             f"  [yellow]ABORTED[/yellow] after {len(tr.attempts)}/{k} attempts"
         )
@@ -940,10 +930,6 @@ def _print_comparison_summary(comp: RunComparison) -> None:
             f"only in {b_name}: {only_b}[/dim]"
         )
     console.print()
-
-
-def results_to_json(results: RunResults) -> str:
-    return results.model_dump_json(indent=2)
 
 
 def comparison_to_json(comp: RunComparison) -> str:

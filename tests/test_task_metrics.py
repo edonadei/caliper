@@ -98,3 +98,62 @@ def test_a_saved_run_cannot_carry_counts_that_contradict_its_attempts() -> None:
 
     assert reloaded.successes == 1
     assert reloaded.score == 0.5
+
+
+# --- read-side facts -------------------------------------------------------
+#
+# These used to be derived in the reporter, where only the run report could see
+# them — which is how `list` came to print 0.0% for a run the report renders as
+# "no execution checks". They are facts about a task result, so they are tested
+# as facts, without a renderer in the way.
+
+
+def test_a_task_with_no_execution_check_is_trigger_only() -> None:
+    assert _task(Outcome.NOT_CHECKED, Outcome.NOT_CHECKED).trigger_only is True
+
+
+def test_trigger_only_survives_one_timeout_among_k() -> None:
+    """Keyed on the absence of a verdict, not on unanimity.
+
+    A single timeout must not flip a correct trigger probe back to "0/2".
+    """
+    assert _task(Outcome.NOT_CHECKED, Outcome.TIMEOUT).trigger_only is True
+
+
+def test_a_task_with_a_real_verdict_is_not_trigger_only() -> None:
+    assert _task(Outcome.PASS, Outcome.NOT_CHECKED).trigger_only is False
+
+
+def test_a_task_with_no_attempts_at_all_is_not_trigger_only() -> None:
+    """It asked nothing because it ran nothing, which is the aborted case."""
+    assert _task().trigger_only is False
+
+
+def test_any_cheat_is_true_when_one_attempt_cheated() -> None:
+    assert _task(Outcome.PASS, Outcome.CHEAT).any_cheat is True
+    assert _task(Outcome.PASS, Outcome.TASK_FAIL).any_cheat is False
+
+
+def test_a_task_that_ran_short_with_nothing_measured_is_aborted() -> None:
+    assert _task(Outcome.INFRA_ERROR).aborted(k=3) is True
+
+
+def test_a_task_that_ran_short_but_measured_something_is_not_aborted() -> None:
+    """It has a rate, so "0 of 3" would be the wrong thing to say about it."""
+    assert _task(Outcome.PASS).aborted(k=3) is False
+
+
+def test_a_complete_task_is_never_aborted() -> None:
+    assert _task(Outcome.INFRA_ERROR, Outcome.INFRA_ERROR).aborted(k=2) is False
+
+
+def test_a_trigger_probe_is_never_aborted() -> None:
+    """Its score is None by construction, not by running short."""
+    assert _task(Outcome.NOT_CHECKED).aborted(k=3) is False
+
+
+def test_a_task_rolls_up_its_own_usage() -> None:
+    task = _task(Outcome.PASS, Outcome.INFRA_ERROR)
+
+    assert task.usage.attempts == 2
+    assert task.usage.unusable_attempts == 1
