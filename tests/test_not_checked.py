@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typer.testing import CliRunner
 
 from caliper.commands.list_cmd import _score_cell
+from caliper.reporter import RULE_GLYPH, UNUSABLE_GLYPH
 from caliper.harness.base import AttemptResult, ConversationTurn, HarnessBackend
 from caliper.judge.base import JudgeResult
 from caliper.outcome import classify_outcome
@@ -405,3 +406,18 @@ def test_list_still_prints_a_measured_score() -> None:
     results.aggregate = AggregateScore(avg_score=0.0, scored_tasks=1, per_task=[])
 
     assert _score_cell(results) == "0.0%"
+
+
+def test_an_interrupted_unmeasured_run_keeps_its_marker() -> None:
+    """Both facts are provenance, and neither displaces the other.
+
+    A run can stop early *and* have measured nothing; dropping the marker there
+    left the "stopped early" legend explaining a glyph nowhere on screen.
+    """
+    results = _trigger_only_run()
+    results.run.interrupted = True
+
+    cell = _score_cell(results)
+
+    assert RULE_GLYPH in cell
+    assert UNUSABLE_GLYPH in cell

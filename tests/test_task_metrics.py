@@ -7,7 +7,7 @@ of the six were then thrown away. There is one derivation now, and this is it.
 
 from __future__ import annotations
 
-from caliper.schema.results import Outcome, TaskResult
+from caliper.schema.results import AggregateScore, Outcome, TaskResult
 
 from conftest import task_result as _task
 
@@ -157,3 +157,52 @@ def test_a_task_rolls_up_its_own_usage() -> None:
 
     assert task.usage.attempts == 2
     assert task.usage.unusable_attempts == 1
+
+
+def test_a_legacy_run_counts_its_scored_tasks_from_its_rows() -> None:
+    """``scored_tasks`` arrived with install-and-discover; older files lack it.
+
+    Taking the ``0`` default at face value would report a run that really did
+    measure things as having measured nothing.
+    """
+    legacy = {
+        "avg_score": 0.75,
+        "per_task": [
+            {"task_id": "t1", "task_name": "One", "k": 2, "successes": 2, "score": 1.0},
+            {"task_id": "t2", "task_name": "Two", "k": 2, "successes": 1, "score": 0.5},
+        ],
+    }
+
+    agg = AggregateScore.model_validate(legacy)
+
+    assert agg.scored_tasks == 2
+    assert agg.measured is True
+
+
+def test_a_legacy_runs_unmeasured_rows_do_not_count() -> None:
+    """A row with no rate was never fairly measured, then or now."""
+    legacy = {
+        "avg_score": 0.0,
+        "per_task": [
+            {"task_id": "t1", "task_name": "One", "k": 2, "successes": 0, "score": None}
+        ],
+    }
+
+    assert AggregateScore.model_validate(legacy).measured is False
+
+
+def test_a_stored_zero_stays_a_real_claim() -> None:
+    """A current all-trigger-probe run says zero and means it.
+
+    Only the *absent* key is filled in, so the backfill cannot resurrect a
+    headline for a run that correctly reports having measured nothing.
+    """
+    current = {
+        "avg_score": 0.0,
+        "scored_tasks": 0,
+        "per_task": [
+            {"task_id": "t1", "task_name": "One", "k": 2, "successes": 2, "score": 1.0}
+        ],
+    }
+
+    assert AggregateScore.model_validate(current).measured is False

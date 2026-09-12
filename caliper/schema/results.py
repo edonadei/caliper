@@ -4,7 +4,7 @@ import hashlib
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 
 class Outcome(str, Enum):
@@ -628,6 +628,35 @@ class AggregateScore(BaseModel):
     activation_tasks: int = 0
     activation_asserted: int = 0
     activation_per_skill: list[SkillActivationStats] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _count_scored_tasks_of_a_legacy_run(cls, data: object) -> object:
+        """Fill in ``scored_tasks`` for a run saved before the field existed.
+
+        The field arrived with install-and-discover (#80), so a file without it
+        is a legacy run (``era: None``) — and taking the ``0`` default at face
+        value would claim that run measured nothing, which is the fabricated
+        reading ``measured`` exists to prevent, pointed the other way. Its
+        per-task rows are still there, so they are what answers the question.
+
+        Only the *absent* key is filled: a stored ``0`` is a real claim by a
+        current run that every task was a trigger probe, and stays one.
+        """
+        if not isinstance(data, dict) or "scored_tasks" in data:
+            return data
+        rows = data.get("per_task") or []
+        scored = sum(
+            1
+            for row in rows
+            if (
+                row.get("score")
+                if isinstance(row, dict)
+                else getattr(row, "score", None)
+            )
+            is not None
+        )
+        return {**data, "scored_tasks": scored}
 
     @property
     def measured(self) -> bool:

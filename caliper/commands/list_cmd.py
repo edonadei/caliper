@@ -33,9 +33,13 @@ def _score_cell(results: RunResults) -> str:
     listing disagree with the report about the same file, calling "nothing was
     asked" a total failure.
     """
-    if not results.aggregate.measured:
-        return f"[dim]{RULE_GLYPH}[/dim]"
-    score = f"{results.aggregate.avg_score * 100:.1f}%"
+    if results.aggregate.measured:
+        score = f"{results.aggregate.avg_score * 100:.1f}%"
+    else:
+        score = f"[dim]{RULE_GLYPH}[/dim]"
+    # Marked whichever way the cell reads: a run that stopped early is still one
+    # that stopped early, and dropping the glyph here would leave the legend
+    # below explaining a marker that is nowhere on screen.
     if results.run.interrupted:
         return f"{score} [yellow]{_INTERRUPTED}[/yellow]"
     return score
