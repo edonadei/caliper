@@ -109,3 +109,23 @@ def test_a_missing_skill_file_snapshots_as_empty(tmp_path: Path):
 
     assert snap.files == {}
     assert snap.name == "gone"
+
+
+def test_a_reference_outside_the_skill_directory_is_not_captured(tmp_path: Path):
+    """Real skills point outside their own directory, and the run must survive it.
+
+    Only the skill directory is installed, so a file outside it is not part of
+    what the run measured. See docs/CONTEXT.md → Progressive disclosure.
+    """
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "style.md").write_text("# Shared style guide\n")
+    directory = tmp_path / "mine"
+    directory.mkdir()
+    (directory / "SKILL.md").write_text(
+        "---\nname: mine\ndescription: d.\n---\n\nRead `../shared/style.md` first.\n"
+    )
+
+    snap = snapshot_skill(SkillRef(name="mine", path=directory / "SKILL.md"))
+
+    assert set(snap.files) == {"SKILL.md"}

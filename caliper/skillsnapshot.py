@@ -45,6 +45,12 @@ def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
             referenced = path.parent / referenced
         referenced = referenced.resolve()
         if referenced.exists() and referenced != path:
+            if not referenced.is_relative_to(path.parent):
+                # A SKILL.md can point outside its own directory — a shared
+                # style guide, say. Only the skill directory is installed, so a
+                # file outside it is not part of what the run measured (see
+                # docs/CONTEXT.md → Progressive disclosure).
+                continue
             rel = str(referenced.relative_to(path.parent))
             files[rel] = _file_snapshot(referenced.read_text())
 
