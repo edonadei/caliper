@@ -129,3 +129,63 @@ def test_a_reference_outside_the_skill_directory_is_not_captured(tmp_path: Path)
     snap = snapshot_skill(SkillRef(name="mine", path=directory / "SKILL.md"))
 
     assert set(snap.files) == {"SKILL.md"}
+
+
+def test_an_installed_symlink_is_captured_under_its_link_name(tmp_path: Path):
+    """A file symlink installs as its own name, so the snapshot must key it there.
+
+    ``install_skills`` copies *through* the link — ``shutil.copy2`` follows file
+    symlinks — materialising the target's bytes at the link's own path inside
+    the installed skill. Resolving the link here instead drops those bytes, so
+    every later change to the target goes unmeasured.
+    """
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "guide.md").write_text("# Shared guide v1\n")
+    directory = tmp_path / "mine"
+    directory.mkdir()
+    (directory / "SKILL.md").write_text(
+        "---\nname: mine\ndescription: d.\n---\n\nRead [guide](./guide.md).\n"
+    )
+    (directory / "guide.md").symlink_to(Path("../shared/guide.md"))
+
+    snap = snapshot_skill(SkillRef(name="mine", path=directory / "SKILL.md"))
+
+    assert set(snap.files) == {"SKILL.md", "guide.md"}
+    assert snap.files["guide.md"].content == "# Shared guide v1\n"
+
+
+def test_a_changed_symlink_target_shows_as_drift(tmp_path: Path):
+    """Capturing the installed bytes is what makes a later target change visible."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "guide.md").write_text("# Shared guide v1\n")
+    directory = tmp_path / "mine"
+    directory.mkdir()
+    (directory / "SKILL.md").write_text(
+        "---\nname: mine\ndescription: d.\n---\n\nRead [guide](./guide.md).\n"
+    )
+    (directory / "guide.md").symlink_to(Path("../shared/guide.md"))
+    ref = SkillRef(name="mine", path=directory / "SKILL.md")
+
+    before = snapshot_skill(ref)
+    (shared / "guide.md").write_text("# Shared guide v2\n")
+    after = snapshot_skill(ref)
+
+    assert before.files["guide.md"].hash != after.files["guide.md"].hash
+
+
+def test_a_symlink_inside_the_directory_keeps_its_link_name(tmp_path: Path):
+    """The link is what installs, so its name is the key, not the target's."""
+    directory = tmp_path / "mine"
+    directory.mkdir()
+    (directory / "REAL.md").write_text("# Real\n")
+    (directory / "SKILL.md").write_text(
+        "---\nname: mine\ndescription: d.\n---\n\nSee [alias](./alias.md).\n"
+    )
+    (directory / "alias.md").symlink_to(Path("REAL.md"))
+
+    snap = snapshot_skill(SkillRef(name="mine", path=directory / "SKILL.md"))
+
+    assert set(snap.files) == {"SKILL.md", "alias.md"}
+    assert snap.files["alias.md"].content == "# Real\n"

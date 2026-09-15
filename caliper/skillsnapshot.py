@@ -13,6 +13,7 @@ source has to be interrogated with ``git`` at all.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -43,7 +44,12 @@ def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
         referenced = Path(match.group()).expanduser()
         if not referenced.is_absolute():
             referenced = path.parent / referenced
-        referenced = referenced.resolve()
+        # Normalise `..` without resolving symlinks: install_skills copies a
+        # file symlink's bytes to the link's own name, so the installed path —
+        # not the link's target — is the path the run measured. Resolving here
+        # would drop an in-directory companion that points elsewhere, and its
+        # later changes would go unreported as drift.
+        referenced = Path(os.path.normpath(referenced))
         if referenced.exists() and referenced != path:
             if not referenced.is_relative_to(path.parent):
                 # A SKILL.md can point outside its own directory — a shared
