@@ -34,6 +34,14 @@ def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
             name=ref.name, path=str(path), source_kind=ref.source_kind, files={}
         )
 
+    # The directory `install_skills` actually walks: ``SkillRef.directory``, the
+    # parent as the spec *named* it. Resolving it — as `path` above must, for
+    # provenance — disagrees with the installer whenever a skill is reached
+    # through a symlinked directory (`~/.claude/skills/foo` -> a repo), and a
+    # reference written in the link's own terms would then be dropped from the
+    # snapshot though the run installed it.
+    directory = Path(os.path.abspath(Path(ref.path).expanduser().parent))
+
     content = path.read_text()
     files: dict[str, FileSnapshot] = {path.name: _file_snapshot(content)}
 
@@ -43,31 +51,25 @@ def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
     for match in _REF_PATTERN.finditer(content):
         referenced = Path(match.group()).expanduser()
         if not referenced.is_absolute():
-            referenced = path.parent / referenced
+            referenced = directory / referenced
         # Normalise `..` without resolving symlinks: install_skills copies a
         # file symlink's bytes to the link's own name, so the installed path —
         # not the link's target — is the path the run measured. Resolving here
         # would drop an in-directory companion that points elsewhere, and its
         # later changes would go unreported as drift.
         referenced = Path(os.path.normpath(referenced))
-        if referenced.exists() and referenced != path:
-            if not referenced.is_relative_to(path.parent):
-                # A SKILL.md can point outside its own directory — a shared
-                # style guide, say. Only the skill directory is installed, so a
-                # file outside it is not part of what the run measured (see
-                # docs/CONTEXT.md → Progressive disclosure).
-                continue
-            rel = referenced.relative_to(path.parent)
-            # install_skills walks with rglob, which does not descend directory
-            # symlinks: it sees the link, never the files beneath it. A
-            # reference reached through one is therefore not installed, and
-            # bytes the agent never received must not enter the snapshot.
-            if any(
-                (path.parent / Path(*rel.parts[:i])).is_symlink()
-                for i in range(1, len(rel.parts))
-            ):
-                continue
-            files[str(rel)] = _file_snapshot(referenced.read_text())
+        if not referenced.exists() or referenced.resolve() == path:
+            continue
+        if not referenced.is_relative_to(directory):
+            # A SKILL.md can point outside its own directory — a shared style
+            # guide, say. Only the skill directory is installed, so a file
+            # outside it is not part of what the run measured (see
+            # docs/CONTEXT.md → Progressive disclosure).
+            continue
+        rel = referenced.relative_to(directory)
+        if _reached_through_directory_symlink(directory, rel):
+            continue
+        files[str(rel)] = _file_snapshot(referenced.read_text())
 
     # A git source already knows its provenance exactly — caliper resolved the
     # ref and cloned that commit — so it is taken from the ref rather than
@@ -85,6 +87,20 @@ def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
         git_repo=git_repo,
         git_sha=git_sha,
         files=files,
+    )
+
+
+def _reached_through_directory_symlink(directory: Path, rel: Path) -> bool:
+    """Whether reaching ``rel`` from ``directory`` crosses a linked directory.
+
+    ``install_skills`` walks with ``rglob``, which does not descend directory
+    symlinks: it sees the link, never the files beneath it. A reference reached
+    through one is therefore never installed, and bytes the agent never received
+    must not enter the snapshot as drift.
+    """
+    return any(
+        (directory / Path(*rel.parts[:i])).is_symlink()
+        for i in range(1, len(rel.parts))
     )
 
 

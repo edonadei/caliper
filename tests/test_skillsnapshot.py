@@ -261,3 +261,30 @@ def test_a_home_anchored_reference_outside_the_skill_directory_is_skipped(
     snap = snapshot_skill(SkillRef(name="mine", path=directory / "SKILL.md"))
 
     assert set(snap.files) == {"SKILL.md"}
+
+
+def test_a_skill_reached_through_a_linked_directory_keeps_its_references(
+    tmp_path: Path,
+):
+    """Containment follows the directory the installer walks, not the real one.
+
+    ``install_skills`` walks ``SkillRef.directory`` — ``path.parent`` as the
+    spec named it — so a skill reached through a symlinked directory installs
+    its companions normally. Judging containment against the *resolved* parent
+    instead dropped a reference written in the link's own terms, though the run
+    delivered it.
+    """
+    real = tmp_path / "real" / "mine"
+    real.mkdir(parents=True)
+    (real / "guide.md").write_text("# Guide\n")
+    linked = tmp_path / "linked"
+    linked.symlink_to(tmp_path / "real", target_is_directory=True)
+    (real / "SKILL.md").write_text(
+        f"---\nname: mine\ndescription: d.\n---\n\n"
+        f"Read `{linked / 'mine' / 'guide.md'}`.\n"
+    )
+
+    snap = snapshot_skill(SkillRef(name="mine", path=linked / "mine" / "SKILL.md"))
+
+    assert set(snap.files) == {"SKILL.md", "guide.md"}
+    assert snap.files["guide.md"].content == "# Guide\n"
