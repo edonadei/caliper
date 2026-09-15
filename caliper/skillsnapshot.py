@@ -58,15 +58,19 @@ def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
         # would drop an in-directory companion that points elsewhere, and its
         # later changes would go unreported as drift.
         referenced = Path(os.path.normpath(referenced))
-        if not referenced.exists() or referenced.resolve() == path:
+        # Lexically, not by resolved identity: `alias.md -> SKILL.md` installs
+        # as a second file, and asking "does this resolve to the SKILL.md?"
+        # would drop the alias whose later divergence is exactly what drift
+        # means.
+        if not referenced.exists() or referenced == directory / Path(ref.path).name:
             continue
-        if not referenced.is_relative_to(directory):
+        rel = _installed_relative_path(directory, referenced)
+        if rel is None:
             # A SKILL.md can point outside its own directory — a shared style
             # guide, say. Only the skill directory is installed, so a file
             # outside it is not part of what the run measured (see
             # docs/CONTEXT.md → Progressive disclosure).
             continue
-        rel = referenced.relative_to(directory)
         if _reached_through_directory_symlink(directory, rel):
             continue
         files[str(rel)] = _file_snapshot(referenced.read_text())
@@ -88,6 +92,32 @@ def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
         git_sha=git_sha,
         files=files,
     )
+
+
+def _installed_relative_path(directory: Path, referenced: Path) -> Path | None:
+    """Where ``referenced`` lands inside the installed skill, or ``None``.
+
+    A skill reached through a symlinked directory (`~/.claude/skills/foo` -> a
+    repo) has two names: the one the spec wrote and the one the filesystem
+    resolves to. ``install_skills`` walks the name the spec wrote, so a
+    companion is installed at the same relative path under either spelling and
+    a SKILL.md may legitimately use either. Recognising only one drops
+    references the run did deliver.
+
+    The resolved spelling is accepted only when the installer would reach the
+    same bytes by that relative path: its walk starts at ``directory``, and a
+    link in between can lead somewhere else entirely.
+    """
+    if referenced.is_relative_to(directory):
+        return referenced.relative_to(directory)
+    resolved = Path(os.path.normpath(directory.resolve()))
+    if not referenced.is_relative_to(resolved):
+        return None
+    rel = referenced.relative_to(resolved)
+    installed = directory / rel
+    if installed.exists() and installed.resolve() == referenced.resolve():
+        return rel
+    return None
 
 
 def _reached_through_directory_symlink(directory: Path, rel: Path) -> bool:

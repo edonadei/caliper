@@ -288,3 +288,46 @@ def test_a_skill_reached_through_a_linked_directory_keeps_its_references(
 
     assert set(snap.files) == {"SKILL.md", "guide.md"}
     assert snap.files["guide.md"].content == "# Guide\n"
+
+
+def test_a_companion_symlinked_to_the_skill_file_keeps_its_own_key(tmp_path: Path):
+    """Two names for one file install as two files, so both belong in the snapshot.
+
+    ``shutil.copy2`` copies *through* the link, so an `alias.md -> SKILL.md`
+    companion is installed under its own name. Deciding "is this the SKILL.md?"
+    by resolved identity confuses the target with the installed path and drops
+    the alias, whose later divergence would then go unreported.
+    """
+    directory = tmp_path / "mine"
+    directory.mkdir()
+    (directory / "SKILL.md").write_text(
+        "---\nname: mine\ndescription: d.\n---\n\nSee [alias](./alias.md).\n"
+    )
+    (directory / "alias.md").symlink_to(Path("SKILL.md"))
+
+    snap = snapshot_skill(SkillRef(name="mine", path=directory / "SKILL.md"))
+
+    assert set(snap.files) == {"SKILL.md", "alias.md"}
+
+
+def test_a_linked_skill_keeps_a_reference_written_in_resolved_terms(tmp_path: Path):
+    """A skill reached through a link has two names, and either may be written.
+
+    ``install_skills`` walks the directory the spec named, so a companion is
+    installed at the same relative path whichever spelling the SKILL.md uses.
+    Judging containment against one name alone drops the other, though the run
+    delivered the file either way.
+    """
+    real = tmp_path / "real" / "mine"
+    real.mkdir(parents=True)
+    (real / "guide.md").write_text("# Guide\n")
+    linked = tmp_path / "linked"
+    linked.symlink_to(tmp_path / "real", target_is_directory=True)
+    (real / "SKILL.md").write_text(
+        f"---\nname: mine\ndescription: d.\n---\n\nRead `{real / 'guide.md'}`.\n"
+    )
+
+    snap = snapshot_skill(SkillRef(name="mine", path=linked / "mine" / "SKILL.md"))
+
+    assert set(snap.files) == {"SKILL.md", "guide.md"}
+    assert snap.files["guide.md"].content == "# Guide\n"
