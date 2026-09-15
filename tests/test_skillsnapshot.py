@@ -217,3 +217,47 @@ def test_a_reference_below_a_directory_symlink_is_not_snapshotted(tmp_path: Path
     (shared / "style.md").write_text("# Shared style v2\n")
 
     assert snapshot_skill(ref).files == snap.files
+
+
+def test_an_absolute_reference_outside_the_skill_directory_is_skipped(tmp_path: Path):
+    """The form issue #103 filed: an absolute pointer to a shared guide.
+
+    The relative case above exercises the same branch, but the crash was
+    reported against an absolute path, so the repro itself is worth pinning.
+    """
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "style.md").write_text("shared style guide\n")
+    directory = tmp_path / "mine"
+    directory.mkdir()
+    (directory / "SKILL.md").write_text(
+        f"---\nname: mine\ndescription: d.\n---\n\nRead `{shared / 'style.md'}`.\n"
+    )
+
+    snap = snapshot_skill(SkillRef(name="mine", path=directory / "SKILL.md"))
+
+    assert set(snap.files) == {"SKILL.md"}
+
+
+def test_a_home_anchored_reference_outside_the_skill_directory_is_skipped(
+    tmp_path: Path, monkeypatch
+):
+    """`~/.claude/reference/style.md` is absolute by the time it is matched.
+
+    ``_REF_PATTERN`` matches the `~` form and ``expanduser`` makes it absolute,
+    so it reaches the containment check by a different route than a `../` one.
+    """
+    home = tmp_path / "home"
+    (home / ".claude" / "reference").mkdir(parents=True)
+    (home / ".claude" / "reference" / "style.md").write_text("shared style guide\n")
+    monkeypatch.setenv("HOME", str(home))
+    directory = tmp_path / "mine"
+    directory.mkdir()
+    (directory / "SKILL.md").write_text(
+        "---\nname: mine\ndescription: d.\n---\n\n"
+        "Read `~/.claude/reference/style.md`.\n"
+    )
+
+    snap = snapshot_skill(SkillRef(name="mine", path=directory / "SKILL.md"))
+
+    assert set(snap.files) == {"SKILL.md"}
