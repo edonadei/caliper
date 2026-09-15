@@ -34,12 +34,13 @@ def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
             name=ref.name, path=str(path), source_kind=ref.source_kind, files={}
         )
 
-    # The directory `install_skills` actually walks: ``SkillRef.directory``, the
-    # parent as the spec *named* it. Resolving it — as `path` above must, for
-    # provenance — disagrees with the installer whenever a skill is reached
-    # through a symlinked directory (`~/.claude/skills/foo` -> a repo), and a
-    # reference written in the link's own terms would then be dropped from the
-    # snapshot though the run installed it.
+    # Use the skill directory exactly as the spec wrote it, symlinks left in
+    # place. That is the directory `install_skills` copies from, so it is the
+    # one that decides which files the run actually saw. `path` above is
+    # resolved because provenance wants the real location, but if we judged
+    # references against that resolved path, a skill living behind a symlinked
+    # directory (`~/.claude/skills/foo` -> some repo) would lose references
+    # written with the symlink's name, even though they were installed.
     directory = Path(os.path.abspath(Path(ref.path).expanduser().parent))
 
     content = path.read_text()
@@ -52,26 +53,27 @@ def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
         referenced = Path(match.group()).expanduser()
         if not referenced.is_absolute():
             referenced = directory / referenced
-        # Normalise `..` without resolving symlinks: install_skills copies a
-        # file symlink's bytes to the link's own name, so the installed path —
-        # not the link's target — is the path the run measured. Resolving here
-        # would drop an in-directory companion that points elsewhere, and its
-        # later changes would go unreported as drift.
+        # Clean up `..` segments but do not follow symlinks. When a companion
+        # file is a symlink, `install_skills` copies the target's bytes under
+        # the link's own name, so the link's path is what the run saw. If we
+        # resolved the link here, a companion pointing outside the directory
+        # would be dropped, and later edits to its target would never show up
+        # as drift.
         referenced = Path(os.path.normpath(referenced))
-        # Lexically, not by resolved identity: `alias.md -> SKILL.md` installs
-        # as a second file, and asking "does this resolve to the SKILL.md?"
-        # would drop the alias whose later divergence is exactly what drift
-        # means.
+        # Skip the SKILL.md itself by comparing paths as written, not by what
+        # they resolve to. An `alias.md -> SKILL.md` symlink is installed as a
+        # second file, and a change to it later is real drift, so it must stay.
         if not referenced.exists() or referenced == directory / Path(ref.path).name:
             continue
         rel = _installed_relative_path(directory, referenced)
         if rel is None:
-            # A SKILL.md can point outside its own directory — a shared style
-            # guide, say. Only the skill directory is installed, so a file
-            # outside it is not part of what the run measured (see
-            # docs/CONTEXT.md → Progressive disclosure).
+            # The reference points outside the skill directory (a shared style
+            # guide, for example). Only the skill directory is installed, so
+            # the run never saw that file and it does not belong in the
+            # snapshot. See docs/CONTEXT.md → Progressive disclosure.
             continue
         if _reached_through_directory_symlink(directory, rel):
+            # Files under a symlinked directory are never installed either.
             continue
         files[str(rel)] = _file_snapshot(referenced.read_text())
 
@@ -95,18 +97,19 @@ def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
 
 
 def _installed_relative_path(directory: Path, referenced: Path) -> Path | None:
-    """Where ``referenced`` lands inside the installed skill, or ``None``.
+    """Return the path of ``referenced`` relative to the installed skill.
 
-    A skill reached through a symlinked directory (`~/.claude/skills/foo` -> a
-    repo) has two names: the one the spec wrote and the one the filesystem
-    resolves to. ``install_skills`` walks the name the spec wrote, so a
-    companion is installed at the same relative path under either spelling and
-    a SKILL.md may legitimately use either. Recognising only one drops
-    references the run did deliver.
+    Returns ``None`` when the file is not inside the skill directory.
 
-    The resolved spelling is accepted only when the installer would reach the
-    same bytes by that relative path: its walk starts at ``directory``, and a
-    link in between can lead somewhere else entirely.
+    When the skill directory is a symlink (`~/.claude/skills/foo` -> some
+    repo), the same file has two valid absolute paths: one through the link
+    and one through the real location. A SKILL.md may use either, and both
+    are installed at the same relative path, so both are accepted here.
+
+    The real-location form gets one extra check: the file must also exist at
+    that relative path under ``directory`` and be the same file. Otherwise a
+    symlink somewhere in the middle could make the two paths point at
+    different things.
     """
     if referenced.is_relative_to(directory):
         return referenced.relative_to(directory)
@@ -121,12 +124,11 @@ def _installed_relative_path(directory: Path, referenced: Path) -> Path | None:
 
 
 def _reached_through_directory_symlink(directory: Path, rel: Path) -> bool:
-    """Whether reaching ``rel`` from ``directory`` crosses a linked directory.
+    """Return True if any directory on the way to ``rel`` is a symlink.
 
-    ``install_skills`` walks with ``rglob``, which does not descend directory
-    symlinks: it sees the link, never the files beneath it. A reference reached
-    through one is therefore never installed, and bytes the agent never received
-    must not enter the snapshot as drift.
+    ``install_skills`` uses ``rglob``, which does not follow directory
+    symlinks. A file below one is never installed, so the agent never saw it
+    and the snapshot must not track it.
     """
     return any(
         (directory / Path(*rel.parts[:i])).is_symlink()

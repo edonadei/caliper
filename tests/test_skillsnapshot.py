@@ -112,10 +112,10 @@ def test_a_missing_skill_file_snapshots_as_empty(tmp_path: Path):
 
 
 def test_a_reference_outside_the_skill_directory_is_not_captured(tmp_path: Path):
-    """Real skills point outside their own directory, and the run must survive it.
+    """A reference outside the skill directory must not crash the run.
 
-    Only the skill directory is installed, so a file outside it is not part of
-    what the run measured. See docs/CONTEXT.md → Progressive disclosure.
+    Only the skill directory is installed, so the run never saw that file and
+    the snapshot leaves it out. See docs/CONTEXT.md → Progressive disclosure.
     """
     shared = tmp_path / "shared"
     shared.mkdir()
@@ -132,12 +132,12 @@ def test_a_reference_outside_the_skill_directory_is_not_captured(tmp_path: Path)
 
 
 def test_an_installed_symlink_is_captured_under_its_link_name(tmp_path: Path):
-    """A file symlink installs as its own name, so the snapshot must key it there.
+    """A symlinked companion file is stored under the link's name.
 
-    ``install_skills`` copies *through* the link — ``shutil.copy2`` follows file
-    symlinks — materialising the target's bytes at the link's own path inside
-    the installed skill. Resolving the link here instead drops those bytes, so
-    every later change to the target goes unmeasured.
+    ``install_skills`` copies the target's content to the link's own path
+    (``shutil.copy2`` follows file symlinks), so that is the file the agent
+    read. If the snapshot resolved the link instead, the file would fall
+    outside the skill directory and be dropped.
     """
     shared = tmp_path / "shared"
     shared.mkdir()
@@ -156,7 +156,7 @@ def test_an_installed_symlink_is_captured_under_its_link_name(tmp_path: Path):
 
 
 def test_a_changed_symlink_target_shows_as_drift(tmp_path: Path):
-    """Capturing the installed bytes is what makes a later target change visible."""
+    """Editing the symlink's target after the run shows up as drift."""
     shared = tmp_path / "shared"
     shared.mkdir()
     (shared / "guide.md").write_text("# Shared guide v1\n")
@@ -176,7 +176,7 @@ def test_a_changed_symlink_target_shows_as_drift(tmp_path: Path):
 
 
 def test_a_symlink_inside_the_directory_keeps_its_link_name(tmp_path: Path):
-    """The link is what installs, so its name is the key, not the target's."""
+    """A symlink inside the directory is keyed by its own name, not its target's."""
     directory = tmp_path / "mine"
     directory.mkdir()
     (directory / "REAL.md").write_text("# Real\n")
@@ -192,12 +192,11 @@ def test_a_symlink_inside_the_directory_keeps_its_link_name(tmp_path: Path):
 
 
 def test_a_reference_below_a_directory_symlink_is_not_snapshotted(tmp_path: Path):
-    """The installer never descends directory symlinks, so neither may the snapshot.
+    """Files under a symlinked directory are not snapshotted.
 
-    ``install_skills`` reaches files with ``rglob``, which sees the linked
-    directory but not the files beneath it, so a descendant the SKILL.md names
-    is never delivered to the agent. Recording it would report drift for a
-    change the run never saw.
+    ``install_skills`` uses ``rglob``, which does not follow directory
+    symlinks, so those files were never installed. Tracking them would report
+    drift for a change the agent never saw.
     """
     shared = tmp_path / "shared"
     shared.mkdir()
@@ -220,10 +219,10 @@ def test_a_reference_below_a_directory_symlink_is_not_snapshotted(tmp_path: Path
 
 
 def test_an_absolute_reference_outside_the_skill_directory_is_skipped(tmp_path: Path):
-    """The form issue #103 filed: an absolute pointer to a shared guide.
+    """The exact case from issue #103: an absolute path to a shared guide.
 
-    The relative case above exercises the same branch, but the crash was
-    reported against an absolute path, so the repro itself is worth pinning.
+    The relative-path test above hits the same branch, but the reported crash
+    used an absolute path, so the repro is kept as its own test.
     """
     shared = tmp_path / "shared"
     shared.mkdir()
@@ -242,10 +241,9 @@ def test_an_absolute_reference_outside_the_skill_directory_is_skipped(tmp_path: 
 def test_a_home_anchored_reference_outside_the_skill_directory_is_skipped(
     tmp_path: Path, monkeypatch
 ):
-    """`~/.claude/reference/style.md` is absolute by the time it is matched.
+    """A `~/...` reference is expanded to an absolute path and then skipped.
 
-    ``_REF_PATTERN`` matches the `~` form and ``expanduser`` makes it absolute,
-    so it reaches the containment check by a different route than a `../` one.
+    This takes a different code path than `../`, so it gets its own test.
     """
     home = tmp_path / "home"
     (home / ".claude" / "reference").mkdir(parents=True)
@@ -266,13 +264,11 @@ def test_a_home_anchored_reference_outside_the_skill_directory_is_skipped(
 def test_a_skill_reached_through_a_linked_directory_keeps_its_references(
     tmp_path: Path,
 ):
-    """Containment follows the directory the installer walks, not the real one.
+    """A skill behind a symlinked directory keeps references written via the link.
 
-    ``install_skills`` walks ``SkillRef.directory`` — ``path.parent`` as the
-    spec named it — so a skill reached through a symlinked directory installs
-    its companions normally. Judging containment against the *resolved* parent
-    instead dropped a reference written in the link's own terms, though the run
-    delivered it.
+    ``install_skills`` copies from the directory as the spec named it, so the
+    companions install normally. Checking references against the resolved
+    directory instead would drop a path written with the symlink's name.
     """
     real = tmp_path / "real" / "mine"
     real.mkdir(parents=True)
@@ -291,12 +287,11 @@ def test_a_skill_reached_through_a_linked_directory_keeps_its_references(
 
 
 def test_a_companion_symlinked_to_the_skill_file_keeps_its_own_key(tmp_path: Path):
-    """Two names for one file install as two files, so both belong in the snapshot.
+    """An `alias.md -> SKILL.md` symlink is snapshotted as its own file.
 
-    ``shutil.copy2`` copies *through* the link, so an `alias.md -> SKILL.md`
-    companion is installed under its own name. Deciding "is this the SKILL.md?"
-    by resolved identity confuses the target with the installed path and drops
-    the alias, whose later divergence would then go unreported.
+    ``shutil.copy2`` follows the link, so the alias is installed as a second
+    file. Skipping it because it resolves to SKILL.md would hide any later
+    change to it.
     """
     directory = tmp_path / "mine"
     directory.mkdir()
@@ -311,12 +306,10 @@ def test_a_companion_symlinked_to_the_skill_file_keeps_its_own_key(tmp_path: Pat
 
 
 def test_a_linked_skill_keeps_a_reference_written_in_resolved_terms(tmp_path: Path):
-    """A skill reached through a link has two names, and either may be written.
+    """A skill behind a symlinked directory also keeps references via the real path.
 
-    ``install_skills`` walks the directory the spec named, so a companion is
-    installed at the same relative path whichever spelling the SKILL.md uses.
-    Judging containment against one name alone drops the other, though the run
-    delivered the file either way.
+    The companion is installed at the same relative path whichever spelling the
+    SKILL.md uses, so both spellings must be accepted.
     """
     real = tmp_path / "real" / "mine"
     real.mkdir(parents=True)
