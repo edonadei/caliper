@@ -57,8 +57,17 @@ def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
                 # file outside it is not part of what the run measured (see
                 # docs/CONTEXT.md → Progressive disclosure).
                 continue
-            rel = str(referenced.relative_to(path.parent))
-            files[rel] = _file_snapshot(referenced.read_text())
+            rel = referenced.relative_to(path.parent)
+            # install_skills walks with rglob, which does not descend directory
+            # symlinks: it sees the link, never the files beneath it. A
+            # reference reached through one is therefore not installed, and
+            # bytes the agent never received must not enter the snapshot.
+            if any(
+                (path.parent / Path(*rel.parts[:i])).is_symlink()
+                for i in range(1, len(rel.parts))
+            ):
+                continue
+            files[str(rel)] = _file_snapshot(referenced.read_text())
 
     # A git source already knows its provenance exactly — caliper resolved the
     # ref and cloned that commit — so it is taken from the ref rather than

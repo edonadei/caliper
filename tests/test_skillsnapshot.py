@@ -189,3 +189,31 @@ def test_a_symlink_inside_the_directory_keeps_its_link_name(tmp_path: Path):
 
     assert set(snap.files) == {"SKILL.md", "alias.md"}
     assert snap.files["alias.md"].content == "# Real\n"
+
+
+def test_a_reference_below_a_directory_symlink_is_not_snapshotted(tmp_path: Path):
+    """The installer never descends directory symlinks, so neither may the snapshot.
+
+    ``install_skills`` reaches files with ``rglob``, which sees the linked
+    directory but not the files beneath it, so a descendant the SKILL.md names
+    is never delivered to the agent. Recording it would report drift for a
+    change the run never saw.
+    """
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "style.md").write_text("# Shared style v1\n")
+    directory = tmp_path / "mine"
+    directory.mkdir()
+    (directory / "SKILL.md").write_text(
+        "---\nname: mine\ndescription: d.\n---\n\nRead ./references/style.md.\n"
+    )
+    (directory / "references").symlink_to(Path("../shared"), target_is_directory=True)
+    ref = SkillRef(name="mine", path=directory / "SKILL.md")
+
+    snap = snapshot_skill(ref)
+
+    assert set(snap.files) == {"SKILL.md"}
+
+    (shared / "style.md").write_text("# Shared style v2\n")
+
+    assert snapshot_skill(ref).files == snap.files
