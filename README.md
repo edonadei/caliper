@@ -4,28 +4,25 @@
 [![Python](https://img.shields.io/pypi/pyversions/caliper-eval.svg)](https://pypi.org/project/caliper-eval/)
 [![Skills](https://skills.sh/b/edonadei/caliper)](https://skills.sh/edonadei/caliper)
 
-Caliper is a lightweight evaluation harness for agent skills. Write a short spec of what "good" looks like, run it, and get a **success rate** you can track. Works with the agent you already use: **Claude Code, Codex, Pi, or Hermes**. Caliper installs the skill where the agent looks for skills and lets the agent choose.
+A skill that works on your machine, on this prompt, today, can fail tomorrow after a model update or a one-line prompt edit. Caliper is a lightweight evaluation harness that makes that measurable. Write a short spec of what "good" looks like, run it k times against the agent you already use (**Claude Code, Codex, Pi, or Hermes**), and get a **success rate** you can track over time.
 
-**Teach your agent to evaluate:**
-
-```bash
-npx skills@latest add edonadei/caliper
-```
-
-**Or run it yourself:**
+Caliper never pastes your skill into the prompt. It installs the skill where the agent looks for skills and lets the agent choose, so one run measures two things at once: does the `description` fire, and does the body work.
 
 ```bash
-# Run the evaluation.
-caliper run commit-commands.eval.yaml --k 3
-
-# The control subject: your skill is not there.
-caliper run commit-commands.eval.yaml --k 3 --ablate commit-commands
-
-# Compare the runs. Did your skill improve it?
-caliper compare .caliper/results/commit-commands/<evaluation-run>.json .caliper/results/commit-commands/<ablated-run>.json
+npx skills@latest add edonadei/caliper   # let your agent drive
+pipx install caliper-eval                # or run the CLI yourself
 ```
 
-You write a spec, a YAML file describing what "working" means. Either hand-write it or have `/grill-skill` generate it for you. `--ablate` runs the same tasks with that skill *removed*, and `caliper compare` diffs the two runs task by task:
+Use Caliper to answer questions like:
+
+- Is my agent still working the same with this new model?
+- Did my prompt edit improve the skill, or just change it?
+- Does my skill fire when it should, and stay quiet when it shouldn't?
+- Is the skill worth the context? Or would the base agent pass without it?
+- Does it still pass the workflows it passed last week?
+- Which agent (Claude Code, Codex, Pi, or Hermes) runs this skill more reliably?
+
+The fourth question is what `--ablate` answers: it re-runs the same tasks with your skill *removed*, and `caliper compare` diffs the two runs task by task:
 
 <!-- Terminal output of `caliper compare`, rendered to SVG so the box-drawing
      table stays aligned on every screen. Regenerate with:
@@ -34,22 +31,11 @@ You write a spec, a YAML file describing what "working" means. Either hand-write
 
 ---
 
-Agent skills are hard to test. A skill that works on your machine, on this prompt, today, might fail tomorrow after a model update or a one-line prompt edit. Caliper makes reliability measurable: define what success looks like, run the skill repeatedly, and get a success rate you can track over time.
-
-Use Caliper to answer questions like:
-
-- Is my agent still working the same with this new model?
-- Did my prompt edit improved the skill?
-- Does my skill fire when it should, and stay quiet when it needs to not trigger?
-- Is the skill worth the context? Or would the base agent pass without it?
-- Does it still pass the workflows it passed last week?
-- Which agent (Claude Code, Codex, Pi, or Hermes) runs this skill more reliably?
-
----
-
 ## Quick start
 
-### Path A: Agentic (let your agent drive)
+Two ways in. Let your agent drive, or run the CLI yourself.
+
+### Let your agent drive
 
 **1. Install the skills**
 
@@ -59,7 +45,7 @@ npx skills@latest add edonadei/caliper
 
 **2. Generate a spec interactively**
 
-In your agent (Claude Code or Codex):
+In Claude Code (for Codex, see [Agent skills](#agent-skills)):
 
 ```text
 /grill-skill ./my-skill/SKILL.md
@@ -80,7 +66,7 @@ Browse past runs:
 /evaluate-skill report my-skill
 ```
 
-### Path B: CLI (run it yourself)
+### Run the CLI yourself
 
 **1. Install the CLI**
 
@@ -133,17 +119,23 @@ work that belongs to `changelog-writer`. Declaring the neighbour and asserting
 `activates: [changelog-writer]` is how you find out. A task like that needs no
 `expect:` at all: it skips the judge, so it costs a fraction of a graded task.
 
-Caliper never pastes your skill into the prompt. It **installs** it where the
-agent looks for skills and lets the agent decide, so a run measures the
-`description` (does it fire?) and the body (does it work?) together, and
-`activates:` is what tells the two apart.
+Because the skill is installed rather than pasted into the prompt, a run
+measures the `description` and the body together, and `activates:` is what
+tells a description that never fired apart from a body that failed.
 
 The spec never names an engine. The skill and judge default to `claude-code`, and you pick a different agent/model at run time with `--model` / `--judge-model` (see [Choosing an engine](#choosing-an-engine)).
 
 **3. Run it**
 
 ```bash
-caliper run my-skill.eval.yaml --k 3          # --ablate <skill> for a run to diff against
+# Run the evaluation.
+caliper run my-skill.eval.yaml --k 3
+
+# The control arm: the same tasks with your skill removed.
+caliper run my-skill.eval.yaml --k 3 --ablate commit-writer
+
+# Compare the runs. Did your skill improve it?
+caliper compare .caliper/results/my-skill/<evaluation-run>.json .caliper/results/my-skill/<ablated-run>.json
 ```
 
 **4. Read the output**
@@ -787,8 +779,8 @@ before reporting the error.
 
 ## Token and time usage
 
-Pass@k tells you *whether* a skill works; usage tells you what it **costs** to
-get there. Two runs can have identical scores while one burns twice the tokens.
+The success rate tells you *whether* a skill works; usage tells you what it
+**costs** to get there. Two runs can have identical scores while one burns twice the tokens.
 Caliper records **token volume** and **wall-clock time** per attempt and rolls
 them up per run. Judge latency is recorded separately as `judge_seconds` and
 summarised on its own `Judge` line — it is not part of `Wall`, which stays the
