@@ -135,7 +135,7 @@ caliper run my-skill.eval.yaml --k 3
 caliper run my-skill.eval.yaml --k 3 --ablate commit-writer
 
 # Compare the runs. Did your skill improve it?
-caliper compare .caliper/results/my-skill/<evaluation-run>.json .caliper/results/my-skill/<ablated-run>.json
+caliper compare .caliper/results/my-skill/<ablated-run>.json .caliper/results/my-skill/<evaluation-run>.json
 ```
 
 **4. Read the output**
