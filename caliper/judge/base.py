@@ -46,4 +46,5 @@ class Judge(Protocol):
         transcript: list[ConversationTurn],
         final_output: str,
         spec_dir: str,
+        attempt_dir: str | None = None,
     ) -> JudgeResult: ...

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -68,17 +69,27 @@ def _format_transcript(turns: list[ConversationTurn]) -> str:
     return "\n".join(lines) or "(empty transcript)"
 
 
-def _run_inline_script(code: str, spec_dir: str) -> tuple[bool, str]:
+def _run_inline_script(
+    code: str, spec_dir: str, attempt_dir: str | None = None
+) -> tuple[bool, str]:
     with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
         f.write(code)
         tmp_path = f.name
     try:
+        # The assertion may grade artifacts that live in the attempt's
+        # isolated home — a fact only the runner knows. Exported as
+        # CALIPER_* so a spec's assert stays parallel-safe (k concurrent
+        # attempts never share a path) without hard-coding temp dirs.
+        env = dict(os.environ)
+        if attempt_dir:
+            env["CALIPER_ATTEMPT_DIR"] = attempt_dir
         result = subprocess.run(
             [sys.executable, tmp_path],
             capture_output=True,
             text=True,
             timeout=30,
             cwd=spec_dir,
+            env=env,
         )
         if result.returncode == 0:
             return True, ""
@@ -116,7 +127,9 @@ def _parse_rich_response(raw: str, spec_dir: str) -> tuple[bool, str, bool]:
     return bool(verdict.get("passed", False)), reasoning, False
 
 
-def _run_assert_from_task(task: TaskSpec, spec_dir: str) -> tuple[bool, str] | None:
+def _run_assert_from_task(
+    task: TaskSpec, spec_dir: str, attempt_dir: str | None = None
+) -> tuple[bool, str] | None:
     """Run the static assert field from the task spec, if present."""
     if not task.assert_script:
         return None
@@ -155,6 +168,7 @@ class EvalJudge(Judge):
         transcript: list[ConversationTurn],
         final_output: str,
         spec_dir: str,
+        attempt_dir: str | None = None,
     ) -> JudgeResult:
         assert_passed: bool | None = None
         assert_evidence: str | None = None
@@ -162,7 +176,7 @@ class EvalJudge(Judge):
         autorater_reasoning: str | None = None
         autorater_errored = False
 
-        static_result = _run_assert_from_task(task, spec_dir)
+        static_result = _run_assert_from_task(task, spec_dir, attempt_dir)
         if static_result is not None:
             assert_passed, assert_evidence = static_result
 

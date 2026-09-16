@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
@@ -604,6 +605,16 @@ class CliHarness(HarnessBackend):
     #: nothing to do with the skill under test.
     env_passthrough: tuple[str, ...] = ("LANG", "LC_ALL", "TERM", "TMPDIR")
 
+    #: Windows process-critical vars. A child env without SystemRoot breaks
+    #: BCrypt/crypto init in Node-based CLIs (observed: `ncrypto::CSPRNG`
+    #: assertion crash at process start for every backend on Windows), so
+    #: these are always carried into the isolated environment.
+    _WIN_REQUIRED_ENV: tuple[str, ...] = (
+        "SystemRoot", "windir", "COMSPEC", "TEMP", "TMP",
+        "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "COMMONPROGRAMFILES",
+        "USERNAME", "USERDOMAIN",
+    )
+
     def _isolated_env(
         self,
         ctx: RunContext,
@@ -631,6 +642,10 @@ class CliHarness(HarnessBackend):
             "PATH": os.pathsep.join(prefixes + rest),
             **(extra or {}),
         }
+        if sys.platform == "win32":
+            for key in self._WIN_REQUIRED_ENV:
+                if key in os.environ:
+                    env[key] = os.environ[key]
         return self._passthrough(env, self.env_passthrough)
 
     def _execute(

@@ -27,6 +27,7 @@ class RecordingJudge:
         transcript: list[ConversationTurn],
         final_output: str,
         spec_dir: str,
+        attempt_dir: str | None = None,
     ) -> JudgeResult:
         self.calls += 1
         return self.result

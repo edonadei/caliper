@@ -192,6 +192,13 @@ class AttemptRecord(BaseModel):
     # Token accounting for this attempt, when the backend reports it. Optional so
     # results saved before usage tracking still load (they render as "—").
     usage: TokenUsage | None = None
+    # The concrete model this attempt's agent resolved (``None`` when the
+    # backend cannot report it — rendered "—" like the other optional facts).
+    # Per-attempt rather than run-level so a run whose attempts resolved
+    # different engines (a CLI default choosing per invocation, a mid-run
+    # account change) shows that in the record itself instead of hiding it
+    # behind one run-level name.
+    model: str | None = None
     # Ordered conversation turns, including tool_use/tool_result when present.
     # Optional so results saved before transcript persistence still load.
     transcript: list[TranscriptTurn] | None = None

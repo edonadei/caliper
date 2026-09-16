@@ -53,6 +53,7 @@ def assemble_attempt(
     sandbox: Sandbox,
     judge: Judge,
     retries: int = 0,
+    attempt_dir: str | None = None,
 ) -> AssembledAttempt:
     """Grade one finished harness run into an ``AttemptRecord``.
 
@@ -106,6 +107,10 @@ def assemble_attempt(
                 duration_seconds=result.duration_seconds,
                 outcome=outcome,
                 usage=result.usage,
+                # What actually ran, from the harness (``None`` when the
+                # backend cannot report it) — a drift-visible fact, not a
+                # run-level assumption.
+                model=result.resolved_model,
                 transcript=_persist_transcript(result.transcript),
                 activated=activated,
                 activation_passed=activation_passed,
@@ -139,6 +144,7 @@ def assemble_attempt(
         transcript=result.transcript,
         final_output=result.final_output,
         spec_dir=spec_dir,
+        attempt_dir=attempt_dir,
     )
     # Timed here rather than inside the judge: this is the only place that knows
     # an attempt reached one at all, and every earlier exit above leaves

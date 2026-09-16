@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -51,19 +52,29 @@ class CodexHarness(CliHarness):
     def skills_root(self, ctx: RunContext) -> Path:
         return Path(ctx.isolated_home) / ".codex" / "skills"
 
+    def _source_home(self) -> Path:
+        """The codex config dir attempts are seeded from.
+
+        ``CALIPER_CODEX_HOME`` overrides ``~/.codex`` so a second Codex
+        account (its own CODEX_HOME) can carry an eval without touching the
+        primary account's quota.
+        """
+        override = os.environ.get("CALIPER_CODEX_HOME")
+        return Path(override) if override else Path.home() / ".codex"
+
     def seed_files(self, ctx: RunContext) -> list[tuple[Path, Path]]:
-        real = Path.home() / ".codex"
+        source = self._source_home()
         codex_home = Path(ctx.isolated_home) / ".codex"
         # config.toml is deliberately absent: it is rewritten rather than copied
         # (see ``_materialize_config``), so seeding it verbatim would leak the
         # user's ambient model pin and MCP servers into the attempt.
-        return [(real / "auth.json", codex_home / "auth.json")]
+        return [(source / "auth.json", codex_home / "auth.json")]
 
     def _prepare(self, ctx: RunContext) -> None:
         self._materialize_config(
             ctx,
             Path(ctx.isolated_home) / ".codex",
-            Path.home() / ".codex" / "config.toml",
+            self._source_home() / "config.toml",
         )
 
     def _command(
@@ -89,11 +100,37 @@ class CodexHarness(CliHarness):
         return cmd, full_prompt, None
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
-        return self._isolated_env(ctx)
+        # Windows: codex resolves its config dir from CODEX_HOME/USERPROFILE,
+        # not HOME, so HOME-isolation alone leaves attempts reading the real
+        # account. Point CODEX_HOME at the seeded isolated config explicitly.
+        return self._isolated_env(
+            ctx, extra={"CODEX_HOME": str(Path(ctx.isolated_home) / ".codex")}
+        )
 
     def _cli_available(self) -> bool:
         codex = self.cli_path()
         return codex is not None and self._version_ok(codex, timeout=5)
+
+    def _resolved_model(self, proc: ProcessResult, ctx: RunContext) -> str | None:
+        """The model this attempt actually ran, when the stream names it.
+
+        Codex's ``exec --json`` stream opens with a ``thread.started`` event,
+        and builds that carry the resolved model put it there — the one
+        observation of a CLI-default choice when the invocation passed no
+        ``--model``. Falls back to the requested model; ``None`` when neither
+        the stream nor the invocation names one.
+        """
+        for line in proc.stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "thread.started":
+                continue
+            model = event.get("model")
+            if isinstance(model, str) and model:
+                return model
+        return ctx.model
 
     def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
         """Read the last ``turn.completed`` event's ``usage``.
@@ -293,7 +330,13 @@ class CodexHarness(CliHarness):
     def _read_last_message(
         self, proc: ProcessResult, model: str | None, output_path: Path
     ) -> PromptResult:
-        raw = output_path.read_text().strip() if output_path.exists() else ""
+        # codex writes the answer file as UTF-8; the default locale read
+        # (cp1252 on Windows) raises on any non-ASCII model output.
+        raw = (
+            output_path.read_text(encoding="utf-8").strip()
+            if output_path.exists()
+            else ""
+        )
         raw = raw or proc.stdout.strip()
         if proc.returncode != 0:
             detail = _extract_codex_error(proc.stderr) or _extract_codex_error(raw)

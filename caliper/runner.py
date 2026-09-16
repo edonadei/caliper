@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -400,7 +401,25 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord | 
     spec, spec_path = env.spec, env.spec_path
     tmp_dir = tempfile.mkdtemp(prefix="caliper-")
     try:
-        _run_shell(task.setup)
+        setup_rc = _run_shell(
+            task.setup,
+            attempt_dir=tmp_dir,
+            task_id=task.id,
+            attempt=attempt,
+            spec_dir=str(spec_path.parent),
+        )
+        if setup_rc != 0:
+            # A failed setup means the attempt never got its stage: grading
+            # it as the agent's task failure would measure the spec author's
+            # shell, not the skill. Unusable-infrastructure outcome (not a
+            # paid judge call), visible in the unusable-attempt report.
+            return AttemptRecord(
+                attempt=attempt,
+                output="",
+                duration_seconds=0.0,
+                outcome=Outcome.INFRA_ERROR,
+                error=f"task setup exited {setup_rc}",
+            )
         resolved_extra_path = [
             str((spec_path.parent / p).resolve()) for p in spec.sandbox.extra_path
         ]
@@ -460,13 +479,22 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord | 
             sandbox=env.sandbox,
             judge=env.judge,
             retries=invoked.retries,
+            # Assertions grade artifacts in the attempt's own home; hand
+            # them the same boundary the setup/cleanup and the agent got.
+            attempt_dir=tmp_dir,
         )
         if assembled.judge_model:
             env.judge_models.append(assembled.judge_model)
 
         return assembled.record
     finally:
-        _run_shell(task.cleanup)
+        _run_shell(
+            task.cleanup,
+            attempt_dir=tmp_dir,
+            task_id=task.id,
+            attempt=attempt,
+            spec_dir=str(spec_path.parent),
+        )
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
@@ -489,6 +517,37 @@ def _announce(
         )
 
 
-def _run_shell(cmd: str | None) -> None:
-    if cmd:
-        subprocess.run(cmd, shell=True, check=False)
+def _run_shell(
+    cmd: str | None,
+    *,
+    attempt_dir: str,
+    task_id: str,
+    attempt: int,
+    spec_dir: str,
+) -> int:
+    """Run a setup/cleanup command inside the attempt's own home.
+
+    The working directory is the attempt's isolated home — the same boundary
+    the agent itself gets — so ``k`` parallel attempts whose setups write
+    files cannot race on a shared directory or drop artifacts into caliper's
+    invocation directory (where they could land inside a tracked repository).
+    The ``CALIPER_*`` env vars name the boundaries a spec may legitimately
+    reach for: the spec directory (fixtures) and this attempt's home.
+    Returns the command's exit code (0 when there is no command) — a nonzero
+    setup must fail the attempt as unusable infrastructure, never as the
+    agent's task failure.
+    """
+    if not cmd:
+        return 0
+    shell_env = dict(os.environ)
+    shell_env.update(
+        {
+            "CALIPER_TASK_ID": task_id,
+            "CALIPER_ATTEMPT": str(attempt),
+            "CALIPER_ATTEMPT_DIR": attempt_dir,
+            "CALIPER_SPEC_DIR": spec_dir,
+        }
+    )
+    return subprocess.run(
+        cmd, shell=True, check=False, cwd=attempt_dir, env=shell_env
+    ).returncode

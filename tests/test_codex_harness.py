@@ -553,3 +553,89 @@ def test_codex_parses_mcp_tool_call_as_doubled_underscore_name() -> None:
     outputs = [t.tool_output for t in transcript if t.role == "tool_result"]
     assert any("caliper" in (o or "") for o in outputs)
     assert final == "done"
+
+
+def test_codex_resolved_model_from_thread_started(monkeypatch, tmp_path) -> None:
+    """A CLI-default run records the model codex says it used, not ``None``.
+
+    The resolved model used to fall back to the *requested* model — which is
+    ``None`` when no ``--model`` was passed — so every attempt recorded a
+    null model and a run could not tell a CLI-default change from a drift.
+    Codex names the resolved model on the stream's opening event.
+    """
+
+    def fake_run(cmd, **kwargs):
+        if cmd == ["codex", "--version"]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="codex-cli 0.132.0\n", stderr=""
+            )
+        events = [
+            {
+                "type": "thread.started",
+                "thread_id": "thread-1",
+                "model": "gpt-5-codex",
+            },
+            {"type": "turn.started"},
+            {
+                "type": "item.completed",
+                "item": {"id": "item_1", "type": "agent_message", "text": "done"},
+            },
+            {"type": "turn.completed", "usage": {}},
+        ]
+        stdout = "\n".join(json.dumps(event) for event in events)
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "codex")
+    monkeypatch.setattr(
+        "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
+    )
+    patch_cli_calls(monkeypatch, fake_run)
+
+    result = CodexHarness().run(
+        run_context(
+            prompt="Inspect the repo",
+            model=None,
+            timeout=12,
+            isolated_home=str(tmp_path),
+        )
+    )
+
+    assert result.resolved_model == "gpt-5-codex"
+
+
+def test_codex_resolved_model_falls_back_to_requested(monkeypatch, tmp_path) -> None:
+    """No model on the stream → the requested model; neither → ``None``."""
+
+    def fake_run(cmd, **kwargs):
+        if cmd == ["codex", "--version"]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="codex-cli 0.132.0\n", stderr=""
+            )
+        events = [
+            {"type": "thread.started", "thread_id": "thread-1"},
+            {"type": "turn.started"},
+            {
+                "type": "item.completed",
+                "item": {"id": "item_1", "type": "agent_message", "text": "done"},
+            },
+            {"type": "turn.completed", "usage": {}},
+        ]
+        stdout = "\n".join(json.dumps(event) for event in events)
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "codex")
+    monkeypatch.setattr(
+        "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
+    )
+    patch_cli_calls(monkeypatch, fake_run)
+
+    result = CodexHarness().run(
+        run_context(
+            prompt="Inspect the repo",
+            model=None,
+            timeout=12,
+            isolated_home=str(tmp_path),
+        )
+    )
+
+    assert result.resolved_model is None

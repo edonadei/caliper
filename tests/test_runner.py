@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import ast
+import os
+from pathlib import Path
+
 from caliper.harness.base import (
     AttemptResult,
     ConversationTurn,
@@ -70,7 +74,7 @@ class RecordingJudge:
     def __init__(self) -> None:
         self.calls = 0
 
-    def evaluate(self, task, transcript, final_output, spec_dir) -> JudgeResult:
+    def evaluate(self, task, transcript, final_output, spec_dir, attempt_dir=None) -> JudgeResult:
         self.calls += 1
         return JudgeResult(passed=True, reasoning="should not run")
 
@@ -82,7 +86,7 @@ class JudgeErrorThenPass:
     def __init__(self) -> None:
         self.calls = 0
 
-    def evaluate(self, task, transcript, final_output, spec_dir) -> JudgeResult:
+    def evaluate(self, task, transcript, final_output, spec_dir, attempt_dir=None) -> JudgeResult:
         self.calls += 1
         if self.calls == 1:
             return JudgeResult(passed=False, reasoning="judge flaked", errored=True)
@@ -259,7 +263,7 @@ class ModelReportingJudge:
         self.backend = backend
         self.model = model
 
-    def evaluate(self, task, transcript, final_output, spec_dir) -> JudgeResult:
+    def evaluate(self, task, transcript, final_output, spec_dir, attempt_dir=None) -> JudgeResult:
         return JudgeResult(passed=True, reasoning="ok", resolved_model=self._resolved)
 
 
@@ -399,3 +403,98 @@ def test_runner_persists_attempt_transcript(tmp_path) -> None:
     assert attempt.transcript[1].tool_name == "mcp__wiki__read"
     assert attempt.transcript[1].tool_input == {"page": "home"}
     assert attempt.transcript[2].tool_output == "ok"
+
+
+class SetupProbeHarness(HarnessBackend):
+    """Records what the attempt's setup staged inside the attempt home.
+
+    Keyed by attempt number: with ``workers >= 2`` two run() calls interleave,
+    so append-order pairing of two lists would match one attempt's env with
+    another's home.
+    """
+
+    def __init__(self) -> None:
+        self.homes: dict[int, str] = {}
+        self.cwd_seen: dict[int, str | None] = {}
+        self.envs: dict[int, dict[str, str]] = {}
+
+    @property
+    def name(self) -> str:
+        return "setup-probe"
+
+    def run(self, ctx: RunContext) -> AttemptResult:
+        home = Path(ctx.isolated_home)
+        self.homes[ctx.attempt] = ctx.isolated_home
+        marker = home / "setup-marker.txt"
+        self.cwd_seen[ctx.attempt] = (
+            marker.read_text().strip() if marker.exists() else None
+        )
+        env_file = home / "setup-env.txt"
+        self.envs[ctx.attempt] = (
+            ast.literal_eval(env_file.read_text()) if env_file.exists() else {}
+        )
+        return AttemptResult(
+            transcript=[], final_output="ok", exit_code=0, duration_seconds=0.1
+        )
+
+
+def test_setup_runs_inside_the_attempt_home(tmp_path) -> None:
+    """A parallel attempt's setup cannot write into the caller's directory.
+
+    Setups used to shell out from caliper's own CWD, so k workers raced on
+    one shared directory (and could drop artifacts into whatever repository
+    caliper was invoked from). The setup now runs in the attempt's isolated
+    home — the same boundary the agent itself gets — with the boundaries a
+    spec may legitimately reach for named in ``CALIPER_*`` env vars.
+    """
+    spec_path = tmp_path / "setup.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    task = TaskSpec(
+        id="task-001",
+        name="Setup probe",
+        prompt="p",
+        expect="ok",
+        setup=(
+            "python -c \"import os; open('setup-marker.txt', 'w').write(os.getcwd())\" && "
+            "python -c \"import os; open('setup-env.txt', 'w').write(repr({k: v for k, v in os.environ.items() if k.startswith('CALIPER_')}))\""
+        ),
+    )
+    harness = SetupProbeHarness()
+
+    results = run(
+        spec=EvalSpec(tasks=[task]),
+        spec_path=spec_path,
+        harness=harness,
+        judge=RecordingJudge(),
+        k=2,
+        workers=2,
+        timeout=30,
+    )
+
+    assert [a.outcome for a in results.task_results[0].attempts] == [Outcome.PASS] * 2
+    assert sorted(harness.homes) == [1, 2]
+    # Each attempt's setup ran with the attempt's own home as its CWD —
+    # the marker (written to a relative path) sits where the agent ran,
+    # and its contents name that same directory. Path comparison, not string:
+    # Windows getcwd() normalization may differ in case from the cwd= input.
+    for attempt in (1, 2):
+        cwd, home = harness.cwd_seen[attempt], harness.homes[attempt]
+        assert cwd is not None and os.path.normcase(cwd) == os.path.normcase(home), (
+            f"attempt {attempt}: setup CWD left the attempt home: {cwd!r} vs {home!r}"
+        )
+    assert len({os.path.normcase(c) for c in harness.cwd_seen.values() if c}) == 2
+    # The boundaries a spec may reach for are named, per attempt.
+    assert all(
+        e["CALIPER_TASK_ID"] == "task-001" for e in harness.envs.values()
+    )
+    assert sorted(harness.envs) == [1, 2]
+    for attempt in (1, 2):
+        assert os.path.normcase(
+            harness.envs[attempt]["CALIPER_ATTEMPT_DIR"]
+        ) == os.path.normcase(harness.homes[attempt]), (
+            f"attempt {attempt}: ATTEMPT_DIR {harness.envs[attempt]} "
+            f"vs home {harness.homes[attempt]!r}"
+        )
+        assert os.path.normcase(
+            harness.envs[attempt]["CALIPER_SPEC_DIR"]
+        ) == os.path.normcase(str(tmp_path))

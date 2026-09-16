@@ -43,7 +43,7 @@ class SlowJudge:
     backend = "test"
     model = None
 
-    def evaluate(self, task, transcript, final_output, spec_dir) -> JudgeResult:
+    def evaluate(self, task, transcript, final_output, spec_dir, attempt_dir=None) -> JudgeResult:
         time.sleep(0.05)
         return JudgeResult(passed=True, reasoning="ok")
 
