@@ -142,6 +142,29 @@ def test_claude_harness_prefers_even_major_nvm_node(monkeypatch, tmp_path) -> No
     assert env["PATH"].split(":")[0] == str(node_22_bin)
 
 
+def test_claude_harness_forwards_the_oauth_token_past_the_api_key_guard(
+    monkeypatch, tmp_path
+) -> None:
+    """A seeded credential file withholds the API keys but not the OAuth token.
+
+    The guard exists so an unfunded key cannot override valid OAuth, which makes
+    it the wrong side of the fence for the token `claude setup-token` mints: that
+    token *is* the OAuth auth, and the stripped HOME leaves a headless run
+    nothing else to present.
+    """
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    (home / ".claude" / ".credentials.json").write_text("{}")
+
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "oauth-token")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "unfunded-key")
+
+    env = ClaudeCodeHarness()._environment(run_context(isolated_home=str(home)))
+
+    assert env["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth-token"
+    assert "ANTHROPIC_API_KEY" not in env
+
+
 def test_claude_harness_materializes_mcp_config(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("MCP_API_TOKEN", "sk-secret")
     captured: dict = {}

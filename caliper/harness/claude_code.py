@@ -49,6 +49,9 @@ class ClaudeCodeHarness(CliHarness):
     # The CLI classifies a real skill only at .claude/skills/<name>/SKILL.md and
     # exposes the agent's choice as a dedicated Skill tool call naming it.
     activation_tool_names = frozenset({"Skill"})
+    # `claude setup-token` is the documented way to authenticate a headless run,
+    # and the stripped HOME is exactly the case it exists for.
+    env_passthrough = CliHarness.env_passthrough + ("CLAUDE_CODE_OAUTH_TOKEN",)
 
     @property
     def name(self) -> str:
