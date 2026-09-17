@@ -32,7 +32,7 @@ from caliper.schema.results import (
     TaskResult,
 )
 from caliper.schema.spec import EvalSpec, McpServer, TaskSpec
-from caliper.skills import SkillResolutionError
+from caliper.skills import AblationError, SkillResolutionError
 
 
 # --- fixtures -------------------------------------------------------------
@@ -190,6 +190,8 @@ def test_the_ablated_names_are_recorded_on_run_meta(tmp_path):
     spec, spec_path = _spec_with_two_skills(tmp_path)
     results = _run_spec(spec, spec_path, RecordingHarness(), ablate=["subject"])
     assert results.run.ablated == ["subject"]
+    assert results.run.ablated_skills == ["subject"]
+    assert results.run.ablated_servers == []
 
 
 def test_snapshots_cover_only_the_installed_skills(tmp_path):
@@ -250,6 +252,7 @@ def test_the_ablated_server_is_recorded_qualified_on_run_meta(tmp_path):
     results = _run_spec(spec, spec_path, RecordingHarness(), ablate=["weather"])
     assert results.run.ablated == ["mcp:weather"]
     assert results.run.ablated_skills == []
+    assert results.run.ablated_servers == ["weather"]
     assert results.run.mcp_servers == []
 
 
@@ -262,7 +265,7 @@ def test_the_servers_a_run_kept_are_recorded_on_run_meta(tmp_path):
 
 def test_a_bare_name_on_a_collision_is_refused(tmp_path):
     spec, spec_path = _spec_with_skill_and_server(tmp_path, collide=True)
-    with pytest.raises(SkillResolutionError) as exc:
+    with pytest.raises(AblationError) as exc:
         _run_spec(spec, spec_path, RecordingHarness(), ablate=["weather"])
     message = str(exc.value)
     assert "mcp:weather" in message and "skill:weather" in message
@@ -429,6 +432,35 @@ def test_a_server_only_ablation_is_labelled_from_the_marker():
     assert comp.b_label == "full neighbourhood"
 
 
+def test_ablating_a_server_is_not_a_bare_agent_when_a_server_survives():
+    # No skills, two servers, one ablated: the surviving server means the ablated
+    # side is not the bare agent, whatever the skill neighbourhood says.
+    a = _saved(skills=[], ablated=["mcp:first"], mcp_servers=["second"])
+    b = _saved(skills=[], ablated=[], mcp_servers=["first", "second"])
+    comp = diff_runs(a, b)
+    assert comp.a_label == "without mcp:first"
+    assert comp.b_label == "full neighbourhood"
+
+
+def test_ablating_every_skill_is_not_a_bare_agent_when_a_server_survives():
+    # The label describes what actually ran, tools included.
+    a = _saved(skills=[], ablated=["subject"], mcp_servers=["weather"])
+    b = _saved(skills=["subject"], ablated=[], mcp_servers=["weather"])
+    comp = diff_runs(a, b)
+    assert comp.a_label == "without subject"
+
+
+def test_a_legacy_run_without_recorded_servers_still_pairs():
+    # A run saved before mcp_servers existed reads as "not recorded", not "ran
+    # with none", so it can still be the full side of an ablation pair.
+    cut = _saved(skills=["keeper"], ablated=["subject"], mcp_servers=[])
+    full = _saved(skills=["keeper", "subject"], ablated=[])
+    full.run.mcp_servers = None
+    comp = diff_runs(cut, full)
+    assert comp.a_label == "without subject"
+    assert comp.b_label == "full neighbourhood"
+
+
 def test_a_server_marker_the_full_side_never_had_is_not_a_pair():
     # The spec dropped the server between the two runs, so both ran without it
     # and the delta is not the server's. The marker alone would have claimed it.
@@ -455,6 +487,36 @@ def test_a_server_difference_between_two_skill_ablated_runs_is_not_a_pair():
     b = _saved(skills=["keeper", "subject"], ablated=[], mcp_servers=[])
     comp = diff_runs(a, b)
     assert comp.a_label is None
+
+
+def test_different_recorded_servers_warn():
+    # Same skills, different tool environment: the score can move for a reason
+    # unrelated to the skill, so say so instead of presenting the delta bare.
+    a = _saved(skills=["keeper"], ablated=[], mcp_servers=["weather"])
+    b = _saved(skills=["keeper"], ablated=[], mcp_servers=[])
+    comp = diff_runs(a, b)
+    assert comp.mcp_mismatch is True
+    assert any("MCP servers" in w for w in comp.warnings)
+    assert comp.a_label is None and comp.b_label is None
+
+
+def test_matching_recorded_servers_do_not_warn():
+    a = _saved(skills=["keeper"], ablated=[], mcp_servers=["weather"])
+    b = _saved(skills=["keeper"], ablated=[], mcp_servers=["weather"])
+    comp = diff_runs(a, b)
+    assert comp.mcp_mismatch is False
+    assert comp.warnings == []
+
+
+def test_an_unrecorded_membership_does_not_warn():
+    # "Not recorded" is unknown, not "none": warning on it would fire for every
+    # comparison against a run saved before the field existed.
+    a = _saved(skills=["keeper"], ablated=[], mcp_servers=["weather", "other"])
+    b = _saved(skills=["keeper"], ablated=[])
+    b.run.mcp_servers = None
+    comp = diff_runs(a, b)
+    assert comp.mcp_mismatch is False
+    assert comp.warnings == []
 
 
 def test_two_runs_that_ablated_different_skills_still_warn():

@@ -183,11 +183,13 @@ class RunMeta(BaseModel):
     # ablation, so a server named in ``ablated`` is absent here. The server half
     # of what ``skill_snapshots`` is for skills, and what lets ``compare``
     # corroborate an ``mcp:`` marker instead of trusting it: the full side must
-    # have run with the removed server. Names only; a server's *configuration*
-    # drift is not tracked here, the way skill *text* drift is a separate
-    # concern. Empty for a run that declared no servers. See
+    # have run with the removed server. ``None`` = not recorded (a run saved
+    # before this field existed), so an empty *list* means "recorded, no
+    # servers" and ``compare`` can still check a marker against it. Names only; a
+    # server's *configuration* drift is not tracked here, the way skill *text*
+    # drift is a separate concern. See
     # docs/adr/0025-ablation-covers-mcp-servers.md.
-    mcp_servers: list[str] = Field(default_factory=list)
+    mcp_servers: list[str] | None = None
     # The judge engine that graded this run. Optional so results saved before
     # judge provenance was recorded still load (they render as an unknown judge).
     judge_backend: str | None = None
@@ -212,6 +214,19 @@ class RunMeta(BaseModel):
         """
         return [
             name for name in self.ablated if not name.startswith(MCP_ABLATION_PREFIX)
+        ]
+
+    @property
+    def ablated_servers(self) -> list[str]:
+        """The removed ``mcp:`` servers among ``ablated``, unqualified.
+
+        The server half of :attr:`ablated_skills`: readers that need one kind of
+        subject ask for it here rather than re-parsing the marker's qualifier.
+        """
+        return [
+            name[len(MCP_ABLATION_PREFIX) :]
+            for name in self.ablated
+            if name.startswith(MCP_ABLATION_PREFIX)
         ]
 
 
@@ -1001,6 +1016,13 @@ class RunComparison(BaseModel):
     # experiment; still fires for two runs that ablated *different* subjects, which
     # nothing but the ``ablated`` marker could tell apart.
     neighbourhood_mismatch: bool = False
+    # The two runs were configured with different ``mcp:`` servers. The same
+    # warning, on the tool axis: a server that was present on one side and not
+    # the other can move the score for reasons unrelated to any skill. Only
+    # fires when *both* runs recorded their membership — a run saved before
+    # ``mcp_servers`` existed cannot be compared on this axis. Silent on a
+    # recognised ablation pair, whose difference *is* the experiment.
+    mcp_mismatch: bool = False
     # Members installed by both runs whose *text* differs — the complement of
     # ``neighbourhood_mismatch``, which is a change in *membership*. Every
     # drifted member is recorded here; only the git-sourced ones also raise a
