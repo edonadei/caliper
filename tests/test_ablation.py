@@ -450,6 +450,16 @@ def test_ablating_every_skill_is_not_a_bare_agent_when_a_server_survives():
     assert comp.a_label == "without subject"
 
 
+def test_a_legacy_side_without_recorded_servers_is_not_called_bare():
+    # An unrecorded membership is unknown, not "no servers": the honest label
+    # names what was ablated rather than claiming nothing was configured.
+    a = _saved(skills=[], ablated=["subject"])
+    a.run.mcp_servers = None
+    b = _saved(skills=["subject"], ablated=[])
+    comp = diff_runs(a, b)
+    assert comp.a_label == "without subject"
+
+
 def test_a_legacy_run_without_recorded_servers_still_pairs():
     # A run saved before mcp_servers existed reads as "not recorded", not "ran
     # with none", so it can still be the full side of an ablation pair.

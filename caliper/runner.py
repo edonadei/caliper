@@ -82,10 +82,12 @@ class _RunEnv:
     skill_refs: list[SkillRef]
     # The mcp: servers left after ``--ablate``; the backend materializes these.
     mcp_servers: dict[str, McpServer]
-    # Whether the spec declared an ``mcp:`` block at all. It is what tells the
-    # backend "no servers" (``None`` — no block, the CLI's ambient config
-    # applies, as always) from "every declared server was ablated" (an empty
-    # mapping, which must still isolate the attempt to zero servers).
+    # Whether the spec declared an ``mcp:`` block at all — by field presence,
+    # since ``mcp: {}`` is a declared block with no servers, not an absent one.
+    # It is what tells the backend "no servers" (``None`` — no block, the CLI's
+    # ambient config applies, as always) from "every declared server was
+    # ablated" (an empty mapping, which must still isolate the attempt to zero
+    # servers).
     mcp_declared: bool
     # The *skills* ``--ablate`` removed. Truthy drops every task's activation
     # expectation. Removing a server is deliberately not on this list: activation
@@ -213,7 +215,9 @@ def run(
         spec_path=spec_path,
         skill_refs=skill_refs,
         mcp_servers=ablation.mcp_servers,
-        mcp_declared=bool(spec.mcp),
+        # Field presence, not truthiness: an authored `mcp: {}` parses to an
+        # empty mapping but still declares the block, and must isolate.
+        mcp_declared="mcp" in spec.model_fields_set,
         ablated_skills=ablation.skill_names,
         timeout=timeout,
         fail_fast_unusable=fail_fast_unusable,

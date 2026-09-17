@@ -69,9 +69,10 @@ A run saved before `mcp_servers` existed loads with the field `None`, which mean
 either side of a pair is `None`, so an older run still pairs with a new ablated
 run and gets its labels; a record of `[]` is a real "no servers" and is checked.
 
-"Bare agent" is the label only when nothing was configured at all — no skills and
-no recorded servers. A run that ablated every skill but kept a server reads
-`without <subjects>`, because "bare agent" would misdescribe what ran.
+"Bare agent" is the label only when nothing was configured at all: no skills,
+and a *recorded* set of no servers. A run that kept a server, or whose membership
+was never recorded, reads `without <subjects>` — "bare agent" would claim a fact
+the record does not support.
 
 Two runs whose recorded memberships differ outside a recognised ablation pair get
 the warning the skill axis already gets (`different MCP servers configured`),
@@ -86,11 +87,13 @@ verdicts are still real.
 
 `RunContext.mcp_servers` distinguishes "no `mcp:` block" (`None`, so the CLI's own
 ambient config applies, as it always has) from "a declared block whose servers
-were all ablated" (an empty mapping). Claude Code writes its config and passes
-`--strict-mcp-config` for both declared cases, so an all-ablated run sees zero
-servers rather than the ones the seeded user config carries; hermes and codex
-already overwrite the seeded MCP section wholesale, so an empty declared set
-normalizes to their zero-server shape either way.
+were all ablated" (an empty mapping). An authored `mcp: {}` is that same
+declared-and-empty case: `runner.py` asks the spec for field *presence*, not
+truthiness, so an explicitly empty block still isolates. Claude Code writes its
+config and passes `--strict-mcp-config` for both declared cases, so an
+all-ablated run sees zero servers rather than the ones the seeded user config
+carries; hermes and codex already overwrite the seeded MCP section wholesale, so
+an empty declared set normalizes to their zero-server shape either way.
 
 ## Backends without MCP
 

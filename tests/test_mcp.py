@@ -362,6 +362,55 @@ def test_guard_allows_mcp_spec_on_supporting_backend(tmp_path) -> None:
     assert harness.seen == {"echo": McpServer(command="python3", args=["s.py"])}
 
 
+def _spec_without_mcp() -> EvalSpec:
+    return EvalSpec(
+        tasks=[
+            TaskSpec(id="task-001", name="t", prompt="p", assert_script="assert True")
+        ]
+    )
+
+
+def test_an_explicitly_empty_mcp_block_still_isolates(tmp_path) -> None:
+    # `mcp: {}` declares the block with no servers, so the backend must see an
+    # empty mapping (zero servers), not None (the CLI's ambient config).
+    spec_path = tmp_path / "m.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    harness = _McpHarness()
+    run(
+        spec=EvalSpec(
+            mcp={},
+            tasks=[
+                TaskSpec(
+                    id="task-001", name="t", prompt="p", assert_script="assert True"
+                )
+            ],
+        ),
+        spec_path=spec_path,
+        harness=harness,
+        judge=_PassJudge(),
+        k=1,
+        workers=1,
+        timeout=30,
+    )
+    assert harness.seen == {}
+
+
+def test_an_omitted_mcp_block_leaves_the_backend_config_alone(tmp_path) -> None:
+    spec_path = tmp_path / "m.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    harness = _McpHarness()
+    run(
+        spec=_spec_without_mcp(),
+        spec_path=spec_path,
+        harness=harness,
+        judge=_PassJudge(),
+        k=1,
+        workers=1,
+        timeout=30,
+    )
+    assert harness.seen is None
+
+
 def test_ablating_every_server_runs_on_a_backend_without_mcp(tmp_path) -> None:
     # The guard exists so declared tools are not silently absent. With every
     # server ablated the absence is the caller's explicit choice, recorded in
