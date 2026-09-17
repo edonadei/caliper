@@ -153,6 +153,13 @@ class TranscriptTurn(BaseModel):
 ERA_INSTALL_AND_DISCOVER = "install-and-discover"
 
 
+# ``RunMeta.ablated`` names a removed *skill* bare and a removed ``mcp:`` server
+# with this qualifier. Neither a skill's frontmatter name nor an ``mcp:`` key may
+# contain ``:``, so the two kinds never collide in the marker. See
+# docs/adr/0025-ablation-covers-mcp-servers.md.
+MCP_ABLATION_PREFIX = "mcp:"
+
+
 class RunMeta(BaseModel):
     spec: str
     timestamp: datetime
@@ -161,13 +168,15 @@ class RunMeta(BaseModel):
     model: str | None = None
     # ``None`` = a legacy run; ``compare`` refuses to diff across this boundary.
     era: str | None = None
-    # Skills declared by the spec but deliberately *not* installed for this run
-    # (``--ablate``). Recorded explicitly rather than left to be inferred from a
-    # short ``skill_snapshots`` list: an empty list is otherwise ambiguous
-    # between "ablated everything" and "declared no skills", and the era marker
-    # already sets the precedent that a semantic fact is not sniffed from a
-    # schema shape. See
-    # docs/adr/0015-ablation-names-its-subject-at-the-invocation.md
+    # Subjects declared by the spec but deliberately *not* part of this run
+    # (``--ablate``): a skill bare, an ``mcp:`` server qualified. Recorded
+    # explicitly rather than left to be inferred from a short ``skill_snapshots``
+    # list: an empty list is otherwise ambiguous between "ablated everything" and
+    # "declared no skills", and the era marker already sets the precedent that a
+    # semantic fact is not sniffed from a schema shape. A server has no snapshot
+    # of its own, so this marker is also the only record that it was removed. See
+    # docs/adr/0015-ablation-names-its-subject-at-the-invocation.md,
+    # docs/adr/0025-ablation-covers-mcp-servers.md
     # and docs/CONTEXT.md → Ablation.
     ablated: list[str] = Field(default_factory=list)
     # The judge engine that graded this run. Optional so results saved before
@@ -182,6 +191,19 @@ class RunMeta(BaseModel):
     # truncates tasks on purpose, and the two must not read alike. Defaults
     # False so runs saved before this existed still load.
     interrupted: bool = False
+
+    @property
+    def ablated_skills(self) -> list[str]:
+        """The removed *skills* among ``ablated``, if any.
+
+        An ablated run drops the activation verdict only when a skill was
+        removed; removing a server leaves every skill installed, so the
+        expectation still applies. The ``mcp:`` qualifier is what tells the two
+        apart in the marker.
+        """
+        return [
+            name for name in self.ablated if not name.startswith(MCP_ABLATION_PREFIX)
+        ]
 
 
 class AttemptRecord(BaseModel):
@@ -812,9 +834,9 @@ class AggregateScore(BaseModel):
 class ObservedActivation:
     """How often one installed skill fired, with nothing asserted about it.
 
-    The counting half of activation without the scoring half — what an ablated
-    run has, since it drops every expectation but keeps every observation
-    (docs/adr/0015-ablation-names-its-subject-at-the-invocation.md).
+    The counting half of activation without the scoring half — what a
+    skill-ablated run has, since it drops every expectation but keeps every
+    observation (docs/adr/0015-ablation-names-its-subject-at-the-invocation.md).
 
     Deliberately not :class:`SkillActivationStats`: with nothing expected, that
     type's recall is undefined and its unwanted rate would read 100% — "fires
@@ -967,7 +989,7 @@ class RunComparison(BaseModel):
     # still legible — unlike a cross-era diff, which is refused outright.
     # ``spec_mismatch`` cannot catch this: it compares the spec *name*. Silent on
     # a recognised ablation pair, where the differing neighbourhood *is* the
-    # experiment; still fires for two runs that ablated *different* skills, which
+    # experiment; still fires for two runs that ablated *different* subjects, which
     # nothing but the ``ablated`` marker could tell apart.
     neighbourhood_mismatch: bool = False
     # Members installed by both runs whose *text* differs — the complement of

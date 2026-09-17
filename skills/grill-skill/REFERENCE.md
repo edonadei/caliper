@@ -14,6 +14,8 @@ caliper run path/to/spec.eval.yaml --k 3
 
 # Ablated run — before committing, proves the skill makes a difference.
 # Run once and keep it: it cannot move when the skill's text changes.
+# A declared mcp: server can be ablated the same way; qualify as skill:/mcp:
+# if both declare the name.
 caliper run path/to/spec.eval.yaml --k 3 --ablate my-skill
 # Then diff it against the full run. A bare spec name resolves to that spec's
 # LATEST run, so address the older side by its saved results path.

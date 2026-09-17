@@ -63,8 +63,9 @@ def assemble_attempt(
     garbage output.
 
     ``expected_activation`` is what this run asserts the task should activate —
-    ``None`` on an ablated run, which drops the expectation but keeps the
-    observation (docs/adr/0015-ablation-names-its-subject-at-the-invocation.md).
+    ``None`` when a skill was ablated, which drops the expectation but keeps the
+    observation (docs/adr/0015-ablation-names-its-subject-at-the-invocation.md);
+    removing an MCP server leaves it set (docs/adr/0025).
 
     ``attempt`` is the caller's own counter rather than ``result.attempt``: the
     runner decides which of the k attempts this is, and the harness only echoes

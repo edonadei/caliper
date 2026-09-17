@@ -93,8 +93,9 @@ def run_cmd(
         None,
         "--ablate",
         help=(
-            "Run without this declared skill installed (repeatable). "
-            "Diff it against a full run with `caliper compare`."
+            "Run without this declared skill or mcp: server (repeatable). "
+            "Qualify with skill:/mcp: if both declare the name. Diff it against "
+            "a full run with `caliper compare`."
         ),
     ),
     baseline: bool = typer.Option(

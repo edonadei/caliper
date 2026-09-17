@@ -60,6 +60,15 @@ def test_unresolvable_skills_are_bad_input() -> None:
 
     assert diagnosis.code is ExitCode.BAD_INPUT
     assert diagnosis.body == "no such skill"
+    assert diagnosis.title == "Invalid skills"
+
+
+def test_an_ablation_error_names_ablation_not_skills() -> None:
+    """A bad --ablate subject is not a malformed skills: entry."""
+    diagnosis = diagnose(SkillResolutionError("ambiguous", title="Invalid ablation"))
+
+    assert diagnosis.code is ExitCode.BAD_INPUT
+    assert diagnosis.title == "Invalid ablation"
 
 
 def test_an_invalid_spec_is_bad_input() -> None:

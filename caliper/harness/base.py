@@ -92,10 +92,10 @@ class RunContext:
     # ``sandbox.forbidden_files`` — applied to the install so a skill's answer
     # key never travels with it.
     forbidden_files: list[str] = field(default_factory=list)
-    # Declared MCP servers (name -> McpServer) the agent-under-test may use. The
-    # literal ``${VAR}`` in each server's ``env`` is kept as authored; a backend
-    # that supports MCP interpolates and materializes it at run time. ``None``
-    # when the spec declares no ``mcp:`` block.
+    # Declared MCP servers (name -> McpServer) the agent-under-test may use,
+    # minus anything ``--ablate`` removed. The literal ``${VAR}`` in each
+    # server's ``env`` is kept as authored; a backend that supports MCP
+    # interpolates and materializes it at run time. ``None`` when none remain.
     mcp_servers: dict[str, McpServer] | None = None
 
     def __post_init__(self) -> None:

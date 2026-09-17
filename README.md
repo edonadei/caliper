@@ -25,7 +25,7 @@ caliper run commit-commands.eval.yaml --k 3 --ablate commit-commands
 caliper compare .caliper/results/commit-commands/<evaluation-run>.json .caliper/results/commit-commands/<ablated-run>.json
 ```
 
-You write a spec, a YAML file describing what "working" means. Either hand-write it or have `/grill-skill` generate it for you. `--ablate` runs the same tasks with that skill *removed*, and `caliper compare` diffs the two runs task by task:
+You write a spec, a YAML file describing what "working" means. Either hand-write it or have `/grill-skill` generate it for you. `--ablate` runs the same tasks with that skill *removed* — a declared MCP server can be ablated the same way — and `caliper compare` diffs the two runs task by task:
 
 <!-- Terminal output of `caliper compare`, rendered to SVG so the box-drawing
      table stays aligned on every screen. Regenerate with:
@@ -143,7 +143,7 @@ The spec never names an engine. The skill and judge default to `claude-code`, an
 **3. Run it**
 
 ```bash
-caliper run my-skill.eval.yaml --k 3          # --ablate <skill> for a run to diff against
+caliper run my-skill.eval.yaml --k 3          # --ablate <skill|mcp:server> for a run to diff against
 ```
 
 **4. Read the output**
@@ -234,7 +234,7 @@ If an `.eval.yaml` already exists next to your skill, `grill-skill` reads the ex
 | **success rate** | The primary score: run k times, measure how often a single run works (`pass@k`/`pass^k` are secondary views, under `--verbose`) |
 | **Neighbourhood** | The set of skills a spec declares (`skills:`). All installed, none preloaded, and all assertable. This is the competition your `description` has to win |
 | **Activation** | The agent *choosing* to load a skill. Asserted with `activates:` and scored on its own scoreboard, separate from the success rate |
-| **Ablation** | Re-run the same tasks with a declared skill *removed* (`--ablate`), to prove the skill is doing the work. Name every skill for the bare agent. It's a property of the tasks, so run it once and keep re-diffing against it |
+| **Ablation** | Re-run the same tasks with a declared skill or `mcp:` server *removed* (`--ablate`), to prove it is doing the work. Name every skill for the bare agent. It's a property of the tasks, so run it once and keep re-diffing against it |
 | **Attempt** | One isolated run of a single task (fresh temporary home, no session history) |
 
 ---
@@ -310,7 +310,7 @@ caliper update-cli --check
 2. Run with `--k 1` while iterating on the spec.
 3. Add `assert:` for facts an LLM judge might guess wrong (files, JSON, command output).
 4. Move to `--k 3` or higher once the task is stable.
-5. Run once with `--ablate <skill>` and `caliper compare` the two runs, to prove the skill is making a difference. That arm is a property of the *tasks*, so keep it and re-diff against it as the skill changes.
+5. Run once with `--ablate <skill>` (or `--ablate mcp:<server>`) and `caliper compare` the two runs, to prove the customization is making a difference. That arm is a property of the *tasks*, so keep it and re-diff against it as the skill changes.
 6. Commit the spec alongside the skill so contributors can run the same eval.
 
 ```text
@@ -501,6 +501,8 @@ mcp:
 
 `caliper validate` checks the `mcp:` block and reports a malformed entry (bad name, unknown key, unknown `type`, a stdio server missing/blank `command`, or a remote server missing `url`).
 
+A declared server can be ablated for one run exactly like a skill: `caliper run <spec> --ablate weather` leaves it out of the harness config, so the agent never sees its tool definitions. If a skill and a server declare the same name, qualify it — `--ablate mcp:weather` for the server, `--ablate skill:weather` for the skill; an ambiguous bare name is refused rather than guessed at. The run records what it removed in `RunMeta.ablated` (`mcp:weather` for a server), which is also what labels the `caliper compare` pair.
+
 ---
 
 ## Judging
@@ -543,7 +545,7 @@ When both `expect` and `assert` are present, both must pass.
 |---|---|
 | `caliper run <spec>` | Run an evaluation spec |
 | `caliper validate <spec>` | Validate a spec file |
-| `caliper list [spec]` | List specs and saved runs. Per-spec, each row carries its **Run** id and which skills that run **ablated** — how you find the control arm to diff against |
+| `caliper list [spec]` | List specs and saved runs. Per-spec, each row carries its **Run** id and which subjects that run **ablated** — how you find the control arm to diff against |
 | `caliper report <spec-or-result>` | Re-render saved results |
 | `caliper compare <A> <B>` | Diff two saved runs of the same eval, task by task. Each side is a spec name (that spec's **latest** run) or a results-JSON path; they must be two distinct runs |
 | `caliper update-cli [backend]` | Check or update installed agent CLI versions |
@@ -579,7 +581,7 @@ there. See [docs/adr/0022](docs/adr/0022-saved-runs-live-at-a-discovered-results
 | Flag | Default | Description |
 |---|---|---|
 | `--k INT` | `3` | Attempts per task |
-| `--ablate NAME` | none | Run without this declared skill installed (repeatable; name them all for the bare agent) |
+| `--ablate NAME` | none | Run without this declared skill or `mcp:` server (repeatable; name every skill for the bare agent). Qualify as `skill:`/`mcp:` when both declare the name |
 | `--workers INT` | `4` | Attempts to run in parallel, across all tasks |
 | `--timeout INT` | `120` | Seconds per attempt |
 | `--fail-fast INT` | `0` | Stop a task after N consecutive `infra_error`/`timeout` attempts (`0` disables; counts attempts, not invocations) |
@@ -664,8 +666,8 @@ no `--run-a/-b` flags. To pin a historical run, name its JSON path.
 How the diff reads:
 
 - **Each row reads `before → after`.** The runs are named once in the header
-  (an ablation pair is titled `without <skill> → full neighbourhood`), so there's
-  no A/B legend.
+  (an ablation pair is titled `without <subject> → full neighbourhood`), so
+  there's no A/B legend.
 - **Tasks are matched by name**, so reordering doesn't matter. A task in only one
   run is listed as **unmatched** and left out of the delta.
 - **`Δ` is `after − before`**, and the headline `Δ (matched)` averages only the
@@ -831,7 +833,7 @@ agent's own time, and it only appears when a judge actually ran:
   cache in its `input_tokens`, so it's normalized to the non-cached contract above.
 - **Dollar cost is deliberately not tracked**: it's inconsistent across backends.
   Tokens are the volume signal, so derive a dollar figure downstream if you need one.
-- **An ablated run is an ordinary saved run**, so the skill-vs-bare-agent view is
+- **An ablated run is an ordinary saved run**, so the ablated-vs-full view is
   `caliper compare` like any other diff — same table, attempt strips, and
   token/wall deltas.
 - `report --format json` adds a derived `usage_totals` block; the saved JSON keeps

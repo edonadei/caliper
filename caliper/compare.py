@@ -151,9 +151,12 @@ def _ablation_labels(
     A pair is exactly one ablated side against one full side, where the ablated
     side's neighbourhood really is the other's minus what it says it removed.
     The marker is *checked*, not merely trusted: a run whose ``ablated`` claim
-    disagrees with its own snapshots falls back to the generic warning.
+    disagrees with its own snapshots falls back to the generic warning. A removed
+    ``mcp:`` server is not part of the skill neighbourhood — it has no snapshot —
+    so only the removed skills can corroborate the marker; the server entry is
+    taken at its word, as the run's own description of its environment.
 
-    Two runs that ablated *different* skills are deliberately **not** a pair —
+    Two runs that ablated *different* subjects are deliberately **not** a pair —
     nothing but this marker could tell that case apart from a legitimate one,
     since both sides simply have a smaller-than-declared neighbourhood.
     """

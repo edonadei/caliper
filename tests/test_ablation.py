@@ -1,9 +1,9 @@
-"""``--ablate``: removing a declared skill for one run (docs/adr/0015).
+"""``--ablate``: removing a declared skill or MCP server for one run.
 
-Covers the four seams the ADR names — the reduced install, the dropped
-activation expectation, the explicit ``RunMeta.ablated`` marker, and ``compare``
-recognising an ablation pair from that marker rather than sniffing neighbourhood
-shapes.
+Covers the seams the ADRs name — the reduced install, the reduced MCP config, the
+dropped activation expectation (skills only), the explicit ``RunMeta.ablated``
+marker, and ``compare`` recognising an ablation pair from that marker rather than
+sniffing neighbourhood shapes. See docs/adr/0015 and docs/adr/0025.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from caliper.schema.results import (
     SkillSnapshot,
     TaskResult,
 )
-from caliper.schema.spec import EvalSpec, TaskSpec
+from caliper.schema.spec import EvalSpec, McpServer, TaskSpec
 from caliper.skills import SkillResolutionError
 
 
@@ -39,10 +39,13 @@ from caliper.skills import SkillResolutionError
 
 
 class RecordingHarness(HarnessBackend):
-    """Passes every attempt, remembering which skills it was asked to install."""
+    """Passes every attempt, remembering the skills and MCP servers it was given."""
+
+    supports_mcp = True
 
     def __init__(self) -> None:
         self.installed: list[list[str]] = []
+        self.mcp_servers: list[dict | None] = []
 
     @property
     def name(self) -> str:
@@ -50,6 +53,10 @@ class RecordingHarness(HarnessBackend):
 
     def run(self, ctx: RunContext) -> AttemptResult:
         self.installed.append([ref.name for ref in ctx.skill_refs])
+        self.mcp_servers.append(ctx.mcp_servers)
+        # Read one installed skill's file, so activation has something to
+        # observe whatever the spec declared.
+        target = ctx.skill_refs[-1].name if ctx.skill_refs else "none"
         return AttemptResult(
             transcript=[
                 ConversationTurn(
@@ -57,7 +64,7 @@ class RecordingHarness(HarnessBackend):
                     content="[tool: Read]",
                     tool_name="Read",
                     tool_input={
-                        "file_path": f"{ctx.isolated_home}/skills/keeper/SKILL.md"
+                        "file_path": f"{ctx.isolated_home}/skills/{target}/SKILL.md"
                     },
                 )
             ],
@@ -86,6 +93,43 @@ def _spec_with_two_skills(tmp_path, *, activates=None) -> tuple[EvalSpec, object
     spec_path.write_text("tasks: []\n")
     spec = EvalSpec(
         skills=paths,
+        tasks=[
+            TaskSpec(
+                id="task-001",
+                name="t",
+                prompt="p",
+                expect="anything",
+                activates=activates,
+            )
+        ],
+    )
+    return spec, spec_path
+
+
+def _spec_with_skill_and_server(
+    tmp_path, *, activates=None, collide=False
+) -> tuple[EvalSpec, object]:
+    """A spec declaring a `subject` skill plus a `weather` MCP server.
+
+    ``collide`` also declares a skill named `weather`, so the bare name is
+    ambiguous and only a qualifier can name a side.
+    """
+    subject = tmp_path / "subject"
+    subject.mkdir()
+    (subject / "SKILL.md").write_text("---\nname: subject\ndescription: d\n---\nbody")
+    paths = [str(subject / "SKILL.md")]
+    if collide:
+        weather = tmp_path / "weather"
+        weather.mkdir()
+        (weather / "SKILL.md").write_text(
+            "---\nname: weather\ndescription: d\n---\nbody"
+        )
+        paths.append(str(weather / "SKILL.md"))
+    spec_path = tmp_path / "s.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    spec = EvalSpec(
+        skills=paths,
+        mcp={"weather": McpServer(command="python3", args=["w.py"])},
         tasks=[
             TaskSpec(
                 id="task-001",
@@ -172,6 +216,91 @@ def test_ablating_an_undeclared_skill_is_refused(tmp_path):
     with pytest.raises(SkillResolutionError) as exc:
         _run_spec(spec, spec_path, RecordingHarness(), ablate=["subjekt"])
     assert "subjekt" in str(exc.value)
+
+
+# --- ablating an MCP server -----------------------------------------------
+
+
+def test_ablate_removes_a_declared_mcp_server(tmp_path):
+    # The server never reaches the harness config, so the agent never sees its
+    # tool definitions — which is the question being asked of it.
+    spec, spec_path = _spec_with_skill_and_server(tmp_path)
+    harness = RecordingHarness()
+    _run_spec(spec, spec_path, harness, ablate=["weather"])
+    assert harness.mcp_servers == [None]
+    assert harness.installed == [["subject"]]
+
+
+def test_a_run_without_ablate_hands_over_every_server(tmp_path):
+    spec, spec_path = _spec_with_skill_and_server(tmp_path)
+    harness = RecordingHarness()
+    _run_spec(spec, spec_path, harness)
+    assert harness.mcp_servers == [
+        {"weather": McpServer(command="python3", args=["w.py"])}
+    ]
+
+
+def test_the_ablated_server_is_recorded_qualified_on_run_meta(tmp_path):
+    # A server has no skill snapshot, so the marker is the only record that the
+    # saved run's score was produced without it.
+    spec, spec_path = _spec_with_skill_and_server(tmp_path)
+    results = _run_spec(spec, spec_path, RecordingHarness(), ablate=["weather"])
+    assert results.run.ablated == ["mcp:weather"]
+    assert results.run.ablated_skills == []
+
+
+def test_a_bare_name_on_a_collision_is_refused(tmp_path):
+    spec, spec_path = _spec_with_skill_and_server(tmp_path, collide=True)
+    with pytest.raises(SkillResolutionError) as exc:
+        _run_spec(spec, spec_path, RecordingHarness(), ablate=["weather"])
+    message = str(exc.value)
+    assert "mcp:weather" in message and "skill:weather" in message
+    assert exc.value.title == "Invalid ablation"
+
+
+def test_the_mcp_qualifier_removes_the_server_not_the_skill(tmp_path):
+    spec, spec_path = _spec_with_skill_and_server(tmp_path, collide=True)
+    harness = RecordingHarness()
+    results = _run_spec(spec, spec_path, harness, ablate=["mcp:weather"])
+    assert harness.installed == [["subject", "weather"]]
+    assert harness.mcp_servers == [None]
+    assert results.run.ablated == ["mcp:weather"]
+
+
+def test_the_skill_qualifier_removes_the_skill_not_the_server(tmp_path):
+    spec, spec_path = _spec_with_skill_and_server(tmp_path, collide=True)
+    harness = RecordingHarness()
+    results = _run_spec(spec, spec_path, harness, ablate=["skill:weather"])
+    assert harness.installed == [["subject"]]
+    assert harness.mcp_servers == [
+        {"weather": McpServer(command="python3", args=["w.py"])}
+    ]
+    assert results.run.ablated == ["weather"]
+
+
+def test_ablating_an_undeclared_server_is_refused(tmp_path):
+    spec, spec_path = _spec_with_skill_and_server(tmp_path)
+    with pytest.raises(SkillResolutionError) as exc:
+        _run_spec(spec, spec_path, RecordingHarness(), ablate=["mcp:snow"])
+    assert "mcp:snow" in str(exc.value)
+
+
+def test_repeating_a_server_name_records_one_removal(tmp_path):
+    spec, spec_path = _spec_with_skill_and_server(tmp_path)
+    results = _run_spec(
+        spec, spec_path, RecordingHarness(), ablate=["weather", "mcp:weather"]
+    )
+    assert results.run.ablated == ["mcp:weather"]
+
+
+def test_ablating_a_server_leaves_the_activation_expectation_scored(tmp_path):
+    # `activates:` names skills, and every one is still installed, so a server
+    # ablation has no reason to withhold the verdict.
+    spec, spec_path = _spec_with_skill_and_server(tmp_path, activates=["subject"])
+    results = _run_spec(spec, spec_path, RecordingHarness(), ablate=["weather"])
+    task = results.task_results[0]
+    assert task.activation_expected == ["subject"]
+    assert task.activation_score == 1.0
 
 
 # --- activation under ablation --------------------------------------------
@@ -271,6 +400,18 @@ def test_the_ablated_side_is_recognised_in_either_position():
     assert comp.a_label == "full neighbourhood"
     assert comp.b_label == "without subject"
     assert comp.neighbourhood_mismatch is False
+
+
+def test_a_server_only_ablation_is_labelled_from_the_marker():
+    # The skill neighbourhood is unchanged, so nothing but the marker can say
+    # what the arm removed.
+    a = _saved(skills=["keeper"], ablated=["mcp:weather"])
+    b = _saved(skills=["keeper"], ablated=[])
+    comp = diff_runs(a, b)
+    assert comp.neighbourhood_mismatch is False
+    assert comp.warnings == []
+    assert comp.a_label == "without mcp:weather"
+    assert comp.b_label == "full neighbourhood"
 
 
 def test_two_runs_that_ablated_different_skills_still_warn():
