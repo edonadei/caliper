@@ -46,16 +46,23 @@ _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 class SkillResolutionError(ValueError):
-    """A declared skill or ablation subject cannot be resolved, with guidance on why.
+    """A declared skill cannot be installed, with guidance on why.
 
-    ``title`` lets a raise site name the axis that failed for the run seam's
-    bordered panel (``--ablate``'s unknown or ambiguous subject is not a bad
-    ``skills:`` entry); ``None`` renders the generic skills title.
+    ``title`` is the run seam's bordered-panel heading; a subclass covering a
+    different subject axis names its own.
     """
 
-    def __init__(self, message: str, *, title: str | None = None) -> None:
-        super().__init__(message)
-        self.title = title
+    title: str | None = None
+
+
+class AblationError(SkillResolutionError):
+    """An ``--ablate`` subject that cannot be resolved, with guidance on why.
+
+    A bad ``--ablate`` name is not a malformed ``skills:`` entry, so the panel
+    names the axis that actually failed.
+    """
+
+    title = "Invalid ablation"
 
 
 @dataclass(frozen=True)
@@ -236,8 +243,8 @@ def apply_ablation(
 
     declared_skills = {ref.name for ref in refs}
     declared_servers = set(servers)
-    removed_skills: list[str] = []
-    removed_servers: list[str] = []
+    removed_skills: set[str] = set()
+    removed_servers: set[str] = set()
     unknown: list[str] = []
     ambiguous: list[str] = []
 
@@ -247,37 +254,32 @@ def apply_ablation(
         in_servers = name in declared_servers
 
         if kind == "skill":
-            if not in_skills:
+            if in_skills:
+                removed_skills.add(name)
+            else:
                 unknown.append(entry)
-            elif name not in removed_skills:
-                removed_skills.append(name)
         elif kind == "mcp":
-            if not in_servers:
+            if in_servers:
+                removed_servers.add(name)
+            else:
                 unknown.append(entry)
-            elif name not in removed_servers:
-                removed_servers.append(name)
         elif in_skills and in_servers:
             ambiguous.append(name)
         elif in_skills:
-            if name not in removed_skills:
-                removed_skills.append(name)
+            removed_skills.add(name)
         elif in_servers:
-            if name not in removed_servers:
-                removed_servers.append(name)
+            removed_servers.add(name)
         else:
             # A bare name, or one carrying a qualifier we do not recognize. It
             # names nothing either way.
             unknown.append(entry)
 
     if unknown:
-        raise SkillResolutionError(
-            _unknown_ablation_message(unknown, declared_skills, declared_servers),
-            title="Invalid ablation",
+        raise AblationError(
+            _unknown_ablation_message(unknown, declared_skills, declared_servers)
         )
     if ambiguous:
-        raise SkillResolutionError(
-            _ambiguous_ablation_message(ambiguous), title="Invalid ablation"
-        )
+        raise AblationError(_ambiguous_ablation_message(ambiguous))
 
     return Ablation(
         skill_refs=[ref for ref in refs if ref.name not in removed_skills],

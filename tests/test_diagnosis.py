@@ -20,7 +20,7 @@ from caliper.retry import SpendingCapReached
 from caliper.runner import RunAborted
 from caliper.runstore import UnreadableRun
 from caliper.schema.results import AggregateScore, RunMeta, RunResults
-from caliper.skills import SkillResolutionError
+from caliper.skills import AblationError, SkillResolutionError
 
 
 def _validation_error() -> ValidationError:
@@ -65,7 +65,7 @@ def test_unresolvable_skills_are_bad_input() -> None:
 
 def test_an_ablation_error_names_ablation_not_skills() -> None:
     """A bad --ablate subject is not a malformed skills: entry."""
-    diagnosis = diagnose(SkillResolutionError("ambiguous", title="Invalid ablation"))
+    diagnosis = diagnose(AblationError("ambiguous"))
 
     assert diagnosis.code is ExitCode.BAD_INPUT
     assert diagnosis.title == "Invalid ablation"
