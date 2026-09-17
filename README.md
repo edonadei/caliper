@@ -871,7 +871,9 @@ agent's own time, and it only appears when a judge actually ran:
 - `RunMeta.mcp_servers` records the `mcp:` servers a run was configured with,
   after any ablation. With `RunMeta.ablated` it is what lets `compare` check an
   `mcp:` marker against what the run actually had, so a spec that dropped the
-  server between two runs isn't misread as an ablation of it.
+  server between two runs isn't misread as an ablation of it. It is `None` on a
+  run saved before the field existed — unknown, not "none" — and `compare` warns
+  (`mcp_mismatch`) when two runs recorded different servers.
 - `TaskComparison` carries `a_activation`/`b_activation`/`activation_delta`/
   `activation_regression`, and `RunComparison` carries
   `has_activation_regression`, kept strictly separate from `has_regression`.

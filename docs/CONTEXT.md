@@ -129,11 +129,28 @@ Codex / OpenCode. Consequences that distinguish it from a flat backend:
 
 ## Ablation
 
-**Removing** a declared subject — a member of the [[skill neighbourhood]] or a declared `mcp:` server — for one run, holding the [[eval spec]] and the [[engine as runtime axis|engine]] fixed, so that the score difference measures what that subject contributed. `caliper run --ablate <name>` (repeatable) installs the neighbourhood and configures the run's tools *minus* the named subjects, and saves an ordinary run; the delta is read afterwards with [[run comparison|`caliper compare`]]. Ablating every declared skill leaves the bare agent; an ablated server is left out of the run's harness config, so the agent never sees its tool definitions.
+**Removing** a declared subject — a member of the [[skill neighbourhood]] or a
+declared `mcp:` server — for one run, holding the [[eval spec]] and the
+[[engine as runtime axis|engine]] fixed, so that the score difference measures
+what that subject contributed. `caliper run --ablate <name>` (repeatable) saves
+an ordinary run of the surviving environment; the delta is read afterwards with
+[[run comparison|`caliper compare`]]. Ablating every declared subject leaves the
+bare agent.
 
-**Which subject is the subject is a property of the invocation, not the spec** — the same discipline the [[engine as runtime axis|engine]] follows. `skills:` stays a list of peers with no privileged entry, so a reorder can never re-point what is being measured, and `mcp:` is the same. A name both kinds declare is refused rather than guessed at, and a qualifier (`skill:` / `mcp:`) says which kind was meant; a skill is recorded bare and a server with its `mcp:` qualifier, so what was removed is legible from the saved run.
+**Which subject is the subject is a property of the invocation, not the spec** —
+the same discipline the [[engine as runtime axis|engine]] follows. `skills:` and
+`mcp:` stay lists of peers with no privileged entry, so a reorder can never
+re-point what is being measured. A name both kinds declare is refused rather than
+guessed at, and a qualifier (`skill:` / `mcp:`) says which kind was meant.
 
-An ablated run is a property of the **tasks and the surviving environment**, never of the ablated skill's text: that skill is not installed, so neither its body nor its `description` can move the number. It is therefore run **once** and re-compared against every later iteration of the skill. A task the bare agent already passes is a finding about the *task*, not about the skill. Removing a server does not drop a task's `activates:` expectation — the skills it names are all still installed — so only a removed *skill* withholds the activation verdict.
+An ablated run is a property of the **tasks and the surviving environment**,
+never of the ablated skill's text: that skill is not installed, so neither its
+body nor its `description` can move the number. It is therefore run **once** and
+re-compared against every later iteration of the skill. A task the bare agent
+already passes is a finding about the *task*, not about the skill.
+
+See [[0025-ablation-covers-mcp-servers]] for what an ablated run records and how
+a task's expectations follow it.
 
 Varying a skill's *text* across runs is not ablation — it is two runs and a
 [[run comparison]]. Each run's skill snapshots record the exact content + git SHA
@@ -193,7 +210,12 @@ by its results path. Naming one spec twice is refused rather than diffed,
 because a run compared with itself agrees with itself on every guard and renders
 a clean table of zeroes.
 
-A run records which subjects it [[ablation|ablated]] — a skill bare, an `mcp:` server qualified — and the `mcp:` servers it ran with, so a deliberate ablation pair is recognised and labelled from that record rather than inferred from its smaller neighbourhood, and a marker is believed only when the full side really had every removed subject. The era marker is explicit for the same reason: a semantic fact is not sniffed from a schema shape. Comparing two runs that ablated *different* subjects is caught on the same record.
+A run records what it [[ablation|ablated]] and the `mcp:` servers it ran with, so
+a deliberate ablation pair is recognised from that record rather than inferred
+from a smaller neighbourhood, and a marker is believed only when the full side
+really had every removed subject. The era marker is explicit for the same reason:
+a semantic fact is not sniffed from a schema shape. Comparing two runs that
+ablated *different* subjects is caught on the same record.
 
 ## Task identity
 
