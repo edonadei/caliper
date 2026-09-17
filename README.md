@@ -32,6 +32,10 @@ You write a spec, a YAML file describing what "working" means. Either hand-write
        python docs/render_readme_samples.py -->
 ![caliper compare, without commit-commands vs full neighbourhood on commit-commands: both tasks go 33.3% to 100.0% (+66.7%); tokens 290K to 180K, wall 1m 1s to 42s](docs/assets/compare-ablation.svg)
 
+**Featured on YouTube:** AI LABS walks through Caliper in [Insane GitHub Repos That 10x Your Codex And Claude Code Setup](https://www.youtube.com/watch?v=Ua0APTMVcb8&t=574s), starting at 9:34.
+
+[![Caliper segment of the AI LABS video, starting at 9:34](https://img.youtube.com/vi/Ua0APTMVcb8/hqdefault.jpg)](https://www.youtube.com/watch?v=Ua0APTMVcb8&t=574s)
+
 ---
 
 Agent skills are hard to test. A skill that works on your machine, on this prompt, today, might fail tomorrow after a model update or a one-line prompt edit. Caliper makes reliability measurable: define what success looks like, run the skill repeatedly, and get a success rate you can track over time.
