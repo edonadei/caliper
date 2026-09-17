@@ -10,8 +10,9 @@ except ModuleNotFoundError:  # Python 3.10, where tomllib is not yet stdlib
 
 import pytest
 
-from caliper.harness.base import HarnessConfigurationError, RunContext
+from caliper.harness.base import HarnessConfigurationError, ProcessResult, RunContext
 from caliper.harness.codex import CodexHarness
+from caliper.harness.prompt_failure import PromptFailureKind
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
 
@@ -340,6 +341,38 @@ def test_codex_fails_clearly_when_cli_requires_newer_version(
     assert "requested model" in message
     assert "upgrade the Codex app or CLI" in message
     assert "Hello" not in message
+
+
+def test_codex_read_last_message_classifies_nonzero_exit_as_failure(tmp_path) -> None:
+    # Same failure shape CliHarness._prompt_output's OTHER branch classifies
+    # (base.py); codex's own read callback must not diverge from it.
+    proc = ProcessResult(
+        stdout="",
+        stderr="ERROR: model_not_found: no such model",
+        returncode=1,
+        timed_out=False,
+    )
+
+    result = CodexHarness()._read_last_message(
+        proc, "gpt-nonexistent", tmp_path / "missing-output.txt"
+    )
+
+    assert result.failure is not None
+    assert result.failure.kind is PromptFailureKind.OTHER
+    assert result.error == result.failure.message
+    assert "model_not_found" in result.failure.message
+
+
+def test_codex_read_last_message_leaves_success_unclassified(tmp_path) -> None:
+    output_path = tmp_path / "last-message.txt"
+    output_path.write_text("42\n")
+    proc = ProcessResult(stdout="", stderr="", returncode=0, timed_out=False)
+
+    result = CodexHarness()._read_last_message(proc, "gpt-5", output_path)
+
+    assert result.failure is None
+    assert result.error is None
+    assert result.text == "42"
 
 
 _AMBIENT_CONFIG = (
