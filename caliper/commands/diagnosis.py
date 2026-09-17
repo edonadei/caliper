@@ -117,7 +117,9 @@ def diagnose(exc: Exception) -> Diagnosis:
         code = ExitCode.BAD_INPUT if isinstance(exc, BadInput) else ExitCode.CANNOT_RUN
         return Diagnosis(body=exc.body, code=code, title=exc.title)
     if isinstance(exc, SkillResolutionError):
-        return Diagnosis(str(exc), ExitCode.BAD_INPUT, title="Invalid skills")
+        return Diagnosis(
+            str(exc), ExitCode.BAD_INPUT, title=exc.title or "Invalid skills"
+        )
     if isinstance(exc, ValidationError):
         return Diagnosis(str(exc), ExitCode.BAD_INPUT, title="Validation failed")
     if isinstance(exc, IncomparableRunsError):

@@ -406,6 +406,33 @@ def test_an_ablated_run_shows_observations_on_a_passing_task(capsys) -> None:
     assert "dormant" in out and "0/1" in out
 
 
+def test_a_server_ablated_run_keeps_its_activation_verdicts(capsys) -> None:
+    # A removed server doesn't touch the skill neighbourhood, so the run asserts
+    # and scores activation as usual — only the marker says what changed.
+    passing = TaskResult(
+        task_id="task-001",
+        task_name="alpha",
+        attempts=[
+            AttemptRecord(
+                attempt=1,
+                output="done",
+                duration_seconds=3.0,
+                outcome=Outcome.PASS,
+                activated=["keeper"],
+            )
+        ],
+        activation_expected=["keeper"],
+    )
+    results = _run([passing], k=1)
+    results.run.ablated = ["mcp:weather"]
+    results.skill_snapshots = [SkillSnapshot(name="keeper", path="/x/keeper/SKILL.md")]
+    print_results(results)
+    out = capsys.readouterr().out
+    assert "ablated" in out and "mcp:weather" in out
+    assert "observed, not scored" not in out
+    assert "Observed activations" not in out
+
+
 def test_a_normal_run_has_no_observed_activations_block(capsys) -> None:
     # It is the ablated run's stand-in for the scored table, not a second table
     # every run grows.

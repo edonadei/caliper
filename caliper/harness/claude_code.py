@@ -132,8 +132,14 @@ class ClaudeCodeHarness(CliHarness):
         spelling difference — a remote server names its transport explicitly via
         ``type``. The file may hold resolved secrets, so it lives in the 0700
         run tempdir and is kept ``0600``.
+
+        ``None`` (no ``mcp:`` block) leaves the CLI's own config in play, as
+        before. An empty mapping is a declared block whose servers were all
+        ablated: the config is still written and ``--strict-mcp-config`` still
+        passed, so the attempt sees zero servers rather than whatever the seeded
+        user config carries.
         """
-        if not ctx.mcp_servers:
+        if ctx.mcp_servers is None:
             return None
 
         servers: dict[str, dict] = {}

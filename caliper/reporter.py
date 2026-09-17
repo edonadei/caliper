@@ -190,13 +190,19 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
         + f"){judge_suffix}  {_RULE}  {ts}",
         style="cyan",
     )
-    # An ablated run's numbers are only readable next to what was removed, and
-    # its activation column is *skipped* by design — say so once, up front,
-    # rather than leaving a reader to wonder why the verdicts went blank.
+    # An ablated run's numbers are only readable next to what was removed. When
+    # a skill was removed its activation column is *skipped* by design — say so
+    # once, up front, rather than leaving a reader to wonder why the verdicts
+    # went blank. A removed server leaves the activation verdicts intact, so it
+    # gets the marker without that note.
     if results.run.ablated:
-        console.print(
-            f"    [yellow]ablated:[/yellow] {', '.join(results.run.ablated)}"
+        note = (
             f"   {_SEP}   [dim]activation observed, not scored[/dim]"
+            if results.run.ablated_skills
+            else ""
+        )
+        console.print(
+            f"    [yellow]ablated:[/yellow] {', '.join(results.run.ablated)}{note}"
         )
     # A short sample is the one thing a reader must not mistake for a full one:
     # the rates below are computed over the attempts that ran, which is fewer
@@ -248,9 +254,10 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     console.print()
 
     _print_activation_aggregate(results)
-    # Mutually exclusive in practice: an ablated run asserts nothing, so the
-    # scored table above is empty and this is the activation half of its report.
-    if results.run.ablated:
+    # Only a removed *skill* empties the scored table; a run that removed a
+    # server asserted and scored its activations normally, and this observation
+    # table would then be a second, unscored view of the same attempts.
+    if results.run.ablated_skills:
         _print_observed_activations(results)
     _print_unusable_summary(results)
     console.print()
@@ -260,13 +267,14 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
 
 
 def _print_observed_activations(results: RunResults) -> None:
-    """What the surviving skills reached for on an ablated run.
+    """What the surviving skills reached for on a skill-ablated run.
 
-    An ablated run withholds the activation *verdict* but keeps the observation
-    (docs/adr/0015-ablation-names-its-subject-at-the-invocation.md), and the
-    scored table above renders nothing because no task asserted. Without this,
-    "with the parent removed, did its neighbours pick up the work?" — the whole
-    reason a partial ablation is interesting — would be invisible.
+    A skill-ablated run withholds the activation *verdict* but keeps the
+    observation (docs/adr/0015-ablation-names-its-subject-at-the-invocation.md),
+    and the scored table above renders nothing because no task asserted. Without
+    this, "with the parent removed, did its neighbours pick up the work?" — the
+    whole reason a partial ablation is interesting — would be invisible. A run
+    that removed only a server is not here: its activation verdicts still apply.
     """
     rows = ObservedActivation.from_task_results(
         results.task_results, [s.name for s in results.skill_snapshots if s.name]

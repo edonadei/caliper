@@ -149,23 +149,49 @@ def _ablation_labels(
     """Side labels when these two runs form an ablation pair, else ``None``.
 
     A pair is exactly one ablated side against one full side, where the ablated
-    side's neighbourhood really is the other's minus what it says it removed.
-    The marker is *checked*, not merely trusted: a run whose ``ablated`` claim
-    disagrees with its own snapshots falls back to the generic warning.
+    side's environment really is the other's minus what it says it removed. The
+    marker is *checked*, not merely trusted: every removed subject — a skill in
+    the snapshots, an ``mcp:`` server in the recorded ``mcp_servers`` — must be
+    present on the full side and absent from the ablated side. A marker that
+    disagrees with either record falls back to the generic warning, so a spec
+    that dropped the subject between two runs is not misread as an ablation.
 
-    Two runs that ablated *different* skills are deliberately **not** a pair —
+    A side that never recorded its ``mcp:`` membership (a run saved before the
+    field existed) cannot be checked on that axis, so the server check stands
+    down for the pair rather than refusing a label the old run cannot refute.
+
+    Two runs that ablated *different* subjects are deliberately **not** a pair —
     nothing but this marker could tell that case apart from a legitimate one,
     since both sides simply have a smaller-than-declared neighbourhood.
     """
     if bool(a_run.ablated) == bool(b_run.ablated):
         return None
     if a_run.ablated:
-        cut, cut_nb, full_nb = a_run.ablated, a_neighbourhood, b_neighbourhood
+        cut_run, full_run = a_run, b_run
+        cut_nb, full_nb = a_neighbourhood, b_neighbourhood
     else:
-        cut, cut_nb, full_nb = b_run.ablated, b_neighbourhood, a_neighbourhood
-    if set(cut_nb) != set(full_nb) - set(cut):
+        cut_run, full_run = b_run, a_run
+        cut_nb, full_nb = b_neighbourhood, a_neighbourhood
+    removed_skills = cut_run.ablated_skills
+    removed_mcp = cut_run.ablated_servers
+    if not set(removed_skills) <= set(full_nb):
         return None
-    cut_label = "bare agent" if not cut_nb else f"without {', '.join(sorted(cut))}"
+    if set(cut_nb) != set(full_nb) - set(removed_skills):
+        return None
+    cut_mcp, full_mcp = cut_run.mcp_servers, full_run.mcp_servers
+    if cut_mcp is not None and full_mcp is not None:
+        if not set(removed_mcp) <= set(full_mcp):
+            return None
+        if set(cut_mcp) != set(full_mcp) - set(removed_mcp):
+            return None
+    # "Bare agent" means nothing was configured, tools included: a run that
+    # ablated every skill but kept a server is not a bare agent. The server side
+    # must be a *recorded* empty set — an unrecorded membership is unknown, and
+    # "without ..." is the honest label for it.
+    bare = not cut_nb and cut_mcp == []
+    cut_label = (
+        "bare agent" if bare else f"without {', '.join(sorted(cut_run.ablated))}"
+    )
     return (
         (cut_label, "full neighbourhood")
         if a_run.ablated
@@ -254,6 +280,23 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
             f"{b_neighbourhood or ['(none)']} — the larger set gives the agent "
             "competitors, so some attempts may never activate the skill at all"
         )
+    # The same guard on the tool axis. Only when both runs recorded their
+    # membership: a legacy run's ``None`` is "unknown", not "none", and warning
+    # on it would fire for every comparison against an older run. A recognised
+    # ablation pair is excluded — there the difference is the experiment.
+    a_mcp, b_mcp = a_run.mcp_servers, b_run.mcp_servers
+    mcp_mismatch = (
+        labels is None
+        and a_mcp is not None
+        and b_mcp is not None
+        and set(a_mcp) != set(b_mcp)
+    )
+    if mcp_mismatch:
+        warnings.append(
+            f"different MCP servers configured: {a_mcp or ['(none)']} vs "
+            f"{b_mcp or ['(none)']} — tool availability can move the score for "
+            "reasons unrelated to the skill"
+        )
 
     # Drift is reported for every member but only *warned* about for a git
     # source. Warning on a path source would fire on every iteration of the core
@@ -279,6 +322,7 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         k_mismatch=k_mismatch,
         spec_mismatch=spec_mismatch,
         neighbourhood_mismatch=neighbourhood_mismatch,
+        mcp_mismatch=mcp_mismatch,
         skill_drift=skill_drift,
         warnings=warnings,
         # Token/wall totals over each whole run. Shown alongside pass@k but never

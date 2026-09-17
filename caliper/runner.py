@@ -29,7 +29,7 @@ from caliper.schema.results import (
     RunResults,
     TaskResult,
 )
-from caliper.schema.spec import EvalSpec, TaskSpec, spec_name
+from caliper.schema.spec import EvalSpec, McpServer, TaskSpec, spec_name
 from caliper.skillfetch import SkillFetcher
 from caliper.skills import (
     SkillRef,
@@ -80,8 +80,19 @@ class _RunEnv:
     # The skills actually installed: the declared neighbourhood minus anything
     # ``--ablate`` removed.
     skill_refs: list[SkillRef]
-    # Truthy on an ablated run, which drops every task's activation expectation.
-    ablated: list[str]
+    # The mcp: servers left after ``--ablate``; the backend materializes these.
+    mcp_servers: dict[str, McpServer]
+    # Whether the spec declared an ``mcp:`` block at all — by field presence,
+    # since ``mcp: {}`` is a declared block with no servers, not an absent one.
+    # It is what tells the backend "no servers" (``None`` — no block, the CLI's
+    # ambient config applies, as always) from "every declared server was
+    # ablated" (an empty mapping, which must still isolate the attempt to zero
+    # servers).
+    mcp_declared: bool
+    # The *skills* ``--ablate`` removed. Truthy drops every task's activation
+    # expectation. Removing a server is deliberately not on this list: activation
+    # asserts on skills, and those are still installed and observable.
+    ablated_skills: list[str]
     timeout: int
     fail_fast_unusable: int
     on_attempt_done: Callable[[AttemptEvent], None] | None
@@ -97,20 +108,25 @@ class _RunEnv:
     fatal: list[Exception]
 
     def expected_activation(self, task: TaskSpec) -> list[str] | None:
-        """What this run asserts the task should activate — ``None`` if ablated.
+        """What this run asserts the task should activate — ``None`` if a skill was ablated.
 
-        An ablated run **drops** the expectation rather than filtering the
-        removed skill out of it. Filtering would assert a claim the author never
-        wrote, and it inverts the delegating case: remove a parent and its
+        An ablated **skill** run **drops** the expectation rather than filtering
+        the removed skill out of it. Filtering would assert a claim the author
+        never wrote, and it inverts the delegating case: remove a parent and its
         neighbours correctly stop firing, so scoring that as a miss would report
         the finding as a failure. The observation is still recorded; only the
         verdict is withheld, so the column renders skipped rather than 0%. See
         docs/adr/0015-ablation-names-its-subject-at-the-invocation.md.
 
+        Ablating a *server* leaves the expectation alone: ``activates:`` names
+        skills, and every one of them is still installed, so withholding their
+        verdict would drop a measurement nothing removed. See
+        docs/adr/0025-ablation-covers-mcp-servers.md.
+
         Lives here because the task record and the attempt record both need it,
         and a rule written twice is a rule that drifts.
         """
-        return None if self.ablated else task.activates
+        return None if self.ablated_skills else task.activates
 
 
 def run(
@@ -133,13 +149,35 @@ def run(
     # honoured by the attempts that would otherwise start right after it.
     cancel.reset()
 
-    # A spec's mcp: servers configure the agent-under-test's tool environment
-    # for the eval (a run-environment concern, like sandbox:). If the chosen
-    # backend cannot materialize them, the declared tools would simply be
+    # Resolve the neighbourhood once, up front: a bad entry (a lone .md, a
+    # missing frontmatter name:, a duplicate) should fail before any paid
+    # attempt runs, not partway through.
+    declared_refs = resolve_skills(
+        list(spec.skills), spec_path.parent, fetcher=fetcher or SkillFetcher()
+    )
+    # Validated against the *declared* set, not the installed one: under
+    # --ablate an `activates:` naming the removed skill has its expectation
+    # dropped, not violated, so refusing it here would make a correct spec
+    # unrunnable in exactly the mode it was written for. See
+    # docs/adr/0015-ablation-names-its-subject-at-the-invocation.md.
+    validate_activates(spec.tasks, declared_refs)
+    # `--ablate` names a declared subject — a skill or an mcp: server — and the
+    # resolution is what removes it from the run's environment. Duplicates
+    # collapse here: `--ablate x --ablate x` removes one subject, and the marker
+    # says so — it is the run's own description of what it did.
+    ablation = apply_ablation(declared_refs, list(ablate or []), mcp_servers=spec.mcp)
+    skill_refs = ablation.skill_refs
+
+    # A spec's *surviving* mcp: servers configure the agent-under-test's tool
+    # environment for the eval (a run-environment concern, like sandbox:). If the
+    # chosen backend cannot materialize them, the declared tools would simply be
     # absent and every attempt would test something other than what the spec
-    # claims — so refuse up front rather than silently drop them. This guard
-    # relaxes automatically as each backend flips ``supports_mcp`` to True.
-    if spec.mcp and not harness.supports_mcp:
+    # claims — so refuse up front rather than silently drop them. Ablation
+    # resolves before this guard, so a spec whose servers were all ablated is
+    # runnable on a backend without MCP: their absence is then the user's
+    # explicit choice, recorded in RunMeta.ablated rather than a silent drop.
+    # This guard relaxes automatically as each backend flips ``supports_mcp``.
+    if ablation.mcp_servers and not harness.supports_mcp:
         # A backend whose lack of MCP is permanent-by-design supplies its own
         # hint; the others get the generic "not yet" message. Either way we
         # refuse before any attempt rather than run with the declared tools
@@ -156,23 +194,6 @@ def run(
             "Re-run with --model claude-code (the default engine), or remove the "
             "mcp: block from the spec."
         )
-
-    # Resolve the neighbourhood once, up front: a bad entry (a lone .md, a
-    # missing frontmatter name:, a duplicate) should fail before any paid
-    # attempt runs, not partway through.
-    declared_refs = resolve_skills(
-        list(spec.skills), spec_path.parent, fetcher=fetcher or SkillFetcher()
-    )
-    # Validated against the *declared* set, not the installed one: under
-    # --ablate an `activates:` naming the removed skill has its expectation
-    # dropped, not violated, so refusing it here would make a correct spec
-    # unrunnable in exactly the mode it was written for. See
-    # docs/adr/0015-ablation-names-its-subject-at-the-invocation.md.
-    validate_activates(spec.tasks, declared_refs)
-    # Deduplicated: `--ablate x --ablate x` removes one skill, and the marker
-    # says so — it is the run's own description of what it did.
-    ablated = sorted(set(ablate or []))
-    skill_refs = apply_ablation(declared_refs, ablated)
 
     # Only the installed skills: a snapshot claims "this is what produced the
     # score", which an ablated skill demonstrably did not.
@@ -193,7 +214,11 @@ def run(
         spec=spec,
         spec_path=spec_path,
         skill_refs=skill_refs,
-        ablated=ablated,
+        mcp_servers=ablation.mcp_servers,
+        # Field presence, not truthiness: an authored `mcp: {}` parses to an
+        # empty mapping but still declares the block, and must isolate.
+        mcp_declared="mcp" in spec.model_fields_set,
+        ablated_skills=ablation.skill_names,
         timeout=timeout,
         fail_fast_unusable=fail_fast_unusable,
         on_attempt_done=on_attempt_done,
@@ -266,7 +291,11 @@ def run(
             judge_model=judge.model
             or (env.judge_models[0] if env.judge_models else None),
             era=ERA_INSTALL_AND_DISCOVER,
-            ablated=ablated,
+            ablated=ablation.names,
+            # What the run's tool environment actually held, so a saved run
+            # describes itself and `compare` can check an `mcp:` marker against
+            # it rather than trusting the marker alone.
+            mcp_servers=sorted(ablation.mcp_servers),
             # True when attempts were left unrun: Ctrl-C, or a fatal error the
             # run stopped for. Deliberately not inferred from a short attempt
             # list, which fail-fast also produces on purpose.
@@ -425,9 +454,11 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord | 
                     isolated_home=tmp_dir,
                     extra_path=resolved_extra_path,
                     # Declared MCP servers are the agent's tool environment for
-                    # the eval; the backend materializes them. ``None`` when
-                    # none declared.
-                    mcp_servers=dict(spec.mcp) or None,
+                    # the eval; the backend materializes them. Already reduced by
+                    # any ``--ablate``. ``None`` only when the spec declared no
+                    # ``mcp:`` block; an empty mapping is a declared block whose
+                    # servers were all ablated, and still isolates the attempt.
+                    mcp_servers=env.mcp_servers if env.mcp_declared else None,
                     forbidden_files=list(spec.sandbox.forbidden_files),
                 )
             )

@@ -22,8 +22,17 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from caliper.sandbox import SpecSandbox
-from caliper.schema.spec import GitSkillSource
+from caliper.schema.results import MCP_ABLATION_PREFIX
+from caliper.schema.spec import GitSkillSource, McpServer
 from caliper.skillfetch import SkillFetchError, SkillFetcher
+
+# ``--ablate`` names its subject bare when only one kind declares it, and by
+# kind — ``skill:`` / ``mcp:`` — when both do. A server's qualifier is the same
+# ``mcp:`` the run's marker records, so what you type is what the saved run
+# shows. Neither a skill's frontmatter name nor an ``mcp:`` key may contain ``:``
+# (see the regexes that validate them), so a qualified entry can never be
+# mistaken for a declared name.
+_SKILL_QUALIFIER = "skill:"
 
 # Directories never installed: results (cheat surface), VCS, caches.
 _EXCLUDE_DIRS = {".caliper", ".git", "__pycache__", "node_modules", ".venv"}
@@ -37,7 +46,23 @@ _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 class SkillResolutionError(ValueError):
-    """A declared skill cannot be installed, with guidance on why."""
+    """A declared skill cannot be installed, with guidance on why.
+
+    ``title`` is the run seam's bordered-panel heading; a subclass covering a
+    different subject axis names its own.
+    """
+
+    title: str | None = None
+
+
+class AblationError(SkillResolutionError):
+    """An ``--ablate`` subject that cannot be resolved, with guidance on why.
+
+    A bad ``--ablate`` name is not a malformed ``skills:`` entry, so the panel
+    names the axis that actually failed.
+    """
+
+    title = "Invalid ablation"
 
 
 @dataclass(frozen=True)
@@ -162,35 +187,156 @@ def resolve_skills(
     return refs
 
 
-def apply_ablation(refs: list[SkillRef], ablate: list[str]) -> list[SkillRef]:
-    """The neighbourhood minus the named skills, or an explanation of the refusal.
+@dataclass(frozen=True)
+class Ablation:
+    """What ``--ablate`` removed, resolved against the spec's declared subjects.
 
-    Subjecthood is a *runtime axis*: the spec keeps a list of peers and the
-    invocation names which one is being removed, exactly as the engine is chosen
-    per invocation rather than authored into the file. See
-    docs/adr/0015-ablation-names-its-subject-at-the-invocation.md
-    and docs/CONTEXT.md → Ablation.
+    ``skill_refs`` and ``mcp_servers`` are the declared sets minus the removal —
+    what the run actually installs and hands the backend. ``names`` is the run's
+    own record of the subjects removed, bare for a skill and ``mcp:`` qualified
+    for a server, so a saved run stays self-describing. ``skill_names`` is the
+    removed-skill subset alone: it is what the activation expectation hangs on,
+    because removing a *server* says nothing about whether a skill fires.
+    """
+
+    skill_refs: list[SkillRef]
+    mcp_servers: dict[str, McpServer]
+    names: list[str]
+    skill_names: list[str]
+
+
+def apply_ablation(
+    refs: list[SkillRef],
+    ablate: list[str],
+    mcp_servers: dict[str, McpServer] | None = None,
+) -> Ablation:
+    """The declared subjects minus the named ones, or an explanation of the refusal.
+
+    ``--ablate`` resolves against the union of the spec's ``skills:`` and its
+    ``mcp:`` servers: a name only one kind declares removes that one, and an
+    ablated server is left out of the harness config for the run. Subjecthood is
+    a *runtime axis*: the spec keeps a list of peers and the invocation names
+    which one is being removed, exactly as the engine is chosen per invocation
+    rather than authored into the file, and nothing about that reasoning is
+    specific to skills. See
+    docs/adr/0015-ablation-names-its-subject-at-the-invocation.md,
+    docs/adr/0025-ablation-covers-mcp-servers.md and docs/CONTEXT.md → Ablation.
 
     An undeclared name is refused rather than ignored: it would otherwise
     produce a full run recorded and labelled as an ablation, which is a
-    plausible-looking number with nothing in the output to invite suspicion.
-    """
-    if not ablate:
-        return list(refs)
+    plausible-looking number with nothing in the output to invite suspicion. A
+    name **both** kinds declare is refused too, and the fix is the same shape —
+    a qualifier says which subject was meant, because guessing would remove the
+    wrong one and still report a plausible number.
 
-    declared = {ref.name for ref in refs}
-    unknown = [name for name in ablate if name not in declared]
-    if unknown:
-        listed = ", ".join(sorted(declared)) or "(none)"
-        raise SkillResolutionError(
-            f"--ablate names {', '.join(unknown)}, which the spec's skills: does "
-            f"not declare (it declares {listed}).\n\n"
-            "Ablation removes a *declared* member of the neighbourhood, so an "
-            "unknown name would leave every skill installed while the run "
-            "recorded itself as an ablation. Correct the name (identity is the "
-            "frontmatter name:, not the filename)."
+    Duplicates are collapsed in the marker: `--ablate x --ablate mcp:x` removes
+    one subject, and the run records one removal.
+    """
+    servers = dict(mcp_servers or {})
+    if not ablate:
+        return Ablation(
+            skill_refs=list(refs),
+            mcp_servers=servers,
+            names=[],
+            skill_names=[],
         )
-    return [ref for ref in refs if ref.name not in set(ablate)]
+
+    declared_skills = {ref.name for ref in refs}
+    declared_servers = set(servers)
+    removed_skills: set[str] = set()
+    removed_servers: set[str] = set()
+    unknown: list[str] = []
+    ambiguous: list[str] = []
+
+    for entry in ablate:
+        kind, name = _subject_of(entry)
+        in_skills = name in declared_skills
+        in_servers = name in declared_servers
+
+        if kind == "skill":
+            if in_skills:
+                removed_skills.add(name)
+            else:
+                unknown.append(entry)
+        elif kind == "mcp":
+            if in_servers:
+                removed_servers.add(name)
+            else:
+                unknown.append(entry)
+        elif in_skills and in_servers:
+            ambiguous.append(name)
+        elif in_skills:
+            removed_skills.add(name)
+        elif in_servers:
+            removed_servers.add(name)
+        else:
+            # A bare name, or one carrying a qualifier we do not recognize. It
+            # names nothing either way.
+            unknown.append(entry)
+
+    if unknown:
+        raise AblationError(
+            _unknown_ablation_message(unknown, declared_skills, declared_servers)
+        )
+    if ambiguous:
+        raise AblationError(_ambiguous_ablation_message(ambiguous))
+
+    return Ablation(
+        skill_refs=[ref for ref in refs if ref.name not in removed_skills],
+        mcp_servers={
+            name: server
+            for name, server in servers.items()
+            if name not in removed_servers
+        },
+        names=sorted(
+            [
+                *removed_skills,
+                *(f"{MCP_ABLATION_PREFIX}{name}" for name in removed_servers),
+            ]
+        ),
+        skill_names=sorted(removed_skills),
+    )
+
+
+def _subject_of(entry: str) -> tuple[str | None, str]:
+    """``(kind, name)`` for an ``--ablate`` entry, ``kind`` ``None`` when bare.
+
+    An unrecognized ``prefix:`` reads as a bare name: it cannot match a declared
+    subject (neither a skill name nor an ``mcp:`` key may contain ``:``), so it
+    lands in the unknown bucket with the entry the user actually typed.
+    """
+    if entry.startswith(_SKILL_QUALIFIER):
+        return "skill", entry[len(_SKILL_QUALIFIER) :]
+    if entry.startswith(MCP_ABLATION_PREFIX):
+        return "mcp", entry[len(MCP_ABLATION_PREFIX) :]
+    return None, entry
+
+
+def _unknown_ablation_message(
+    unknown: list[str], declared_skills: set[str], declared_servers: set[str]
+) -> str:
+    skills = ", ".join(sorted(declared_skills)) or "(none)"
+    servers = ", ".join(sorted(declared_servers)) or "(none)"
+    return (
+        f"--ablate names {', '.join(unknown)}, which the spec declares neither as "
+        f"a skill nor as an mcp: server (skills: {skills}; mcp: {servers}).\n\n"
+        "Ablation removes a *declared* member of the run, so an unrecognised name "
+        "would leave everything installed while the run recorded itself as an "
+        "ablation. Correct the name: a skill's identity is its frontmatter name:, "
+        "a server's is its key under mcp:."
+    )
+
+
+def _ambiguous_ablation_message(ambiguous: list[str]) -> str:
+    qualified = " and ".join(
+        f"{_SKILL_QUALIFIER}{name}/{MCP_ABLATION_PREFIX}{name}" for name in ambiguous
+    )
+    return (
+        f"--ablate names {', '.join(ambiguous)}, which the spec declares both as "
+        "a skill and as an mcp: server.\n\n"
+        "Refusing to guess which one you meant: removing the wrong one still "
+        f"produces a plausible number. Qualify it — {qualified}."
+    )
 
 
 def validate_activates(
