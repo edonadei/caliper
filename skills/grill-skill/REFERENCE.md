@@ -233,7 +233,10 @@ Older JSON without `transcript` still loads (`null`). `report` and `compare` do 
 render the transcript; it is stored for later analysis. A run also records what
 `--ablate` removed (`RunMeta.ablated`; a server as `mcp:<name>`) and the `mcp:`
 servers it ran with (`RunMeta.mcp_servers`), so `compare` can check the marker
-rather than trust it.
+rather than trust it. A run saved before that field existed loads it as `null` —
+unknown, not "no servers". Two runs that recorded different servers outside an
+ablation pair get the `different MCP servers configured` warning, the tool-side
+twin of the neighbourhood warning.
 
 ## Troubleshooting
 

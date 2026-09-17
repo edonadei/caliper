@@ -185,7 +185,10 @@ and any referenced scripts) for reproducibility. `RunMeta.ablated` records any
 subjects removed with `--ablate` (a server qualified as `mcp:<name>`) and
 `RunMeta.mcp_servers` the `mcp:` servers the run was configured with, so a saved
 run describes its own environment and `compare` can check an ablation marker
-instead of trusting it. Each attempt
+instead of trusting it. `mcp_servers` is `null` on a run saved before the field
+existed (unknown, not "no servers"), and two runs that recorded different servers
+outside an ablation pair get the `different MCP servers configured` warning
+(`RunComparison.mcp_mismatch`). Each attempt
 records its `outcome` (see above), an optional `usage` block (token counts), an
 optional `transcript` array (ordered turns with `tool_name`/`tool_input`/`tool_output`
 when present), and per-task results include an `unusable` count; a task with no usable
