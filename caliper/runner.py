@@ -82,6 +82,11 @@ class _RunEnv:
     skill_refs: list[SkillRef]
     # The mcp: servers left after ``--ablate``; the backend materializes these.
     mcp_servers: dict[str, McpServer]
+    # Whether the spec declared an ``mcp:`` block at all. It is what tells the
+    # backend "no servers" (``None`` — no block, the CLI's ambient config
+    # applies, as always) from "every declared server was ablated" (an empty
+    # mapping, which must still isolate the attempt to zero servers).
+    mcp_declared: bool
     # The *skills* ``--ablate`` removed. Truthy drops every task's activation
     # expectation. Removing a server is deliberately not on this list: activation
     # asserts on skills, and those are still installed and observable.
@@ -208,6 +213,7 @@ def run(
         spec_path=spec_path,
         skill_refs=skill_refs,
         mcp_servers=ablation.mcp_servers,
+        mcp_declared=bool(spec.mcp),
         ablated_skills=ablation.skill_names,
         timeout=timeout,
         fail_fast_unusable=fail_fast_unusable,
@@ -282,6 +288,10 @@ def run(
             or (env.judge_models[0] if env.judge_models else None),
             era=ERA_INSTALL_AND_DISCOVER,
             ablated=ablation.names,
+            # What the run's tool environment actually held, so a saved run
+            # describes itself and `compare` can check an `mcp:` marker against
+            # it rather than trusting the marker alone.
+            mcp_servers=sorted(ablation.mcp_servers),
             # True when attempts were left unrun: Ctrl-C, or a fatal error the
             # run stopped for. Deliberately not inferred from a short attempt
             # list, which fail-fast also produces on purpose.
@@ -441,8 +451,10 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord | 
                     extra_path=resolved_extra_path,
                     # Declared MCP servers are the agent's tool environment for
                     # the eval; the backend materializes them. Already reduced by
-                    # any ``--ablate``. ``None`` when none survive.
-                    mcp_servers=env.mcp_servers or None,
+                    # any ``--ablate``. ``None`` only when the spec declared no
+                    # ``mcp:`` block; an empty mapping is a declared block whose
+                    # servers were all ablated, and still isolates the attempt.
+                    mcp_servers=env.mcp_servers if env.mcp_declared else None,
                     forbidden_files=list(spec.sandbox.forbidden_files),
                 )
             )

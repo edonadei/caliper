@@ -95,7 +95,9 @@ class RunContext:
     # Declared MCP servers (name -> McpServer) the agent-under-test may use,
     # minus anything ``--ablate`` removed. The literal ``${VAR}`` in each
     # server's ``env`` is kept as authored; a backend that supports MCP
-    # interpolates and materializes it at run time. ``None`` when none remain.
+    # interpolates and materializes it at run time. ``None`` means the spec had
+    # no ``mcp:`` block; an empty mapping means it had one whose servers were all
+    # ablated, which a backend still isolates to zero servers.
     mcp_servers: dict[str, McpServer] | None = None
 
     def __post_init__(self) -> None:

@@ -325,6 +325,42 @@ def test_claude_harness_omits_mcp_flags_when_no_servers(monkeypatch, tmp_path) -
     assert "--strict-mcp-config" not in captured["cmd"]
 
 
+def test_claude_harness_keeps_strict_mcp_when_every_server_is_ablated(
+    monkeypatch, tmp_path
+) -> None:
+    # An empty declared set is not "no mcp: block": the attempt must see zero
+    # servers, not whatever the seeded user config happens to carry.
+    captured: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        if cmd[0] != "claude":
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        captured["cmd"] = cmd
+        idx = cmd.index("--mcp-config")
+        captured["path"] = Path(cmd[idx + 1])
+        captured["config"] = json.loads(captured["path"].read_text())
+        return _ok_stream(cmd)
+
+    patch_cli_calls(monkeypatch, fake_run)
+    home = tmp_path / "home"
+    home.mkdir()
+
+    ClaudeCodeHarness().run(
+        run_context(
+            prompt="p",
+            model=None,
+            timeout=30,
+            isolated_home=str(home),
+            extra_path=[],
+            mcp_servers={},
+        )
+    )
+
+    assert "--strict-mcp-config" in captured["cmd"]
+    assert captured["config"] == {"mcpServers": {}}
+    assert not captured["path"].exists()
+
+
 def test_claude_harness_errors_on_unset_mcp_env_var(monkeypatch, tmp_path) -> None:
     monkeypatch.delenv("MCP_API_TOKEN", raising=False)
 

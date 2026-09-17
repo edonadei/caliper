@@ -501,7 +501,7 @@ mcp:
 
 `caliper validate` checks the `mcp:` block and reports a malformed entry (bad name, unknown key, unknown `type`, a stdio server missing/blank `command`, or a remote server missing `url`).
 
-A declared server can be ablated for one run exactly like a skill: `caliper run <spec> --ablate weather` leaves it out of the harness config, so the agent never sees its tool definitions. If a skill and a server declare the same name, qualify it — `--ablate mcp:weather` for the server, `--ablate skill:weather` for the skill; an ambiguous bare name is refused rather than guessed at. The run records what it removed in `RunMeta.ablated` (`mcp:weather` for a server), which is also what labels the `caliper compare` pair.
+A declared server can be ablated for one run exactly like a skill: `caliper run <spec> --ablate weather` leaves it out of the harness config, so the agent never sees its tool definitions. If a skill and a server declare the same name, qualify it — `--ablate mcp:weather` for the server, `--ablate skill:weather` for the skill; an ambiguous bare name is refused rather than guessed at. The run records both what it removed (`RunMeta.ablated`, as `mcp:weather`) and the servers it actually ran with (`RunMeta.mcp_servers`), so `caliper compare` labels the pair from a marker it can check. An ablation that removes every server still isolates the attempt to zero servers, rather than falling back to your ambient config.
 
 ---
 
@@ -868,6 +868,10 @@ agent's own time, and it only appears when a judge actually ran:
   since a neighbour's `description` is part of what produced the score. Runs
   saved before #18 carry a singular `skill_snapshot`; they still load, and their
   missing era is what makes `compare` refuse them.
+- `RunMeta.mcp_servers` records the `mcp:` servers a run was configured with,
+  after any ablation. With `RunMeta.ablated` it is what lets `compare` check an
+  `mcp:` marker against what the run actually had, so a spec that dropped the
+  server between two runs isn't misread as an ablation of it.
 - `TaskComparison` carries `a_activation`/`b_activation`/`activation_delta`/
   `activation_regression`, and `RunComparison` carries
   `has_activation_regression`, kept strictly separate from `has_regression`.

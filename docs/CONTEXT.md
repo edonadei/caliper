@@ -193,7 +193,7 @@ by its results path. Naming one spec twice is refused rather than diffed,
 because a run compared with itself agrees with itself on every guard and renders
 a clean table of zeroes.
 
-A run records which subjects it [[ablation|ablated]] — a skill bare, an `mcp:` server qualified — so a deliberate ablation pair is recognised and labelled from that marker rather than inferred from its smaller neighbourhood — the same reason the era marker is explicit rather than sniffed from a schema shape. Comparing two runs that ablated *different* subjects is caught on the same marker.
+A run records which subjects it [[ablation|ablated]] — a skill bare, an `mcp:` server qualified — and the `mcp:` servers it ran with, so a deliberate ablation pair is recognised and labelled from that record rather than inferred from its smaller neighbourhood, and a marker is believed only when the full side really had every removed subject. The era marker is explicit for the same reason: a semantic fact is not sniffed from a schema shape. Comparing two runs that ablated *different* subjects is caught on the same record.
 
 ## Task identity
 

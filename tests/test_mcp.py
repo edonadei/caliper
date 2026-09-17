@@ -366,6 +366,9 @@ def test_ablating_every_server_runs_on_a_backend_without_mcp(tmp_path) -> None:
     # The guard exists so declared tools are not silently absent. With every
     # server ablated the absence is the caller's explicit choice, recorded in
     # RunMeta.ablated, so the spec is runnable on a backend that cannot honor it.
+    # The backend still gets an empty mapping, not None: the block was declared,
+    # so a supporting backend must isolate to zero servers rather than fall back
+    # to its ambient config.
     spec_path = tmp_path / "m.eval.yaml"
     spec_path.write_text("tasks: []\n")
     harness = _NoMcpRunnableHarness()
@@ -379,8 +382,9 @@ def test_ablating_every_server_runs_on_a_backend_without_mcp(tmp_path) -> None:
         timeout=30,
         ablate=["echo"],
     )
-    assert harness.seen is None
+    assert harness.seen == {}
     assert results.run.ablated == ["mcp:echo"]
+    assert results.run.mcp_servers == []
 
 
 def test_guard_still_refuses_when_a_server_survives_ablation(tmp_path) -> None:

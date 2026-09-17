@@ -179,6 +179,15 @@ class RunMeta(BaseModel):
     # docs/adr/0025-ablation-covers-mcp-servers.md
     # and docs/CONTEXT.md → Ablation.
     ablated: list[str] = Field(default_factory=list)
+    # The ``mcp:`` servers this run was actually configured with — after any
+    # ablation, so a server named in ``ablated`` is absent here. The server half
+    # of what ``skill_snapshots`` is for skills, and what lets ``compare``
+    # corroborate an ``mcp:`` marker instead of trusting it: the full side must
+    # have run with the removed server. Names only; a server's *configuration*
+    # drift is not tracked here, the way skill *text* drift is a separate
+    # concern. Empty for a run that declared no servers. See
+    # docs/adr/0025-ablation-covers-mcp-servers.md.
+    mcp_servers: list[str] = Field(default_factory=list)
     # The judge engine that graded this run. Optional so results saved before
     # judge provenance was recorded still load (they render as an unknown judge).
     judge_backend: str | None = None

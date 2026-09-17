@@ -10,6 +10,7 @@ candidate-vs-control travel this one path rather than two. See docs/CONTEXT.md
 from __future__ import annotations
 
 from caliper.schema.results import (
+    MCP_ABLATION_PREFIX,
     RunComparison,
     RunMeta,
     RunResults,
@@ -149,12 +150,12 @@ def _ablation_labels(
     """Side labels when these two runs form an ablation pair, else ``None``.
 
     A pair is exactly one ablated side against one full side, where the ablated
-    side's neighbourhood really is the other's minus what it says it removed.
-    The marker is *checked*, not merely trusted: a run whose ``ablated`` claim
-    disagrees with its own snapshots falls back to the generic warning. A removed
-    ``mcp:`` server is not part of the skill neighbourhood — it has no snapshot —
-    so only the removed skills can corroborate the marker; the server entry is
-    taken at its word, as the run's own description of its environment.
+    side's environment really is the other's minus what it says it removed. The
+    marker is *checked*, not merely trusted: every removed subject — a skill in
+    the snapshots, an ``mcp:`` server in the recorded ``mcp_servers`` — must be
+    present on the full side and absent from the ablated side. A marker that
+    disagrees with either record falls back to the generic warning, so a spec
+    that dropped the subject between two runs is not misread as an ablation.
 
     Two runs that ablated *different* subjects are deliberately **not** a pair —
     nothing but this marker could tell that case apart from a legitimate one,
@@ -163,10 +164,26 @@ def _ablation_labels(
     if bool(a_run.ablated) == bool(b_run.ablated):
         return None
     if a_run.ablated:
-        cut, cut_nb, full_nb = a_run.ablated, a_neighbourhood, b_neighbourhood
+        cut = a_run.ablated
+        cut_nb, full_nb = a_neighbourhood, b_neighbourhood
+        cut_mcp, full_mcp = a_run.mcp_servers, b_run.mcp_servers
     else:
-        cut, cut_nb, full_nb = b_run.ablated, b_neighbourhood, a_neighbourhood
-    if set(cut_nb) != set(full_nb) - set(cut):
+        cut = b_run.ablated
+        cut_nb, full_nb = b_neighbourhood, a_neighbourhood
+        cut_mcp, full_mcp = b_run.mcp_servers, a_run.mcp_servers
+    removed_skills = [name for name in cut if not name.startswith(MCP_ABLATION_PREFIX)]
+    removed_mcp = [
+        name[len(MCP_ABLATION_PREFIX) :]
+        for name in cut
+        if name.startswith(MCP_ABLATION_PREFIX)
+    ]
+    if not set(removed_skills) <= set(full_nb):
+        return None
+    if set(cut_nb) != set(full_nb) - set(removed_skills):
+        return None
+    if not set(removed_mcp) <= set(full_mcp):
+        return None
+    if set(cut_mcp) != set(full_mcp) - set(removed_mcp):
         return None
     cut_label = "bare agent" if not cut_nb else f"without {', '.join(sorted(cut))}"
     return (

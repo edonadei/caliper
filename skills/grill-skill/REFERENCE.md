@@ -230,7 +230,10 @@ is findable by `caliper report <spec-name>` from anywhere in the project.
 Each attempt records its `outcome`, optional `usage`, and optional `transcript` (ordered turns with `tool_name`/`tool_input`/`tool_output` when present)
 so saved runs remain inspectable after the fact — including which MCP tools fired.
 Older JSON without `transcript` still loads (`null`). `report` and `compare` do not
-render the transcript; it is stored for later analysis.
+render the transcript; it is stored for later analysis. A run also records what
+`--ablate` removed (`RunMeta.ablated`; a server as `mcp:<name>`) and the `mcp:`
+servers it ran with (`RunMeta.mcp_servers`), so `compare` can check the marker
+rather than trust it.
 
 ## Troubleshooting
 

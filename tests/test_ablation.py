@@ -227,7 +227,10 @@ def test_ablate_removes_a_declared_mcp_server(tmp_path):
     spec, spec_path = _spec_with_skill_and_server(tmp_path)
     harness = RecordingHarness()
     _run_spec(spec, spec_path, harness, ablate=["weather"])
-    assert harness.mcp_servers == [None]
+    # An empty mapping, not None: the block was declared, so the backend must
+    # still isolate the attempt to zero servers rather than fall back to its own
+    # ambient config (see test_mcp.py for the runner-level guard).
+    assert harness.mcp_servers == [{}]
     assert harness.installed == [["subject"]]
 
 
@@ -241,12 +244,20 @@ def test_a_run_without_ablate_hands_over_every_server(tmp_path):
 
 
 def test_the_ablated_server_is_recorded_qualified_on_run_meta(tmp_path):
-    # A server has no skill snapshot, so the marker is the only record that the
-    # saved run's score was produced without it.
+    # The marker names what was removed; mcp_servers records the environment the
+    # run actually had (none), so the saved run describes both sides of it.
     spec, spec_path = _spec_with_skill_and_server(tmp_path)
     results = _run_spec(spec, spec_path, RecordingHarness(), ablate=["weather"])
     assert results.run.ablated == ["mcp:weather"]
     assert results.run.ablated_skills == []
+    assert results.run.mcp_servers == []
+
+
+def test_the_servers_a_run_kept_are_recorded_on_run_meta(tmp_path):
+    spec, spec_path = _spec_with_skill_and_server(tmp_path)
+    results = _run_spec(spec, spec_path, RecordingHarness())
+    assert results.run.ablated == []
+    assert results.run.mcp_servers == ["weather"]
 
 
 def test_a_bare_name_on_a_collision_is_refused(tmp_path):
@@ -263,7 +274,7 @@ def test_the_mcp_qualifier_removes_the_server_not_the_skill(tmp_path):
     harness = RecordingHarness()
     results = _run_spec(spec, spec_path, harness, ablate=["mcp:weather"])
     assert harness.installed == [["subject", "weather"]]
-    assert harness.mcp_servers == [None]
+    assert harness.mcp_servers == [{}]
     assert results.run.ablated == ["mcp:weather"]
 
 
@@ -345,7 +356,9 @@ def test_a_normal_run_still_scores_its_activation_expectation(tmp_path):
 # --- compare recognises an ablation pair ----------------------------------
 
 
-def _saved(*, skills: list[str], ablated: list[str]) -> RunResults:
+def _saved(
+    *, skills: list[str], ablated: list[str], mcp_servers: list[str] | None = None
+) -> RunResults:
     return RunResults(
         run=RunMeta(
             spec="demo",
@@ -354,6 +367,7 @@ def _saved(*, skills: list[str], ablated: list[str]) -> RunResults:
             backend="claude-code",
             era=ERA_INSTALL_AND_DISCOVER,
             ablated=ablated,
+            mcp_servers=mcp_servers or [],
         ),
         skill_snapshots=[
             SkillSnapshot(name=n, path=f"/x/{n}/SKILL.md") for n in skills
@@ -403,15 +417,44 @@ def test_the_ablated_side_is_recognised_in_either_position():
 
 
 def test_a_server_only_ablation_is_labelled_from_the_marker():
-    # The skill neighbourhood is unchanged, so nothing but the marker can say
-    # what the arm removed.
-    a = _saved(skills=["keeper"], ablated=["mcp:weather"])
-    b = _saved(skills=["keeper"], ablated=[])
+    # The skill neighbourhood is unchanged, so the label rests on the removed
+    # server: the marker names it, and the full side's recorded membership
+    # confirms it was there to remove.
+    a = _saved(skills=["keeper"], ablated=["mcp:weather"], mcp_servers=[])
+    b = _saved(skills=["keeper"], ablated=[], mcp_servers=["weather"])
     comp = diff_runs(a, b)
     assert comp.neighbourhood_mismatch is False
     assert comp.warnings == []
     assert comp.a_label == "without mcp:weather"
     assert comp.b_label == "full neighbourhood"
+
+
+def test_a_server_marker_the_full_side_never_had_is_not_a_pair():
+    # The spec dropped the server between the two runs, so both ran without it
+    # and the delta is not the server's. The marker alone would have claimed it.
+    a = _saved(skills=["keeper"], ablated=["mcp:weather"])
+    b = _saved(skills=["keeper"], ablated=[], mcp_servers=[])
+    comp = diff_runs(a, b)
+    assert comp.a_label is None and comp.b_label is None
+    assert comp.neighbourhood_mismatch is False
+
+
+def test_a_server_marker_the_ablated_side_still_ran_with_is_not_a_pair():
+    # Claims to have removed a server it recorded running with — an inconsistent
+    # marker, not an ablation.
+    a = _saved(skills=["keeper"], ablated=["mcp:weather"], mcp_servers=["weather"])
+    b = _saved(skills=["keeper"], ablated=[], mcp_servers=["weather"])
+    comp = diff_runs(a, b)
+    assert comp.a_label is None
+
+
+def test_a_server_difference_between_two_skill_ablated_runs_is_not_a_pair():
+    # The marker explains the skill it named; it must not paper over a changed
+    # MCP environment as well.
+    a = _saved(skills=["keeper"], ablated=["subject"], mcp_servers=["weather"])
+    b = _saved(skills=["keeper", "subject"], ablated=[], mcp_servers=[])
+    comp = diff_runs(a, b)
+    assert comp.a_label is None
 
 
 def test_two_runs_that_ablated_different_skills_still_warn():
