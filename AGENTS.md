@@ -4,11 +4,6 @@
 > **`.github/CONTRIBUTING.md`** — GitHub's conventional location, not the repo
 > root. Read it there.
 
-## Attribution
-
-Keep commit messages and PR descriptions free of co-author credits. Never add
-"Co-authored with" text or `Co-authored-by:` trailers.
-
 ## Updating docs after API changes
 
 When any of the following change, update all three locations before marking the task done:
