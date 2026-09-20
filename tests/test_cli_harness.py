@@ -14,6 +14,9 @@ would need writing again the day the shared implementation grew an exception.
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -129,6 +132,38 @@ def test_cli_path_is_none_when_nothing_is_installed(backend, monkeypatch) -> Non
 
 
 # --- the attempt's environment -----------------------------------------------
+
+
+@pytest.mark.parametrize("backend", ALL_BACKENDS)
+@pytest.mark.parametrize("platform", ["win32", "linux", "darwin"])
+def test_windows_system_root_passthrough(backend, platform, monkeypatch) -> None:
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setenv("SystemRoot", r"C:\Windows")
+    env = backend()._isolated_env(run_context())
+
+    if platform == "win32":
+        assert env["SystemRoot"] == r"C:\Windows"
+    else:
+        assert "SystemRoot" not in env
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows Node startup regression")
+def test_node_starts_in_windows_attempt_environment(tmp_path) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is not installed")
+    ctx = run_context(isolated_home=str(tmp_path))
+    proc = subprocess.run(
+        [node, "-e", "console.log('NODE_OK')"],
+        env=CodexHarness()._environment(ctx),
+        cwd=tmp_path,
+        capture_output=True,
+        encoding="utf-8",
+        timeout=15,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "NODE_OK"
 
 
 @pytest.mark.parametrize("backend", ALL_BACKENDS)
