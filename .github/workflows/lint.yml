@@ -43,3 +43,35 @@ jobs:
         # the subprocess boundary (tests/conftest.py), so the suite is
         # self-contained.
         run: pytest -q
+
+  platform-test:
+    name: platform-test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            test-path: tests
+          - os: windows-latest
+            # The rest of the Windows suite still has platform-specific fixture
+            # failures. Exercise every shared harness contract and real Node
+            # startup here without hiding those failures behind broad skips.
+            test-path: tests/test_cli_harness.py
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Verify Node is available for startup regression coverage
+        run: node --version
+      - name: Test
+        # Agent calls are faked; the Windows Node startup check runs locally
+        # without credentials or model requests.
+        run: python -m pytest -q ${{ matrix.test-path }}
