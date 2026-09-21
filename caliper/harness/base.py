@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
@@ -633,6 +634,10 @@ class CliHarness(HarnessBackend):
             "PATH": os.pathsep.join(prefixes + rest),
             **(extra or {}),
         }
+        # Windows cryptographic initialization needs SystemRoot even when the
+        # agent's HOME is isolated; without it Node aborts before running (#112).
+        if sys.platform == "win32":
+            self._passthrough(env, ("SystemRoot",))
         return self._passthrough(env, self.env_passthrough)
 
     def _execute(
