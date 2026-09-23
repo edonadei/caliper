@@ -6,7 +6,7 @@ from pathlib import Path, PurePosixPath
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
-_VALID_BACKENDS: frozenset[str] = frozenset({"claude-code", "codex", "pi", "hermes"})
+VALID_BACKENDS: frozenset[str] = frozenset({"claude-code", "codex", "pi", "hermes"})
 
 # The engine (backend + model) is a runtime axis, not a spec field: it is chosen
 # at invocation via --model / --judge-model and defaults to this. A saved run
@@ -50,7 +50,7 @@ def parse_target(value: str) -> tuple[str | None, str | None]:
         backend, _, model = value.partition(":")
         return normalize_backend(backend) or None, model or None
     normalized = normalize_backend(value)
-    if normalized in _VALID_BACKENDS:
+    if normalized in VALID_BACKENDS:
         return normalized, None
     return None, value
 

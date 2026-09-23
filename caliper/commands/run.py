@@ -27,6 +27,7 @@ from caliper.runner import run, AttemptEvent, RunAborted
 from caliper.schema.results import Outcome, RunResults, TaskResult
 from caliper.schema.spec import (
     DEFAULT_BACKEND,
+    VALID_BACKENDS,
     load_spec,
     parse_target,
     spec_name,
@@ -171,6 +172,21 @@ def run_cmd(
         jb, jm = parse_target(judge_model)
         judge_backend = jb or judge_backend
         judge_model_name = jm
+
+    # Before the banner and before any attempt: a misspelt backend would
+    # otherwise surface as a traceback (--model) or as a judge_error on every
+    # attempt after the agent was already paid for (--judge-model).
+    for flag, chosen in (("--model", backend), ("--judge-model", judge_backend)):
+        if chosen not in VALID_BACKENDS:
+            fail(
+                CannotRun(
+                    f"Unknown backend {chosen!r} in {flag}.\n\n"
+                    f"Known backends: {', '.join(sorted(VALID_BACKENDS))}.\n"
+                    f"Pass {flag} <backend>[:<model>], e.g. {flag} codex:gpt-5-codex, "
+                    f"or a bare model name for the default {DEFAULT_BACKEND} backend.",
+                    title="Unknown backend",
+                )
+            )
 
     name = spec_name(spec_file)
     print_banner(name, k, backend, skill_model)

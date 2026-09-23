@@ -17,6 +17,7 @@ from caliper.harness.base import (
 )
 from caliper.harness.prompt_failure import (
     PromptFailure,
+    PromptFailureKind,
     classify_claude_api_error_status,
 )
 from caliper.harness.mcp import resolve_servers
@@ -190,6 +191,21 @@ class ClaudeCodeHarness(CliHarness):
         return prefixes
 
     def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
+        # Read off the CLI's own result envelope, not the text: an agent can
+        # write about a 404 without being one. Same classification the judge's
+        # prompt path uses (issue #75, docs/adr/0001).
+        unavailable = _unavailable_model_message(proc.stdout)
+        if unavailable is not None:
+            model_part = f" '{self._model}'" if self._model else ""
+            return (
+                f"Claude Code cannot run the requested model{model_part}.\n\n"
+                "The Claude CLI returned:\n"
+                f"  {unavailable}\n\n"
+                "Pass `--model claude-code:<model>` with a model this account "
+                "can use, or `--model claude-code` for the CLI default, then "
+                "retry the eval."
+            )
+
         text = "\n".join(part for part in (final_output, proc.stderr) if part).strip()
         if not text:
             return None
@@ -435,15 +451,8 @@ def _tool_result_text(content: object) -> str:
     return content if isinstance(content, str) else ""
 
 
-def _classify_claude_prompt_failure(
-    stdout: str, model: str | None
-) -> PromptResult | None:
-    """Return a classified upstream failure, or None to keep today's text path."""
-    stripped = stdout.strip()
-    try:
-        envelope = json.loads(stripped)
-    except json.JSONDecodeError:
-        return None
+def _envelope_failure(envelope: object) -> PromptFailure | None:
+    """The classified provider failure a CLI ``result`` envelope reports, if any."""
     if not isinstance(envelope, dict) or not envelope.get("is_error"):
         return None
 
@@ -456,13 +465,42 @@ def _classify_claude_prompt_failure(
         return None
 
     message = str(envelope.get("result", "")).strip() or f"API error {status}"
-    failure = PromptFailure(kind=kind, message=message, status=status)
+    return PromptFailure(kind=kind, message=message, status=status)
+
+
+def _unavailable_model_message(stdout: str) -> str | None:
+    """The CLI's message when its closing ``result`` event is a model 404."""
+    for line in reversed(stdout.splitlines()):
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict) or event.get("type") != "result":
+            continue
+        failure = _envelope_failure(event)
+        if failure is not None and failure.kind is PromptFailureKind.MODEL_UNAVAILABLE:
+            return failure.message
+        return None
+    return None
+
+
+def _classify_claude_prompt_failure(
+    stdout: str, model: str | None
+) -> PromptResult | None:
+    """Return a classified upstream failure, or None to keep today's text path."""
+    try:
+        envelope = json.loads(stdout.strip())
+    except json.JSONDecodeError:
+        return None
+    failure = _envelope_failure(envelope)
+    if failure is None:
+        return None
     # Carry the structural failure; the judge switches on ``failure.kind`` to
     # build the user-facing message (see caliper/judge/script_assert.py).
     return PromptResult(
         text="",
         resolved_model=model,
-        error=message,
+        error=failure.message,
         failure=failure,
     )
 

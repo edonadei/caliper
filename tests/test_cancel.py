@@ -276,6 +276,41 @@ def test_a_fatal_error_mid_run_salvages_the_attempts_that_ran(tmp_path) -> None:
     assert aborted.results.run.interrupted is True
 
 
+class UnavailableModelJudge:
+    """A judge whose model the provider does not know, as #139 reports it."""
+
+    backend = "claude-code"
+    model = "claude-bogus"
+
+    def evaluate(
+        self, task, transcript, final_output, spec_dir, workdir
+    ) -> JudgeResult:
+        raise HarnessConfigurationError("Judge model 'claude-bogus' is unavailable")
+
+
+def test_an_unavailable_judge_model_stops_the_run_at_the_first_attempt(
+    tmp_path,
+) -> None:
+    """No saved run is made up entirely of judge errors (issue #139)."""
+    harness = CancellingHarness(cancel_after=99)
+
+    with pytest.raises(RunAborted) as excinfo:
+        run(
+            spec=_spec(),
+            spec_path=_spec_file(tmp_path),
+            harness=harness,
+            judge=UnavailableModelJudge(),
+            k=4,
+            workers=1,
+            timeout=5,
+        )
+
+    aborted = excinfo.value
+    assert "claude-bogus" in str(aborted.cause)
+    assert harness.started == [1]
+    assert aborted.results.task_results[0].attempts == []
+
+
 def test_cancel_kills_an_agent_in_flight(tmp_path) -> None:
     """The point of the whole mechanism: not waiting out the timeout."""
     cancel.reset()

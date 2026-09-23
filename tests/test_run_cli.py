@@ -384,3 +384,29 @@ def test_baseline_is_retired_and_says_where_the_capability_went(tmp_path) -> Non
     assert result.exit_code == 2
     assert "--ablate" in result.output
     assert "caliper compare" in result.output
+
+
+def test_run_cli_refuses_unknown_backends_before_any_attempt(
+    monkeypatch, tmp_path
+) -> None:
+    """A misspelt backend is a diagnosis panel and exit 2, not a traceback."""
+    spec_file = tmp_path / "sample.eval.yaml"
+    spec_file.write_text(
+        "skills:\n  - ./SKILL.md\n"
+        "tasks:\n  - name: One\n    prompt: Do it\n    assert: assert True\n"
+    )
+
+    def fake_run(**kwargs):
+        raise AssertionError("no attempt should run")
+
+    monkeypatch.setattr("caliper.commands.run.run", fake_run)
+
+    for flag, target in (("--model", "foo:bar"), ("--judge-model", "bogus:x")):
+        result = runner.invoke(app, ["run", str(spec_file), flag, target])
+
+        assert result.exit_code == 2, result.output
+        assert "Traceback" not in result.output
+        assert flag in result.output
+        # Names what is wrong and what would be right.
+        assert "Unknown backend" in result.output
+        assert "claude-code" in result.output and "codex" in result.output
