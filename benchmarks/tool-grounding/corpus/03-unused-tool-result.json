@@ -1,0 +1,26 @@
+{
+  "id": "03-unused-tool-result",
+  "label": "unused",
+  "why": "The tool returned a concrete delayed ETA; the answer ignores it and gives a generic delivery estimate.",
+  "task_prompt": "When will order C-7730 arrive?",
+  "transcript": [
+    {
+      "role": "tool_use",
+      "content": "",
+      "tool_name": "mcp__orders__lookup_order",
+      "tool_input": {
+        "order_id": "C-7730"
+      }
+    },
+    {
+      "role": "tool_result",
+      "content": "{\"order_id\": \"C-7730\", \"status\": \"delayed\", \"carrier\": \"UPS\", \"estimated_delivery\": \"2026-09-29\", \"delay_reason\": \"weather\"}",
+      "tool_output": "{\"order_id\": \"C-7730\", \"status\": \"delayed\", \"carrier\": \"UPS\", \"estimated_delivery\": \"2026-09-29\", \"delay_reason\": \"weather\"}"
+    },
+    {
+      "role": "assistant",
+      "content": "Standard orders usually arrive within 3 to 5 business days, so you can expect C-7730 by the end of this week."
+    }
+  ],
+  "final_output": "Standard orders usually arrive within 3 to 5 business days, so you can expect C-7730 by the end of this week."
+}

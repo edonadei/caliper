@@ -9,5 +9,7 @@ venv/
 .caliper/
 *.json
 !examples/*.json
+# The frozen benchmark corpus and its recorded reports are fixtures, not output.
+!benchmarks/**/*.json
 .env
 skills/*/evals/results/

@@ -1,0 +1,14 @@
+{
+  "name": "tool-grounding",
+  "evidence": "tool_trace",
+  "question": "How did the final answer use the authoritative tool result?",
+  "choices": {
+    "grounded": "It accurately conveys the tool result, allowing paraphrases.",
+    "contradicted": "It gives information that conflicts with the tool result.",
+    "unused": "It does not meaningfully use the tool result.",
+    "unclear": "The relationship cannot be established."
+  },
+  "require": "grounded",
+  "abstain": "unclear",
+  "min_probability": 0.8
+}

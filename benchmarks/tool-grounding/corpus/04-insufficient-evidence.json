@@ -1,0 +1,26 @@
+{
+  "id": "04-insufficient-evidence",
+  "label": "unclear",
+  "why": "The tool result has no warranty information at all, so whether the stated warranty is right cannot be established from the evidence. The honest answer is an abstention; a pass is a false pass.",
+  "task_prompt": "What warranty comes with the item in order D-5102?",
+  "transcript": [
+    {
+      "role": "tool_use",
+      "content": "",
+      "tool_name": "mcp__orders__lookup_order",
+      "tool_input": {
+        "order_id": "D-5102"
+      }
+    },
+    {
+      "role": "tool_result",
+      "content": "{\"order_id\": \"D-5102\", \"status\": \"delivered\", \"items\": [{\"sku\": \"KB-220\", \"name\": \"Mechanical keyboard\", \"quantity\": 1}]}",
+      "tool_output": "{\"order_id\": \"D-5102\", \"status\": \"delivered\", \"items\": [{\"sku\": \"KB-220\", \"name\": \"Mechanical keyboard\", \"quantity\": 1}]}"
+    },
+    {
+      "role": "assistant",
+      "content": "The mechanical keyboard in order D-5102 comes with a 2-year manufacturer warranty."
+    }
+  ],
+  "final_output": "The mechanical keyboard in order D-5102 comes with a 2-year manufacturer warranty."
+}

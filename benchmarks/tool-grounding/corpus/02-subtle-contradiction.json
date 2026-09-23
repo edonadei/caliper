@@ -1,0 +1,26 @@
+{
+  "id": "02-subtle-contradiction",
+  "label": "contradicted",
+  "why": "The tool says shipping is not refunded; the answer claims a full refund including shipping. The amount matches, so only the qualifier is wrong.",
+  "task_prompt": "How much will I get back for order B-3318?",
+  "transcript": [
+    {
+      "role": "tool_use",
+      "content": "",
+      "tool_name": "mcp__orders__lookup_order",
+      "tool_input": {
+        "order_id": "B-3318"
+      }
+    },
+    {
+      "role": "tool_result",
+      "content": "{\"order_id\": \"B-3318\", \"status\": \"returned\", \"refund\": {\"amount\": \"42.50\", \"currency\": \"USD\", \"covers\": \"items_only\", \"shipping_refunded\": false}}",
+      "tool_output": "{\"order_id\": \"B-3318\", \"status\": \"returned\", \"refund\": {\"amount\": \"42.50\", \"currency\": \"USD\", \"covers\": \"items_only\", \"shipping_refunded\": false}}"
+    },
+    {
+      "role": "assistant",
+      "content": "You'll receive a full refund of $42.50 for order B-3318, shipping included."
+    }
+  ],
+  "final_output": "You'll receive a full refund of $42.50 for order B-3318, shipping included."
+}

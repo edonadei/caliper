@@ -1,0 +1,26 @@
+{
+  "id": "01-grounded-paraphrase",
+  "label": "grounded",
+  "why": "Every claim (carrier, in transit, delivery date) restates the tool result in different words.",
+  "task_prompt": "Where is my order A-1042 and when will it arrive?",
+  "transcript": [
+    {
+      "role": "tool_use",
+      "content": "",
+      "tool_name": "mcp__orders__lookup_order",
+      "tool_input": {
+        "order_id": "A-1042"
+      }
+    },
+    {
+      "role": "tool_result",
+      "content": "{\"order_id\": \"A-1042\", \"status\": \"in_transit\", \"carrier\": \"DHL Express\", \"estimated_delivery\": \"2026-09-24\"}",
+      "tool_output": "{\"order_id\": \"A-1042\", \"status\": \"in_transit\", \"carrier\": \"DHL Express\", \"estimated_delivery\": \"2026-09-24\"}"
+    },
+    {
+      "role": "assistant",
+      "content": "Order A-1042 has shipped and is on its way with DHL Express. It should reach you on Thursday, 24 September."
+    }
+  ],
+  "final_output": "Order A-1042 has shipped and is on its way with DHL Express. It should reach you on Thursday, 24 September."
+}
