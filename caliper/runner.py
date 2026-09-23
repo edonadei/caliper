@@ -90,10 +90,9 @@ class _RunEnv:
     mcp_servers: dict[str, McpServer]
     # Whether the spec declared an ``mcp:`` block at all — by field presence,
     # since ``mcp: {}`` is a declared block with no servers, not an absent one.
-    # It is what tells the backend "no servers" (``None`` — no block, the CLI's
-    # ambient config applies, as always) from "every declared server was
-    # ablated" (an empty mapping, which must still isolate the attempt to zero
-    # servers).
+    # It tells the backend "no block" (``None``) from "every declared server
+    # was ablated" (an empty mapping). Both isolate the attempt to zero servers
+    # (docs/adr/0026-attempts-never-see-account-connectors.md).
     mcp_declared: bool
     # The *skills* ``--ablate`` removed. Truthy drops every task's activation
     # expectation. Removing a server is deliberately not on this list: activation
