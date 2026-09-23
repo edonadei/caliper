@@ -58,7 +58,7 @@ jobs:
             # The rest of the Windows suite still has platform-specific fixture
             # failures. Exercise every shared harness contract and real Node
             # startup here without hiding those failures behind broad skips.
-            test-path: tests/test_cli_harness.py
+            test-path: tests/test_cli_harness.py tests/test_runner.py::test_windows_silent_background_hook_does_not_leak_reader
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

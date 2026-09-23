@@ -1,5 +1,16 @@
 from __future__ import annotations
 
+import os
+import shlex
+import signal
+import subprocess
+import sys
+import threading
+import time
+
+import pytest
+
+from caliper import cancel
 from caliper.harness.base import (
     AttemptResult,
     ConversationTurn,
@@ -8,7 +19,8 @@ from caliper.harness.base import (
 )
 from caliper.judge import EvalJudge
 from caliper.judge.base import JudgeResult
-from caliper.runner import run
+from caliper.reporter import print_results
+from caliper.runner import _run_shell, run
 from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, TaskSpec
 
@@ -73,6 +85,300 @@ class RecordingJudge:
     def evaluate(self, task, transcript, final_output, spec_dir) -> JudgeResult:
         self.calls += 1
         return JudgeResult(passed=True, reasoning="should not run")
+
+
+class PassingHarness(HarnessBackend):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    @property
+    def name(self) -> str:
+        return "passing"
+
+    def run(self, ctx: RunContext) -> AttemptResult:
+        self.calls += 1
+        return AttemptResult(
+            transcript=[], final_output="done", exit_code=0, duration_seconds=0.1
+        )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX background shell syntax")
+def test_hook_with_background_child_returns_after_its_shell_exits(tmp_path) -> None:
+    pid_file = tmp_path / "background.pid"
+    started = time.monotonic()
+    try:
+        failure = _run_shell(
+            f"sleep 5 & echo $! > {shlex.quote(str(pid_file))}; "
+            "echo setup broke >&2; exit 7",
+            "task-001",
+            1,
+            "setup",
+        )
+        assert time.monotonic() - started < 3
+        assert failure is not None
+        assert failure.exit_code == 7
+        assert failure.output == "setup broke"
+    finally:
+        if pid_file.exists():
+            try:
+                os.kill(int(pid_file.read_text().strip()), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX background shell syntax")
+def test_successful_hook_with_continuous_background_writer_returns(tmp_path) -> None:
+    pid_file = tmp_path / "writer.pid"
+    started = time.monotonic()
+    try:
+        failure = _run_shell(
+            f"yes heartbeat & echo $! > {shlex.quote(str(pid_file))}",
+            "task-001",
+            1,
+            "setup",
+        )
+        assert failure is None
+        assert time.monotonic() - started < 3
+    finally:
+        if pid_file.exists():
+            try:
+                os.kill(int(pid_file.read_text().strip()), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows background shell syntax")
+def test_windows_silent_background_hook_does_not_leak_reader() -> None:
+    before = sum(t.name == "caliper-hook-output" for t in threading.enumerate())
+    child = subprocess.list2cmdline(
+        [sys.executable, "-c", "import time; time.sleep(3)"]
+    )
+    started = time.monotonic()
+
+    failure = _run_shell(f'start /B "" {child}', "task-001", 1, "setup")
+
+    assert failure is None
+    assert time.monotonic() - started < 2
+    assert sum(t.name == "caliper-hook-output" for t in threading.enumerate()) == before
+
+
+def test_noisy_hook_keeps_only_diagnostic_tail() -> None:
+    script = (
+        'import sys; print("x" * 1000000); '
+        'print("last line", file=sys.stderr); sys.exit(7)'
+    )
+    command = (
+        subprocess.list2cmdline([sys.executable, "-c", script])
+        if os.name == "nt"
+        else f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
+    )
+    failure = _run_shell(
+        command,
+        "task-001",
+        1,
+        "setup",
+    )
+
+    assert failure is not None
+    assert failure.exit_code == 7
+    assert failure.output.endswith("last line")
+    assert len(failure.output) <= 4000
+
+
+def test_failed_setup_cannot_pass_from_stale_artifact_and_still_cleans_up(
+    tmp_path,
+) -> None:
+    artifact = tmp_path / "artifact.txt"
+    artifact.write_text("stale")
+    cleaned = tmp_path / "cleaned"
+    task = TaskSpec(
+        id="task-001",
+        name="Stale artifact",
+        prompt="Do it",
+        assert_script="from pathlib import Path\nassert Path('artifact.txt').exists()",
+        setup="echo setup broke >&2; exit 7",
+        cleanup=f"touch {cleaned}",
+    )
+    harness = PassingHarness()
+    judge = EvalJudge()
+    results = run(
+        EvalSpec(tasks=[task]),
+        tmp_path / "stale.eval.yaml",
+        harness,
+        judge,
+        k=1,
+        workers=1,
+    )
+
+    record = results.task_results[0].attempts[0]
+    assert harness.calls == 0
+    assert record.outcome is Outcome.INFRA_ERROR
+    assert record.passed is False
+    assert record.assert_passed is None
+    assert results.task_results[0].score is None
+    assert cleaned.exists()
+    assert [(f.phase, f.exit_code, f.output) for f in record.hook_failures] == [
+        ("setup", 7, "setup broke")
+    ]
+    assert results.run.hook_failures == record.hook_failures
+
+
+def test_failed_setup_with_markup_output_still_reports(capfd, tmp_path) -> None:
+    task = TaskSpec(
+        id="task-001",
+        name="Malformed output",
+        prompt="Do it",
+        assert_script="assert True",
+        setup="echo '[/broken]' >&2; exit 7",
+    )
+    results = run(
+        EvalSpec(tasks=[task]),
+        tmp_path / "markup.eval.yaml",
+        PassingHarness(),
+        EvalJudge(),
+        k=1,
+        workers=1,
+    )
+
+    print_results(results)
+    output = capfd.readouterr().out
+    assert "setup exited 7" in output
+    assert "[/broken]" in output
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shell and process-group syntax")
+def test_cancelling_setup_skips_agent_and_still_runs_cleanup(tmp_path) -> None:
+    started = tmp_path / "setup-started"
+    cleaned = tmp_path / "cleanup-ran"
+    harness = PassingHarness()
+    task = TaskSpec(
+        id="task-001",
+        name="Interrupted setup",
+        prompt="Do it",
+        assert_script="assert True",
+        setup=f"touch {shlex.quote(str(started))}; sleep 5",
+        cleanup=f"touch {shlex.quote(str(cleaned))}",
+    )
+    outcome = {}
+
+    def execute() -> None:
+        outcome["results"] = run(
+            EvalSpec(tasks=[task]),
+            tmp_path / "interrupted.eval.yaml",
+            harness,
+            EvalJudge(),
+            k=1,
+            workers=1,
+        )
+
+    thread = threading.Thread(target=execute)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 3
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert started.exists()
+        cancel.request()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+        assert cleaned.exists()
+        assert harness.calls == 0
+        assert outcome["results"].run.interrupted is True
+        assert outcome["results"].task_results[0].attempts == []
+    finally:
+        if thread.is_alive():
+            cancel.request()
+            thread.join(timeout=6)
+
+
+def test_failed_cleanup_keeps_agent_outcome_and_reports_both_hook_failures(
+    tmp_path,
+) -> None:
+    task = TaskSpec(
+        id="task-001",
+        name="Cleanup failure",
+        prompt="Do it",
+        assert_script="assert True",
+        setup="echo setup broke >&2; exit 7",
+        cleanup="echo cleanup broke >&2; exit 9",
+    )
+    results = run(
+        EvalSpec(tasks=[task]),
+        tmp_path / "hooks.eval.yaml",
+        PassingHarness(),
+        EvalJudge(),
+        k=1,
+        workers=1,
+    )
+    assert results.task_results[0].attempts[0].outcome is Outcome.INFRA_ERROR
+    assert [(f.phase, f.exit_code) for f in results.run.hook_failures] == [
+        ("setup", 7),
+        ("cleanup", 9),
+    ]
+
+    task.setup = None
+    passed = run(
+        EvalSpec(tasks=[task]),
+        tmp_path / "hooks.eval.yaml",
+        PassingHarness(),
+        EvalJudge(),
+        k=1,
+        workers=1,
+    )
+    record = passed.task_results[0].attempts[0]
+    assert record.outcome is Outcome.PASS
+    assert record.hook_failures[0].phase == "cleanup"
+    assert passed.run.hook_failures == record.hook_failures
+
+
+@pytest.mark.parametrize(
+    ("result_fields", "expected_outcome"),
+    [
+        ({"exit_code": 1, "error": "agent broke"}, Outcome.INFRA_ERROR),
+        ({"exit_code": -9, "timed_out": True}, Outcome.TIMEOUT),
+        ({"exit_code": -9, "cancelled": True}, None),
+    ],
+)
+def test_cleanup_runs_after_failed_timed_out_or_cancelled_agent(
+    tmp_path, result_fields, expected_outcome
+) -> None:
+    cleaned = tmp_path / "cleaned"
+
+    class StoppingHarness(HarnessBackend):
+        @property
+        def name(self) -> str:
+            return "stopping"
+
+        def run(self, ctx: RunContext) -> AttemptResult:
+            return AttemptResult(
+                transcript=[], final_output="", duration_seconds=0.1, **result_fields
+            )
+
+    task = TaskSpec(
+        id="task-001",
+        name="Stopped",
+        prompt="Do it",
+        assert_script="assert True",
+        cleanup=f"touch {cleaned}; echo cleanup broke >&2; exit 9",
+    )
+    results = run(
+        EvalSpec(tasks=[task]),
+        tmp_path / "stopped.eval.yaml",
+        StoppingHarness(),
+        EvalJudge(),
+        k=1,
+        workers=1,
+    )
+
+    assert cleaned.exists()
+    assert results.run.hook_failures[0].phase == "cleanup"
+    assert results.run.hook_failures[0].exit_code == 9
+    records = results.task_results[0].attempts
+    if expected_outcome is None:
+        assert records == []
+    else:
+        assert records[0].outcome is expected_outcome
+        assert records[0].hook_failures == results.run.hook_failures
 
 
 class JudgeErrorThenPass:

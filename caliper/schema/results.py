@@ -4,6 +4,7 @@ import hashlib
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
@@ -160,6 +161,17 @@ ERA_INSTALL_AND_DISCOVER = "install-and-discover"
 MCP_ABLATION_PREFIX = "mcp:"
 
 
+HookPhase = Literal["setup", "cleanup"]
+
+
+class HookFailure(BaseModel):
+    task_id: str
+    attempt: int
+    phase: HookPhase
+    exit_code: int
+    output: str = ""
+
+
 class RunMeta(BaseModel):
     spec: str
     timestamp: datetime
@@ -202,6 +214,7 @@ class RunMeta(BaseModel):
     # truncates tasks on purpose, and the two must not read alike. Defaults
     # False so runs saved before this existed still load.
     interrupted: bool = False
+    hook_failures: list[HookFailure] = Field(default_factory=list)
 
     @property
     def ablated_skills(self) -> list[str]:
@@ -235,6 +248,7 @@ class AttemptRecord(BaseModel):
     output: str
     duration_seconds: float
     outcome: Outcome
+    hook_failures: list[HookFailure] = Field(default_factory=list)
     # Token accounting for this attempt, when the backend reports it. Optional so
     # results saved before usage tracking still load (they render as "—").
     usage: TokenUsage | None = None

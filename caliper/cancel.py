@@ -22,12 +22,13 @@ import os
 import signal
 import subprocess
 import threading
+import weakref
 from contextlib import contextmanager
 from typing import Iterator
 
 _lock = threading.Lock()
 _live: set[subprocess.Popen] = set()
-_killed: set[int] = set()
+_killed: weakref.WeakSet[subprocess.Popen] = weakref.WeakSet()
 _requested = threading.Event()
 
 
@@ -71,17 +72,21 @@ def sleep_unless_stopped(seconds: float) -> bool:
 
 
 @contextmanager
-def track(proc: subprocess.Popen) -> Iterator[subprocess.Popen]:
-    """Register a spawned agent so :func:`request` can reach it.
+def track(
+    proc: subprocess.Popen, *, cancel_if_requested: bool = True
+) -> Iterator[subprocess.Popen]:
+    """Register a spawned process so :func:`request` can reach it.
 
     A cancellation that lands between the spawn and the registration would
     otherwise leave that one process running for its full timeout, so the
-    flag is re-checked once inside.
+    flag is re-checked once inside. Cleanup hooks can skip that immediate kill
+    so they still run after an interrupt; a new cancellation during cleanup
+    still reaches the registered process.
     """
     with _lock:
         _live.add(proc)
     try:
-        if requested():
+        if cancel_if_requested and requested():
             kill(proc)
         yield proc
     finally:
@@ -99,7 +104,7 @@ def was_killed(proc: subprocess.Popen) -> bool:
     tell them apart, since both come back as a non-zero exit.
     """
     with _lock:
-        return proc.pid in _killed
+        return proc in _killed
 
 
 def kill(proc: subprocess.Popen) -> None:
@@ -114,7 +119,7 @@ def kill(proc: subprocess.Popen) -> None:
     if proc.poll() is not None:
         return
     with _lock:
-        _killed.add(proc.pid)
+        _killed.add(proc)
     try:
         if hasattr(os, "killpg"):
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)

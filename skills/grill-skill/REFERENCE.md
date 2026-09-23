@@ -148,6 +148,13 @@ tasks:
 
 Each task needs at least one of `expect`, `assert` or `activates`.
 
+Lifecycle hooks run for each attempt. A failed `setup:` skips the agent and judge
+and records an `infra_error`; `cleanup:` is still attempted. A failed cleanup
+does not change a completed attempt's outcome, but the command exits `2`.
+`AttemptRecord.hook_failures` and `RunMeta.hook_failures` save the task ID,
+attempt number, phase, exit code, and output. The run-level list includes
+cleanup failures on interrupted attempts with no attempt record.
+
 ## Triggering: does the description fire?
 
 Skills are **installed** where the agent looks for them and never pasted into

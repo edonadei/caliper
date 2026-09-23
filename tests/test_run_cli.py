@@ -6,10 +6,12 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from caliper.main import app
+from caliper.reporter import print_results
 from caliper.runstore import RunStore
 from caliper.schema.results import (
     AggregateScore,
     AttemptRecord,
+    HookFailure,
     Outcome,
     RunMeta,
     RunResults,
@@ -234,6 +236,56 @@ def _stub_a_run(monkeypatch, finished: RunResults) -> None:
     monkeypatch.setattr("caliper.commands.run.print_banner", lambda *a, **k: None)
     monkeypatch.setattr("caliper.commands.run.print_results", lambda *a, **k: None)
     monkeypatch.setattr("caliper.commands.run.run", lambda **kwargs: finished)
+
+
+def test_run_cli_exits_two_after_cleanup_failure(monkeypatch, tmp_path) -> None:
+    finished = _finished(datetime(2026, 7, 3, tzinfo=timezone.utc))
+    failure = HookFailure(
+        task_id="task-001",
+        attempt=1,
+        phase="cleanup",
+        exit_code=9,
+        output="cleanup broke",
+    )
+    finished.run.hook_failures = [failure]
+    finished.task_results[0].attempts[0].hook_failures = [failure]
+    _stub_a_run(monkeypatch, finished)
+    saved = []
+    monkeypatch.setattr(
+        "caliper.commands.run._save_and_report",
+        lambda *args, **kwargs: saved.append(args),
+    )
+    spec_file = tmp_path / "sample.eval.yaml"
+    spec_file.write_text(
+        "tasks:\n  - name: One\n    prompt: Do it\n    assert: assert True\n"
+    )
+
+    result = runner.invoke(app, ["run", str(spec_file), "--k", "1"])
+
+    assert result.exit_code == 2
+    assert len(saved) == 1
+    assert saved[0][0].task_results[0].attempts[0].outcome is Outcome.PASS
+
+
+def test_report_highlights_cleanup_failure_on_passing_attempt(capfd) -> None:
+    finished = _finished(datetime(2026, 7, 3, tzinfo=timezone.utc))
+    failure = HookFailure(
+        task_id="task-001",
+        attempt=1,
+        phase="cleanup",
+        exit_code=9,
+        output="cleanup broke",
+    )
+    finished.run.hook_failures = [failure]
+    finished.task_results[0].attempts[0].hook_failures = [failure]
+
+    print_results(finished)
+
+    output = capfd.readouterr().out
+    assert "lifecycle hooks failed" in output
+    assert "cleanup exited 9" in output
+    assert "cleanup broke" in output
+    assert "HOOK ERROR" in output
 
 
 def _project(root: Path) -> Path:

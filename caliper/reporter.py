@@ -4,6 +4,7 @@ from typing import Callable
 
 from rich import box
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.progress import (
     Progress,
@@ -213,6 +214,18 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
             f"    [yellow]interrupted:[/yellow] stopped early"
             f"   {_SEP}   [dim]scored over the attempts that ran[/dim]"
         )
+    if results.run.hook_failures:
+        console.print(
+            f"    [bold red]lifecycle hooks failed:[/bold red] "
+            f"{len(results.run.hook_failures)}"
+        )
+        for failure in results.run.hook_failures:
+            console.print(
+                f"    [red]{escape(failure.task_id)} attempt {failure.attempt} "
+                f"{failure.phase} exited {failure.exit_code}[/red]"
+            )
+            if failure.output:
+                console.print(f"      {_format_output(escape(failure.output))}")
     console.print()
 
     _print_score(results)
@@ -316,6 +329,8 @@ def _needs_detail(tr: TaskResult) -> bool:
     ``None`` by construction, and treating that as "didn't fully pass" would
     print a panel for every correct trigger probe.
     """
+    if any(attempt.hook_failures for attempt in tr.attempts):
+        return True
     activation_short = tr.activation_score is not None and tr.activation_score < 1.0
     if tr.trigger_only:
         return activation_short
@@ -346,6 +361,8 @@ def _activation_cell(tr: TaskResult) -> Text:
 def _status_cell(tr: TaskResult, k: int) -> Text:
     if tr.any_cheat:
         return Text(f"{_WARN} CHEAT", style="bold yellow")
+    if any(attempt.hook_failures for attempt in tr.attempts):
+        return Text(f"{_UNUSABLE} HOOK ERROR", style="bold red")
     # An activates:-only task asked no execution question. Its silence is the
     # correct answer, so it reads as a dim skip — never a yellow error.
     if tr.trigger_only:
