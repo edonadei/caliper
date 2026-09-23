@@ -143,6 +143,10 @@ def run_cmd(
             )
         )
 
+    if k < 1:
+        fail(
+            BadInput(f"--k must be at least 1, got {k}: the run would measure nothing.")
+        )
     if not spec_file.exists():
         fail(BadInput(f"File not found: {spec_file}"))
 

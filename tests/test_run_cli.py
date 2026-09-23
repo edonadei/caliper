@@ -437,3 +437,14 @@ def test_baseline_is_retired_and_says_where_the_capability_went(tmp_path) -> Non
     assert result.exit_code == 2
     assert "--ablate" in result.output
     assert "caliper compare" in result.output
+
+
+def test_run_cli_rejects_fewer_than_one_attempt(monkeypatch, tmp_path) -> None:
+    # k=0 schedules nothing, so the run would measure nothing and exit 0.
+    spec_file = tmp_path / "sample.eval.yaml"
+    spec_file.write_text("tasks:\n  - name: One\n    prompt: Do it\n    expect: Done\n")
+    for k in ("0", "-1"):
+        result = runner.invoke(app, ["run", str(spec_file), "--k", k])
+
+        assert result.exit_code == 1, result.output
+        assert "--k" in result.output
