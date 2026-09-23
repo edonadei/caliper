@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -379,12 +380,21 @@ def _recorded_model(
 
     Requested is only the fallback, for a backend that reports nothing. Trusting
     it first let a backend that ignored ``--model`` save a run claiming a model
-    that never ran.
+    that never ran. Attempts finish in timing order, so a run whose attempts
+    disagree records the most common model (ties alphabetical) rather than the
+    first to finish, and says so.
     """
     if not resolved:
         return requested
-    actual = resolved[0]
-    if requested and actual != requested and on_warning:
+    counts = Counter(resolved)
+    ranked = sorted(counts, key=lambda model: (-counts[model], model))
+    actual = ranked[0]
+    if on_warning and len(ranked) > 1:
+        mixed = ", ".join(f"{model!r} ×{counts[model]}" for model in ranked)
+        on_warning(
+            f"Attempts reported different models ({mixed}); the run records {actual!r}."
+        )
+    elif on_warning and requested and actual != requested:
         on_warning(
             f"Requested model {requested!r}, but the backend reported running "
             f"{actual!r}; the run records {actual!r}."

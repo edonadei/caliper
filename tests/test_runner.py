@@ -668,6 +668,55 @@ def test_runmeta_records_resolved_model_over_requested_and_warns(tmp_path) -> No
     assert "some/other-model" in warnings[0]
 
 
+class RotatingModelHarness(HarnessBackend):
+    """Reports a different resolved model per attempt, in the given order."""
+
+    def __init__(self, resolved_models: list[str], model: str | None = None) -> None:
+        self._resolved = iter(resolved_models)
+        self._model = model
+
+    @property
+    def name(self) -> str:
+        return "rotating"
+
+    def run(self, ctx: RunContext) -> AttemptResult:
+        return AttemptResult(
+            transcript=[],
+            final_output="done",
+            exit_code=0,
+            duration_seconds=0.1,
+            resolved_model=next(self._resolved),
+        )
+
+
+def test_runmeta_records_the_majority_model_and_warns_on_a_mixed_run(
+    tmp_path,
+) -> None:
+    # Which attempt finishes first is timing, so it must not pick the model.
+    spec_path = tmp_path / "prov.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    warnings: list[str] = []
+
+    results = run(
+        spec=_one_task_spec(),
+        spec_path=spec_path,
+        harness=RotatingModelHarness(
+            ["provider/model-b", "provider/model-a", "provider/model-a"],
+            model="provider/model-a",
+        ),
+        judge=RecordingJudge(),
+        k=3,
+        workers=1,
+        timeout=30,
+        on_warning=warnings.append,
+    )
+
+    assert results.run.model == "provider/model-a"
+    assert len(warnings) == 1
+    assert "provider/model-a" in warnings[0]
+    assert "provider/model-b" in warnings[0]
+
+
 class TranscriptHarness(HarnessBackend):
     @property
     def name(self) -> str:
