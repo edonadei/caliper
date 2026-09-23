@@ -1,8 +1,9 @@
 """Where a saved run lives, and the only module that knows.
 
 A run is a JSON file at ``<root>/.caliper/results/<spec>/<run id>.json``, where
-the run id is the run's UTC timestamp. Three facts follow from that layout — the
-directory shape, the run-id format, and "latest is lexicographically last" — and
+the run id is the run's UTC timestamp (suffixed when a second run of the spec
+took the same second). Three facts follow from that layout — the
+directory shape, the run-id format, and "latest sorts last" — and
 they used to be known independently by the writer and by each of the three
 commands that read runs back. They drifted: the listing re-derived the
 latest-run rule that run addressing already owned, and wrapped its parse in a
@@ -37,9 +38,14 @@ CALIPER_DIR = ".caliper"
 #: Where runs are filed within it.
 RESULTS_DIR = "results"
 
-#: The run id: a UTC timestamp that sorts lexicographically, so "latest" needs
-#: no parsing and a directory listing is already in run order.
+#: The run id's timestamp: a UTC timestamp that sorts lexicographically, so
+#: run order is read off file names without opening any (see ``_run_order``).
 RUN_ID_FORMAT = "%Y-%m-%dT%H-%M-%SZ"
+
+#: How a second run finishing in the same second as an earlier one is told
+#: apart: ``<timestamp>-2``, ``-3``, … The timestamp prefix still sorts; see
+#: docs/adr/0021-a-run-is-addressed-by-its-timestamp.md.
+_SUFFIX_SEP = "-"
 
 
 class UnreadableRun(Exception):
@@ -150,7 +156,13 @@ class RunStore:
     # --- writing ----------------------------------------------------------
 
     def save(self, results: RunResults) -> Path:
-        """Write a run and return its path.
+        """Write a run and return its path. Never overwrites a saved run.
+
+        The run id is the returned path's stem: the timestamp, with a ``-2``,
+        ``-3``, … suffix when an earlier run of this spec already took that
+        second (running a full arm and its ``--ablate`` arm in parallel does
+        this). The file is created exclusively, so two processes racing for the
+        same id cannot both win it.
 
         An interrupted run is saved like any other: ``RunMeta.interrupted`` is
         what says the sample is short, and nothing about the file's location or
@@ -158,14 +170,18 @@ class RunStore:
         """
         out_dir = self.spec_dir(results.run.spec)
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_file = out_dir / f"{self.run_id(results)}.json"
-        out_file.write_text(results.model_dump_json(indent=2))
-        return out_file
-
-    @staticmethod
-    def run_id(results: RunResults) -> str:
-        """The stem a caller passes back to ``report --run`` or names in ``compare``."""
-        return results.run.timestamp.strftime(RUN_ID_FORMAT)
+        payload = results.model_dump_json(indent=2)
+        stamp = results.run.timestamp.strftime(RUN_ID_FORMAT)
+        n = 1
+        while True:
+            out_file = out_dir / f"{_run_id(stamp, n)}.json"
+            try:
+                with out_file.open("x") as f:
+                    f.write(payload)
+            except FileExistsError:
+                n += 1
+            else:
+                return out_file
 
     # --- reading ----------------------------------------------------------
 
@@ -194,7 +210,7 @@ class RunStore:
 
     def runs(self, spec: str) -> list[Path]:
         """This spec's runs, oldest first. Empty when the spec has never run."""
-        return sorted(self.spec_dir(spec).glob("*.json"))
+        return sorted(self.spec_dir(spec).glob("*.json"), key=_run_order)
 
     def latest(self, spec: str) -> Path | None:
         """The most recent run of a spec, or ``None`` when it has none."""
@@ -215,3 +231,22 @@ class RunStore:
             for entry in self.results_dir.iterdir()
             if entry.is_dir() and any(entry.glob("*.json"))
         )
+
+
+def _run_id(stamp: str, n: int) -> str:
+    """The ``n``-th run id for one timestamp; the first carries no suffix."""
+    return stamp if n == 1 else f"{stamp}{_SUFFIX_SEP}{n}"
+
+
+def _run_order(path: Path) -> tuple[str, int]:
+    """Sort key for run files: by timestamp, then by same-second suffix.
+
+    A plain sort of file names gets same-second runs wrong twice: ``Z-2.json``
+    sorts before ``Z.json`` (``-`` precedes ``.``), and ``-10`` before ``-2``.
+    Still read off the name alone — no file is opened. The inverse of
+    :func:`_run_id`.
+    """
+    stamp, sep, suffix = path.stem.rpartition(_SUFFIX_SEP)
+    if sep and stamp.endswith("Z") and suffix.isdigit():
+        return stamp, int(suffix)
+    return path.stem, 1

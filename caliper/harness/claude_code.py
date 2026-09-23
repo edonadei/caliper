@@ -90,13 +90,10 @@ class ClaudeCodeHarness(CliHarness):
     def _command(
         self, ctx: RunContext
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
-        # Files staged into the isolated HOME only for this attempt; removed
-        # after the process exits regardless of which ones we created. The skill
-        # neighbourhood is *not* among them: it is installed at
-        # .claude/skills/<name>/ by the template method and left for the agent
-        # to discover (docs/adr/0013).
-        staged: list[Path] = []
-
+        # The skill neighbourhood is installed at .claude/skills/<name>/ by the
+        # template method and left for the agent to discover (docs/adr/0013);
+        # only the MCP config is staged per attempt, and removed after the
+        # process exits.
         cmd = [
             "claude",
             "-p",
@@ -108,23 +105,18 @@ class ClaudeCodeHarness(CliHarness):
         ]
 
         mcp_config = self._materialize_mcp_config(ctx)
-        if mcp_config is not None:
-            staged.append(mcp_config)
-            # --strict-mcp-config so the attempt sees ONLY the declared servers,
-            # matching the stripped-HOME invariant; the config file (which now
-            # holds resolved secrets) lives in the 0700 run tempdir, never argv.
-            cmd += ["--mcp-config", str(mcp_config), "--strict-mcp-config"]
+        # --strict-mcp-config so the attempt sees ONLY the declared servers —
+        # never the account's claude.ai connectors, which the seeded login
+        # brings along otherwise (docs/adr/0026). The config file (which may hold
+        # resolved secrets) lives in the 0700 run tempdir, never argv.
+        cmd += ["--mcp-config", str(mcp_config), "--strict-mcp-config"]
 
         if ctx.model:
             cmd += ["--model", ctx.model]
 
-        def cleanup() -> None:
-            for path in staged:
-                path.unlink(missing_ok=True)
+        return cmd, None, lambda: mcp_config.unlink(missing_ok=True)
 
-        return cmd, None, cleanup if staged else None
-
-    def _materialize_mcp_config(self, ctx: RunContext) -> Path | None:
+    def _materialize_mcp_config(self, ctx: RunContext) -> Path:
         """Write the declared MCP servers into ``.caliper-mcp.json`` for the run.
 
         Both transports are emitted in Claude Code's ``mcpServers`` shape: the
@@ -134,17 +126,12 @@ class ClaudeCodeHarness(CliHarness):
         ``type``. The file may hold resolved secrets, so it lives in the 0700
         run tempdir and is kept ``0600``.
 
-        ``None`` (no ``mcp:`` block) leaves the CLI's own config in play, as
-        before. An empty mapping is a declared block whose servers were all
-        ablated: the config is still written and ``--strict-mcp-config`` still
-        passed, so the attempt sees zero servers rather than whatever the seeded
-        user config carries.
+        No ``mcp:`` block, an authored ``mcp: {}``, and a block whose servers
+        were all ablated all write an empty ``mcpServers``: the attempt sees zero
+        servers rather than whatever the seeded user config and account carry.
         """
-        if ctx.mcp_servers is None:
-            return None
-
         servers: dict[str, dict] = {}
-        for name, resolved in resolve_servers(ctx.mcp_servers).items():
+        for name, resolved in resolve_servers(ctx.mcp_servers or {}).items():
             entry = resolved.entry()
             if resolved.is_remote:
                 entry = {"type": resolved.type, **entry}
@@ -287,7 +274,10 @@ class ClaudeCodeHarness(CliHarness):
     def _prompt_command(self, prompt: str, model: str | None) -> PromptCall:
         # JSON output (over plain text) so we can read the *concrete* model
         # Claude used — the answer lives in `.result`, the model in `.modelUsage`.
-        cmd = ["claude", "-p", prompt, "--output-format", "json"]
+        # --strict-mcp-config with no --mcp-config: the judge sees no MCP
+        # servers, so the account's claude.ai connectors neither reach it nor
+        # get mistaken for the attempt's tools (docs/adr/0026).
+        cmd = ["claude", "-p", prompt, "--output-format", "json", "--strict-mcp-config"]
         if model:
             cmd += ["--model", model]
         return PromptCall(cmd)

@@ -3,7 +3,14 @@ from __future__ import annotations
 import re
 from pathlib import Path, PurePosixPath
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 
 VALID_BACKENDS: frozenset[str] = frozenset({"claude-code", "codex", "pi", "hermes"})
@@ -55,6 +62,19 @@ def parse_target(value: str) -> tuple[str | None, str | None]:
     return None, value
 
 
+def assert_script_path(raw: str, spec_dir: Path) -> Path | None:
+    """The file an ``assert:`` value names, or ``None`` for inline code.
+
+    A single line ending in ``.py`` is a path, resolved against the spec's
+    directory; anything else is the script itself.
+    """
+    raw = raw.strip()
+    if "\n" in raw or not raw.endswith(".py"):
+        return None
+    path = Path(raw)
+    return path if path.is_absolute() else spec_dir / path
+
+
 class TaskSpec(BaseModel):
     id: str = ""
     name: str
@@ -69,7 +89,24 @@ class TaskSpec(BaseModel):
     setup: str | None = None
     cleanup: str | None = None
 
-    model_config = ConfigDict(populate_by_name=True)
+    # Forbid unknown keys: a typo like ``asert:`` would otherwise drop its check
+    # without a word.
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    @field_validator("assert_script")
+    @classmethod
+    def check_assert_script_exists(
+        cls, value: str | None, info: ValidationInfo
+    ) -> str | None:
+        # The spec dir arrives through the validation context; a spec validated
+        # without one (no file to resolve against) skips the check.
+        spec_dir = (info.context or {}).get("spec_dir")
+        if value is None or spec_dir is None:
+            return value
+        path = assert_script_path(value, spec_dir)
+        if path is not None and not path.is_file():
+            raise ValueError(f"assert script not found: {path}")
+        return value
 
     @model_validator(mode="after")
     def require_at_least_one_check(self) -> "TaskSpec":
@@ -86,6 +123,23 @@ class TaskSpec(BaseModel):
 class SandboxConfig(BaseModel):
     forbidden_files: list[str] = []
     extra_path: list[str] = []
+
+    # A typo like ``forbiden_files:`` would otherwise drop its patterns silently.
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("forbidden_files")
+    @classmethod
+    def check_patterns_compile(cls, value: list[str]) -> list[str]:
+        # Compiled here so a bad pattern fails the spec, not a run whose
+        # attempts have already been paid for.
+        for i, pattern in enumerate(value):
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ValueError(
+                    f"forbidden_files[{i}] is not a valid regex: {pattern!r} ({exc})"
+                ) from exc
+        return value
 
 
 # Remote transports reach a hosted MCP endpoint over the network; the default
@@ -297,7 +351,7 @@ def load_spec(path: Path) -> EvalSpec:
         _reject_singular_skill(raw)
     for i, task in enumerate(raw.get("tasks", []), 1):
         task["id"] = f"task-{i:03d}"
-    return EvalSpec.model_validate(raw)
+    return EvalSpec.model_validate(raw, context={"spec_dir": path.parent})
 
 
 def spec_name(path: Path) -> str:

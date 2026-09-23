@@ -298,13 +298,19 @@ def test_claude_harness_errors_on_unset_remote_header_var(
         )
 
 
-def test_claude_harness_omits_mcp_flags_when_no_servers(monkeypatch, tmp_path) -> None:
+def test_claude_harness_isolates_to_zero_servers_without_mcp_block(
+    monkeypatch, tmp_path
+) -> None:
+    # No mcp: block must not leave the account's claude.ai connectors in play
+    # (#129): the attempt sees an empty, strict server set.
     captured: dict = {}
 
     def fake_run(cmd, **kwargs):
         if cmd[0] != "claude":
             return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
         captured["cmd"] = cmd
+        idx = cmd.index("--mcp-config")
+        captured["config"] = json.loads(Path(cmd[idx + 1]).read_text())
         return _ok_stream(cmd)
 
     patch_cli_calls(monkeypatch, fake_run)
@@ -321,8 +327,8 @@ def test_claude_harness_omits_mcp_flags_when_no_servers(monkeypatch, tmp_path) -
         )
     )
 
-    assert "--mcp-config" not in captured["cmd"]
-    assert "--strict-mcp-config" not in captured["cmd"]
+    assert "--strict-mcp-config" in captured["cmd"]
+    assert captured["config"] == {"mcpServers": {}}
 
 
 def test_claude_harness_keeps_strict_mcp_when_every_server_is_ablated(

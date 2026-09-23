@@ -10,7 +10,12 @@ from caliper.harness import get_harness
 from caliper.harness.base import ConversationTurn, HarnessConfigurationError
 from caliper.harness.prompt_failure import PromptFailureKind, format_judge_failure
 from caliper.judge.base import Judge, JudgeResult
-from caliper.schema.spec import DEFAULT_BACKEND, TaskSpec, resolve_judge_model
+from caliper.schema.spec import (
+    DEFAULT_BACKEND,
+    TaskSpec,
+    assert_script_path,
+    resolve_judge_model,
+)
 from caliper.workdir import step_env
 
 _SYSTEM = """\
@@ -133,16 +138,13 @@ def _run_assert_from_task(
     if not task.assert_script:
         return None
 
-    raw = task.assert_script.strip()
-    if "\n" not in raw and raw.endswith(".py"):
-        script_path = Path(raw)
-        if not script_path.is_absolute():
-            script_path = Path(spec_dir) / script_path
-        if not script_path.exists():
+    script_path = assert_script_path(task.assert_script, Path(spec_dir))
+    if script_path is None:
+        code = task.assert_script.strip()
+    else:
+        if not script_path.is_file():
             return False, f"assert script not found: {script_path}"
         code = script_path.read_text()
-    else:
-        code = raw
 
     return _run_inline_script(code, spec_dir, workdir)
 

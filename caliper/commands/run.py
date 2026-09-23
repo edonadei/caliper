@@ -202,11 +202,10 @@ def run_cmd(
     # pushed out as it happens rather than collected and printed afterwards —
     # collecting would lose it entirely on the runs that then fail, which are
     # exactly the runs where knowing a member was stale matters most.
-    fetcher = SkillFetcher(
-        on_warning=lambda message: progress.console.print(
-            f"[yellow]⚠[/yellow] [yellow]{message}[/yellow]"
-        )
-    )
+    def warn(message: str) -> None:
+        progress.console.print(f"[yellow]⚠[/yellow] [yellow]{message}[/yellow]")
+
+    fetcher = SkillFetcher(on_warning=warn)
 
     attempt_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
     pass_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
@@ -271,6 +270,7 @@ def run_cmd(
                 fail_fast_unusable=fail_fast_unusable,
                 ablate=list(ablate or []),
                 fetcher=fetcher,
+                on_warning=warn,
                 on_attempt_done=on_attempt_done,
                 on_task_done=on_task_done,
             )

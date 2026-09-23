@@ -93,6 +93,8 @@ tasks:
     # Defaults flow through unchanged when the flag is omitted
     assert calls["timeout"] == 120
     assert calls["ablate"] == []
+    # A requested/reported model mismatch has somewhere to surface (#131).
+    assert callable(calls["on_warning"])
 
 
 def test_run_cli_resolves_backend_and_judge_model_targets(
