@@ -219,7 +219,9 @@ def run(
         sandbox=sandbox,
         activation=detector,
         spec=spec,
-        spec_path=spec_path,
+        # Absolute, because every step of an attempt runs in its workdir: a
+        # relative spec dir would name a path under it (docs/adr/0026).
+        spec_path=spec_path.resolve(),
         skill_refs=skill_refs,
         mcp_servers=ablation.mcp_servers,
         # Field presence, not truthiness: an authored `mcp: {}` parses to an
