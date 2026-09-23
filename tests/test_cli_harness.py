@@ -26,6 +26,9 @@ from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.harness.codex import CodexHarness
 from caliper.harness.hermes import HermesHarness
 from caliper.harness.pi import PiHarness
+from caliper.runner import run
+from caliper.schema.results import Outcome
+from caliper.schema.spec import EvalSpec, TaskSpec
 
 from conftest import run_context
 
@@ -286,3 +289,77 @@ def test_stream_tail_is_empty_when_the_agent_never_spoke() -> None:
     harness = _StubHarness([ConversationTurn(role="tool_use", content="[tool: shell]")])
 
     assert harness._parse_stream_with_tail("")[1] == ""
+
+
+def test_timeout_keeps_the_agents_partial_transcript_and_activation(tmp_path) -> None:
+    """A CLI that loads a skill before hanging still leaves that evidence behind."""
+
+    class HangingCodex(CodexHarness):
+        def _ensure_ready(self, ctx):
+            pass
+
+        def seed_files(self, ctx):
+            return []
+
+        def _prepare(self, ctx):
+            pass
+
+        def _command(self, ctx):
+            script = (
+                "import json, time; "
+                "print(json.dumps({'type': 'item.completed', 'item': "
+                "{'type': 'command_execution', "
+                "'command': 'cat /tmp/slowpoke/SKILL.md'}}), flush=True); "
+                "print(json.dumps({'item': {'type': 'agent_message', "
+                "'text': 'The model is not available yet; investigate docs.'}}), "
+                "flush=True); "
+                "time.sleep(30)"
+            )
+            return [sys.executable, "-u", "-c", script], None, None
+
+    class UnusedJudge:
+        backend = "test"
+        model = None
+
+        def evaluate(self, **kwargs):
+            raise AssertionError("a timed-out attempt must not reach the judge")
+
+    skill_dir = tmp_path / "slowpoke"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: slowpoke\ndescription: Waits forever\n---\nbody"
+    )
+    spec_path = tmp_path / "slowpoke.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+
+    results = run(
+        spec=EvalSpec(
+            skills=[str(skill_dir / "SKILL.md")],
+            tasks=[
+                TaskSpec(
+                    id="task-001",
+                    name="hang",
+                    prompt="Load slowpoke",
+                    activates=["slowpoke"],
+                )
+            ],
+        ),
+        spec_path=spec_path,
+        harness=HangingCodex(),
+        judge=UnusedJudge(),
+        k=1,
+        workers=1,
+        timeout=1,
+    )
+
+    attempt = results.task_results[0].attempts[0]
+    assert attempt.outcome is Outcome.TIMEOUT
+    assert attempt.activated == ["slowpoke"]
+    assert attempt.activation_passed is None
+    assert attempt.output == "The model is not available yet; investigate docs."
+    assert attempt.transcript is not None
+    assert [turn.role for turn in attempt.transcript] == [
+        "tool_use",
+        "tool_result",
+        "assistant",
+    ]
