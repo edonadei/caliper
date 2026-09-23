@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shlex
 import signal
+import subprocess
 import sys
 import time
 
@@ -122,11 +123,39 @@ def test_hook_with_background_child_returns_after_its_shell_exits(tmp_path) -> N
                 pass
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX background shell syntax")
+def test_successful_hook_with_continuous_background_writer_returns(tmp_path) -> None:
+    pid_file = tmp_path / "writer.pid"
+    started = time.monotonic()
+    try:
+        failure = _run_shell(
+            f"yes heartbeat & echo $! > {shlex.quote(str(pid_file))}",
+            "task-001",
+            1,
+            "setup",
+        )
+        assert failure is None
+        assert time.monotonic() - started < 3
+    finally:
+        if pid_file.exists():
+            try:
+                os.kill(int(pid_file.read_text().strip()), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+
+
 def test_noisy_hook_keeps_only_diagnostic_tail() -> None:
+    script = (
+        'import sys; print("x" * 1000000); '
+        'print("last line", file=sys.stderr); sys.exit(7)'
+    )
+    command = (
+        subprocess.list2cmdline([sys.executable, "-c", script])
+        if os.name == "nt"
+        else f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
+    )
     failure = _run_shell(
-        f"{shlex.quote(sys.executable)} -c "
-        '\'import sys; print("x" * 1000000); '
-        'print("last line", file=sys.stderr); sys.exit(7)\'',
+        command,
         "task-001",
         1,
         "setup",

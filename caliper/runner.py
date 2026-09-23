@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
+import select
 import shutil
 import subprocess
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -562,22 +565,68 @@ def _run_shell(
 ) -> HookFailure | None:
     if not cmd:
         return None
-    # A background child may inherit stdout/stderr. Pipes would wait for that
-    # child to close them, even after the hook shell exits. A file also keeps
-    # verbose hook output out of Caliper's memory.
-    with tempfile.TemporaryFile() as output_file:
-        completed = subprocess.run(
-            cmd, shell=True, stdout=output_file, stderr=subprocess.STDOUT
-        )
-        if completed.returncode == 0:
-            return None
-        output_file.seek(0, 2)
-        output_file.seek(max(0, output_file.tell() - 16000))
-        output = output_file.read().decode("utf-8", errors="replace").strip()
+    # Drain while the shell runs so verbose output cannot fill a pipe. Stop
+    # when *that shell* exits: background children may keep its pipe open or
+    # write forever, and must not delay the next attempt or retain disk space.
+    tail = bytearray()
+
+    def keep(chunk: bytes) -> None:
+        tail.extend(chunk)
+        if len(tail) > 16000:
+            del tail[:-16000]
+
+    with subprocess.Popen(
+        cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+    ) as process:
+        assert process.stdout is not None
+        fd = process.stdout.fileno()
+        if os.name == "nt":
+            # Windows select() cannot watch pipes. A reader thread drains until
+            # the shell exits; it never holds a disk-backed output file open.
+            stopped = threading.Event()
+
+            def drain() -> None:
+                while not stopped.is_set():
+                    try:
+                        chunk = os.read(fd, 8192)
+                    except OSError:
+                        break
+                    if not chunk:
+                        break
+                    keep(chunk)
+
+            reader = threading.Thread(target=drain, daemon=True)
+            reader.start()
+            process.wait()
+            reader.join(timeout=0.1)
+            if reader.is_alive():
+                stopped.set()
+        else:
+            while process.poll() is None:
+                if select.select([fd], [], [], 0.1)[0]:
+                    chunk = os.read(fd, 8192)
+                    if chunk:
+                        keep(chunk)
+                    else:
+                        process.wait()
+                        break
+            # Drain bytes already available, with a limit so a continuously
+            # writing descendant cannot keep us here indefinitely.
+            for _ in range(128):
+                if not select.select([fd], [], [], 0)[0]:
+                    break
+                chunk = os.read(fd, 8192)
+                if not chunk:
+                    break
+                keep(chunk)
+        exit_code = process.returncode
+    if exit_code == 0:
+        return None
+    output = tail.decode("utf-8", errors="replace").strip()
     return HookFailure(
         task_id=task_id,
         attempt=attempt,
         phase=phase,
-        exit_code=completed.returncode,
+        exit_code=exit_code,
         output=output[-4000:],
     )
