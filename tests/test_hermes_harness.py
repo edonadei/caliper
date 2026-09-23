@@ -390,6 +390,31 @@ def test_hermes_omits_model_when_unspecified(monkeypatch, tmp_path) -> None:
     assert "CALIPER_MODEL" not in run_kwargs["env"]
 
 
+def test_hermes_exports_the_session_whatever_its_source(monkeypatch, tmp_path) -> None:
+    # hermes v0.21 tags a -z session `oneshot`, not `cli`; a --source filter
+    # exported nothing, leaving every attempt with an empty transcript. The
+    # isolated HERMES_HOME holds only this attempt's session, so none is needed.
+    home = _fake_home(tmp_path)
+    iso = tmp_path / "iso"
+    iso.mkdir()
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[1:] == ["--version"]:
+            return _version(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    _install(monkeypatch, home, fake_run)
+    HermesHarness().run(
+        run_context(prompt="Hello", model=None, timeout=30, isolated_home=str(iso))
+    )
+
+    script = calls[1][2]
+    assert "sessions export -" in script
+    assert "--source" not in script
+
+
 def test_hermes_fails_on_an_unknown_model(monkeypatch, tmp_path) -> None:
     # Observed on hermes v0.18.0: an unknown model exits 0, prints the provider's
     # 404 to stderr, and exports a session holding only the user turn.
@@ -416,6 +441,42 @@ def test_hermes_fails_on_an_unknown_model(monkeypatch, tmp_path) -> None:
 
     _install(monkeypatch, home, fake_run)
     with pytest.raises(HarnessConfigurationError, match="bogus-model-xyz"):
+        HermesHarness().run(
+            run_context(
+                prompt="Hello",
+                model="openrouter/bogus-model-xyz",
+                timeout=12,
+                isolated_home=str(iso),
+            )
+        )
+
+
+def test_hermes_fails_on_an_unknown_model_with_a_nonzero_exit(
+    monkeypatch, tmp_path
+) -> None:
+    # Observed on hermes v0.21.4: the same rejection now exits 2 and persists no
+    # session, so the export is empty.
+    home = _fake_home(tmp_path)
+    iso = tmp_path / "iso"
+    iso.mkdir()
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1:] == ["--version"]:
+            return _version(cmd)
+        return subprocess.CompletedProcess(
+            cmd,
+            2,
+            stdout="",
+            stderr="Model 'openrouter/bogus-model-xyz' isn't available on Nous "
+            "Portal. Pick a different model with /model (or `hermes model` in a "
+            "terminal).\n\nProvider said: HTTP 404: Model "
+            "'openrouter/bogus-model-xyz' not found.\n",
+        )
+
+    _install(monkeypatch, home, fake_run)
+    with pytest.raises(
+        HarnessConfigurationError, match="could not run the requested model"
+    ):
         HermesHarness().run(
             run_context(
                 prompt="Hello",
