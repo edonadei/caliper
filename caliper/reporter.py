@@ -359,10 +359,10 @@ def _activation_cell(tr: TaskResult) -> Text:
 
 
 def _status_cell(tr: TaskResult, k: int) -> Text:
-    if any(attempt.hook_failures for attempt in tr.attempts):
-        return Text(f"{_UNUSABLE} HOOK ERROR", style="bold red")
     if tr.any_cheat:
         return Text(f"{_WARN} CHEAT", style="bold yellow")
+    if any(attempt.hook_failures for attempt in tr.attempts):
+        return Text(f"{_UNUSABLE} HOOK ERROR", style="bold red")
     # An activates:-only task asked no execution question. Its silence is the
     # correct answer, so it reads as a dim skip — never a yellow error.
     if tr.trigger_only:

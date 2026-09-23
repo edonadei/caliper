@@ -453,9 +453,9 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord | 
                 output="",
                 duration_seconds=0.0,
                 outcome=Outcome.INFRA_ERROR,
-                assert_evidence=f"setup exited {setup.exit_code}: {setup.output}",
+                assert_evidence=f"setup exited {setup.exit_code}",
             )
-        else:
+        elif not cancel.requested():
             record = _measure_attempt(task, attempt, env, tmp_dir)
     finally:
         cleanup = _run_shell(task.cleanup, task.id, attempt, "cleanup")
@@ -575,9 +575,16 @@ def _run_shell(
         if len(tail) > 16000:
             del tail[:-16000]
 
-    with subprocess.Popen(
-        cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
-    ) as process:
+    with (
+        subprocess.Popen(
+            cmd,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        ) as process,
+        cancel.track(process, cancel_if_requested=phase != "cleanup"),
+    ):
         assert process.stdout is not None
         fd = process.stdout.fileno()
         if os.name == "nt":
@@ -649,6 +656,9 @@ def _run_shell(
                     break
                 keep(chunk)
         exit_code = process.returncode
+        was_killed = cancel.was_killed(process)
+    if was_killed:
+        return None
     if exit_code == 0:
         return None
     output = tail.decode("utf-8", errors="replace").strip()

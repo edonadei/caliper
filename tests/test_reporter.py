@@ -8,6 +8,7 @@ from rich.console import Console
 from caliper.reporter import (
     _OUTPUT_TRUNCATE_AT,
     _format_output,
+    _status_cell,
     make_progress,
     print_results,
     update_progress,
@@ -15,6 +16,7 @@ from caliper.reporter import (
 from caliper.schema.results import (
     AggregateScore,
     AttemptRecord,
+    HookFailure,
     Outcome,
     RunMeta,
     RunResults,
@@ -48,6 +50,31 @@ def test_update_progress_marks_early_stopped_task_finished() -> None:
     task = progress.tasks[task_ids["Task one"]]
     assert task.completed == 3
     assert task.fields["status"] == "[bold yellow]⊘1[/bold yellow]"
+
+
+def test_cheat_remains_visible_when_cleanup_fails() -> None:
+    task = TaskResult(
+        task_id="task-001",
+        task_name="Cheat",
+        attempts=[
+            AttemptRecord(
+                attempt=1,
+                output="",
+                duration_seconds=0.1,
+                outcome=Outcome.CHEAT,
+                hook_failures=[
+                    HookFailure(
+                        task_id="task-001",
+                        attempt=1,
+                        phase="cleanup",
+                        exit_code=9,
+                    )
+                ],
+            )
+        ],
+    )
+
+    assert "CHEAT" in str(_status_cell(task, k=1))
 
 
 # ---------------------------------------------------------------------------

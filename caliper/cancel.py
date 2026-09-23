@@ -71,17 +71,21 @@ def sleep_unless_stopped(seconds: float) -> bool:
 
 
 @contextmanager
-def track(proc: subprocess.Popen) -> Iterator[subprocess.Popen]:
-    """Register a spawned agent so :func:`request` can reach it.
+def track(
+    proc: subprocess.Popen, *, cancel_if_requested: bool = True
+) -> Iterator[subprocess.Popen]:
+    """Register a spawned process so :func:`request` can reach it.
 
     A cancellation that lands between the spawn and the registration would
     otherwise leave that one process running for its full timeout, so the
-    flag is re-checked once inside.
+    flag is re-checked once inside. Cleanup hooks can skip that immediate kill
+    so they still run after an interrupt; a new cancellation during cleanup
+    still reaches the registered process.
     """
     with _lock:
         _live.add(proc)
     try:
-        if requested():
+        if cancel_if_requested and requested():
             kill(proc)
         yield proc
     finally:

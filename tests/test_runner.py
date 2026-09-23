@@ -10,6 +10,7 @@ import time
 
 import pytest
 
+from caliper import cancel
 from caliper.harness.base import (
     AttemptResult,
     ConversationTurn,
@@ -18,6 +19,7 @@ from caliper.harness.base import (
 )
 from caliper.judge import EvalJudge
 from caliper.judge.base import JudgeResult
+from caliper.reporter import print_results
 from caliper.runner import _run_shell, run
 from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, TaskSpec
@@ -219,6 +221,74 @@ def test_failed_setup_cannot_pass_from_stale_artifact_and_still_cleans_up(
         ("setup", 7, "setup broke")
     ]
     assert results.run.hook_failures == record.hook_failures
+
+
+def test_failed_setup_with_markup_output_still_reports(capfd, tmp_path) -> None:
+    task = TaskSpec(
+        id="task-001",
+        name="Malformed output",
+        prompt="Do it",
+        assert_script="assert True",
+        setup="echo '[/broken]' >&2; exit 7",
+    )
+    results = run(
+        EvalSpec(tasks=[task]),
+        tmp_path / "markup.eval.yaml",
+        PassingHarness(),
+        EvalJudge(),
+        k=1,
+        workers=1,
+    )
+
+    print_results(results)
+    output = capfd.readouterr().out
+    assert "setup exited 7" in output
+    assert "[/broken]" in output
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shell and process-group syntax")
+def test_cancelling_setup_skips_agent_and_still_runs_cleanup(tmp_path) -> None:
+    started = tmp_path / "setup-started"
+    cleaned = tmp_path / "cleanup-ran"
+    harness = PassingHarness()
+    task = TaskSpec(
+        id="task-001",
+        name="Interrupted setup",
+        prompt="Do it",
+        assert_script="assert True",
+        setup=f"touch {shlex.quote(str(started))}; sleep 5",
+        cleanup=f"touch {shlex.quote(str(cleaned))}",
+    )
+    outcome = {}
+
+    def execute() -> None:
+        outcome["results"] = run(
+            EvalSpec(tasks=[task]),
+            tmp_path / "interrupted.eval.yaml",
+            harness,
+            EvalJudge(),
+            k=1,
+            workers=1,
+        )
+
+    thread = threading.Thread(target=execute)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 3
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert started.exists()
+        cancel.request()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+        assert cleaned.exists()
+        assert harness.calls == 0
+        assert outcome["results"].run.interrupted is True
+        assert outcome["results"].task_results[0].attempts == []
+    finally:
+        if thread.is_alive():
+            cancel.request()
+            thread.join(timeout=6)
 
 
 def test_failed_cleanup_keeps_agent_outcome_and_reports_both_hook_failures(
