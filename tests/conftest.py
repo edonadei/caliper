@@ -65,6 +65,7 @@ def run_context(**overrides) -> RunContext:
         "model": None,
         "timeout": 12,
         "isolated_home": "/tmp/caliper-test-home",
+        "workdir": "/tmp/caliper-test-home/work",
         "extra_path": [],
     }
     return RunContext(**{**fields, **overrides})

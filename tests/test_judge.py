@@ -53,7 +53,7 @@ def test_eval_judge_always_returns_eval_judge_instance() -> None:
 def test_eval_judge_expect_only_calls_llm(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         "caliper.judge.script_assert.EvalJudge._llm_evaluate",
-        lambda self, task, transcript, spec_dir: (
+        lambda self, task, transcript, spec_dir, workdir: (
             True,
             "Codex accepted the transcript.",
             False,
@@ -67,6 +67,7 @@ def test_eval_judge_expect_only_calls_llm(monkeypatch, tmp_path) -> None:
         transcript=[ConversationTurn(role="assistant", content="hello")],
         final_output="hello",
         spec_dir=str(tmp_path),
+        workdir=str(tmp_path),
     )
 
     assert result.passed is True
@@ -81,6 +82,7 @@ def test_eval_judge_assert_only_runs_script_no_llm(tmp_path) -> None:
         transcript=[],
         final_output="",
         spec_dir=str(tmp_path),
+        workdir=str(tmp_path),
     )
 
     assert result.passed is True
@@ -95,6 +97,7 @@ def test_eval_judge_assert_failure_makes_overall_fail(tmp_path) -> None:
         transcript=[],
         final_output="",
         spec_dir=str(tmp_path),
+        workdir=str(tmp_path),
     )
 
     assert result.passed is False
@@ -104,7 +107,12 @@ def test_eval_judge_assert_failure_makes_overall_fail(tmp_path) -> None:
 def test_eval_judge_both_checks_must_pass(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         "caliper.judge.script_assert.EvalJudge._llm_evaluate",
-        lambda self, task, transcript, spec_dir: (True, "LLM says yes", False, None),
+        lambda self, task, transcript, spec_dir, workdir: (
+            True,
+            "LLM says yes",
+            False,
+            None,
+        ),
     )
 
     judge = EvalJudge(backend="codex")
@@ -113,6 +121,7 @@ def test_eval_judge_both_checks_must_pass(monkeypatch, tmp_path) -> None:
         transcript=[],
         final_output="",
         spec_dir=str(tmp_path),
+        workdir=str(tmp_path),
     )
 
     assert result.passed is False
@@ -120,7 +129,7 @@ def test_eval_judge_both_checks_must_pass(monkeypatch, tmp_path) -> None:
     assert result.assert_passed is False
 
 
-def _errored_llm(self, task, transcript, spec_dir):
+def _errored_llm(self, task, transcript, spec_dir, workdir):
     return False, "judge flaked", True, None
 
 
@@ -135,6 +144,7 @@ def test_errored_autorater_dropped_when_assert_passes(monkeypatch, tmp_path) -> 
         transcript=[],
         final_output="",
         spec_dir=str(tmp_path),
+        workdir=str(tmp_path),
     )
     assert result.errored is False
     assert result.passed is True
@@ -153,6 +163,7 @@ def test_errored_autorater_does_not_override_failing_assert(
         transcript=[],
         final_output="",
         spec_dir=str(tmp_path),
+        workdir=str(tmp_path),
     )
     assert result.errored is False  # assert gave a real (failing) verdict
     assert result.passed is False
@@ -169,6 +180,7 @@ def test_judge_error_when_only_check_errors(monkeypatch, tmp_path) -> None:
         transcript=[],
         final_output="",
         spec_dir=str(tmp_path),
+        workdir=str(tmp_path),
     )
     assert result.errored is True
     assert result.passed is False
@@ -181,6 +193,7 @@ def test_unknown_judge_backend_errors(tmp_path) -> None:
         transcript=[],
         final_output="",
         spec_dir=str(tmp_path),
+        workdir=str(tmp_path),
     )
     assert result.errored is True
     assert "Unknown judge backend" in result.reasoning
@@ -200,6 +213,7 @@ def test_eval_judge_claude_code_invokes_claude_cli(monkeypatch, tmp_path) -> Non
         transcript=[ConversationTurn(role="assistant", content="hello")],
         final_output="hello",
         spec_dir=str(tmp_path),
+        workdir=str(tmp_path),
     )
 
     assert result.passed is True
@@ -229,6 +243,7 @@ def test_eval_judge_claude_code_uses_pinned_default_model(
         transcript=[ConversationTurn(role="assistant", content="ok")],
         final_output="ok",
         spec_dir=str(tmp_path),
+        workdir=str(tmp_path),
     )
 
     cmd, _kwargs = calls[0]
@@ -252,6 +267,7 @@ def test_claude_judge_extracts_concrete_model_from_envelope(
         transcript=[ConversationTurn(role="assistant", content="ok")],
         final_output="ok",
         spec_dir=str(tmp_path),
+        workdir=str(tmp_path),
     )
 
     assert result.passed is True
@@ -297,6 +313,7 @@ def test_codex_judge_uses_output_last_message(monkeypatch, tmp_path) -> None:
         transcript=[ConversationTurn(role="assistant", content="hello")],
         final_output="hello",
         spec_dir=str(tmp_path),
+        workdir=str(tmp_path),
     )
 
     assert result.passed is True
@@ -385,6 +402,7 @@ def test_hermes_backend_is_a_valid_judge(monkeypatch, tmp_path) -> None:
         transcript=[ConversationTurn(role="assistant", content="ok")],
         final_output="ok",
         spec_dir=str(tmp_path),
+        workdir=str(tmp_path),
     )
 
     assert result.passed is True
@@ -408,6 +426,7 @@ def test_judge_strips_markdown_fence(monkeypatch, tmp_path) -> None:
         transcript=[],
         final_output="",
         spec_dir=str(tmp_path),
+        workdir=str(tmp_path),
     )
 
     assert (result.passed, result.errored) == (False, False)
@@ -464,6 +483,7 @@ def test_pi_backend_is_a_valid_judge(monkeypatch, tmp_path) -> None:
         transcript=[ConversationTurn(role="assistant", content="ok")],
         final_output="ok",
         spec_dir=str(tmp_path),
+        workdir=str(tmp_path),
     )
 
     assert result.passed is True
@@ -493,3 +513,49 @@ def test_pi_judge_missing_cli_errors(monkeypatch, tmp_path) -> None:
 
     assert result.error is not None
     assert "pi CLI not found" in result.error
+
+
+def test_assert_script_file_resolves_from_spec_dir_and_runs_in_workdir(
+    tmp_path,
+) -> None:
+    # #130: `assert: ./check.py` names a file in the spec, but checks what the
+    # agent left in the attempt workdir.
+    spec_dir = tmp_path / "spec"
+    workdir = tmp_path / "work"
+    spec_dir.mkdir()
+    workdir.mkdir()
+    (spec_dir / "check.py").write_text(
+        "from pathlib import Path\nassert Path('out.txt').read_text() == 'banana'\n"
+    )
+    (workdir / "out.txt").write_text("banana")
+
+    result = EvalJudge().evaluate(
+        task=_task(expect="", assert_script="./check.py"),
+        transcript=[],
+        final_output="",
+        spec_dir=str(spec_dir),
+        workdir=str(workdir),
+    )
+
+    assert result.assert_passed is True, result.assert_evidence
+
+
+def test_autorater_runs_in_the_attempt_workdir_not_the_spec_dir(
+    monkeypatch, tmp_path
+) -> None:
+    # #130: a judge agent in the spec dir sits beside the answer key and can
+    # write into the author's repo; the workdir is what it is grading.
+    calls = _spawn(
+        monkeypatch, stdout='{"mode": "verdict", "passed": true, "reasoning": "ok"}'
+    )
+
+    EvalJudge(backend="claude", model="claude-test").evaluate(
+        task=_task(expect="says ok"),
+        transcript=[ConversationTurn(role="assistant", content="ok")],
+        final_output="ok",
+        spec_dir=str(tmp_path / "spec"),
+        workdir=str(tmp_path / "work"),
+    )
+
+    _cmd, kwargs = calls[0]
+    assert kwargs["cwd"] == str(tmp_path / "work")

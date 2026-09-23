@@ -129,6 +129,7 @@ def test_eval_judge_surfaces_classified_model_unavailable(
         transcript=[ConversationTurn(role="assistant", content="hello")],
         final_output="hello",
         spec_dir=str(tmp_path),
+        workdir=str(tmp_path),
     )
 
     assert result.errored is True

@@ -32,6 +32,7 @@ def _ctx() -> RunContext:
         model=None,
         timeout=30,
         isolated_home="/tmp/none",
+        workdir="/tmp/none/work",
         extra_path=[],
     )
 
