@@ -151,8 +151,11 @@ class HermesHarness(CliHarness):
         # claude-code's --dangerously-skip-permissions and pi's --approve): the
         # neutral-agent harness runs non-interactively with stdin closed, so an
         # approval gate — e.g. before an MCP tool call — would hang until timeout.
+        # The model travels through the environment, like the prompt, so no
+        # caller-supplied string is ever spliced into the script.
+        model = ' --model "$CALIPER_MODEL"' if ctx.model else ""
         script = (
-            '"$CALIPER_HERMES" -z "$CALIPER_PROMPT" --yolo '
+            f'"$CALIPER_HERMES" -z "$CALIPER_PROMPT"{model} --yolo '
             "--ignore-rules 1>&2\n"
             "rc=$?\n"
             '"$CALIPER_HERMES" sessions export --source cli - 2>/dev/null\n'
@@ -161,14 +164,14 @@ class HermesHarness(CliHarness):
         return ["/bin/sh", "-c", script], None, None
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
-        return self._isolated_env(
-            ctx,
-            extra={
-                "HERMES_HOME": str(self._hermes_home(ctx)),
-                "CALIPER_HERMES": self.cli_path() or "hermes",
-                "CALIPER_PROMPT": ctx.prompt,
-            },
-        )
+        extra = {
+            "HERMES_HOME": str(self._hermes_home(ctx)),
+            "CALIPER_HERMES": self.cli_path() or "hermes",
+            "CALIPER_PROMPT": ctx.prompt,
+        }
+        if ctx.model:
+            extra["CALIPER_MODEL"] = ctx.model
+        return self._isolated_env(ctx, extra=extra)
 
     def _cli_available(self) -> bool:
         hermes = self.cli_path()
@@ -327,7 +330,7 @@ class HermesHarness(CliHarness):
 
     def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
         if proc.returncode == 0:
-            return None
+            return self._diagnose_unknown_model(proc, final_output)
 
         text = "\n".join(part for part in (proc.stdout, proc.stderr) if part).strip()
         if not text:
@@ -405,3 +408,38 @@ class HermesHarness(CliHarness):
             )
 
         return None
+
+    def _diagnose_unknown_model(
+        self, proc: ProcessResult, final_output: str
+    ) -> str | None:
+        """Catch a model the provider rejected, which hermes reports as success.
+
+        hermes v0.18.0 exits 0 on an unknown ``--model``: the provider's 404
+        goes to stderr and the exported session holds only the user turn. Left
+        alone, every attempt would be graded on an empty answer instead of the
+        run stopping on a typo'd model (#131). An empty ``final_output`` is the
+        guard — on success the agent's reply is on stderr too, and may quote
+        anything.
+        """
+        if final_output.strip():
+            return None
+        lowered = proc.stderr.lower()
+        rejection_markers = (
+            "404",
+            "not found",
+            "does not exist",
+            "unknown model",
+            "invalid model",
+        )
+        if "model" not in lowered or not any(
+            marker in lowered for marker in rejection_markers
+        ):
+            return None
+        return (
+            "hermes could not run the requested model.\n\n"
+            "The hermes CLI returned:\n"
+            f"  {proc.stderr.strip()[:500]}\n\n"
+            "Check the model id in `--model hermes:<provider>/<model>` (verify "
+            "`hermes -z 'Reply OK' --model <model>` works in your normal shell), "
+            "then rerun caliper."
+        )

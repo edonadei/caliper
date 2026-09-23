@@ -638,9 +638,16 @@ def test_runmeta_records_no_judge_model_when_no_autorater_ran(tmp_path) -> None:
     assert results.run.judge_model is None
 
 
-def test_runmeta_prefers_explicit_model_over_resolved(tmp_path) -> None:
+def test_runmeta_records_resolved_model_over_requested_and_warns(tmp_path) -> None:
+    """RunMeta names what ran, not what was asked for (#131).
+
+    A backend that ignored the requested model would otherwise leave a saved run
+    claiming a model that never ran, and a model-vs-model ``compare`` comparing
+    the default against itself.
+    """
     spec_path = tmp_path / "prov.eval.yaml"
     spec_path.write_text("tasks: []\n")
+    warnings: list[str] = []
 
     results = run(
         spec=_one_task_spec(),
@@ -652,9 +659,13 @@ def test_runmeta_prefers_explicit_model_over_resolved(tmp_path) -> None:
         k=1,
         workers=1,
         timeout=30,
+        on_warning=warnings.append,
     )
 
-    assert results.run.model == "anthropic/claude-sonnet-4.6"
+    assert results.run.model == "some/other-model"
+    assert len(warnings) == 1
+    assert "anthropic/claude-sonnet-4.6" in warnings[0]
+    assert "some/other-model" in warnings[0]
 
 
 class TranscriptHarness(HarnessBackend):

@@ -150,6 +150,8 @@ def run(
     # Supplied by the CLI so it can surface the fetcher's warnings; defaulted
     # here so a caller with a path-only spec never has to think about it.
     fetcher: SkillFetcher | None = None,
+    # Told when the backend reports running a different model than requested.
+    on_warning: Callable[[str], None] | None = None,
 ) -> RunResults:
     # Before anything that can block: a Ctrl-C during skill fetching has to be
     # honoured by the attempts that would otherwise start right after it.
@@ -286,11 +288,7 @@ def run(
             # The engine is whatever the harness and judge were built with
             # (docs/adr/0004): asked of them, not passed in beside them.
             backend=harness.name,
-            # Prefer the model the backend was built with; otherwise fall back to
-            # the concrete model an attempt resolved (e.g. from hermes' export),
-            # so a default-model run still records what actually ran.
-            model=harness.model
-            or (env.resolved_models[0] if env.resolved_models else None),
+            model=_recorded_model(harness.model, env.resolved_models, on_warning),
             judge_backend=judge.backend,
             # Prefer the judge's own model; else the concrete model an autorater
             # reported (e.g. claude-code). Stays None for assert-only runs, where
@@ -371,6 +369,28 @@ def _run_attempt_job(task: TaskSpec, attempt: int, env: _RunEnv) -> list[Attempt
     """
     record = _attempt_or_none(task, attempt, env)
     return [record] if record is not None else []
+
+
+def _recorded_model(
+    requested: str | None,
+    resolved: list[str],
+    on_warning: Callable[[str], None] | None,
+) -> str | None:
+    """The model ``RunMeta`` names: what the backend reported running (#131).
+
+    Requested is only the fallback, for a backend that reports nothing. Trusting
+    it first let a backend that ignored ``--model`` save a run claiming a model
+    that never ran.
+    """
+    if not resolved:
+        return requested
+    actual = resolved[0]
+    if requested and actual != requested and on_warning:
+        on_warning(
+            f"Requested model {requested!r}, but the backend reported running "
+            f"{actual!r}; the run records {actual!r}."
+        )
+    return actual
 
 
 def _run_task_chain(task: TaskSpec, env: _RunEnv, k: int) -> list[AttemptRecord]:
