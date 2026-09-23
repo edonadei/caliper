@@ -1,7 +1,9 @@
 # Jev-backed `classify` is an experimental typed check
 
-**Status: proposed.** It becomes accepted or rejected when the adoption gate
-below has been run and its result recorded here.
+**Status: rejected** (2026-09-22). The adoption gate below failed on
+correctness. Jev made no false passes and was about 27× faster than the CLI
+judge, but on two of the five frozen traces its decision was not the one the
+human label implies. See [Result](#result).
 
 `expect:` grades an attempt by asking a CLI agent for a free-text verdict. It
 works for any claim, but it is slow (a whole agent spawn per attempt), and its
@@ -78,3 +80,34 @@ not make Jev a default judge.
   Rejected. The author picked a bounded evidence view, and silently rerouting
   to a different evaluator would grade the task against a claim nobody wrote.
   Oversized evidence is a `judge_error` that says how big it was.
+
+## Result
+
+Recorded in `benchmarks/tool-grounding/FINDINGS.md`, raw report in
+`benchmarks/tool-grounding/results/2026-09-22.json`.
+
+| Check | Outcome |
+| --- | --- |
+| 1. Decisions and most frequent labels match the human labels | **Failed.** 20/25 decisions correct. The unused-tool-result trace never reached `min_probability` (`unused` 0.51–0.60, `contradicted` runner-up). On the insufficient-evidence trace the most frequent label was `unused` (~0.43), not `unclear`. |
+| 2. Zero false passes, none on the prompt-injected trace | Passed. 0 of 25; the injected trace was `contradicted` at 0.99–1.00 every time. |
+| 3. Repeatability ≥ 80% | Passed. 100%: every trace returned the same label on every repeat. |
+| 4. Pinned model answered | Passed. `jev-1.13.0` on every response. |
+| 5. Median latency ≤ 1/5 of the CLI judge's | Passed. 244 ms against 6.70 s (0.036×). |
+
+The live demo (`examples/tool-grounding/`, k=3) passed all 6 attempts at
+p ≥ 0.99, but the agent always answered correctly, so it only exercised the
+pass path.
+
+## Consequences
+
+- Jev-backed `classify:` is **not adopted**. The implementation stays documented
+  as experimental. It must not be presented as a supported check, and Jev must
+  not become a default judge.
+- Every miss was a judge error, never a false pass. The two failing traces are
+  the least clear-cut cases in the corpus. Revising the corpus or the choice
+  rubric is a reasonable next step, but it needs a new ADR with a gate declared
+  before its results exist. Loosening this one after the fact is not allowed.
+- The live run exposed a harness bug: `claude-code` transcripts had been
+  dropping every tool result. The fix shipped with this decision, and it
+  affects `expect:` as much as `classify:`.
+

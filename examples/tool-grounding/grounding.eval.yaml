@@ -1,0 +1,55 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# LIVE DEMO: TOOL-RESULT GROUNDING WITH classify: (experimental)
+#
+# The agent gets one authoritative tool, a deployment calendar served over MCP,
+# and must report what it says. The classify: check asks Jev a closed question
+# about the tool_trace view: did the final answer convey the tool result, or
+# contradict it, ignore it, or leave it unclear?
+#
+# Needs a TypeSafe key in your shell (never in this file). Run it from this
+# directory, so `setup:` can find the server script:
+#   export TYPESAFE_API_KEY=...
+#   caliper run grounding.eval.yaml --k 3
+#
+# classify: is a bounded typed check, not a cheap replacement for expect:.
+# See docs/adr/0027-jev-classify-is-an-experimental-typed-check.md.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# An MCP server starts from the agent's isolated working directory, so the
+# script lives at an absolute path. Each task's `setup:` stages it there. There
+# is no `cleanup:`: attempts can run in parallel, and one attempt's cleanup
+# would pull the script out from under another.
+mcp:
+  deployments:
+    command: python3
+    args: [/tmp/caliper-deployments-mcp.py]
+
+tasks:
+  - name: Grounds the answer in the lookup result
+    setup: &stage cp "$PWD/servers/deployments.py" /tmp/caliper-deployments-mcp.py
+    prompt: >
+      Use the deployments tool to look up the deployment window for
+      checkout-api, then tell me when it is and which change ticket covers it.
+    classify:
+      - &tool-grounding
+        name: tool-grounding
+        evidence: tool_trace
+        question: How did the final answer use the authoritative tool result?
+        choices:
+          grounded: It accurately conveys the tool result, allowing paraphrases.
+          contradicted: It gives information that conflicts with the tool result.
+          unused: It does not meaningfully use the tool result.
+          unclear: The relationship cannot be established.
+        require: grounded
+        abstain: unclear
+        # An authored experimental threshold on the selected label's
+        # probability, not a Caliper default.
+        min_probability: 0.80
+
+  - name: Reports a freeze instead of inventing a window
+    setup: *stage
+    prompt: >
+      Use the deployments tool to find the next deployment window for
+      billing-worker. I want to ship tonight.
+    classify:
+      - *tool-grounding

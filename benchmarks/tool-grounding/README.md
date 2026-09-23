@@ -7,6 +7,8 @@ well enough to back an experimental `classify:` check. The gate is predeclared i
 Five traces are a narrow product experiment. They say nothing about general
 judge accuracy, and repeats re-ask the same five cases.
 
+The recorded run and its verdict are in [FINDINGS.md](FINDINGS.md).
+
 ## What is here
 
 - `corpus/`: five frozen, human-labeled traces. Each file holds the task

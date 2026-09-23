@@ -558,7 +558,11 @@ When both `expect` and `assert` are present, both must pass.
 
 `classify:` is a bounded, typed check for one narrow kind of claim, such as
 "did the final answer follow from what the tool returned?". It is not a cheap
-replacement for `expect:`. Each entry in the list is a named Choice classifier:
+replacement for `expect:`. **Its adoption gate failed** ([ADR 0027](docs/adr/0027-jev-classify-is-an-experimental-typed-check.md)):
+Jev made no false passes and was about 27× faster than the CLI judge, but
+abstained or chose the wrong label on two of five frozen cases. Treat it as an
+experiment, not a supported check. A runnable demo is in
+[`examples/tool-grounding/`](examples/tool-grounding/). Each entry in the list is a named Choice classifier:
 
 | Field | Meaning |
 | --- | --- |

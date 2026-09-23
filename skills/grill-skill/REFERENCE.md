@@ -167,6 +167,10 @@ Each task needs at least one of `expect`, `assert`, `classify` or `activates`.
 
 A bounded, typed check for one narrow claim, such as whether the final answer
 follows from what a tool returned. It is not a cheap replacement for `expect:`.
+Its adoption gate failed (ADR 0027: no false passes and ~27× faster than the
+CLI judge, but wrong or abstaining on two of five frozen cases), so treat it as
+an experiment and prefer `expect:`/`assert:` for anything you rely on. Demo:
+`examples/tool-grounding/`.
 Each entry is graded by TypeSafe's Jev, pinned to `jev-1.13.0`. Export
 `TYPESAFE_API_KEY` in the shell that runs caliper; it is never read from the
 spec and never saved.
