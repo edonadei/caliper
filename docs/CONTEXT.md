@@ -524,7 +524,8 @@ trigger-probe spec never reads as broken.
 What a `caliper` command tells the shell, and the one part of the CLI a CI job
 reads instead of looking at. `0` ran, `1` the request was wrong (a missing spec,
 an invalid one, a reference naming no run), `2` caliper could not run the eval
-(a misconfigured backend, an exhausted account), `130` a Ctrl-C whose partial
+(a misconfigured backend, an exhausted account, a run whose every attempt was
+execution noise), `130` a Ctrl-C whose partial
 run was saved. `3` is **reserved**: a clean run that did not clear a
 *pre-registered* bar.
 

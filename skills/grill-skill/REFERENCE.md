@@ -71,7 +71,9 @@ and `assert_evidence` — no extra command needed. Each attempt is tagged with a
 `judge_error`)
 read as `⊘` and are excluded from the score denominator, with a separate
 "N unusable" count in the summary — so a throttled or judge-flaked run is not
-mistaken for a skill regression. If `caliper run --fail-fast N` stopped a task
+mistaken for a skill regression. A run where *every* attempt was unusable
+measured nothing: it is still saved, but `caliper run` exits `2` and prints the
+count of each outcome. If `caliper run --fail-fast N` stopped a task
 after repeated `infra_error` / `timeout` outcomes, the report marks it as
 `ABORTED` and shows how many attempts ran. A run you stopped with Ctrl-C is
 saved too, headed by an `interrupted:` line: its rates are computed over the

@@ -516,20 +516,11 @@ def _rate_cell(
 
 def _print_unusable_summary(results: RunResults) -> None:
     """One line, only when there is noise to report, so a clean run is unchanged."""
-    counts: dict[Outcome, int] = {}
-    for tr in results.task_results:
-        for a in tr.attempts:
-            # `is_execution_noise`, not `not is_usable`: NOT_CHECKED is excluded
-            # from the score without being an error, so a correct
-            # activates:-only spec reports no noise at all.
-            if a.outcome.is_execution_noise:
-                counts[a.outcome] = counts.get(a.outcome, 0) + 1
+    counts = results.noise_counts
     total = sum(counts.values())
     if not total:
         return
-    breakdown = " · ".join(
-        f"{n} {o.value}" for o, n in sorted(counts.items(), key=lambda kv: kv[0].value)
-    )
+    breakdown = " · ".join(f"{n} {o.value}" for o, n in counts.items())
     console.print(
         f" [yellow]{_UNUSABLE} {total} unusable[/yellow]  [dim]({breakdown}) "
         f"— excluded from the score[/dim]"

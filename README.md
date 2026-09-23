@@ -631,12 +631,17 @@ there. See [docs/adr/0022](docs/adr/0022-saved-runs-live-at-a-discovered-results
 |---|---|
 | `0` | Ran, and nothing asked for a verdict said no |
 | `1` | Bad input — spec not found, invalid spec, unresolvable skills, two references naming one run |
-| `2` | Could not run cleanly — backend misconfiguration, a retired flag, or a failed setup/cleanup hook |
+| `2` | Could not run cleanly — backend misconfiguration, a retired flag, a failed setup/cleanup hook, or every attempt `infra_error`/`timeout`/`judge_error` |
 | `3` | Reserved: ran cleanly, but a declared bar was not met |
 | `130` | Interrupted with Ctrl-C; the partial run was saved |
 
 `2` and `3` are the distinction CI needs: *the eval could not run* is a broken
 pipeline, *the skill did not clear the bar* is the answer you asked for.
+
+A run in which **every** attempt was `infra_error`, `timeout` or `judge_error`
+exits `2` and prints a count of each: it is saved for inspection, but it measured
+nothing. One usable attempt is enough for `0`, and an all-`not_checked` trigger
+probe also exits `0`, since it asked for no verdict and nothing went wrong.
 
 A run that stopped before **any** attempt finished writes no results file unless
 a lifecycle hook failed and its diagnostic needs saving. Exits `2` and `130`
