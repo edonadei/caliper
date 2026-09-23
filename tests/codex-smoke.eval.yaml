@@ -11,3 +11,16 @@ tasks:
       p = Path("/tmp/caliper-e2e-smoke-codex.txt")
       assert p.exists(), "file was not created"
       assert "hello" in p.read_text(), "file does not contain hello"
+  # Leak probe (#129): with no mcp: block the attempt must see no MCP tools, so
+  # a CLI update that brings the account's hosted connectors back fails here.
+  - name: Sees no MCP tools
+    prompt: >
+      List every MCP server, connector, or app integration whose tools you can
+      call, including any you could load through a tool search. Name each one,
+      or say there are none. Don't call any.
+    expect: >
+      The response names no MCP tool (nothing starting with mcp__) and does not
+      claim a connected account connector or app integration such as Gmail,
+      Google Drive, Google Calendar, GitHub, or Vercel. Built-in tools (shell,
+      web search, file editing, and the like) don't count, nor does a service
+      mentioned only as reachable through a CLI or named in documentation.

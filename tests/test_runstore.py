@@ -56,6 +56,44 @@ def test_two_runs_of_one_spec_sit_side_by_side(tmp_path) -> None:
     assert store.runs("my-skill") == [first, second]
 
 
+def test_two_runs_in_the_same_second_both_survive(tmp_path) -> None:
+    """The second run takes a disambiguated id rather than overwriting the first."""
+    store = RunStore(tmp_path)
+    first = store.save(_results())
+    second = store.save(_results())
+
+    assert first != second
+    assert first.exists() and second.exists()
+    assert second.stem == f"{first.stem}-2"
+
+
+def test_same_second_runs_are_listed_in_the_order_they_were_saved(tmp_path) -> None:
+    """``Z-2`` sorts before ``Z`` as a file name; run order must not."""
+    store = RunStore(tmp_path)
+    saved = [store.save(_results()) for _ in range(11)]
+    later = store.save(
+        _results(at=datetime(2026, 8, 29, 10, 30, 1, tzinfo=timezone.utc))
+    )
+
+    assert store.runs("my-skill") == [*saved, later]
+
+
+def test_latest_is_the_last_of_several_same_second_runs(tmp_path) -> None:
+    store = RunStore(tmp_path)
+    store.save(_results())
+    last = store.save(_results())
+
+    assert store.resolve("my-skill") == last
+
+
+def test_a_disambiguated_run_resolves_by_its_id(tmp_path) -> None:
+    store = RunStore(tmp_path)
+    store.save(_results())
+    second = store.save(_results())
+
+    assert store.resolve("my-skill", run=second.stem) == second
+
+
 # --- resolving a reference ---------------------------------------------------
 
 

@@ -110,6 +110,36 @@ def test_codex_cli_omits_model_when_unspecified(monkeypatch, tmp_path) -> None:
     assert "--model" not in exec_cmd
 
 
+def test_codex_cli_disables_account_apps_and_plugins(monkeypatch, tmp_path) -> None:
+    # The ChatGPT login behind auth.json carries hosted connectors
+    # (mcp__codex_apps__*) and remote plugins that config.toml's mcp_servers
+    # can't reach; the attempt must not see them (#129).
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd == ["codex", "--version"]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="codex-cli 0.145.0\n", stderr=""
+            )
+        return subprocess.CompletedProcess(cmd, 0, stdout="OK\n", stderr="")
+
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "codex")
+    monkeypatch.setattr(
+        "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
+    )
+    patch_cli_calls(monkeypatch, fake_run)
+
+    CodexHarness().run(
+        run_context(prompt="Hello", model=None, timeout=12, isolated_home=str(tmp_path))
+    )
+
+    exec_cmd = calls[1]
+    overrides = [exec_cmd[i + 1] for i, arg in enumerate(exec_cmd) if arg == "-c"]
+    assert "features.apps=false" in overrides
+    assert "features.plugins=false" in overrides
+
+
 def test_codex_json_stream_captures_tool_calls(monkeypatch, tmp_path) -> None:
     def fake_run(cmd, **kwargs):
         if cmd == ["codex", "--version"]:
