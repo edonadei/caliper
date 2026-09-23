@@ -562,12 +562,18 @@ def _run_shell(
 ) -> HookFailure | None:
     if not cmd:
         return None
-    completed = subprocess.run(
-        cmd, shell=True, capture_output=True, text=True, errors="replace"
-    )
-    if completed.returncode == 0:
-        return None
-    output = (completed.stdout + completed.stderr).strip()
+    # A background child may inherit stdout/stderr. Pipes would wait for that
+    # child to close them, even after the hook shell exits. A file also keeps
+    # verbose hook output out of Caliper's memory.
+    with tempfile.TemporaryFile() as output_file:
+        completed = subprocess.run(
+            cmd, shell=True, stdout=output_file, stderr=subprocess.STDOUT
+        )
+        if completed.returncode == 0:
+            return None
+        output_file.seek(0, 2)
+        output_file.seek(max(0, output_file.tell() - 16000))
+        output = output_file.read().decode("utf-8", errors="replace").strip()
     return HookFailure(
         task_id=task_id,
         attempt=attempt,

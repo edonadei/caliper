@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import os
+import shlex
+import signal
+import sys
+import time
+
 import pytest
 
 from caliper.harness.base import (
@@ -10,7 +16,7 @@ from caliper.harness.base import (
 )
 from caliper.judge import EvalJudge
 from caliper.judge.base import JudgeResult
-from caliper.runner import run
+from caliper.runner import _run_shell, run
 from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, TaskSpec
 
@@ -90,6 +96,46 @@ class PassingHarness(HarnessBackend):
         return AttemptResult(
             transcript=[], final_output="done", exit_code=0, duration_seconds=0.1
         )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX background shell syntax")
+def test_hook_with_background_child_returns_after_its_shell_exits(tmp_path) -> None:
+    pid_file = tmp_path / "background.pid"
+    started = time.monotonic()
+    try:
+        failure = _run_shell(
+            f"sleep 5 & echo $! > {shlex.quote(str(pid_file))}; "
+            "echo setup broke >&2; exit 7",
+            "task-001",
+            1,
+            "setup",
+        )
+        assert time.monotonic() - started < 3
+        assert failure is not None
+        assert failure.exit_code == 7
+        assert failure.output == "setup broke"
+    finally:
+        if pid_file.exists():
+            try:
+                os.kill(int(pid_file.read_text().strip()), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+
+
+def test_noisy_hook_keeps_only_diagnostic_tail() -> None:
+    failure = _run_shell(
+        f"{shlex.quote(sys.executable)} -c "
+        '\'import sys; print("x" * 1000000); '
+        'print("last line", file=sys.stderr); sys.exit(7)\'',
+        "task-001",
+        1,
+        "setup",
+    )
+
+    assert failure is not None
+    assert failure.exit_code == 7
+    assert failure.output.endswith("last line")
+    assert len(failure.output) <= 4000
 
 
 def test_failed_setup_cannot_pass_from_stale_artifact_and_still_cleans_up(
