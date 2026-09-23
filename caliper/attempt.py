@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass
 from caliper.activation import ActivationDetector, check_activation
 from caliper.harness.base import AttemptResult, ConversationTurn
 from caliper.judge.base import Judge
-from caliper.outcome import classify_pre_judge, judge_outcome
+from caliper.outcome import classify_pre_judge, judge_outcome, never_ran
 from caliper.sandbox import Sandbox
 from caliper.schema.results import AttemptRecord, Outcome, TranscriptTurn
 from caliper.schema.spec import TaskSpec
@@ -121,7 +121,11 @@ def assemble_attempt(
         )
 
     if pre_judge_outcome is not None:
-        evidence = result.error or f"harness exited {result.exit_code}"
+        evidence = result.error or (
+            "the agent never ran: no model call"
+            if result.exit_code == 0 and never_ran(result)
+            else f"harness exited {result.exit_code}"
+        )
         return with_outcome(pre_judge_outcome, assert_evidence=evidence)
 
     cheat_violations = sandbox.violations(result.transcript)

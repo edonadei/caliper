@@ -243,9 +243,13 @@ class PiHarness(CliHarness):
 
     def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
         if proc.returncode == 0:
-            return None
-
-        text = "\n".join(part for part in (proc.stdout, proc.stderr) if part).strip()
+            # In --mode json pi exits 0 even when it never reached the model,
+            # and reports why only as an errored assistant message in its stream
+            # (#132). Read those alone: the rest of stdout is the agent talking,
+            # and an answer that mentions "401" is not a broken login.
+            text = "\n".join(self._stream_errors(proc.stdout))
+        else:
+            text = "\n".join(p for p in (proc.stdout, proc.stderr) if p).strip()
         if not text:
             return None
         lowered = text.lower()
@@ -284,6 +288,9 @@ class PiHarness(CliHarness):
             "authentication",
             "invalid api key",
             "subscription",
+            "oauth refresh failed",
+            "invalid_grant",
+            "refresh token",
         )
         if any(marker in lowered for marker in auth_markers):
             return (
@@ -298,3 +305,26 @@ class PiHarness(CliHarness):
             )
 
         return None
+
+    @staticmethod
+    def _stream_errors(stdout: str) -> list[str]:
+        """The ``errorMessage`` of each assistant turn pi ended on an error.
+
+        Trimmed at pi's ``; stack=`` suffix: the Node stack trace says where pi
+        failed, which is no help to whoever has to fix their login.
+        """
+        errors: list[str] = []
+        for line in stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "message_end":
+                continue
+            message = event.get("message")
+            if not isinstance(message, dict) or message.get("role") != "assistant":
+                continue
+            error = message.get("errorMessage")
+            if message.get("stopReason") == "error" and isinstance(error, str):
+                errors.append(error.split("; stack=", 1)[0].strip())
+        return errors

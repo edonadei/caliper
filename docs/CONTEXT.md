@@ -502,8 +502,9 @@ of six values, classified once at the seam where an attempt is assembled:
   autorater response, or the judge call threw — including the judge's *own*
   rate-limit).
 - `infra_error` — the skill-under-test's harness failed the attempt: nonzero
-  exit (non-timeout), or a detected transient throttle/overload signal
-  (spending cap, rate limit) even on a zero exit.
+  exit (non-timeout), a detected transient throttle/overload signal
+  (spending cap, rate limit) even on a zero exit, or a zero exit where the
+  agent never ran (nothing parsed from its stream and no tokens spent).
 - `timeout` — the attempt exceeded its time budget with no usable result.
 - `cheat` — a forbidden-file read was detected.
 - `not_checked` — the attempt ran cleanly and the task authored **no execution

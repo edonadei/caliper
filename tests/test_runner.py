@@ -69,7 +69,7 @@ class MixedOutcomeHarness(HarnessBackend):
                 error="agent failed",
             )
         return AttemptResult(
-            transcript=[],
+            transcript=[ConversationTurn(role="assistant", content="judge this")],
             final_output="judge this",
             exit_code=0,
             duration_seconds=0.1,
@@ -101,7 +101,10 @@ class PassingHarness(HarnessBackend):
     def run(self, ctx: RunContext) -> AttemptResult:
         self.calls += 1
         return AttemptResult(
-            transcript=[], final_output="done", exit_code=0, duration_seconds=0.1
+            transcript=[ConversationTurn(role="assistant", content="done")],
+            final_output="done",
+            exit_code=0,
+            duration_seconds=0.1,
         )
 
 
@@ -560,7 +563,7 @@ class ResolvedModelHarness(HarnessBackend):
 
     def run(self, ctx: RunContext) -> AttemptResult:
         return AttemptResult(
-            transcript=[],
+            transcript=[ConversationTurn(role="assistant", content="done")],
             final_output="done",
             exit_code=0,
             duration_seconds=0.1,
@@ -739,7 +742,10 @@ class WorkdirHarness(HarnessBackend):
         self.saw_setup_marker = (workdir / "SETUP_MARKER").exists()
         (workdir / "out.txt").write_text("banana")
         return AttemptResult(
-            transcript=[], final_output="done", exit_code=0, duration_seconds=0.1
+            transcript=[ConversationTurn(role="assistant", content="done")],
+            final_output="done",
+            exit_code=0,
+            duration_seconds=0.1,
         )
 
 

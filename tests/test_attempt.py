@@ -60,7 +60,7 @@ def _read_turn(path: str) -> ConversationTurn:
 
 def _result(**overrides) -> AttemptResult:
     fields = dict(
-        transcript=[],
+        transcript=[ConversationTurn(role="assistant", content="done")],
         final_output="done",
         exit_code=0,
         duration_seconds=1.5,
@@ -171,6 +171,19 @@ def test_a_nonzero_exit_is_infra_error_with_the_exit_code_as_evidence():
 
     assert assembled.record.outcome is Outcome.INFRA_ERROR
     assert assembled.record.assert_evidence == "harness exited 1"
+    assert judge.calls == 0
+
+
+def test_an_agent_that_never_ran_is_infra_error_and_skips_the_judge():
+    judge = RecordingJudge()
+
+    assembled = _assemble(
+        _result(transcript=[], final_output="", usage=TokenUsage(input_tokens=0)),
+        judge=judge,
+    )
+
+    assert assembled.record.outcome is Outcome.INFRA_ERROR
+    assert assembled.record.assert_evidence == "the agent never ran: no model call"
     assert judge.calls == 0
 
 
@@ -291,6 +304,19 @@ def test_activation_rides_on_a_trigger_probe():
 
     assert assembled.record.outcome is Outcome.NOT_CHECKED
     assert assembled.record.activation_passed is True
+
+
+def test_a_trigger_probe_expecting_nothing_does_not_pass_when_the_agent_never_ran():
+    """`activates: []` is trivially met by an agent that never started (#132)."""
+    assembled = _assemble(
+        _result(transcript=[], final_output=""),
+        task=_task(expect=None, activates=[]),
+        activation=_detector(),
+        expected_activation=[],
+    )
+
+    assert assembled.record.outcome is Outcome.INFRA_ERROR
+    assert assembled.record.activation_passed is None
 
 
 def test_a_truncated_transcript_yields_no_observation_rather_than_an_empty_set():

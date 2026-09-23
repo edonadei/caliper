@@ -54,6 +54,21 @@ def answered(result: AttemptResult) -> bool:
     )
 
 
+def never_ran(result: AttemptResult) -> bool:
+    """Whether the agent never got as far as a model call.
+
+    Nothing parsed out of the stream *and* no tokens spent: the CLI bailed on its
+    own (an expired login reported inside a zero-exit stream, #132) and whatever
+    it printed is not an answer. Both halves, because either alone is ambiguous —
+    a parser can miss a stream the model did produce (tokens say it ran, and the
+    salvaged stdout is still its answer), and a backend may not report usage at
+    all (a parsed conversation says it ran).
+    """
+    parsed = bool(result.transcript) and not result.salvaged
+    tokens = result.usage.total_tokens if result.usage is not None else None
+    return not parsed and not tokens
+
+
 def looks_like_throttle(text: str) -> bool:
     """True when free text says the provider is busy — a retryable signal."""
     return bool(text) and bool(_THROTTLE_SIGNALS.search(text))
@@ -101,6 +116,12 @@ def classify_pre_judge(harness: AttemptResult) -> Outcome | None:
         return Outcome.TIMEOUT
 
     if harness.exit_code != 0:
+        return Outcome.INFRA_ERROR
+
+    # Zero exit, but no model call was ever made: there is no attempt to judge,
+    # and an activation check would read "nothing fired" as a verdict on the
+    # skill rather than on the CLI that never started.
+    if never_ran(harness):
         return Outcome.INFRA_ERROR
 
     # Zero exit: a provider signal here is only real if the agent never answered.

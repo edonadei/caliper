@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -260,6 +261,115 @@ def test_pi_auth_failure_raises_configuration_error(monkeypatch, tmp_path) -> No
                 isolated_home=str(tmp_path),
             )
         )
+
+
+# A real pi 0.87.1 stream from an expired OAuth login, recorded with a bogus
+# refresh token (system prompt trimmed, paths scrubbed). pi exits 0 and reports
+# the failure only as an errored assistant message inside the stream.
+_OAUTH_EXPIRED = (
+    Path(__file__).parent / "fixtures" / "pi" / "oauth_refresh_expired.jsonl"
+)
+
+
+def _run_with_stream(monkeypatch, tmp_path, stdout: str):
+    def fake_run(cmd, **kwargs):
+        if cmd[1:] == ["--version"]:
+            return _version(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "pi")
+    patch_cli_calls(monkeypatch, fake_run)
+    return PiHarness().run(
+        run_context(
+            prompt="Hello",
+            model="claude-haiku-4-5",
+            timeout=12,
+            isolated_home=str(tmp_path),
+        )
+    )
+
+
+def test_pi_expired_oauth_on_a_zero_exit_raises_configuration_error(
+    monkeypatch, tmp_path
+) -> None:
+    with pytest.raises(HarnessConfigurationError, match="/login") as exc:
+        _run_with_stream(monkeypatch, tmp_path, _OAUTH_EXPIRED.read_text())
+    assert "OAuth refresh failed" in str(exc.value)
+    # The stack trace pi appends is noise to whoever has to fix their login.
+    assert "processTicksAndRejections" not in str(exc.value)
+
+
+def test_pi_expired_oauth_stops_the_run_and_saves_nothing(
+    monkeypatch, tmp_path
+) -> None:
+    """The #132 repro end to end: exit 2 with the /login guidance, no saved run."""
+    from typer.testing import CliRunner
+
+    from caliper.main import app
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1:] == ["--version"]:
+            return _version(cmd)
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=_OAUTH_EXPIRED.read_text(), stderr=""
+        )
+
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "pi")
+    patch_cli_calls(monkeypatch, fake_run)
+    # Never let the test copy a real ~/.pi login into the attempt home.
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.chdir(tmp_path)
+    spec_file = tmp_path / "basic.eval.yaml"
+    spec_file.write_text(
+        "tasks:\n"
+        "  - name: Probe\n    prompt: Do it\n    activates: []\n"
+        "  - name: Judged\n    prompt: Do it\n    expect: it works\n"
+    )
+
+    result = CliRunner().invoke(
+        app, ["run", str(spec_file), "--k", "1", "--model", "pi:claude-haiku-4-5"]
+    )
+
+    assert result.exit_code == 2, result.stdout
+    assert "/login" in result.stdout
+    assert "Nothing ran" in result.stdout
+    assert not (tmp_path / ".caliper").exists()
+
+
+def _errored_stream(message: str) -> str:
+    assistant = {
+        "role": "assistant",
+        "content": [],
+        "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+        "stopReason": "error",
+        "errorMessage": message,
+    }
+    return json.dumps({"type": "message_end", "message": assistant}) + "\n"
+
+
+def test_pi_stream_error_that_is_not_auth_is_left_to_the_outcome(
+    monkeypatch, tmp_path
+) -> None:
+    # An overloaded provider is a transient infra signal, not a broken login:
+    # it must not abort the run.
+    result = _run_with_stream(
+        monkeypatch, tmp_path, _errored_stream("529 overloaded_error: Overloaded")
+    )
+    assert result.exit_code == 0
+
+
+def test_pi_answer_mentioning_auth_on_a_zero_exit_is_not_a_misconfiguration(
+    monkeypatch, tmp_path
+) -> None:
+    # An agent *writing about* a 401 is answering, not failing to authenticate.
+    assistant = {
+        "role": "assistant",
+        "content": [{"type": "text", "text": "Return 401 Unauthorized here."}],
+        "stopReason": "stop",
+    }
+    stream = json.dumps({"type": "message_end", "message": assistant}) + "\n"
+    result = _run_with_stream(monkeypatch, tmp_path, stream)
+    assert result.final_output == "Return 401 Unauthorized here."
 
 
 def test_pi_declares_mcp_unsupported_by_design() -> None:
