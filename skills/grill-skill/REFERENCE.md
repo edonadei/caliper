@@ -149,7 +149,7 @@ tasks:
     prompt: Look up the deployment window and report it.
     classify:                     # list of named Choice classifiers (Jev)
       - name: tool-grounding      # unique in the task; the saved result key
-        evidence: tool_trace      # required: task prompt + tool calls/results + final output
+        evidence: tool_trace      # required: output | tool_trace | full_trace
         question: How did the final answer use the authoritative tool result?
         choices:                  # label -> meaning (null if the name says it all)
           grounded: It accurately conveys the tool result, allowing paraphrases.
@@ -174,8 +174,16 @@ spec and never saved.
 - A confident `require` label passes. A confident other label is `task_fail`.
 - The `abstain` label, a selected label below `min_probability`, an auth or
   provider failure, or a malformed response is `judge_error`.
+- `evidence` is required, with no default: `output` (task prompt + final
+  output), `tool_trace` (plus each tool call with its arguments and result, in
+  call order), or `full_trace` (plus every normalized conversation event in
+  order, results linked to their calls).
 - Classifiers sharing an `evidence` view go out in one request and come back
-  under their own `name`s.
+  under their own `name`s. Different views are separate requests.
+- Evidence is never truncated, summarized, chunked or rerouted. Over Jev 1.13's
+  budget (32k tokens for evidence plus the longest question, 64k per request),
+  or rejected by Jev for length, it is a `judge_error` that states the measured
+  size and suggests a narrower view.
 - Mixed with `assert:`/`expect:`, a confident failure anywhere fails the
   attempt. Otherwise any uncertainty (including an errored `expect:`) is
   `judge_error`, and only all-passing checks give `pass`.

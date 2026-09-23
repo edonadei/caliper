@@ -505,7 +505,9 @@ a replacement for `expect:`. See [[0027-jev-classify-is-an-experimental-typed-ch
 
 The deterministic projection of an attempt that a [[classification check]]
 reads: the task prompt, the final output, and only the events its name
-promises (for example `tool_trace`: the tool calls and their results, in order).
+promises. `output` adds none, `tool_trace` adds each tool call with its result,
+and `full_trace` adds every conversation event. There is no default view: the
+author always chooses one, and an oversized view is an error, never trimmed.
 
 ## Outcome
 

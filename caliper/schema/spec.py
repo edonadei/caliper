@@ -57,7 +57,7 @@ def parse_target(value: str) -> tuple[str | None, str | None]:
 
 # The evidence views a classification check may send to Jev. Each is a
 # deterministic projection of the attempt (caliper/judge/evidence.py).
-EVIDENCE_VIEWS: tuple[str, ...] = ("tool_trace",)
+EVIDENCE_VIEWS: tuple[str, ...] = ("output", "tool_trace", "full_trace")
 
 _CHECK_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 

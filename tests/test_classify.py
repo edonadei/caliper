@@ -311,13 +311,12 @@ def test_tool_trace_evidence_is_structured_and_omits_assistant_prose(tmp_path):
     state, _ = fake.calls[0]
     assert state == {
         "task_prompt": "Where is order A-1?",
-        "tool_events": [
+        "tool_calls": [
             {
-                "type": "tool_call",
                 "tool": "mcp__orders__lookup_order",
                 "input": {"order_id": "A-1"},
-            },
-            {"type": "tool_result", "output": '{"eta": "Thursday"}'},
+                "result": '{"eta": "Thursday"}',
+            }
         ],
         "final_output": "It arrives Thursday.",
     }

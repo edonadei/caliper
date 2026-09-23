@@ -30,6 +30,15 @@ JEV_MODEL = "jev-1.13.0"
 API_KEY_ENV = "TYPESAFE_API_KEY"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 
+# jev-1.13's context budget (docs.typesafe.ai/models): the state plus the single
+# longest question must fit in 32k tokens, and the whole request in 64k.
+STATE_TOKEN_LIMIT = 32_000
+REQUEST_TOKEN_LIMIT = 64_000
+# Caliper has no Jev tokenizer, so it estimates on the safe side: about three
+# bytes of serialized JSON per token, denser than typical English prose. An
+# estimate that is still too low is caught by the provider's own 422 instead.
+BYTES_PER_TOKEN = 3
+
 
 class JevFailure(str, Enum):
     """Why a Jev call produced no usable answer. Every kind is a judge error."""
@@ -43,6 +52,9 @@ class JevFailure(str, Enum):
     PROVIDER = "provider"
     # A 2xx whose body is not the documented answer shape.
     MALFORMED = "malformed"
+    # The evidence is over the model's context budget, so nothing was sent.
+    # Never truncated or summarized to fit: see docs/adr/0027.
+    OVERSIZE = "oversize"
 
 
 class JevError(Exception):
@@ -134,6 +146,42 @@ def _provider_detail(body: bytes) -> str:
     return text[:300]
 
 
+def estimate_tokens(serialized: bytes) -> int:
+    """A deliberately high token estimate for a serialized JSON fragment."""
+    return -(-len(serialized) // BYTES_PER_TOKEN)
+
+
+def _check_budget(state: object, questions: dict[str, ChoiceQuestion]) -> None:
+    """Refuse, before sending, a request the model's context cannot hold."""
+    state_bytes = _dumps(state)
+    question_bytes = [_dumps(q.to_json()) for q in questions.values()]
+    state_tokens = estimate_tokens(state_bytes)
+    longest = max((estimate_tokens(q) for q in question_bytes), default=0)
+    total = state_tokens + sum(estimate_tokens(q) for q in question_bytes)
+    size = f"{len(state_bytes):,} bytes of evidence (~{state_tokens:,} tokens)"
+    if state_tokens + longest > STATE_TOKEN_LIMIT:
+        raise JevError(
+            JevFailure.OVERSIZE,
+            f"evidence too large: {size} plus the longest question "
+            f"(~{longest:,} tokens) exceeds the {STATE_TOKEN_LIMIT:,}-token "
+            "limit for state plus one question. Nothing was truncated or "
+            "summarized; choose a narrower evidence view (output is narrower "
+            "than tool_trace, which is narrower than full_trace).",
+        )
+    if total > REQUEST_TOKEN_LIMIT:
+        raise JevError(
+            JevFailure.OVERSIZE,
+            f"request too large: {size} plus {len(questions)} questions "
+            f"(~{total:,} tokens) exceeds the {REQUEST_TOKEN_LIMIT:,}-token "
+            "request limit. Nothing was truncated; split the classifiers across "
+            "evidence views or choose a narrower view.",
+        )
+
+
+def _dumps(value: object) -> bytes:
+    return json.dumps(value, ensure_ascii=False).encode("utf-8")
+
+
 def _parse_choice(qid: str, raw: object, options: set[str]) -> ChoiceAnswer:
     if not isinstance(raw, dict) or raw.get("type") != "choice":
         raise JevError(
@@ -179,6 +227,9 @@ def ask_choices(
     Raises :class:`JevError` whenever no usable answer comes back. The caller
     decides what that means; for a classification check it is a judge error.
     """
+    # Size first: it is a property of the evidence, not of the account, so an
+    # oversized view reports itself the same way with or without a key.
+    _check_budget(state, questions)
     environ = os.environ if env is None else env
     key = (environ.get(API_KEY_ENV) or "").strip()
     if not key:
@@ -189,14 +240,13 @@ def ask_choices(
             "never reads it from a spec or a file.",
         )
 
-    body = json.dumps(
+    body = _dumps(
         {
             "state": state,
             "model": model,
             "questions": {qid: q.to_json() for qid, q in questions.items()},
-        },
-        ensure_ascii=False,
-    ).encode("utf-8")
+        }
+    )
     headers = {
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
@@ -226,8 +276,10 @@ def ask_choices(
         raise JevError(
             JevFailure.REJECTED,
             _redact(
-                f"TypeSafe rejected the request (HTTP 422, {len(body)} bytes "
-                f"sent): {_provider_detail(payload)}",
+                f"TypeSafe rejected the request (HTTP 422, {len(body):,} bytes "
+                f"sent): {_provider_detail(payload)}. If it is over the "
+                "context length, choose a narrower evidence view; caliper "
+                "never truncates evidence to fit.",
                 key,
             ),
         )

@@ -563,12 +563,24 @@ replacement for `expect:`. Each entry in the list is a named Choice classifier:
 | Field | Meaning |
 | --- | --- |
 | `name` | Unique within the task; the key its result is saved under. |
-| `evidence` | Which view of the attempt is sent. `tool_trace` = the task prompt, every tool call and tool result in order, and the final output. Required. |
+| `evidence` | Which view of the attempt is sent: `output`, `tool_trace` or `full_trace` (below). Required; there is no default. |
 | `question` | What the classifier decides. |
 | `choices` | Every allowed label mapped to its meaning (`null` if the name says it all). |
 | `require` | The label that passes. |
 | `abstain` | The honest "cannot tell" label. Must differ from `require`. |
 | `min_probability` | Required, between 0 and 1. The selected label's probability must reach it. It is an authored threshold, not a Caliper default. |
+
+| `evidence` | What Jev receives |
+| --- | --- |
+| `output` | The task prompt and the final output. |
+| `tool_trace` | The task prompt, each tool call with its arguments and its result in call order, and the final output. |
+| `full_trace` | The task prompt, every normalized conversation event in order (tool results linked to their calls), and the final output. |
+
+Evidence is never truncated, summarized, chunked, or sent to another judge.
+Jev 1.13 takes at most 32k tokens for the evidence plus its longest question,
+and 64k for the whole request. When a view would exceed either limit, or Jev
+rejects it for length, the check is a `judge_error` that states the measured size
+and suggests a narrower view.
 
 The classifier is TypeSafe's Jev, pinned to `jev-1.13.0` and called over HTTP.
 Export `TYPESAFE_API_KEY` in the shell that runs caliper. It is never read from

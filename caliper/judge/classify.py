@@ -16,11 +16,6 @@ from caliper.judge.jev import ChoiceQuestion, JevError, JevResponse, ask_choices
 from caliper.schema.results import ClassificationRecord, ClassificationVerdict
 from caliper.schema.spec import ClassifyCheck
 
-# The evidence projection behind each ``evidence:`` value.
-_VIEWS: dict[str, Callable[[str, list[ConversationTurn], str], dict]] = {
-    "tool_trace": evidence.tool_trace,
-}
-
 Ask = Callable[..., JevResponse]
 
 
@@ -69,7 +64,7 @@ def evaluate_classify(
 
     records: dict[str, ClassificationRecord] = {}
     for view, group in by_view.items():
-        state = _VIEWS[view](task_prompt, transcript, final_output)
+        state = evidence.VIEWS[view](task_prompt, transcript, final_output)
         try:
             response = ask(state, {c.name: _question(c) for c in group})
         except JevError as err:
