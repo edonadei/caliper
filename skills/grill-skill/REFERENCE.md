@@ -3,7 +3,8 @@
 ## Caliper commands used by this skill
 
 ```bash
-# Check spec is valid before running
+# Check spec is valid before running (unknown task keys, bad forbidden_files
+# regexes, missing assert: files)
 caliper validate path/to/spec.eval.yaml
 
 # First run — fast, catches spec errors
