@@ -4,6 +4,7 @@ import hashlib
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
@@ -160,10 +161,13 @@ ERA_INSTALL_AND_DISCOVER = "install-and-discover"
 MCP_ABLATION_PREFIX = "mcp:"
 
 
+HookPhase = Literal["setup", "cleanup"]
+
+
 class HookFailure(BaseModel):
     task_id: str
     attempt: int
-    phase: str
+    phase: HookPhase
     exit_code: int
     output: str = ""
 

@@ -25,6 +25,7 @@ from caliper.schema.results import (
     AggregateScore,
     AttemptRecord,
     HookFailure,
+    HookPhase,
     Outcome,
     RunMeta,
     RunResults,
@@ -557,7 +558,7 @@ def _announce(
 
 
 def _run_shell(
-    cmd: str | None, task_id: str, attempt: int, phase: str
+    cmd: str | None, task_id: str, attempt: int, phase: HookPhase
 ) -> HookFailure | None:
     if not cmd:
         return None
