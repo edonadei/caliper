@@ -737,7 +737,7 @@ not scored as task failure:
 | `pass` | satisfied the task's judge(s) | ✅ success |
 | `task_fail` | the skill genuinely failed the task | ✅ attempt |
 | `cheat` | a forbidden-file read was detected | ✅ attempt |
-| `infra_error` | harness failure: nonzero exit, or a detected rate-limit / spending-cap | ❌ unusable |
+| `infra_error` | harness failure: nonzero exit, a detected rate-limit / spending-cap, or no model call observed (nothing parsed, no tokens) | ❌ unusable |
 | `timeout` | exceeded the time budget with no result | ❌ unusable |
 | `judge_error` | the judge produced no verdict (unparseable / errored autorater) | ❌ unusable |
 | `not_checked` | the task authored no `expect:`/`assert:`, so it is a trigger probe | ⊘ not asked |

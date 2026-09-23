@@ -12,7 +12,12 @@ import threading
 
 import pytest
 
-from caliper.harness.base import AttemptResult, HarnessBackend, RunContext
+from caliper.harness.base import (
+    AttemptResult,
+    ConversationTurn,
+    HarnessBackend,
+    RunContext,
+)
 from caliper.judge.base import JudgeResult
 from caliper.runner import run
 from caliper.schema.results import Outcome
@@ -32,7 +37,7 @@ class BarrierHarness(HarnessBackend):
     def run(self, ctx: RunContext) -> AttemptResult:
         self._barrier.wait()
         return AttemptResult(
-            transcript=[],
+            transcript=[ConversationTurn(role="assistant", content="done")],
             final_output="done",
             exit_code=0,
             duration_seconds=0.01,
@@ -208,7 +213,7 @@ class OrderProbe(HarnessBackend):
     def run(self, ctx: RunContext) -> AttemptResult:
         self.started.append((ctx.task_id, ctx.attempt))
         return AttemptResult(
-            transcript=[],
+            transcript=[ConversationTurn(role="assistant", content="done")],
             final_output="done",
             exit_code=0,
             duration_seconds=0.01,

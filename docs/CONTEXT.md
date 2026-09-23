@@ -503,8 +503,10 @@ of six values, classified once at the seam where an attempt is assembled:
   rate-limit). An unavailable judge *model* is not a
   `judge_error`: it would fail every attempt alike, so it stops the run.
 - `infra_error` — the skill-under-test's harness failed the attempt: nonzero
-  exit (non-timeout), or a detected transient throttle/overload signal
-  (spending cap, rate limit) even on a zero exit.
+  exit (non-timeout), a detected transient throttle/overload signal
+  (spending cap, rate limit) even on a zero exit, or a zero exit where no
+  model call was observed (nothing parsed from its stream and no tokens
+  reported).
 - `timeout` — the attempt exceeded its time budget with no usable result.
 - `cheat` — a forbidden-file read was detected.
 - `not_checked` — the attempt ran cleanly and the task authored **no execution
