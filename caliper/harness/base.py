@@ -234,6 +234,11 @@ class HarnessBackend(ABC):
     # than pending.
     mcp_unsupported_hint: str | None = None
 
+    def preflight_mcp(
+        self, servers: dict[str, McpServer], extra_path: list[str]
+    ) -> None:
+        """Check declared servers before attempts; test backends may override."""
+
     # Tool names that mean "the agent deliberately opened a skill" on this
     # backend — claude-code's ``Skill``, hermes' ``skill_view``. Backends whose
     # agents reach a skill with a plain file read (codex, pi) leave this empty
@@ -291,6 +296,13 @@ class CliHarness(HarnessBackend):
     ``env_passthrough``. See
     docs/adr/0020-a-backend-declares-its-chores-rather-than-performing-them.md.
     """
+
+    def preflight_mcp(
+        self, servers: dict[str, McpServer], extra_path: list[str]
+    ) -> None:
+        from caliper.harness.mcp import preflight_stdio_servers
+
+        preflight_stdio_servers(servers, extra_path=extra_path)
 
     def run(self, ctx: RunContext) -> AttemptResult:
         # The one fact the backend contributes to its own context: a request

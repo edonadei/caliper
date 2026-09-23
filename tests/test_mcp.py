@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import pytest
 from pydantic import ValidationError
 
@@ -9,7 +11,8 @@ from caliper.harness.base import (
     HarnessConfigurationError,
     RunContext,
 )
-from caliper.harness.mcp import resolve_servers
+from caliper.harness.claude_code import ClaudeCodeHarness
+from caliper.harness.mcp import preflight_stdio_servers, resolve_servers
 from caliper.judge.base import JudgeResult
 from caliper.runner import run
 from caliper.schema.spec import EvalSpec, McpServer, TaskSpec
@@ -223,6 +226,131 @@ def test_resolve_servers_unset_var_fails_at_the_boundary(monkeypatch) -> None:
 def test_resolve_servers_handles_no_declaration() -> None:
     assert resolve_servers(None) == {}
     assert resolve_servers({}) == {}
+
+
+def test_run_anchors_explicit_mcp_paths_to_spec_directory(
+    tmp_path, monkeypatch
+) -> None:
+    spec_dir = tmp_path / "specs"
+    spec_dir.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    spec_path = spec_dir / "m.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    spec = _spec_with_mcp()
+    spec.mcp = {
+        "echo": McpServer(
+            command="./bin/server",
+            args=["./servers/weather.py", "../shared/data", "bare", "/absolute"],
+        )
+    }
+    harness = _McpHarness()
+
+    run(spec, spec_path, harness, _PassJudge(), k=1, workers=1)
+
+    assert harness.seen["echo"].command == str(spec_dir / "bin/server")
+    assert harness.seen["echo"].args == [
+        str(spec_dir / "servers/weather.py"),
+        str(tmp_path / "shared/data"),
+        "bare",
+        "/absolute",
+    ]
+    assert spec.mcp["echo"].args[0] == "./servers/weather.py"
+
+
+def test_preflight_initializes_a_local_server(tmp_path) -> None:
+    script = tmp_path / "server.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        "'result': {'protocolVersion': '2025-03-26', 'capabilities': {}, "
+        "'serverInfo': {'name': 'test', 'version': '1'}}}), flush=True)\n"
+        "sys.stdin.readline()\n"
+    )
+    preflight_stdio_servers(
+        {"echo": McpServer(command=sys.executable, args=[str(script)])}
+    )
+
+
+def test_preflight_uses_sandbox_extra_path_for_command(tmp_path) -> None:
+    command = tmp_path / "mcp-server"
+    command.write_text(
+        f"#!{sys.executable}\n"
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        "'result': {}}), flush=True)\n"
+        "sys.stdin.readline()\n"
+    )
+    command.chmod(0o755)
+
+    preflight_stdio_servers(
+        {"echo": McpServer(command="mcp-server")}, extra_path=[str(tmp_path)]
+    )
+
+
+def test_readme_relative_mcp_arg_starts_from_any_cwd(tmp_path, monkeypatch) -> None:
+    class _PreflightHarness(_McpHarness):
+        def preflight_mcp(self, servers, extra_path):
+            preflight_stdio_servers(servers, extra_path=extra_path)
+
+    spec_dir = tmp_path / "specs"
+    server_dir = spec_dir / "servers"
+    server_dir.mkdir(parents=True)
+    script = server_dir / "weather.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        "'result': {}}), flush=True)\n"
+        "sys.stdin.readline()\n"
+    )
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    spec_path = spec_dir / "weather.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    spec = _spec_with_mcp()
+    spec.mcp = {
+        "weather": McpServer(command=sys.executable, args=["./servers/weather.py"])
+    }
+    harness = _PreflightHarness()
+
+    run(spec, spec_path, harness, _PassJudge(), k=1, workers=1)
+
+    assert harness.seen["weather"].args == [str(script)]
+
+
+@pytest.mark.parametrize(
+    "script", ["raise RuntimeError('broken')\n", "import time; time.sleep(30)\n"]
+)
+def test_dead_server_stops_run_before_any_attempt(
+    tmp_path, monkeypatch, script
+) -> None:
+    from caliper.harness import mcp
+
+    monkeypatch.setattr(mcp, "_PREFLIGHT_TIMEOUT", 0.1)
+    server = tmp_path / "broken.py"
+    server.write_text(script)
+    spec_path = tmp_path / "m.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    spec = _spec_with_mcp()
+    spec.mcp = {"broken": McpServer(command=sys.executable, args=[str(server)])}
+
+    with pytest.raises(HarnessConfigurationError, match="MCP server 'broken'"):
+        run(spec, spec_path, ClaudeCodeHarness(), _PassJudge(), k=1, workers=1)
+
+
+def test_missing_server_command_stops_run_before_any_attempt(tmp_path) -> None:
+    spec_path = tmp_path / "m.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    spec = _spec_with_mcp()
+    spec.mcp = {"missing": McpServer(command="./missing-server")}
+
+    with pytest.raises(HarnessConfigurationError, match="MCP server 'missing'"):
+        run(spec, spec_path, ClaudeCodeHarness(), _PassJudge(), k=1, workers=1)
 
 
 # --- run-seam capability guard --------------------------------------------

@@ -19,9 +19,16 @@ docs/adr/0011-codex-remote-mcp-uses-static-http-headers-not-env-indirection.md).
 
 from __future__ import annotations
 
+import json
 import os
+import queue
 import re
+import signal
+import subprocess
+import tempfile
+import threading
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from caliper.harness.base import HarnessConfigurationError
 from caliper.schema.spec import McpServer
@@ -29,6 +36,131 @@ from caliper.schema.spec import McpServer
 # A ``${VAR}`` reference inside an MCP server field (stdio ``env`` values, remote
 # ``headers`` values, a remote ``url``). Only this exact form is honored.
 ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_PREFLIGHT_TIMEOUT = 15.0
+
+
+def resolve_declared_paths(
+    declared: dict[str, McpServer], spec_dir: Path
+) -> dict[str, McpServer]:
+    """Anchor explicitly relative stdio paths to the spec, not the attempt cwd."""
+
+    def anchored(value: str) -> str:
+        if value.startswith(("./", "../")):
+            return str((spec_dir / value).resolve())
+        return value
+
+    return {
+        name: (
+            server.model_copy(
+                update={
+                    "command": anchored(server.command),
+                    "args": [anchored(arg) for arg in server.args],
+                }
+            )
+            if not server.is_remote
+            else server
+        )
+        for name, server in declared.items()
+    }
+
+
+def preflight_stdio_servers(
+    declared: dict[str, McpServer], *, extra_path: list[str] | None = None
+) -> None:
+    """Initialize each local server once before a model can score without it.
+
+    A successful process spawn is insufficient: a dead script can exit at once,
+    or a process can stay alive without speaking MCP. Bound the initialization
+    exchange so neither failure becomes a scored attempt or a hanging agent.
+    """
+    for name, server in resolve_servers(declared).items():
+        if server.is_remote:
+            continue
+        request = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": {"name": "caliper-preflight", "version": "1"},
+            },
+        }
+        try:
+            with tempfile.TemporaryDirectory(prefix="caliper-mcp-preflight-") as cwd:
+                process = subprocess.Popen(
+                    [server.command, *server.args],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    encoding="utf-8",
+                    cwd=cwd,
+                    env={
+                        **os.environ,
+                        "HOME": cwd,
+                        "PATH": os.pathsep.join(
+                            [*(extra_path or []), os.environ.get("PATH", "")]
+                        ),
+                        **server.env,
+                    },
+                    start_new_session=os.name == "posix",
+                )
+                try:
+                    replies: queue.Queue[str] = queue.Queue(maxsize=1)
+                    reader = threading.Thread(
+                        target=lambda: replies.put(process.stdout.readline()),
+                        daemon=True,
+                    )
+                    reader.start()
+                    process.stdin.write(json.dumps(request) + "\n")
+                    process.stdin.flush()
+                    try:
+                        line = replies.get(timeout=_PREFLIGHT_TIMEOUT)
+                    except queue.Empty as exc:
+                        raise HarnessConfigurationError(
+                            f"MCP server '{name}' did not initialize within "
+                            f"{_PREFLIGHT_TIMEOUT:g} seconds"
+                        ) from exc
+                    if not line:
+                        raise HarnessConfigurationError(
+                            f"MCP server '{name}' exited before initialization"
+                        )
+                    response = json.loads(line)
+                    if (
+                        not isinstance(response, dict)
+                        or response.get("id") != 1
+                        or "result" not in response
+                    ):
+                        raise HarnessConfigurationError(
+                            f"MCP server '{name}' rejected initialization"
+                        )
+                finally:
+                    # Launchers such as npx can leave a child holding the stdio
+                    # pipe after their parent exits. End the whole preflight
+                    # group before the real attempt starts.
+                    if os.name == "posix":
+                        try:
+                            os.killpg(process.pid, signal.SIGTERM)
+                        except ProcessLookupError:
+                            pass
+                    else:
+                        process.terminate()
+                    try:
+                        process.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        if os.name == "posix":
+                            try:
+                                os.killpg(process.pid, signal.SIGKILL)
+                            except ProcessLookupError:
+                                pass
+                        else:
+                            process.kill()
+                        process.wait()
+        except (OSError, ValueError) as exc:
+            raise HarnessConfigurationError(
+                f"MCP server '{name}' failed to start: {exc}"
+            ) from exc
 
 
 def interpolate(value: str, *, server_name: str, field_label: str) -> str:
