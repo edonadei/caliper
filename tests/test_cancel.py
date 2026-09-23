@@ -9,10 +9,13 @@ and a fatal error diagnosed mid-run salvages the same way an interrupt does.
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -300,6 +303,23 @@ def test_cancel_kills_an_agent_in_flight(tmp_path) -> None:
     thread.join()
     assert time.monotonic() - started < 10
     assert box["result"].returncode != 0
+
+
+def test_killed_process_does_not_match_reused_pid() -> None:
+    cancel.reset()
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        start_new_session=True,
+    )
+    try:
+        cancel.kill(proc)
+        proc.wait(timeout=5)
+        assert cancel.was_killed(proc)
+        assert not cancel.was_killed(SimpleNamespace(pid=proc.pid))
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
 
 
 def _one_attempt_run(k: int = 3) -> RunResults:

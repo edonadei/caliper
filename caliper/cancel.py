@@ -22,12 +22,13 @@ import os
 import signal
 import subprocess
 import threading
+import weakref
 from contextlib import contextmanager
 from typing import Iterator
 
 _lock = threading.Lock()
 _live: set[subprocess.Popen] = set()
-_killed: set[int] = set()
+_killed: weakref.WeakSet[subprocess.Popen] = weakref.WeakSet()
 _requested = threading.Event()
 
 
@@ -103,7 +104,7 @@ def was_killed(proc: subprocess.Popen) -> bool:
     tell them apart, since both come back as a non-zero exit.
     """
     with _lock:
-        return proc.pid in _killed
+        return proc in _killed
 
 
 def kill(proc: subprocess.Popen) -> None:
@@ -118,7 +119,7 @@ def kill(proc: subprocess.Popen) -> None:
     if proc.poll() is not None:
         return
     with _lock:
-        _killed.add(proc.pid)
+        _killed.add(proc)
     try:
         if hasattr(os, "killpg"):
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
