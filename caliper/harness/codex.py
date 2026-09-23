@@ -22,6 +22,12 @@ from caliper.schema.results import TokenUsage
 
 CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
 
+# The ChatGPT login in auth.json carries the account's hosted connectors
+# (mcp__codex_apps__*) and remote plugins, which stripping [mcp_servers] can't
+# reach. A -c override beats any [features] table in the seeded config.toml,
+# so neither an attempt nor the judge sees them (docs/adr/0026).
+NO_ACCOUNT_CONNECTORS = ("-c", "features.apps=false", "-c", "features.plugins=false")
+
 
 class CodexHarness(CliHarness):
     def __init__(self, model: str | None = None) -> None:
@@ -82,6 +88,7 @@ class CodexHarness(CliHarness):
             "--dangerously-bypass-approvals-and-sandbox",
             "--color",
             "never",
+            *NO_ACCOUNT_CONNECTORS,
             "-",
         ]
         if ctx.model:
@@ -279,6 +286,7 @@ class CodexHarness(CliHarness):
             "never",
             "--output-last-message",
             str(output_path),
+            *NO_ACCOUNT_CONNECTORS,
             "-",
         ]
         if model:

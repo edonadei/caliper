@@ -184,7 +184,7 @@ commented lines.
   success rate + saved transcript
 ```
 
-Each attempt runs in an isolated temporary home with no session history. Results are saved as JSON you can inspect and diff later.
+Each attempt runs in an isolated temporary home with no session history, and sees only the MCP servers the spec declares: none of your personal servers, and none of the hosted connectors your Claude or ChatGPT account carries (Gmail, Drive, GitHub, and the like). Results are saved as JSON you can inspect and diff later.
 
 ---
 
@@ -508,7 +508,7 @@ mcp:
 
 `caliper validate` checks the `mcp:` block and reports a malformed entry (bad name, unknown key, unknown `type`, a stdio server missing/blank `command`, or a remote server missing `url`).
 
-A declared server can be ablated for one run exactly like a skill: `caliper run <spec> --ablate weather` leaves it out of the harness config, so the agent never sees its tool definitions. If a skill and a server declare the same name, qualify it — `--ablate mcp:weather` for the server, `--ablate skill:weather` for the skill; an ambiguous bare name is refused rather than guessed at. The run records both what it removed (`RunMeta.ablated`, as `mcp:weather`) and the servers it actually ran with (`RunMeta.mcp_servers`), so `caliper compare` labels the pair from a marker it can check. An ablation that removes every server still isolates the attempt to zero servers, rather than falling back to your ambient config, and an authored `mcp: {}` does the same.
+A declared server can be ablated for one run exactly like a skill: `caliper run <spec> --ablate weather` leaves it out of the harness config, so the agent never sees its tool definitions. If a skill and a server declare the same name, qualify it — `--ablate mcp:weather` for the server, `--ablate skill:weather` for the skill; an ambiguous bare name is refused rather than guessed at. The run records both what it removed (`RunMeta.ablated`, as `mcp:weather`) and the servers it actually ran with (`RunMeta.mcp_servers`), so `caliper compare` labels the pair from a marker it can check. An ablation that removes every server still isolates the attempt to zero servers, rather than falling back to your ambient config, and an authored `mcp: {}` or no `mcp:` block at all does the same. That includes your account's hosted connectors: `claude-code` always runs with `--strict-mcp-config`, and `codex` with its `apps` and `plugins` features turned off. The judge runs with the same switches, so it can't mistake its own connectors for the attempt's.
 
 ---
 
@@ -664,7 +664,7 @@ caliper run my-skill.eval.yaml --model claude-fable-5
 caliper run my-skill.eval.yaml --model codex --judge-model claude-code:claude-haiku-4-5-20251001
 ```
 
-Accepted backends: `claude-code`, `codex`, `pi`, `hermes` (alias: `claude` → `claude-code`). The actual engine used is recorded in each saved run's `RunMeta` (the skill `backend`/`model`, and the `judge_backend`/`judge_model` that graded it), so results stay traceable even though the spec doesn't pin it. When you don't name a model and the CLI uses its own default, `RunMeta` records the concrete model the agent resolved rather than a bare "default", wherever the backend reports it: the skill model from hermes' session export, and the `judge_model` from the `claude-code` judge's JSON output. `judge_model` stays empty for an `assert:`-only run, where no LLM judge fired. When `--judge-model` is omitted, the claude-code judge still pins `claude-sonnet-5` at execution time so it does not inherit a stale model from the installed Claude CLI; that pin is not written into `RunMeta` unless you pass it explicitly or the autorater reports what it used.
+Accepted backends: `claude-code`, `codex`, `pi`, `hermes` (alias: `claude` → `claude-code`). The actual engine used is recorded in each saved run's `RunMeta` (the skill `backend`/`model`, and the `judge_backend`/`judge_model` that graded it), so results stay traceable even though the spec doesn't pin it. The skill `model` is the concrete model the agent reported running, wherever the backend reports it (hermes' session export), rather than the one you asked for: a default-model run records the resolved model instead of a bare "default", and a run whose backend reports a different model than `--model` named records what actually ran and prints a warning. If attempts report different models, the run records the most common one and warns. The `judge_model` likewise comes from the `claude-code` judge's JSON output when you don't name one. `judge_model` stays empty for an `assert:`-only run, where no LLM judge fired. When `--judge-model` is omitted, the claude-code judge still pins `claude-sonnet-5` at execution time so it does not inherit a stale model from the installed Claude CLI; that pin is not written into `RunMeta` unless you pass it explicitly or the autorater reports what it used.
 
 ---
 
@@ -933,6 +933,9 @@ Contributions are welcome. See [`CONTRIBUTING.md`](.github/CONTRIBUTING.md) for 
 
 **`codex judge failed: model ... is not supported`**
 The model name is not available to your Codex account. Use a model that `codex exec --model <name>` accepts.
+
+**`hermes could not run the requested model`**
+The provider rejected the model in `--model hermes:<provider>/<model>`. hermes itself exits successfully in this case, so Caliper reads the rejection from its output and stops the run rather than grading an empty answer. Check the model id with `hermes -z 'Reply OK' --model <model>`.
 
 **`Judge model ... is unavailable` / `Judge authentication failed` / `Judge rate limited`**
 The judge CLI reached the provider and the call was refused. Caliper classifies these at the harness boundary (from the CLI's structured output) and suggests passing `--judge-model <backend[:model]>` to pick an available judge engine or model. Example: `caliper run my-skill.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001`.

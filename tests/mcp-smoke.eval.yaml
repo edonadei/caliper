@@ -36,3 +36,16 @@ tasks:
       tool (the tool call's name contains both "echo" and "secret_word"), and the
       agent reports that the secret word is "caliper". It did not fabricate the
       word without calling the tool.
+  # Leak probe (#129): alongside the declared server (the task above proves the
+  # agent reaches it), the attempt sees none of the account's hosted connectors.
+  - name: Sees no MCP server beyond the declared one
+    prompt: >
+      List every MCP server, connector, or app integration whose tools you can
+      call, including any you could load through a tool search. Name each one,
+      or say there are none. Don't call any.
+    expect: >
+      The response names no MCP server other than "echo" and does not claim a
+      connected account connector or app integration such as Gmail, Google
+      Drive, Google Calendar, GitHub, or Vercel. Built-in tools (shell, web
+      search, file editing, and the like) don't count, nor does a service
+      mentioned only as reachable through a CLI or named in documentation.
