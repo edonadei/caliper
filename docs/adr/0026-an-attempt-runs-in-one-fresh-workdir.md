@@ -9,7 +9,7 @@ the user's shell directory.
 
 Each attempt now gets one fresh, empty directory — the **attempt workdir** —
 created beside the isolated home in the attempt's temp dir, and deleted with it.
-`setup:`, the agent, `assert:`, the autorater (and its script-mode check) and
+`setup:`, the agent, `assert:`, the autorater and
 `cleanup:` all run there. Hooks and assertions also get two environment
 variables: `CALIPER_WORKDIR` and `CALIPER_SPEC_DIR`.
 

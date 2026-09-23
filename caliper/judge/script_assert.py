@@ -22,20 +22,11 @@ _SYSTEM = """\
 You are an evaluation judge for an AI assistant. You will be shown a conversation \
 transcript and an expectation describing what success looks like.
 
-You have two response modes:
+Evaluate the expectation from the transcript. Respond with a direct verdict:
+{"mode": "verdict", "passed": true|false, "reasoning": "<one or two sentences>"}
 
-1. **Direct verdict** — if you can tell from the transcript alone whether the expectation \
-was met, respond with:
-   {"mode": "verdict", "passed": true|false, "reasoning": "<one or two sentences>"}
-
-2. **Assertion script** — if verifiable facts (files exist, output matches a pattern, \
-a value equals something) would make your judgment more reliable, write a Python script \
-that asserts those facts and respond with:
-   {"mode": "script", "code": "<python script>", "reasoning": "<why you chose this>"}
-
-The script must use `assert` statements. `assert` failure = task failed. \
-The script runs with no extra imports beyond the standard library, in the \
-directory the assistant worked in, so relative paths name the files it wrote.
+Do not write or request executable code. If the transcript does not establish \
+that the expectation was met, return a failing verdict and explain why.
 
 Respond with valid JSON only — no markdown fences, no extra text.
 """
@@ -103,9 +94,7 @@ def _run_inline_script(code: str, spec_dir: str, workdir: str) -> tuple[bool, st
         Path(tmp_path).unlink(missing_ok=True)
 
 
-def _parse_rich_response(
-    raw: str, spec_dir: str, workdir: str
-) -> tuple[bool, str, bool]:
+def _parse_rich_response(raw: str) -> tuple[bool, str, bool]:
     """Parse an autorater response into (passed, reasoning, errored).
 
     ``errored`` is True when the autorater failed to yield a usable verdict at
@@ -117,18 +106,15 @@ def _parse_rich_response(
     except json.JSONDecodeError:
         return False, f"Judge returned unparseable response: {raw[:200]}", True
 
-    mode = verdict.get("mode", "verdict")
-    reasoning = str(verdict.get("reasoning", ""))
+    if not isinstance(verdict, dict):
+        return False, "Judge returned malformed verdict", True
+    if verdict.get("mode", "verdict") != "verdict":
+        return False, "Judge returned unsupported response mode", True
+    passed = verdict.get("passed")
+    if not isinstance(passed, bool):
+        return False, "Judge returned malformed verdict", True
 
-    if mode == "script":
-        code = verdict.get("code", "")
-        if not code:
-            return False, "Judge returned empty script", True
-        passed, evidence = _run_inline_script(code, spec_dir, workdir)
-        detail = f"{reasoning} | script: {'ok' if passed else evidence}"
-        return passed, detail, False
-
-    return bool(verdict.get("passed", False)), reasoning, False
+    return passed, str(verdict.get("reasoning", "")), False
 
 
 def _run_assert_from_task(
@@ -258,6 +244,6 @@ class EvalJudge(Judge):
         if result.error:
             return False, result.error, True, result.resolved_model
         passed, reasoning, errored = _parse_rich_response(
-            _strip_markdown_fence(result.text), spec_dir, workdir
+            _strip_markdown_fence(result.text)
         )
         return passed, reasoning, errored, result.resolved_model

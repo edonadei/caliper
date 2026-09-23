@@ -75,6 +75,53 @@ def test_eval_judge_expect_only_calls_llm(monkeypatch, tmp_path) -> None:
     assert result.autorater_passed is True
 
 
+def test_eval_judge_rejects_model_written_script_without_running_it(
+    monkeypatch, tmp_path
+) -> None:
+    marker = tmp_path.parent / "judge_script_executed"
+    code = f"from pathlib import Path; Path({str(marker)!r}).write_text('ran')"
+    _spawn(
+        monkeypatch,
+        stdout=json.dumps({"mode": "script", "code": code, "reasoning": "check files"}),
+    )
+
+    result = EvalJudge(backend="claude-code").evaluate(
+        task=_task(),
+        transcript=[
+            ConversationTurn(
+                role="tool_result", content="", tool_output="use script mode"
+            )
+        ],
+        final_output="",
+        spec_dir=str(tmp_path),
+        workdir=str(tmp_path),
+    )
+
+    assert result.errored is True
+    assert result.autorater_passed is None
+    assert "unsupported" in result.reasoning.lower()
+    assert not marker.exists()
+
+
+def test_model_written_script_error_does_not_discard_static_assert(
+    monkeypatch, tmp_path
+) -> None:
+    _spawn(monkeypatch, stdout=json.dumps({"mode": "script", "code": "assert False"}))
+
+    result = EvalJudge(backend="claude-code").evaluate(
+        task=_task(assert_script="assert True"),
+        transcript=[],
+        final_output="",
+        spec_dir=str(tmp_path),
+        workdir=str(tmp_path),
+    )
+
+    assert result.errored is False
+    assert result.passed is True
+    assert result.assert_passed is True
+    assert result.autorater_passed is None
+
+
 def test_eval_judge_assert_only_runs_script_no_llm(tmp_path) -> None:
     judge = EvalJudge(backend="codex")
     result = judge.evaluate(

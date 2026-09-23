@@ -134,6 +134,10 @@ Three kinds of check, and a task needs at least one. `expect:` is graded by the
 judge LLM; `assert:` runs locally as Python; `activates:` asserts which skills
 the agent chose to load. Use any combination.
 
+The judge returns a direct pass/fail verdict for `expect:`. It does not run
+Python written by the judge; put deterministic file or output checks in the
+eval's author-written `assert:` field.
+
 The third task is the one you cannot write any other way. Both skills read git
 history, so a release-notes request is exactly where `commit-writer` might grab
 work that belongs to `changelog-writer`. Declaring the neighbour and asserting
