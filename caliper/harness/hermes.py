@@ -142,7 +142,9 @@ class HermesHarness(CliHarness):
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
         # One shell invocation: run oneshot (its final text and any error go to
         # stderr, where _diagnose reads them), then export the single persisted
-        # session as JSONL on stdout for _parse_stream. `exit $rc` propagates the
+        # session as JSONL on stdout for _parse_stream — unfiltered, since v0.21
+        # tags it `oneshot` where v0.18 said `cli`, and the isolated home holds
+        # no other session. `exit $rc` propagates the
         # oneshot's exit code so a failed run is classified as infra_error.
         # No --skills: hermes' own help calls that flag "preload", and its system
         # prompt already advertises installed skills as name + description for
@@ -151,24 +153,27 @@ class HermesHarness(CliHarness):
         # claude-code's --dangerously-skip-permissions and pi's --approve): the
         # neutral-agent harness runs non-interactively with stdin closed, so an
         # approval gate — e.g. before an MCP tool call — would hang until timeout.
+        # The model travels through the environment, like the prompt, so no
+        # caller-supplied string is ever spliced into the script.
+        model = ' --model "$CALIPER_MODEL"' if ctx.model else ""
         script = (
-            '"$CALIPER_HERMES" -z "$CALIPER_PROMPT" --yolo '
+            f'"$CALIPER_HERMES" -z "$CALIPER_PROMPT"{model} --yolo '
             "--ignore-rules 1>&2\n"
             "rc=$?\n"
-            '"$CALIPER_HERMES" sessions export --source cli - 2>/dev/null\n'
+            '"$CALIPER_HERMES" sessions export - 2>/dev/null\n'
             "exit $rc\n"
         )
         return ["/bin/sh", "-c", script], None, None
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
-        return self._isolated_env(
-            ctx,
-            extra={
-                "HERMES_HOME": str(self._hermes_home(ctx)),
-                "CALIPER_HERMES": self.cli_path() or "hermes",
-                "CALIPER_PROMPT": ctx.prompt,
-            },
-        )
+        extra = {
+            "HERMES_HOME": str(self._hermes_home(ctx)),
+            "CALIPER_HERMES": self.cli_path() or "hermes",
+            "CALIPER_PROMPT": ctx.prompt,
+        }
+        if ctx.model:
+            extra["CALIPER_MODEL"] = ctx.model
+        return self._isolated_env(ctx, extra=extra)
 
     def _cli_available(self) -> bool:
         hermes = self.cli_path()
@@ -326,8 +331,11 @@ class HermesHarness(CliHarness):
         return None
 
     def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
-        if proc.returncode == 0:
-            return None
+        # First and whatever the exit code: hermes reports a rejected model as
+        # success on v0.18 and as exit 2 on v0.21.
+        unknown_model = self._diagnose_unknown_model(proc, final_output)
+        if unknown_model or proc.returncode == 0:
+            return unknown_model
 
         text = "\n".join(part for part in (proc.stdout, proc.stderr) if part).strip()
         if not text:
@@ -405,3 +413,39 @@ class HermesHarness(CliHarness):
             )
 
         return None
+
+    def _diagnose_unknown_model(
+        self, proc: ProcessResult, final_output: str
+    ) -> str | None:
+        """Catch a model the provider rejected, so the run stops on it (#131).
+
+        hermes v0.18 exits 0 on an unknown ``--model``, with the provider's 404
+        on stderr and only the user turn in the export — left alone, every
+        attempt would be graded on an empty answer. v0.21 exits 2 instead, which
+        would still spend every attempt as an infra error, and exports a
+        synthetic "not processed" assistant turn. On exit 0 an empty
+        ``final_output`` is the guard — the agent's reply is on stderr too, and
+        may quote anything.
+        """
+        if proc.returncode == 0 and final_output.strip():
+            return None
+        lowered = proc.stderr.lower()
+        rejection_markers = (
+            "404",
+            "not found",
+            "does not exist",
+            "unknown model",
+            "invalid model",
+        )
+        if "model" not in lowered or not any(
+            marker in lowered for marker in rejection_markers
+        ):
+            return None
+        return (
+            "hermes could not run the requested model.\n\n"
+            "The hermes CLI returned:\n"
+            f"  {proc.stderr.strip()[:500]}\n\n"
+            "Check the model id in `--model hermes:<provider>/<model>` (verify "
+            "`hermes -z 'Reply OK' --model <model>` works in your normal shell), "
+            "then rerun caliper."
+        )

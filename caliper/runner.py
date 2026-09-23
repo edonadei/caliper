@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -150,6 +151,8 @@ def run(
     # Supplied by the CLI so it can surface the fetcher's warnings; defaulted
     # here so a caller with a path-only spec never has to think about it.
     fetcher: SkillFetcher | None = None,
+    # Told when the backend reports running a different model than requested.
+    on_warning: Callable[[str], None] | None = None,
 ) -> RunResults:
     # Before anything that can block: a Ctrl-C during skill fetching has to be
     # honoured by the attempts that would otherwise start right after it.
@@ -288,11 +291,7 @@ def run(
             # The engine is whatever the harness and judge were built with
             # (docs/adr/0004): asked of them, not passed in beside them.
             backend=harness.name,
-            # Prefer the model the backend was built with; otherwise fall back to
-            # the concrete model an attempt resolved (e.g. from hermes' export),
-            # so a default-model run still records what actually ran.
-            model=harness.model
-            or (env.resolved_models[0] if env.resolved_models else None),
+            model=_recorded_model(harness.model, env.resolved_models, on_warning),
             judge_backend=judge.backend,
             # Prefer the judge's own model; else the concrete model an autorater
             # reported (e.g. claude-code). Stays None for assert-only runs, where
@@ -373,6 +372,37 @@ def _run_attempt_job(task: TaskSpec, attempt: int, env: _RunEnv) -> list[Attempt
     """
     record = _attempt_or_none(task, attempt, env)
     return [record] if record is not None else []
+
+
+def _recorded_model(
+    requested: str | None,
+    resolved: list[str],
+    on_warning: Callable[[str], None] | None,
+) -> str | None:
+    """The model ``RunMeta`` names: what the backend reported running (#131).
+
+    Requested is only the fallback, for a backend that reports nothing. Trusting
+    it first let a backend that ignored ``--model`` save a run claiming a model
+    that never ran. Attempts finish in timing order, so a run whose attempts
+    disagree records the most common model (ties alphabetical) rather than the
+    first to finish, and says so.
+    """
+    if not resolved:
+        return requested
+    counts = Counter(resolved)
+    ranked = sorted(counts, key=lambda model: (-counts[model], model))
+    actual = ranked[0]
+    if on_warning and len(ranked) > 1:
+        mixed = ", ".join(f"{model!r} ×{counts[model]}" for model in ranked)
+        on_warning(
+            f"Attempts reported different models ({mixed}); the run records {actual!r}."
+        )
+    elif on_warning and requested and actual != requested:
+        on_warning(
+            f"Requested model {requested!r}, but the backend reported running "
+            f"{actual!r}; the run records {actual!r}."
+        )
+    return actual
 
 
 def _run_task_chain(task: TaskSpec, env: _RunEnv, k: int) -> list[AttemptRecord]:
@@ -525,15 +555,17 @@ def _measure_attempt(
     # abort.
     invoked = invoke_with_retry(invoke)
     attempt_result = invoked.result
-    if attempt_result.resolved_model:
-        env.resolved_models.append(attempt_result.resolved_model)
-
     # Killed by the cancellation, not by anything about the skill. Returned
     # as nothing at all rather than assembled into an infra_error — the one
     # place that can tell the two apart, because only the spawn knows who
     # killed it.
     if attempt_result.cancelled:
         return None
+
+    # After the cancellation check: a discarded attempt's fallback model must
+    # not vote on the model the run records.
+    if attempt_result.resolved_model:
+        env.resolved_models.append(attempt_result.resolved_model)
 
     assembled = assemble_attempt(
         attempt_result,
