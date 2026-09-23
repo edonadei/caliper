@@ -58,7 +58,7 @@ def answered(result: AttemptResult) -> bool:
 def no_model_call_observed(result: AttemptResult) -> bool:
     """Whether nothing shows the agent ever got as far as a model call.
 
-    Nothing parsed out of the stream *and* no tokens reported: typically the CLI
+    No parsed answer or agent turn *and* no tokens reported: typically the CLI
     bailed on its own (an expired login reported inside a zero-exit stream,
     #132) and whatever it printed is not an answer. Both halves, because either
     alone is ambiguous — a parser can miss a stream the model did produce
@@ -70,8 +70,11 @@ def no_model_call_observed(result: AttemptResult) -> bool:
     happen. Either way there is nothing to judge. See
     docs/adr/0001-attempt-outcome-taxonomy.md.
     """
-    # The prompt a backend echoes back (hermes' export) is input, not a call.
-    parsed = not result.salvaged and any(t.role != "user" for t in result.transcript)
+    # A parsed answer is the agent speaking; the prompt a backend echoes back
+    # (hermes' export) is input, not a call.
+    parsed = not result.salvaged and (
+        bool(result.final_output) or any(t.role != "user" for t in result.transcript)
+    )
     tokens = result.usage.total_tokens if result.usage is not None else None
     return not parsed and not tokens
 

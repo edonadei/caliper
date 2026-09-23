@@ -89,11 +89,18 @@ def test_pre_judge_infra_when_no_model_call_was_observed() -> None:
     # call (an expired login reported inside its own stream). Nothing to judge.
     for h in (
         _harness(transcript=[], final_output=""),
-        _harness(transcript=[], usage=TokenUsage(input_tokens=0, output_tokens=0)),
+        _harness(
+            transcript=[],
+            final_output="",
+            usage=TokenUsage(input_tokens=0, output_tokens=0),
+        ),
         _harness(salvaged=True, final_output='{"type":"agent_end"}'),
         # A session export can carry the prompt it was given and nothing the
         # model said: the input alone is no evidence of a call.
-        _harness(transcript=[ConversationTurn(role="user", content="Do it")]),
+        _harness(
+            transcript=[ConversationTurn(role="user", content="Do it")],
+            final_output="",
+        ),
     ):
         assert classify_pre_judge(h).outcome is Outcome.INFRA_ERROR
 
@@ -103,6 +110,12 @@ def test_pre_judge_none_when_an_unparsed_attempt_still_spent_tokens() -> None:
     # stdout is still the agent's answer, so it goes to the judge.
     h = _harness(salvaged=True, usage=TokenUsage(input_tokens=10, output_tokens=5))
     assert classify_pre_judge(h) is None
+
+
+def test_pre_judge_none_for_an_answer_with_no_transcript_or_usage() -> None:
+    # A backend may hand back only its parsed answer. Unlike salvaged stdout,
+    # that is the agent speaking, so it goes to the judge.
+    assert classify_pre_judge(_harness(transcript=[])) is None
 
 
 def test_pre_judge_ignores_cheat_and_judge_states() -> None:
