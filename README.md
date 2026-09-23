@@ -125,7 +125,9 @@ tasks:
 
 Three kinds of check, and a task needs at least one. `expect:` is graded by the
 judge LLM; `assert:` runs locally as Python; `activates:` asserts which skills
-the agent chose to load. Use any combination.
+the agent chose to load. Use any combination. An experimental fourth,
+[`classify:`](#typed-classification-classify-experimental), grades one narrow
+claim with a typed classifier.
 
 The third task is the one you cannot write any other way. Both skills read git
 history, so a release-notes request is exactly where `commit-writer` might grab
@@ -376,9 +378,24 @@ tasks:
   - name: Unrelated work, silence expected
     prompt: "Rename `resolved_model` to `engine_model` across the repo."
     activates: []                 # nothing should fire
+
+  - name: Grounds the answer in the lookup result   # experimental
+    prompt: Look up the deployment window and report it.
+    classify:                     # a list of named Choice classifiers
+      - name: tool-grounding
+        evidence: tool_trace
+        question: How did the final answer use the authoritative tool result?
+        choices:
+          grounded: It accurately conveys the tool result, allowing paraphrases.
+          contradicted: It gives information that conflicts with the tool result.
+          unused: It does not meaningfully use the tool result.
+          unclear: The relationship cannot be established.
+        require: grounded
+        abstain: unclear
+        min_probability: 0.80
 ```
 
-Each task needs at least one of `expect`, `assert` or `activates`. Task IDs are assigned automatically as `task-001`, `task-002`, and so on.
+Each task needs at least one of `expect`, `assert`, `classify` or `activates`. Task IDs are assigned automatically as `task-001`, `task-002`, and so on.
 
 > **Upgrading an existing spec?** `skill:` became `skills:` in v0.10. See [docs/MIGRATING-to-skills.md](docs/MIGRATING-to-skills.md) for a short checklist, including the two traps a find-and-replace misses (stale `skill.path` inside `prompt:`/`expect:`/`assert:` strings, and prompts that name the skill they're testing).
 
@@ -464,7 +481,7 @@ different skills installed — is the separate neighbourhood warning.
 | `activates: [a, b]` | both fired, which is how a delegating skill asserts its chain |
 | `activates: []` | nothing fired; silence held |
 
-A task with `activates:` and no `expect:`/`assert:` is a **trigger probe**: it
+A task with `activates:` and no `expect:`/`assert:`/`classify:` is a **trigger probe**: it
 asks only what the agent reached for, skips the judge entirely (so it is much
 cheaper than an execution task), and reports as `trigger only` rather than a
 zero. Use it for neighbour and silence probes, where there is no work worth
@@ -536,6 +553,45 @@ tasks:
 ```
 
 When both `expect` and `assert` are present, both must pass.
+
+### Typed classification (`classify:`, experimental)
+
+`classify:` is a bounded, typed check for one narrow kind of claim, such as
+"did the final answer follow from what the tool returned?". It is not a cheap
+replacement for `expect:`. Each entry in the list is a named Choice classifier:
+
+| Field | Meaning |
+| --- | --- |
+| `name` | Unique within the task; the key its result is saved under. |
+| `evidence` | Which view of the attempt is sent. `tool_trace` = the task prompt, every tool call and tool result in order, and the final output. Required. |
+| `question` | What the classifier decides. |
+| `choices` | Every allowed label mapped to its meaning (`null` if the name says it all). |
+| `require` | The label that passes. |
+| `abstain` | The honest "cannot tell" label. Must differ from `require`. |
+| `min_probability` | Required, between 0 and 1. The selected label's probability must reach it. It is an authored threshold, not a Caliper default. |
+
+The classifier is TypeSafe's Jev, pinned to `jev-1.13.0` and called over HTTP.
+Export `TYPESAFE_API_KEY` in the shell that runs caliper. It is never read from
+the spec and never saved.
+
+- A confident `require` label passes.
+- A confident other label is `task_fail`.
+- The `abstain` label, any label below `min_probability`, a missing or rejected
+  key, a provider failure, or a malformed response is `judge_error`.
+
+Classifiers that share an evidence view go out in one request, and each answer
+comes back under its own `name`. When a task mixes `classify:` with `assert:` or
+`expect:`, a confident failure anywhere fails the attempt. Otherwise any
+uncertainty, including an errored `expect:` autorater, is a `judge_error`, and
+only a task whose checks all pass is a `pass`.
+
+Each attempt saves a `classifications` list with every check's `name`,
+`evidence`, `verdict`, `selected` label, full `probabilities`, authored
+`require`/`abstain`/`min_probability`, `latency_seconds`, `request_bytes`, the
+concrete `model` that answered, and `error` when there is no verdict. The
+report prints one line per check, the label and its probability against the
+threshold. Jev returns no prose reasoning, and Caliper does not invent any. See
+[docs/adr/0027](docs/adr/0027-jev-classify-is-an-experimental-typed-check.md).
 
 ---
 
@@ -700,7 +756,7 @@ not scored as task failure:
 | `infra_error` | harness failure: nonzero exit, or a detected rate-limit / spending-cap | ❌ unusable |
 | `timeout` | exceeded the time budget with no result | ❌ unusable |
 | `judge_error` | the judge produced no verdict (unparseable / errored autorater) | ❌ unusable |
-| `not_checked` | the task authored no `expect:`/`assert:`, so it is a trigger probe | ⊘ not asked |
+| `not_checked` | the task authored no `expect:`/`assert:`/`classify:`, so it is a trigger probe | ⊘ not asked |
 
 `not_checked` is the one outcome that is neither: it leaves the denominator like
 an unusable attempt, but nothing went wrong, so it is never reported as an error

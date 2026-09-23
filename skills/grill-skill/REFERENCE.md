@@ -144,9 +144,49 @@ tasks:
   - name: Silence — <work no declared skill should answer>
     prompt: ...
     activates: []                # a trigger probe: no judge, no execution score
+
+  - name: Grounds the answer in the lookup result   # experimental classify:
+    prompt: Look up the deployment window and report it.
+    classify:                     # list of named Choice classifiers (Jev)
+      - name: tool-grounding      # unique in the task; the saved result key
+        evidence: tool_trace      # required: task prompt + tool calls/results + final output
+        question: How did the final answer use the authoritative tool result?
+        choices:                  # label -> meaning (null if the name says it all)
+          grounded: It accurately conveys the tool result, allowing paraphrases.
+          contradicted: It gives information that conflicts with the tool result.
+          unused: It does not meaningfully use the tool result.
+          unclear: The relationship cannot be established.
+        require: grounded         # the label that passes
+        abstain: unclear          # the honest "cannot tell"; must differ from require
+        min_probability: 0.80     # required, 0..1; applies to the selected label
 ```
 
-Each task needs at least one of `expect`, `assert` or `activates`.
+Each task needs at least one of `expect`, `assert`, `classify` or `activates`.
+
+### `classify:` (experimental typed check)
+
+A bounded, typed check for one narrow claim, such as whether the final answer
+follows from what a tool returned. It is not a cheap replacement for `expect:`.
+Each entry is graded by TypeSafe's Jev, pinned to `jev-1.13.0`. Export
+`TYPESAFE_API_KEY` in the shell that runs caliper; it is never read from the
+spec and never saved.
+
+- A confident `require` label passes. A confident other label is `task_fail`.
+- The `abstain` label, a selected label below `min_probability`, an auth or
+  provider failure, or a malformed response is `judge_error`.
+- Classifiers sharing an `evidence` view go out in one request and come back
+  under their own `name`s.
+- Mixed with `assert:`/`expect:`, a confident failure anywhere fails the
+  attempt. Otherwise any uncertainty (including an errored `expect:`) is
+  `judge_error`, and only all-passing checks give `pass`.
+- Each attempt saves `classifications`: per check the `name`, `evidence`,
+  `verdict`, `selected` label, full `probabilities`, authored
+  `require`/`abstain`/`min_probability`, `latency_seconds`, `request_bytes`,
+  concrete `model`, and `error` when there is no verdict. The report prints the
+  label and its probability against the threshold, and never invents reasoning
+  (Jev returns none).
+
+See `docs/adr/0027-jev-classify-is-an-experimental-typed-check.md`.
 
 ## Triggering: does the description fire?
 
@@ -229,6 +269,7 @@ is findable by `caliper report <spec-name>` from anywhere in the project.
 
 Each attempt records its `outcome`, optional `usage`, and optional `transcript` (ordered turns with `tool_name`/`tool_input`/`tool_output` when present)
 so saved runs remain inspectable after the fact — including which MCP tools fired.
+An attempt with `classify:` checks also saves `classifications` (see above).
 Older JSON without `transcript` still loads (`null`). `report` and `compare` do not
 render the transcript; it is stored for later analysis. A run also records what
 `--ablate` removed (`RunMeta.ablated`; a server as `mcp:<name>`) and the `mcp:`

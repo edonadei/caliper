@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from caliper.harness.base import ConversationTurn
+from caliper.schema.results import ClassificationRecord
 from caliper.schema.spec import TaskSpec
 
 
@@ -23,6 +24,8 @@ class JudgeResult:
     # claude-code echoes it in its JSON output). ``None`` when no LLM autorater
     # ran (assert-only task) or the backend does not surface the model.
     resolved_model: str | None = None
+    # One decision per authored ``classify:`` check, in authored order.
+    classifications: list[ClassificationRecord] = field(default_factory=list)
 
 
 class Judge(Protocol):

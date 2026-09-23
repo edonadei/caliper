@@ -10,6 +10,9 @@ from caliper.harness import get_harness
 from caliper.harness.base import ConversationTurn
 from caliper.harness.prompt_failure import format_judge_failure
 from caliper.judge.base import Judge, JudgeResult
+from caliper.judge.classify import Ask, evaluate_classify
+from caliper.judge.jev import ask_choices
+from caliper.schema.results import ClassificationVerdict
 from caliper.schema.spec import DEFAULT_BACKEND, TaskSpec, resolve_judge_model
 
 _SYSTEM = """\
@@ -139,7 +142,10 @@ class EvalJudge(Judge):
     """Universal judge: runs the static assert script and/or calls an LLM to evaluate."""
 
     def __init__(
-        self, backend: str = DEFAULT_BACKEND, model: str | None = None
+        self,
+        backend: str = DEFAULT_BACKEND,
+        model: str | None = None,
+        ask: Ask = ask_choices,
     ) -> None:
         # The judge engine is a runtime axis, resolved from --judge-model (ADR
         # 0004). ``model`` stays as *requested*: ``None`` means the pinned
@@ -148,6 +154,8 @@ class EvalJudge(Judge):
         # never ran.
         self.backend = backend
         self.model = model
+        # The Jev call behind ``classify:`` checks; injected by tests.
+        self._ask = ask
 
     def evaluate(
         self,
@@ -179,17 +187,45 @@ class EvalJudge(Judge):
             # so it is dropped from the checks rather than counted as a failure.
             autorater_passed = None if autorater_errored else llm_passed
 
-        # Rule B: only checks that produced a verdict count. A judge_error is
-        # raised only when *no* verdict survives (see ADR-0001).
-        checks = [c for c in (assert_passed, autorater_passed) if c is not None]
-        errored = not checks
-        overall = all(checks) if checks else False
+        classifications = (
+            evaluate_classify(
+                task.classify,
+                task_prompt=task.prompt,
+                transcript=transcript,
+                final_output=final_output,
+                ask=self._ask,
+            )
+            if task.classify
+            else []
+        )
+
+        # Rule B (ADR-0001): without classification checks, an errored
+        # autorater is dropped and judge_error is raised only when *no* verdict
+        # survives. With them (docs/adr/0027), every check counts: a confident
+        # failure wins, otherwise any uncertainty — an abstention, an
+        # under-threshold answer, an errored autorater — prevents a pass.
+        verdicts = [c for c in (assert_passed, autorater_passed) if c is not None]
+        verdicts += [
+            c.verdict == ClassificationVerdict.PASS
+            for c in classifications
+            if c.verdict != ClassificationVerdict.ERROR
+        ]
+        uncertain = bool(classifications) and (
+            autorater_errored
+            or any(c.verdict == ClassificationVerdict.ERROR for c in classifications)
+        )
+        if verdicts and not all(verdicts):
+            errored, overall = False, False
+        else:
+            errored = not verdicts or uncertain
+            overall = not errored
 
         reasoning_parts = []
         if autorater_reasoning:
             reasoning_parts.append(autorater_reasoning)
         if assert_evidence:
             reasoning_parts.append(f"assert: {assert_evidence}")
+        reasoning_parts += [c.explain() for c in classifications]
         reasoning = " | ".join(reasoning_parts) or "no checks defined"
 
         return JudgeResult(
@@ -201,6 +237,7 @@ class EvalJudge(Judge):
             autorater_reasoning=autorater_reasoning,
             errored=errored,
             resolved_model=autorater_model,
+            classifications=classifications,
         )
 
     def _llm_evaluate(

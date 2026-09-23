@@ -4,6 +4,7 @@ from typing import Callable
 
 from rich import box
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.progress import (
     Progress,
@@ -630,6 +631,8 @@ def _print_task_detail(tr: TaskResult, k: int) -> None:
             lines.append(f"    [dim]assert: {attempt.assert_evidence}[/dim]")
         if attempt.autorater_reasoning:
             lines.append(f"    [dim]{attempt.autorater_reasoning}[/dim]")
+        for record in attempt.classifications or []:
+            lines.append(f"    [dim]{escape(record.explain())}[/dim]")
 
     console.print(
         Panel(

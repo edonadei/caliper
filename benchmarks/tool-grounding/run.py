@@ -24,13 +24,15 @@ import tempfile
 import time
 from collections import Counter
 from dataclasses import asdict, dataclass, field
+from functools import partial
 from pathlib import Path
 
 from caliper.harness.base import ConversationTurn
 from caliper.judge import EvalJudge
-from caliper.judge.evidence import tool_trace
-from caliper.judge.jev import JEV_MODEL, ChoiceQuestion, JevError, ask_choices
-from caliper.schema.spec import TaskSpec, parse_target
+from caliper.judge.classify import evaluate_classify
+from caliper.judge.jev import JEV_MODEL, ask_choices
+from caliper.schema.results import ClassificationVerdict
+from caliper.schema.spec import ClassifyCheck, TaskSpec, parse_target
 
 HERE = Path(__file__).parent
 CORPUS_DIR = HERE / "corpus"
@@ -40,6 +42,12 @@ CLASSIFIER_PATH = HERE / "classifier.json"
 # would turn the gate into a description of whatever happened.
 MIN_REPEATABILITY = 0.8
 MAX_LATENCY_RATIO = 0.2  # Jev median must be at most 1/5 of the CLI judge's.
+
+_DECISION = {
+    ClassificationVerdict.PASS: "pass",
+    ClassificationVerdict.FAIL: "fail",
+    ClassificationVerdict.ERROR: "judge_error",
+}
 
 CAVEAT = (
     "Five frozen traces are a narrow product experiment, not evidence of general "
@@ -67,29 +75,11 @@ class Trace:
     final_output: str
 
 
-@dataclass(frozen=True)
-class Classifier:
-    name: str
-    question: str
-    choices: dict[str, str | None]
-    require: str
-    abstain: str
-    min_probability: float
-
-    def to_question(self) -> ChoiceQuestion:
-        return ChoiceQuestion(instructions=self.question, criteria=self.choices)
-
-    def expected_decision(self, label: str) -> str:
-        """The decision a human label implies: an abstention is a judge error."""
-        if label == self.abstain:
-            return "judge_error"
-        return "pass" if label == self.require else "fail"
-
-    def decide(self, choice: str, probability: float) -> str:
-        """pass / fail / judge_error, by the rules classify checks will use."""
-        if choice == self.abstain or probability < self.min_probability:
-            return "judge_error"
-        return "pass" if choice == self.require else "fail"
+def expected_decision(check: ClassifyCheck, label: str) -> str:
+    """The decision a human label implies: an abstention is a judge error."""
+    if label == check.abstain:
+        return "judge_error"
+    return "pass" if label == check.require else "fail"
 
 
 @dataclass
@@ -142,38 +132,30 @@ def load_corpus(directory: Path = CORPUS_DIR) -> list[Trace]:
     return traces
 
 
-def load_classifier(path: Path = CLASSIFIER_PATH) -> Classifier:
-    raw = json.loads(path.read_text())
-    return Classifier(
-        name=raw["name"],
-        question=raw["question"],
-        choices=raw["choices"],
-        require=raw["require"],
-        abstain=raw["abstain"],
-        min_probability=float(raw["min_probability"]),
-    )
+def load_classifier(path: Path = CLASSIFIER_PATH) -> ClassifyCheck:
+    """The corpus classifier, validated by the same schema a spec uses."""
+    return ClassifyCheck(**json.loads(path.read_text()))
 
 
-def grade_with_jev(trace: Trace, classifier: Classifier, **ask_kwargs) -> Decision:
-    evidence = tool_trace(trace.task_prompt, trace.transcript, trace.final_output)
+def grade_with_jev(trace: Trace, check: ClassifyCheck, **ask_kwargs) -> Decision:
+    """Grade one trace exactly as a ``classify:`` check in a spec would be."""
     started = time.monotonic()
-    try:
-        response = ask_choices(
-            evidence, {classifier.name: classifier.to_question()}, **ask_kwargs
-        )
-    except JevError as err:
-        return Decision(
-            decision="judge_error",
-            latency_seconds=time.monotonic() - started,
-            error=f"{err.kind.value}: {err.message}",
-        )
-    answer = response.answers[classifier.name]
+    (record,) = evaluate_classify(
+        [check],
+        task_prompt=trace.task_prompt,
+        transcript=trace.transcript,
+        final_output=trace.final_output,
+        ask=partial(ask_choices, **ask_kwargs),
+    )
     return Decision(
-        decision=classifier.decide(answer.choice, answer.probability),
-        latency_seconds=response.latency_seconds,
-        model=response.model,
-        choice=answer.choice,
-        probabilities=answer.probabilities,
+        decision=_DECISION[record.verdict],
+        latency_seconds=record.latency_seconds or time.monotonic() - started,
+        model=record.model,
+        choice=record.selected,
+        probabilities=record.probabilities,
+        # Only a call that returned no answer is an error; an abstention or an
+        # under-threshold answer is a decision, and its latency counts.
+        error=record.error if record.selected is None else None,
     )
 
 
@@ -315,7 +297,7 @@ def run(
     repeats: int,
     cli_target: str | None,
     corpus: list[Trace] | None = None,
-    classifier: Classifier | None = None,
+    classifier: ClassifyCheck | None = None,
     **ask_kwargs,
 ) -> tuple[list[TraceReport], dict]:
     corpus = corpus if corpus is not None else load_corpus()
@@ -330,7 +312,7 @@ def run(
         report = TraceReport(
             id=trace.id,
             label=trace.label,
-            expected_decision=classifier.expected_decision(trace.label),
+            expected_decision=expected_decision(classifier, trace.label),
         )
         for _ in range(repeats):
             report.jev.append(grade_with_jev(trace, classifier, **ask_kwargs))

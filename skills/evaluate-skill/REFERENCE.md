@@ -107,9 +107,50 @@ tasks:
     name: Unrelated work — silence expected
     prompt: <a prompt no declared skill should answer>
     activates: []                 # nothing fired
+
+  - id: task-006
+    name: Grounds the answer in the lookup result   # experimental classify:
+    prompt: Look up the deployment window and report it.
+    classify:                     # list of named Choice classifiers (Jev)
+      - name: tool-grounding      # unique in the task; the saved result key
+        evidence: tool_trace      # required: task prompt + tool calls/results + final output
+        question: How did the final answer use the authoritative tool result?
+        choices:                  # label -> meaning (null if the name says it all)
+          grounded: It accurately conveys the tool result, allowing paraphrases.
+          contradicted: It gives information that conflicts with the tool result.
+          unused: It does not meaningfully use the tool result.
+          unclear: The relationship cannot be established.
+        require: grounded         # the label that passes
+        abstain: unclear          # the honest "cannot tell"; must differ from require
+        min_probability: 0.80     # required, 0..1; applies to the selected label
 ```
 
-Each task needs at least one of `expect`, `assert` or `activates`.
+Each task needs at least one of `expect`, `assert`, `classify` or `activates`.
+
+### `classify:` (experimental typed check)
+
+A bounded, typed check for one narrow claim, such as whether the final answer
+follows from what a tool returned. It is not a cheap replacement for `expect:`.
+Each entry is graded by TypeSafe's Jev, pinned to `jev-1.13.0`. Export
+`TYPESAFE_API_KEY` in the shell that runs caliper; it is never read from the
+spec and never saved.
+
+- A confident `require` label passes. A confident other label is `task_fail`.
+- The `abstain` label, a selected label below `min_probability`, an auth or
+  provider failure, or a malformed response is `judge_error`.
+- Classifiers sharing an `evidence` view go out in one request and come back
+  under their own `name`s.
+- Mixed with `assert:`/`expect:`, a confident failure anywhere fails the
+  attempt. Otherwise any uncertainty (including an errored `expect:`) is
+  `judge_error`, and only all-passing checks give `pass`.
+- Each attempt saves `classifications`: per check the `name`, `evidence`,
+  `verdict`, `selected` label, full `probabilities`, authored
+  `require`/`abstain`/`min_probability`, `latency_seconds`, `request_bytes`,
+  concrete `model`, and `error` when there is no verdict. The report prints the
+  label and its probability against the threshold, and never invents reasoning
+  (Jev returns none).
+
+See `docs/adr/0027-jev-classify-is-an-experimental-typed-check.md`.
 
 `activates:` asserts the **exact set** of skills the agent loaded on an attempt.
 Skills are installed where the agent looks for them and never pasted into the
@@ -152,7 +193,7 @@ trajectory by running `hermes -z` then `hermes sessions export`.
 ## Key concepts
 
 - **success rate** — the primary score: `successes / usable` (how often a *single* run works), computed over the usable attempts only. Two secondary views (on every task in the JSON as `pass_at_k`/`pass_hat_k`, and under `--verbose`) reframe it for how the skill is used: **pass@k** = `1−(1−p)^k` = P(≥1 of k pass) — the retry / "eventual success" lens, **≥** the rate, for when a failure is cheap to retry and you keep the good run; **pass^k** = `p^k` = P(all k pass) — the strict / "must never fail" lens, **≤** the rate, for when the skill runs unattended or as one link in a chain. When in doubt use the raw rate — pass@k is the code-gen metric and flatters flaky skills (`1/3 → 70.4%`)
-- **outcome** — each attempt is typed `pass`, `task_fail`, `cheat`, `infra_error`, `timeout`, `judge_error`, or `not_checked`; `infra_error`/`timeout`/`judge_error` are *unusable* (infrastructure/judge noise) and are excluded from the score denominator and reported as a separate "N unusable" count, so a throttled or judge-flaked run is not mistaken for a regression. `not_checked` is neither: the task authored no `expect:`/`assert:` (a trigger probe), so it leaves the denominator without being reported as an error. `passed` in the JSON equals `outcome == pass`.
+- **outcome** — each attempt is typed `pass`, `task_fail`, `cheat`, `infra_error`, `timeout`, `judge_error`, or `not_checked`; `infra_error`/`timeout`/`judge_error` are *unusable* (infrastructure/judge noise) and are excluded from the score denominator and reported as a separate "N unusable" count, so a throttled or judge-flaked run is not mistaken for a regression. `not_checked` is neither: the task authored no `expect:`/`assert:`/`classify:` (a trigger probe), so it leaves the denominator without being reported as an error. `passed` in the JSON equals `outcome == pass`.
 - **`--fail-fast N`** — optional run control that stops scheduling new attempts for a task after N consecutive `infra_error`/`timeout` outcomes; `0` disables it. Counts **attempts**, not invocations, so with retries it can cost up to three times the spawns. Early-stopped tasks report as `ABORTED`, and tasks with no usable attempts keep `score: null`.
 - **`--workers N`** — how many **attempts** run in parallel, across all tasks (default `4`); every (task, attempt) pair is scheduled independently, so `--k 10 --workers 4` on a one-task spec runs four at a time. `--fail-fast` is the exception: it keeps each task's attempts sequential, since the streak it counts is only defined in order. Concurrent agents share one upstream rate limit, so a high `--workers` buys wall-clock time at the risk of more `infra_error` attempts.
 - **retry** — an *attempt* is one measured shot at the task, an *invocation* one spawn of the agent; they differ when the provider refuses. A throttle (429 / overloaded / 503) is retried twice with backoff and folds into **one** `AttemptRecord` with a `retries` count — the score's denominator is attempts, never spawns. A **spending cap** is not retried and not survivable: it aborts the run (saving what ran, reporting the cap), because every remaining attempt would meet the same wall. A bare crash is neither retried nor aborted on — it reproduces. The merged record takes its *output* from the last invocation, **sums** tokens across all of them, and sums only the spawn time, excluding backoff (docs/adr/0019).
@@ -163,7 +204,7 @@ trajectory by running `hermes -z` then `hermes sessions export`.
 - **ablation (`--ablate NAME`)** — runs the same tasks with that declared subject *removed*: a skill from the neighbourhood, or an `mcp:` server from the harness config, so the agent never sees its tool definitions. Saved as an ordinary run; `caliper compare` gives the delta. Repeatable; naming every declared skill leaves the bare agent. A name both a skill and a server declare is refused rather than guessed at — qualify it `skill:<name>` or `mcp:<name>`. The ablated arm is a property of the **tasks and the surviving environment**, never of the removed skill's text — that skill is not installed, so neither its body nor its `description` can move the number — so run it **once** and re-diff against it as the skill changes. Removing a *skill* observes activation but withholds the verdict (`activates:` expectations are dropped, rendered *skipped*, never `0%`), because filtering the expectation would assert a claim the author never wrote; removing a server leaves the activation verdicts intact, since the skills it names are all still installed. `RunMeta.ablated` records what was removed (a server qualified as `mcp:<name>`) and `RunMeta.mcp_servers` the servers the run kept, which together let `compare` check and label an ablation pair instead of warning about the difference; an all-ablated `mcp:` block still isolates the attempt to zero servers. Replaces the retired `--baseline` flag (docs/adr/0015, docs/adr/0025)
 - **skill source** — how one `skills:` entry is obtained. A bare string is a **path source** (a `SKILL.md` on disk, resolved against the spec's directory); a mapping is a **git source** (`repo:`, optional `ref:`, optional `path:` defaulting to a root `SKILL.md`) that caliper clones into a commit-addressed cache. Git sources are how a spec gives a `description` real competition without vendoring someone's repo. One entry is one skill; entries sharing a repo and commit share one clone. `ref:` is optional and an omitted one tracks the default branch — allowed rather than forbidden because the resolved commit is recorded and `compare` reports drift, though a pinned commit is fully offline after its first fetch while an unpinned one costs a `git ls-remote` per run. `run` fetches before the first attempt; `validate` never touches the network (it resolves from a warm cache and reports the rest as *not cached*). An uncached, unfetchable source **refuses the run**; a cached one whose remote is unreachable runs on the cache and warns (docs/adr/0016, docs/adr/0017)
 - **skill drift** — a member of the neighbourhood whose *text* differs between two saved runs, reported by `compare` from the per-file hashes in `SkillSnapshot`. Graded by provenance, not role: a drifted **git source** warns (the spec claimed where those bytes came from, so the delta is confounded), a drifted **path source** is shown without alarm (nothing was promised about a working file, and that edit is usually what the run exists to measure). Distinct from the neighbourhood warning, which is a change in *membership* rather than text
-- **judge** — the spec drives evaluation: `expect:` triggers an LLM verdict (which may generate a Python assertion script); `assert:` runs a deterministic Python script; both can be combined and both must pass
+- **judge** — the spec drives evaluation: `expect:` triggers an LLM verdict (which may generate a Python assertion script); `assert:` runs a deterministic Python script; both can be combined and both must pass; the experimental `classify:` adds typed Jev classifiers (see above)
 - **cheat detection** — transcript is scanned for reads of forbidden files (spec, results)
 - **MCP servers (`mcp:`)** — an optional top-level mapping (keyed by server name) declaring MCP servers the agent-under-test may use; they are a capability granted to the agent for the eval — part of the run environment like `sandbox:` (a sibling of it and of `skills:`, applied whether or not any skill is declared), so they live in the spec, not behind a flag. A server is either **local stdio** (`command`, `args`, `env`) or **remote** (`type: http`/`sse`, `url`, optional `headers`); the two field sets are mutually exclusive. Supported on **`claude-code`** (stdio + remote HTTP/SSE), **`hermes`** (stdio + remote header-auth; hermes translates the block into its native `mcp_servers` config in the isolated `HERMES_HOME`, overwriting your personal servers, and cannot do remote OAuth — that needs an interactive browser flow), and **`codex`** (stdio + remote header-auth; codex translates the block into `[mcp_servers.*]` tables in the isolated `~/.codex/config.toml` — stdio as `command`/`args`/`env`, remote as `url` + a static `http_headers` map, with `http`/`sse` collapsed onto codex's one url-inferred streamable-HTTP transport — replacing any personal servers from your real config, and likewise cannot do remote OAuth); a spec that declares `mcp:` on a backend that can't honor it is a hard error, not a silent no-op (`pi` has no MCP by design and will not honor `mcp:` natively — expose the capability as a CLI tool the skill drives or a pi extension, or run the eval on `claude-code`/`hermes`/`codex`). A value in a stdio `env:`, a remote `headers:`, or a remote `url:` may reference a host env var as `${VAR}` (resolved at the harness boundary from your shell at run time so secrets stay out of the committed spec; an unset var fails the run). A tool call surfaces as a namespaced name — `mcp__<server>__<tool>` on `claude-code` and `codex`, `mcp_<server>_<tool>` on `hermes` — so an `expect:` judge can check a tool was used; word it around behaviour, not one backend's spelling, if the spec runs under more than one engine. Server names must match `[A-Za-z0-9_-]+`; `caliper validate` reports a malformed entry (bad name, unknown key/`type`, a stdio server missing `command`, or a remote server missing `url`)
 - **token & wall-clock usage** — each attempt records an optional `usage` (`input_tokens` non-cached, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, computed `total_tokens`; the four token fields are disjoint) plus its `duration_seconds`. `report` shows per-task `Tokens`/`Wall` columns in the results table plus a per-run `Tokens … in / … out · Wall …` line (unusable spend broken out separately); an ablated run is an ordinary saved run, so the skill-vs-bare-agent view is `caliper compare` like any other diff (side-by-side table + token/wall deltas); `compare` deltas (green = cheaper) are **never** a regression — only the score is. All usage fields are optional (`null` → renders `—`); `claude-code`, `codex`, `pi`, `hermes` all report tokens. **Dollar cost is deliberately not tracked** (inconsistent across backends; tokens are the volume signal).
@@ -196,7 +237,8 @@ attempts has `score: null`. When `--fail-fast N` stops a task early, or a run wa
 interrupted, that task may contain fewer than k attempt records; an interrupted
 run also carries `interrupted: true` in `RunMeta`, is flagged with `⊘` in
 `caliper list`, and makes `caliper compare` warn that one side is a shallower
-sample. Each attempt may also carry `judge_seconds` (`null` when no judge ran) and
+sample. Each attempt may also carry `classifications` (one saved decision per
+`classify:` check, `null` when none ran), `judge_seconds` (`null` when no judge ran) and
 `retries` (0 unless the provider was throttling). Run-level usage totals are **derived** at
 render time, not persisted — the saved JSON holds only per-attempt `usage`, while
 `report --format json` adds a computed `usage_totals` block.

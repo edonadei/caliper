@@ -230,6 +230,60 @@ class RunMeta(BaseModel):
         ]
 
 
+class ClassificationVerdict(str, Enum):
+    """What one classification check concluded, before checks are composed."""
+
+    PASS = "pass"
+    FAIL = "fail"
+    # No verdict: an abstention, a selection below ``min_probability``, or a
+    # provider/auth/parse failure. Composes into ``judge_error``.
+    ERROR = "error"
+
+
+class ClassificationRecord(BaseModel):
+    """One classification check's complete decision, as saved with the attempt.
+
+    Everything needed to audit the verdict without re-calling the model: the
+    authored contract (``require``, ``abstain``, ``min_probability``), what Jev
+    selected, the whole distribution, and which concrete version answered.
+    There is no ``reasoning``: Jev returns none, and Caliper does not invent
+    one. See docs/adr/0027.
+    """
+
+    name: str
+    evidence: str
+    verdict: ClassificationVerdict
+    require: str
+    abstain: str
+    min_probability: float
+    selected: str | None = None
+    probabilities: dict[str, float] | None = None
+    model: str | None = None
+    latency_seconds: float | None = None
+    # Size of the serialized request, so an oversized-evidence error is
+    # actionable and a slow call can be read against its input.
+    request_bytes: int | None = None
+    # Why there is no verdict, when ``verdict`` is ``error``. Secret-free.
+    error: str | None = None
+
+    @property
+    def selected_probability(self) -> float | None:
+        if self.selected is None or self.probabilities is None:
+            return None
+        return self.probabilities.get(self.selected)
+
+    def explain(self) -> str:
+        """One line a human can read: the decision and how sure it was."""
+        head = f"classify {self.name}: {self.verdict.value}"
+        if self.selected is not None:
+            prob = self.selected_probability or 0.0
+            head += f" — selected {self.selected} (p={prob:.2f}"
+            head += f", needs {self.require} at p>={self.min_probability:.2f})"
+        if self.error:
+            head += f" — {self.error}"
+        return head
+
+
 class AttemptRecord(BaseModel):
     attempt: int
     output: str
@@ -275,6 +329,9 @@ class AttemptRecord(BaseModel):
     assert_evidence: str | None = None
     autorater_passed: bool | None = None
     autorater_reasoning: str | None = None
+    # One record per authored ``classify:`` check, in authored order. ``None``
+    # when the task authored none or the attempt never reached the judge.
+    classifications: list[ClassificationRecord] | None = None
     # Wall-clock seconds the judge spent grading this attempt. Deliberately a
     # *sibling* of ``duration_seconds`` rather than folded into it: that field is
     # pinned to the harness spawn (docs/CONTEXT.md → Wall-clock time), and

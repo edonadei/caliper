@@ -131,7 +131,7 @@ def assemble_attempt(
     # to grade — skip the (paid) judge call rather than spending it to receive a
     # non-verdict and label the attempt an error. Ranks below cheat so a
     # forbidden-file read is still caught on a trigger probe.
-    if not (task.expect or task.assert_script):
+    if not task.has_execution_check:
         return with_outcome(Outcome.NOT_CHECKED)
 
     judge_started = time.monotonic()
@@ -154,6 +154,7 @@ def assemble_attempt(
         assert_evidence=judge_result.assert_evidence,
         autorater_passed=judge_result.autorater_passed,
         autorater_reasoning=judge_result.autorater_reasoning,
+        classifications=judge_result.classifications or None,
     )
 
 

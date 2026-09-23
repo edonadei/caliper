@@ -491,6 +491,22 @@ frontmatter `name:` and no `description:` — nothing to install and nothing for
 an agent to discover — so it is rejected at `validate` rather than measured as a
 guaranteed zero.
 
+## Classification check
+
+An experimental execution check (`classify:`) that grades one narrow claim with
+a typed classifier instead of a free-text verdict. The author closes the answer
+set: a list of **choices**, one **required** choice that passes, one
+**abstention** choice meaning "cannot tell", and a **minimum probability** the
+selected choice must reach. It reads a bounded **evidence view** of the attempt,
+never the whole run by default. It is a sibling of `expect:` and `assert:`, not
+a replacement for `expect:`. See [[0027-jev-classify-is-an-experimental-typed-check]].
+
+## Evidence view
+
+The deterministic projection of an attempt that a [[classification check]]
+reads: the task prompt, the final output, and only the events its name
+promises (for example `tool_trace`: the tool calls and their results, in order).
+
 ## Outcome
 
 The typed result of a single **attempt**, replacing the bare `passed: bool`. One
@@ -500,7 +516,8 @@ of six values, classified once at the seam where an attempt is assembled:
 - `task_fail` — the skill genuinely failed the task.
 - `judge_error` — the judge could not produce a verdict at all (unparseable
   autorater response, or the judge call threw — including the judge's *own*
-  rate-limit).
+  rate-limit), or a [[classification check]] abstained or was not confident
+  enough.
 - `infra_error` — the skill-under-test's harness failed the attempt: nonzero
   exit (non-timeout), or a detected transient throttle/overload signal
   (spending cap, rate limit) even on a zero exit.

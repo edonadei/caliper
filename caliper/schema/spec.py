@@ -55,6 +55,85 @@ def parse_target(value: str) -> tuple[str | None, str | None]:
     return None, value
 
 
+# The evidence views a classification check may send to Jev. Each is a
+# deterministic projection of the attempt (caliper/judge/evidence.py).
+EVIDENCE_VIEWS: tuple[str, ...] = ("tool_trace",)
+
+_CHECK_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+class ClassifyCheck(BaseModel):
+    """One named Choice classifier graded by Jev (docs/adr/0027).
+
+    The author closes the answer set: ``choices`` are the only labels Jev may
+    pick, ``require`` is the one that passes, ``abstain`` is the honest "cannot
+    tell", and ``min_probability`` is the bar the selected choice must clear
+    before its answer counts as a verdict at all.
+    """
+
+    name: str
+    evidence: str
+    question: str
+    # Choice name -> what it means. ``null`` when the name says it all.
+    choices: dict[str, str | None]
+    require: str
+    abstain: str
+    min_probability: float
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("name")
+    @classmethod
+    def check_name(cls, value: str) -> str:
+        if not _CHECK_NAME_RE.match(value):
+            raise ValueError(
+                f"invalid classify name '{value}': names must match [A-Za-z0-9_-]+"
+            )
+        return value
+
+    @field_validator("evidence")
+    @classmethod
+    def check_evidence(cls, value: str) -> str:
+        if value not in EVIDENCE_VIEWS:
+            valid = ", ".join(EVIDENCE_VIEWS)
+            raise ValueError(f"invalid evidence '{value}': must be one of {valid}")
+        return value
+
+    @field_validator("question")
+    @classmethod
+    def check_question(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("question must not be empty")
+        return value
+
+    @field_validator("min_probability")
+    @classmethod
+    def check_min_probability(cls, value: float) -> float:
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(f"min_probability must be between 0 and 1, got {value}")
+        return value
+
+    @model_validator(mode="after")
+    def check_choices(self) -> "ClassifyCheck":
+        if len(self.choices) < 3:
+            raise ValueError(
+                f"classify '{self.name}' needs at least three choices: the "
+                "required one, the abstention, and at least one failing choice"
+            )
+        for field_name in ("require", "abstain"):
+            value = getattr(self, field_name)
+            if value not in self.choices:
+                raise ValueError(
+                    f"classify '{self.name}': {field_name} '{value}' is not one "
+                    f"of its choices ({', '.join(self.choices)})"
+                )
+        if self.require == self.abstain:
+            raise ValueError(
+                f"classify '{self.name}': require and abstain must be different choices"
+            )
+        return self
+
+
 class TaskSpec(BaseModel):
     id: str = ""
     name: str
@@ -66,19 +145,43 @@ class TaskSpec(BaseModel):
     # expected. A delegating skill enumerates its whole chain — see
     # docs/adr/0014-activation-is-a-check-type-not-a-separate-command.md.
     activates: list[str] | None = None
+    # Typed classification checks graded by Jev. ``None`` = none authored.
+    classify: list[ClassifyCheck] | None = None
     setup: str | None = None
     cleanup: str | None = None
 
     model_config = ConfigDict(populate_by_name=True)
 
+    @property
+    def has_execution_check(self) -> bool:
+        """Whether anything grades what the agent *did* (not what it loaded)."""
+        return bool(self.expect or self.assert_script or self.classify)
+
+    @field_validator("classify")
+    @classmethod
+    def check_classify_names(
+        cls, value: list[ClassifyCheck] | None
+    ) -> list[ClassifyCheck] | None:
+        if value is None:
+            return value
+        if not value:
+            raise ValueError("classify must list at least one check")
+        names = [check.name for check in value]
+        duplicates = sorted({n for n in names if names.count(n) > 1})
+        if duplicates:
+            raise ValueError(
+                f"classify check names must be unique: {', '.join(duplicates)}"
+            )
+        return value
+
     @model_validator(mode="after")
     def require_at_least_one_check(self) -> "TaskSpec":
         # ``activates: []`` is falsy but *is* a check ("nothing should fire"), so
         # this tests for absence, not truthiness.
-        if not self.expect and not self.assert_script and self.activates is None:
+        if not self.has_execution_check and self.activates is None:
             raise ValueError(
                 f"Task '{self.name}' must have at least one of: "
-                "expect, assert, activates"
+                "expect, assert, classify, activates"
             )
         return self
 

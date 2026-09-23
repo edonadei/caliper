@@ -70,13 +70,22 @@ def test_corpus_is_the_five_approved_cases(bench):
         roles = [t.role for t in trace.transcript]
         assert "tool_use" in roles and "tool_result" in roles
     assert [t.label for t in corpus].count(classifier.require) == 1
-    assert [classifier.expected_decision(t.label) for t in corpus] == [
+    assert [bench.expected_decision(classifier, t.label) for t in corpus] == [
         "pass",
         "fail",
         "fail",
         "judge_error",
         "fail",
     ]
+
+
+def test_the_corpus_classifier_is_a_valid_spec_check(bench):
+    check = bench.load_classifier()
+    assert (check.require, check.abstain, check.min_probability) == (
+        "grounded",
+        "unclear",
+        0.8,
+    )
 
 
 @pytest.mark.parametrize(
@@ -86,11 +95,19 @@ def test_corpus_is_the_five_approved_cases(bench):
         ("contradicted", 0.9, "fail"),
         ("unclear", 0.99, "judge_error"),
         ("grounded", 0.79, "judge_error"),
-        ("contradicted", 0.5, "judge_error"),
     ],
 )
-def test_decision_rules(bench, choice, prob, decision):
-    assert bench.load_classifier().decide(choice, prob) == decision
+def test_decisions_use_the_shipped_classify_rules(bench, choice, prob, decision):
+    corpus = bench.load_corpus()
+    labels = {t.task_prompt: choice for t in corpus}
+    got = bench.grade_with_jev(
+        corpus[0],
+        bench.load_classifier(),
+        env={API_KEY_ENV: "k"},
+        transport=fake_jev(labels, prob=prob),
+    )
+    assert got.decision == decision
+    assert got.error is None
 
 
 def test_all_correct_without_cli_comparison_is_incomplete(bench):
@@ -157,7 +174,7 @@ def test_gate_passes_when_accurate_and_much_faster_than_the_cli_judge(
     bench, monkeypatch
 ):
     def slow_correct_cli(trace, judge):
-        decision = bench.load_classifier().expected_decision(trace.label)
+        decision = bench.expected_decision(bench.load_classifier(), trace.label)
         return bench.Decision(decision=decision, latency_seconds=8.0)
 
     monkeypatch.setattr(bench, "grade_with_cli", slow_correct_cli)
