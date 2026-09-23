@@ -258,4 +258,4 @@ twin of the neighbourhood warning.
 ## Troubleshooting
 
 **`Judge model ... is unavailable` / `Judge authentication failed` / `Judge rate limited`**
-The judge CLI reached the provider and the call was refused. Caliper classifies these at the harness boundary (from the CLI's structured output) and suggests passing `--judge-model <backend[:model]>` to pick an available judge engine or model.
+The judge CLI reached the provider and the call was refused. Caliper classifies these at the harness boundary (from the CLI's structured output) and suggests passing `--judge-model <backend[:model]>` to pick an available judge engine or model. An unavailable judge model fails every attempt the same way, so it stops the run at the first attempt that reaches the judge (exit `2`) instead of recording `judge_error` on each one; an authentication failure or a rate limit stays a per-attempt `judge_error`. An unavailable `claude-code` skill model (`--model claude-code:<model>`) stops the run the same way, and an unknown backend name in `--model` or `--judge-model` is refused before any attempt runs.

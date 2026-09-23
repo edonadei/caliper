@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import subprocess
 
-from caliper.harness.base import ProcessResult
+import pytest
+
+from caliper.harness.base import HarnessConfigurationError, ProcessResult
 from caliper.harness.claude_code import (
     ClaudeCodeHarness,
     _classify_claude_prompt_failure,
@@ -114,13 +116,44 @@ def _task(**overrides) -> TaskSpec:
     return TaskSpec(**fields)
 
 
-def test_eval_judge_surfaces_classified_model_unavailable(
+def test_eval_judge_stops_the_run_on_an_unavailable_model(
     monkeypatch, tmp_path
 ) -> None:
+    """An unavailable judge model fails every attempt alike, so it is fatal.
+
+    Recording it as a per-attempt ``judge_error`` would pay for every agent
+    run only to discard it (issue #139).
+    """
     stdout = json.dumps(RETIRED_MODEL_ENVELOPE)
 
     def fake_run(cmd, **kwargs):
         return subprocess.CompletedProcess(cmd, 1, stdout=stdout, stderr="")
+
+    patch_cli_calls(monkeypatch, fake_run)
+
+    with pytest.raises(HarnessConfigurationError) as exc:
+        EvalJudge(backend="claude-code").evaluate(
+            task=_task(expect="x"),
+            transcript=[ConversationTurn(role="assistant", content="hello")],
+            final_output="hello",
+            spec_dir=str(tmp_path),
+            workdir=str(tmp_path),
+        )
+
+    message = str(exc.value)
+    assert "--judge-model" in message
+    assert DEFAULT_JUDGE_MODEL in message
+    assert "unparseable" not in message.lower()
+
+
+def test_eval_judge_keeps_a_rate_limit_per_attempt(monkeypatch, tmp_path) -> None:
+    """A throttle can clear before the next attempt, so it stays a judge_error."""
+    envelope = {**RETIRED_MODEL_ENVELOPE, "api_error_status": 429, "result": "slow"}
+
+    def fake_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 1, stdout=json.dumps(envelope), stderr=""
+        )
 
     patch_cli_calls(monkeypatch, fake_run)
 
@@ -133,9 +166,7 @@ def test_eval_judge_surfaces_classified_model_unavailable(
     )
 
     assert result.errored is True
-    assert "--judge-model" in (result.autorater_reasoning or "")
-    assert DEFAULT_JUDGE_MODEL in (result.autorater_reasoning or "")
-    assert "unparseable" not in (result.autorater_reasoning or "").lower()
+    assert "rate limited" in (result.autorater_reasoning or "")
 
 
 def test_format_judge_failure_auth_includes_hint() -> None:

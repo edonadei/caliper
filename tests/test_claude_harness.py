@@ -452,3 +452,100 @@ def test_tool_results_streamed_as_user_turns_are_captured():
         ("tool_result", "ok"),
     ]
     assert final == "Ticket CHG-1."
+
+
+def test_claude_harness_stops_the_run_on_an_unavailable_model(
+    monkeypatch, tmp_path
+) -> None:
+    """A model the API does not know fails every attempt the same way: stop."""
+
+    # Recorded from `claude -p ... --output-format stream-json --verbose
+    # --model claude-bogus-9` (issue #139), trimmed to the fields read.
+    def fake_run(cmd, **kwargs):
+        message = (
+            "There's an issue with the selected model (claude-bogus-9). It may "
+            "not exist or you may not have access to it. Run --model to pick a "
+            "different model."
+        )
+        stdout = "\n".join(
+            [
+                json.dumps({"type": "system", "subtype": "init"}),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "model": "<synthetic>",
+                            "content": [{"type": "text", "text": message}],
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "result",
+                        "subtype": "success",
+                        "is_error": True,
+                        "api_error_status": 404,
+                        "terminal_reason": "api_error",
+                        "result": message,
+                    }
+                ),
+            ]
+        )
+        return subprocess.CompletedProcess(
+            cmd, 1, stdout=stdout, stderr="[claude-code:unrecognized_model]"
+        )
+
+    patch_cli_calls(monkeypatch, fake_run)
+
+    with pytest.raises(HarnessConfigurationError) as exc:
+        ClaudeCodeHarness(model="claude-bogus-9").run(
+            run_context(
+                prompt="hello",
+                model=None,
+                timeout=30,
+                isolated_home=str(tmp_path / "home"),
+                extra_path=[],
+            )
+        )
+
+    message = str(exc.value)
+    assert "claude-bogus-9" in message
+    assert "--model" in message
+
+
+def test_claude_harness_leaves_an_agent_writing_about_a_404_alone(
+    monkeypatch, tmp_path
+) -> None:
+    """Only the CLI's own error envelope stops the run, not the agent's words."""
+
+    def fake_run(cmd, **kwargs):
+        stdout = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [
+                                {"type": "text", "text": "The API returned 404."}
+                            ]
+                        },
+                    }
+                ),
+                json.dumps({"type": "result", "result": "The API returned 404."}),
+            ]
+        )
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+    patch_cli_calls(monkeypatch, fake_run)
+
+    result = ClaudeCodeHarness().run(
+        run_context(
+            prompt="hello",
+            model=None,
+            timeout=30,
+            isolated_home=str(tmp_path / "home"),
+            extra_path=[],
+        )
+    )
+
+    assert result.final_output == "The API returned 404."
