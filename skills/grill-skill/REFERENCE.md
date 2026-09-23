@@ -148,6 +148,13 @@ tasks:
 
 Each task needs at least one of `expect`, `assert` or `activates`.
 
+Each attempt runs in a fresh, empty **attempt workdir**: `setup:`, the agent,
+`assert:` and `cleanup:` all run there, so a relative path means the same file to
+each. It is not the spec's directory and not a git repo — build what the task
+needs in `setup:` (`cp -R "$CALIPER_SPEC_DIR/fixture/." .`, `git init`). Hooks and
+assertions get `CALIPER_WORKDIR` and `CALIPER_SPEC_DIR`; `assert: ./check.py`
+still resolves against the spec's directory.
+
 Lifecycle hooks run for each attempt. A failed `setup:` skips the agent and judge
 and records an `infra_error`; `cleanup:` is still attempted. A failed cleanup
 does not change a completed attempt's outcome, but the command exits `2`.

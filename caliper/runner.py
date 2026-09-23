@@ -43,6 +43,7 @@ from caliper.skills import (
     validate_activates,
 )
 from caliper.skillsnapshot import snapshot_skill
+from caliper.workdir import step_env
 
 _FAIL_FAST_OUTCOMES = {Outcome.INFRA_ERROR, Outcome.TIMEOUT}
 
@@ -436,16 +437,22 @@ def _finish_task(
 def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord | None:
     """Run one attempt end to end: its lifecycle here, its verdict next door.
 
-    This function owns what an attempt *costs* — a fresh isolated home, the
-    task's setup/cleanup shell, one harness invocation — and hands the finished
-    result to :func:`caliper.attempt.assemble_attempt`, which owns what it
-    *means*.
+    This function owns what an attempt *costs* — a fresh isolated home and
+    workdir, the task's setup/cleanup shell, one harness invocation — and hands
+    the finished result to :func:`caliper.attempt.assemble_attempt`, which owns
+    what it *means*.
+
+    The workdir sits inside the temp dir, beside the agent's config rather than
+    in it, and every step of the attempt runs there (docs/adr/0026).
     """
     tmp_dir = tempfile.mkdtemp(prefix="caliper-")
+    workdir = os.path.join(tmp_dir, "work")
+    os.mkdir(workdir)
+    hook_env = step_env(workdir, str(env.spec_path.parent))
     failures: list[HookFailure] = []
     record: AttemptRecord | None = None
     try:
-        setup = _run_shell(task.setup, task.id, attempt, "setup")
+        setup = _run_shell(task.setup, task.id, attempt, "setup", workdir, hook_env)
         if setup is not None:
             failures.append(setup)
             record = AttemptRecord(
@@ -456,9 +463,11 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord | 
                 assert_evidence=f"setup exited {setup.exit_code}",
             )
         elif not cancel.requested():
-            record = _measure_attempt(task, attempt, env, tmp_dir)
+            record = _measure_attempt(task, attempt, env, tmp_dir, workdir)
     finally:
-        cleanup = _run_shell(task.cleanup, task.id, attempt, "cleanup")
+        cleanup = _run_shell(
+            task.cleanup, task.id, attempt, "cleanup", workdir, hook_env
+        )
         if cleanup is not None:
             failures.append(cleanup)
         env.hook_failures.extend(failures)
@@ -469,7 +478,7 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord | 
 
 
 def _measure_attempt(
-    task: TaskSpec, attempt: int, env: _RunEnv, tmp_dir: str
+    task: TaskSpec, attempt: int, env: _RunEnv, tmp_dir: str, workdir: str
 ) -> AttemptRecord | None:
     spec, spec_path = env.spec, env.spec_path
 
@@ -495,6 +504,7 @@ def _measure_attempt(
                 model=None,
                 timeout=env.timeout,
                 isolated_home=tmp_dir,
+                workdir=workdir,
                 extra_path=resolved_extra_path,
                 # Declared MCP servers are the agent's tool environment for
                 # the eval; the backend materializes them. Already reduced by
@@ -529,6 +539,7 @@ def _measure_attempt(
         attempt=attempt,
         task=task,
         spec_dir=str(spec_path.parent),
+        workdir=workdir,
         expected_activation=env.expected_activation(task),
         activation=env.activation,
         sandbox=env.sandbox,
@@ -561,7 +572,12 @@ def _announce(
 
 
 def _run_shell(
-    cmd: str | None, task_id: str, attempt: int, phase: HookPhase
+    cmd: str | None,
+    task_id: str,
+    attempt: int,
+    phase: HookPhase,
+    cwd: str,
+    env: dict[str, str],
 ) -> HookFailure | None:
     if not cmd:
         return None
@@ -579,6 +595,8 @@ def _run_shell(
         subprocess.Popen(
             cmd,
             shell=True,
+            cwd=cwd,
+            env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             start_new_session=True,

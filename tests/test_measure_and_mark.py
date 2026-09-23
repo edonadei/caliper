@@ -43,7 +43,9 @@ class SlowJudge:
     backend = "test"
     model = None
 
-    def evaluate(self, task, transcript, final_output, spec_dir) -> JudgeResult:
+    def evaluate(
+        self, task, transcript, final_output, spec_dir, workdir
+    ) -> JudgeResult:
         time.sleep(0.05)
         return JudgeResult(passed=True, reasoning="ok")
 
@@ -65,6 +67,7 @@ def _assemble(task: TaskSpec, result: AttemptResult) -> AttemptRecord:
         attempt=1,
         task=task,
         spec_dir=".",
+        workdir=".",
         expected_activation=None,
         activation=ActivationDetector([], frozenset()),
         sandbox=OpenSandbox(),

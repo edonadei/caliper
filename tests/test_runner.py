@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -82,7 +83,9 @@ class RecordingJudge:
     def __init__(self) -> None:
         self.calls = 0
 
-    def evaluate(self, task, transcript, final_output, spec_dir) -> JudgeResult:
+    def evaluate(
+        self, task, transcript, final_output, spec_dir, workdir
+    ) -> JudgeResult:
         self.calls += 1
         return JudgeResult(passed=True, reasoning="should not run")
 
@@ -113,6 +116,8 @@ def test_hook_with_background_child_returns_after_its_shell_exits(tmp_path) -> N
             "task-001",
             1,
             "setup",
+            str(tmp_path),
+            dict(os.environ),
         )
         assert time.monotonic() - started < 3
         assert failure is not None
@@ -136,6 +141,8 @@ def test_successful_hook_with_continuous_background_writer_returns(tmp_path) -> 
             "task-001",
             1,
             "setup",
+            str(tmp_path),
+            dict(os.environ),
         )
         assert failure is None
         assert time.monotonic() - started < 3
@@ -148,21 +155,23 @@ def test_successful_hook_with_continuous_background_writer_returns(tmp_path) -> 
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows background shell syntax")
-def test_windows_silent_background_hook_does_not_leak_reader() -> None:
+def test_windows_silent_background_hook_does_not_leak_reader(tmp_path) -> None:
     before = sum(t.name == "caliper-hook-output" for t in threading.enumerate())
     child = subprocess.list2cmdline(
         [sys.executable, "-c", "import time; time.sleep(3)"]
     )
     started = time.monotonic()
 
-    failure = _run_shell(f'start /B "" {child}', "task-001", 1, "setup")
+    failure = _run_shell(
+        f'start /B "" {child}', "task-001", 1, "setup", str(tmp_path), dict(os.environ)
+    )
 
     assert failure is None
     assert time.monotonic() - started < 2
     assert sum(t.name == "caliper-hook-output" for t in threading.enumerate()) == before
 
 
-def test_noisy_hook_keeps_only_diagnostic_tail() -> None:
+def test_noisy_hook_keeps_only_diagnostic_tail(tmp_path) -> None:
     script = (
         'import sys; print("x" * 1000000); '
         'print("last line", file=sys.stderr); sys.exit(7)'
@@ -177,6 +186,8 @@ def test_noisy_hook_keeps_only_diagnostic_tail() -> None:
         "task-001",
         1,
         "setup",
+        str(tmp_path),
+        dict(os.environ),
     )
 
     assert failure is not None
@@ -388,7 +399,9 @@ class JudgeErrorThenPass:
     def __init__(self) -> None:
         self.calls = 0
 
-    def evaluate(self, task, transcript, final_output, spec_dir) -> JudgeResult:
+    def evaluate(
+        self, task, transcript, final_output, spec_dir, workdir
+    ) -> JudgeResult:
         self.calls += 1
         if self.calls == 1:
             return JudgeResult(passed=False, reasoning="judge flaked", errored=True)
@@ -565,7 +578,9 @@ class ModelReportingJudge:
         self.backend = backend
         self.model = model
 
-    def evaluate(self, task, transcript, final_output, spec_dir) -> JudgeResult:
+    def evaluate(
+        self, task, transcript, final_output, spec_dir, workdir
+    ) -> JudgeResult:
         return JudgeResult(passed=True, reasoning="ok", resolved_model=self._resolved)
 
 
@@ -705,3 +720,97 @@ def test_runner_persists_attempt_transcript(tmp_path) -> None:
     assert attempt.transcript[1].tool_name == "mcp__wiki__read"
     assert attempt.transcript[1].tool_input == {"page": "home"}
     assert attempt.transcript[2].tool_output == "ok"
+
+
+class WorkdirHarness(HarnessBackend):
+    """Writes into its cwd, and reports what ``setup:`` left there."""
+
+    def __init__(self) -> None:
+        self.saw_setup_marker: bool | None = None
+        self.workdir: str | None = None
+
+    @property
+    def name(self) -> str:
+        return "workdir"
+
+    def run(self, ctx: RunContext) -> AttemptResult:
+        workdir = Path(ctx.workdir)
+        self.workdir = ctx.workdir
+        self.saw_setup_marker = (workdir / "SETUP_MARKER").exists()
+        (workdir / "out.txt").write_text("banana")
+        return AttemptResult(
+            transcript=[], final_output="done", exit_code=0, duration_seconds=0.1
+        )
+
+
+def test_agent_setup_and_assert_share_one_attempt_workdir(
+    monkeypatch, tmp_path
+) -> None:
+    # Issue #130: the agent, `setup:` and `assert:` each ran somewhere else.
+    launch_dir = tmp_path / "launch"
+    launch_dir.mkdir()
+    monkeypatch.chdir(launch_dir)
+    spec_dir = tmp_path / "spec"
+    spec_dir.mkdir()
+    (spec_dir / "fixture.txt").write_text("from the spec dir")
+    task = TaskSpec(
+        id="task-001",
+        name="Writes a file relative to its cwd",
+        prompt="Create out.txt",
+        setup="touch SETUP_MARKER",
+        cleanup="touch CLEANUP_MARKER",
+        assert_script=(
+            "import os\n"
+            "from pathlib import Path\n"
+            "assert Path('out.txt').read_text() == 'banana'\n"
+            "assert Path('SETUP_MARKER').exists()\n"
+            "assert Path.cwd() == Path(os.environ['CALIPER_WORKDIR']).resolve()\n"
+            "spec_dir = Path(os.environ['CALIPER_SPEC_DIR'])\n"
+            "assert (spec_dir / 'fixture.txt').read_text() == 'from the spec dir'\n"
+        ),
+    )
+    harness = WorkdirHarness()
+
+    results = run(
+        EvalSpec(tasks=[task]),
+        spec_dir / "workdir.eval.yaml",
+        harness,
+        EvalJudge(),
+        k=1,
+        workers=1,
+    )
+
+    record = results.task_results[0].attempts[0]
+    assert harness.saw_setup_marker is True
+    assert record.outcome is Outcome.PASS, record.assert_evidence
+    assert record.hook_failures == []
+    assert list(launch_dir.iterdir()) == []
+    assert sorted(p.name for p in spec_dir.iterdir()) == ["fixture.txt"]
+    # The workdir is per-attempt scratch, gone once the attempt is recorded.
+    assert harness.workdir is not None and not Path(harness.workdir).exists()
+
+
+def test_hooks_see_the_workdir_and_spec_dir_env(tmp_path) -> None:
+    seen = tmp_path / "seen"
+    task = TaskSpec(
+        id="task-001",
+        name="Hook env",
+        prompt="Do it",
+        assert_script="assert True",
+        setup=f'echo "$PWD|$CALIPER_WORKDIR|$CALIPER_SPEC_DIR" > {seen}',
+    )
+    harness = WorkdirHarness()
+
+    run(
+        EvalSpec(tasks=[task]),
+        tmp_path / "env.eval.yaml",
+        harness,
+        EvalJudge(),
+        k=1,
+        workers=1,
+    )
+
+    pwd, workdir, spec_dir = seen.read_text().strip().split("|")
+    assert Path(pwd).resolve() == Path(workdir).resolve()
+    assert workdir == harness.workdir
+    assert Path(spec_dir) == tmp_path

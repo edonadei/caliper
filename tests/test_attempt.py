@@ -27,6 +27,7 @@ class RecordingJudge:
         transcript: list[ConversationTurn],
         final_output: str,
         spec_dir: str,
+        workdir: str,
     ) -> JudgeResult:
         self.calls += 1
         return self.result
@@ -73,6 +74,7 @@ def _assemble(result: AttemptResult, **overrides):
         attempt=1,
         task=_task(),
         spec_dir="/tmp",
+        workdir="/tmp",
         expected_activation=None,
         activation=ActivationDetector([], frozenset()),
         sandbox=StubSandbox(),
