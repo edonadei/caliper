@@ -391,3 +391,58 @@ def test_claude_harness_errors_on_unset_mcp_env_var(monkeypatch, tmp_path) -> No
                 },
             )
         )
+
+
+def test_tool_results_streamed_as_user_turns_are_captured():
+    # Claude Code's stream-json returns each tool's output inside a `user`
+    # event; before this was parsed, every claude-code transcript silently
+    # lost its tool results.
+    stream = "\n".join(
+        json.dumps(e)
+        for e in [
+            {"type": "user", "message": {"content": [{"type": "text", "text": "go"}]}},
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_1",
+                            "name": "mcp__deployments__lookup",
+                            "input": {"service": "checkout-api"},
+                        }
+                    ]
+                },
+            },
+            {
+                "type": "user",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_1",
+                            "content": [
+                                {"type": "text", "text": '{"ticket": "CHG-1"}'}
+                            ],
+                        }
+                    ]
+                },
+            },
+            {
+                "type": "user",
+                "message": {
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "t2", "content": "ok"}
+                    ]
+                },
+            },
+            {"type": "result", "result": "Ticket CHG-1."},
+        ]
+    )
+    transcript, final = ClaudeCodeHarness()._parse_stream(stream)
+    assert [(t.role, t.tool_output) for t in transcript] == [
+        ("tool_use", None),
+        ("tool_result", '{"ticket": "CHG-1"}'),
+        ("tool_result", "ok"),
+    ]
+    assert final == "Ticket CHG-1."

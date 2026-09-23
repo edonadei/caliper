@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
@@ -155,6 +156,20 @@ class PromptResult:
     resolved_model: str | None = None
     error: str | None = None
     failure: PromptFailure | None = None
+
+    @classmethod
+    def unclassified_failure(cls, message: str, model: str | None) -> PromptResult:
+        """Carry an unclassified failure with no answer text.
+
+        The judge reads the failure instead of text on this path; discarding
+        partial output keeps it from being mistaken for a usable answer.
+        """
+        return cls(
+            text="",
+            resolved_model=model,
+            error=message,
+            failure=PromptFailure(kind=PromptFailureKind.OTHER, message=message),
+        )
 
 
 @dataclass
@@ -542,18 +557,8 @@ class CliHarness(HarnessBackend):
         if proc.returncode != 0:
             detail = (proc.stderr or proc.stdout).strip()
             suffix = f": {detail[:200]}" if detail else ""
-            failure = PromptFailure(
-                kind=PromptFailureKind.OTHER,
-                message=f"{self.name} judge exited {proc.returncode}{suffix}",
-            )
-            # The harness carries the structural failure; the judge formats it
-            # (see caliper/judge/script_assert.py). ``error`` holds the raw
-            # message for callers that only read text.
-            return PromptResult(
-                text="",
-                resolved_model=model,
-                error=failure.message,
-                failure=failure,
+            return PromptResult.unclassified_failure(
+                f"{self.name} judge exited {proc.returncode}{suffix}", model
             )
         return PromptResult(
             text=self._prompt_text(proc), resolved_model=model, error=None
@@ -633,6 +638,10 @@ class CliHarness(HarnessBackend):
             "PATH": os.pathsep.join(prefixes + rest),
             **(extra or {}),
         }
+        # Windows cryptographic initialization needs SystemRoot even when the
+        # agent's HOME is isolated; without it Node aborts before running (#112).
+        if sys.platform == "win32":
+            self._passthrough(env, ("SystemRoot",))
         return self._passthrough(env, self.env_passthrough)
 
     def _execute(

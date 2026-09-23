@@ -18,7 +18,6 @@ from caliper.harness.base import (
     RunContext,
 )
 from caliper.harness.mcp import resolve_servers
-from caliper.harness.prompt_failure import PromptFailure, PromptFailureKind
 from caliper.schema.results import TokenUsage
 
 CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
@@ -299,16 +298,7 @@ class CodexHarness(CliHarness):
         if proc.returncode != 0:
             detail = _extract_codex_error(proc.stderr) or _extract_codex_error(raw)
             message = detail or f"codex judge exited {proc.returncode}"
-            # Mirror CliHarness._prompt_output's OTHER branch (base.py) so a
-            # nonzero exit here carries the same typed failure the judge
-            # switches on, instead of only the untyped `error` string.
-            failure = PromptFailure(kind=PromptFailureKind.OTHER, message=message)
-            return PromptResult(
-                text=raw,
-                resolved_model=model,
-                error=message,
-                failure=failure,
-            )
+            return PromptResult.unclassified_failure(message, model)
         # Codex doesn't surface the resolved model in this mode, so we can only
         # report the one that was requested (None when its own default ran).
         return PromptResult(text=raw, resolved_model=model, error=None)

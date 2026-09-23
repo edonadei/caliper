@@ -110,6 +110,12 @@ something, let it; if it doesn't, leave it alone.
 
 ## Tests
 
+Every pull request and push to `main` runs the full suite on Linux (Python
+3.10–3.13) and macOS (Python 3.12). Windows runs the shared CLI harness suite on
+Python 3.12, including a real Node startup regression check. The remaining
+Windows suite has known platform-specific fixture failures and is not yet a CI
+gate. These jobs do not call paid models or require agent credentials.
+
 Before opening a pull request:
 
 ```bash
