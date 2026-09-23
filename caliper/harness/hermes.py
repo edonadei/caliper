@@ -422,11 +422,12 @@ class HermesHarness(CliHarness):
         hermes v0.18 exits 0 on an unknown ``--model``, with the provider's 404
         on stderr and only the user turn in the export — left alone, every
         attempt would be graded on an empty answer. v0.21 exits 2 instead, which
-        would still spend every attempt as an infra error. An empty
-        ``final_output`` is the guard — on success the agent's reply is on
-        stderr too, and may quote anything.
+        would still spend every attempt as an infra error, and exports a
+        synthetic "not processed" assistant turn. On exit 0 an empty
+        ``final_output`` is the guard — the agent's reply is on stderr too, and
+        may quote anything.
         """
-        if final_output.strip():
+        if proc.returncode == 0 and final_output.strip():
             return None
         lowered = proc.stderr.lower()
         rejection_markers = (

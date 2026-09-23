@@ -454,11 +454,23 @@ def test_hermes_fails_on_an_unknown_model(monkeypatch, tmp_path) -> None:
 def test_hermes_fails_on_an_unknown_model_with_a_nonzero_exit(
     monkeypatch, tmp_path
 ) -> None:
-    # Observed on hermes v0.21.4: the same rejection now exits 2 and persists no
-    # session, so the export is empty.
+    # Observed on hermes v0.21.4: the same rejection now exits 2, and the export
+    # carries a synthetic assistant turn, so a final output is no guard here.
     home = _fake_home(tmp_path)
     iso = tmp_path / "iso"
     iso.mkdir()
+    export = {
+        "source": "oneshot",
+        "model": "openrouter/bogus-model-xyz",
+        "messages": [
+            {"role": "user", "content": "Hello"},
+            {
+                "role": "assistant",
+                "content": "Your request was not processed. Send it again if "
+                "you still want me to carry it out.",
+            },
+        ],
+    }
 
     def fake_run(cmd, **kwargs):
         if cmd[1:] == ["--version"]:
@@ -466,7 +478,7 @@ def test_hermes_fails_on_an_unknown_model_with_a_nonzero_exit(
         return subprocess.CompletedProcess(
             cmd,
             2,
-            stdout="",
+            stdout=json.dumps(export) + "\n",
             stderr="Model 'openrouter/bogus-model-xyz' isn't available on Nous "
             "Portal. Pick a different model with /model (or `hermes model` in a "
             "terminal).\n\nProvider said: HTTP 404: Model "
