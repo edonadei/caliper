@@ -7,7 +7,8 @@ in an isolated `HERMES_HOME`, with `--ignore-rules` set (skips `AGENTS.md`,
 copied into that home — so the only skill in play is the `--skills`
 skill-under-test. Full trajectory (for `expect:` autoraters that inspect tool
 calls) is recovered per attempt by running `hermes -z <prompt>` and then
-`hermes sessions export --source cli -`, whose JSONL is a standard
+`hermes sessions export -` (unfiltered: v0.21 tags the session `oneshot`, not
+`cli`), whose JSONL is a standard
 OpenAI-style transcript (`assistant`/`tool`/`user` turns with `tool_calls` +
 `tool_call_id`) parsed into `ConversationTurn`s. The judge half uses plain
 `hermes -z` (final verdict text only; no export needed). Model/provider selection
@@ -50,7 +51,7 @@ for cross-backend consistency over per-backend realism.
   access_token`) was a stale default provider, not an unreachable token; a
   `_diagnose` hook like pi's should surface exactly this case.
 - **`-z` persistence is verified.** Oneshot persists exactly one session in the
-  isolated store, and `sessions export --source cli -` returns it as OpenAI-style
+  isolated store, and `sessions export -` returns it as OpenAI-style
   JSONL with `terminal` tool calls *and their outputs* captured. Fallback to
   `hermes chat -q -Q` is available but unnecessary.
 - **Normalization is load-bearing.** If a future change copies `SOUL.md`/memory

@@ -68,11 +68,11 @@ The **backend + model** used to run the skill-under-test (or to grade it) is a
 *swept axis of an invocation*, not a property of the [[eval spec]]. It comes from
 `--model` / `--judge-model` (or their default, `claude-code`), and the actual
 engine that produced a result is recorded per run in `RunMeta` — both the skill
-`backend`/`model` **and** the `judge_backend`/`judge_model` that graded it, and
-(wherever the backend reports it — the skill model from hermes' session export,
-the `judge_model` from the claude-code judge's JSON) the concrete model a
-default-model run resolved rather than a bare "default" — so de-pinning never
-costs reproducibility. Corollary: a spec cannot express "this is meant for
+`backend`/`model` **and** the `judge_backend`/`judge_model` that graded it. The
+skill `model` is the one the backend reported running (hermes' session export),
+not the one requested, and the `judge_model` of a default-judge run is the one
+the claude-code judge's JSON reports — a concrete model rather than a bare
+"default" — so de-pinning never costs reproducibility. Corollary: a spec cannot express "this is meant for
 `codex`/`pi`"; a non-default backend must be named at every invocation until a
 project-level default lands (the unified-harness-config direction).
 
