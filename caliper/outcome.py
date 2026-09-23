@@ -70,7 +70,8 @@ def no_model_call_observed(result: AttemptResult) -> bool:
     happen. Either way there is nothing to judge. See
     docs/adr/0001-attempt-outcome-taxonomy.md.
     """
-    parsed = bool(result.transcript) and not result.salvaged
+    # The prompt a backend echoes back (hermes' export) is input, not a call.
+    parsed = not result.salvaged and any(t.role != "user" for t in result.transcript)
     tokens = result.usage.total_tokens if result.usage is not None else None
     return not parsed and not tokens
 

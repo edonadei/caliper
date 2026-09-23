@@ -91,6 +91,9 @@ def test_pre_judge_infra_when_no_model_call_was_observed() -> None:
         _harness(transcript=[], final_output=""),
         _harness(transcript=[], usage=TokenUsage(input_tokens=0, output_tokens=0)),
         _harness(salvaged=True, final_output='{"type":"agent_end"}'),
+        # A session export can carry the prompt it was given and nothing the
+        # model said: the input alone is no evidence of a call.
+        _harness(transcript=[ConversationTurn(role="user", content="Do it")]),
     ):
         assert classify_pre_judge(h).outcome is Outcome.INFRA_ERROR
 
