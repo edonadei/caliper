@@ -1,16 +1,18 @@
 # A run is addressed by its timestamp
 
-A saved run's **run id** is its UTC timestamp, formatted `%Y-%m-%dT%H-%M-%SZ`.
-That string is the file's name, the value `report --run` takes, and the handle
-`list` prints in its Run column.
+A saved run's **run id** is its UTC timestamp, formatted `%Y-%m-%dT%H-%M-%SZ`,
+with a `-2`, `-3`, … suffix when an earlier run of the same spec already took
+that second. That string is the file's name, the value `report --run` takes,
+and the handle `list` prints in its Run column.
 
 The alternative was an opaque id — a counter, or a hash of the run's content —
 with the timestamp kept inside the file where it already lives.
 
 ## What the timestamp buys
 
-**Ordering is free.** The format sorts lexicographically, so "that spec's latest
-run" is `sorted(glob("*.json"))[-1]` — no file needs opening to find it. This is
+**Ordering is free.** The timestamp sorts lexicographically, so "that spec's
+latest run" is the last file name in run order — no file needs opening to find
+it. This is
 load-bearing well beyond convenience: a bare spec name standing in for a run
 reference (`caliper report my-skill`, `caliper compare a b`) only works because
 resolving "latest" is cheap enough to do on every invocation, and `list` renders
@@ -24,11 +26,13 @@ opaque id would make that a lookup.
 
 ## What it costs
 
-**Two runs of one spec in the same second collide**, and the second silently
-overwrites the first. In practice a run is many agent invocations long, so this
-needs deliberate effort to hit — but it is a real hole, and the fix if it ever
-lands is a disambiguating suffix rather than a different scheme, because
-everything above depends on the prefix still sorting.
+**Two runs of one spec in the same second collide.** Running a full arm and its
+`--ablate` arm in parallel hits this easily. The second run takes a
+disambiguating suffix (`…Z-2`) rather than a different scheme, because
+everything above depends on the prefix still sorting. The one price is that
+run order is no longer a *plain* sort of file names — `Z-2.json` sorts before
+`Z.json` — so listing sorts on a key parsed from the name. Still no file is
+opened.
 
 **The id is not content-addressed**, so two runs cannot be recognised as
 identical, and a run's id says nothing about what produced it. Neither is
@@ -41,6 +45,7 @@ name wins for addressing and the field wins for display.
 
 ## Where this is implemented
 
-`caliper/runstore.py` — `RUN_ID_FORMAT`, `RunStore.run_id`, and `RunStore.latest`.
+`caliper/runstore.py` — `RUN_ID_FORMAT`, `RunStore.save`, `_run_order`, and
+`RunStore.latest`.
 It is the only module that knows the layout, so this decision has exactly one
 site to revisit.
