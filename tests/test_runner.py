@@ -732,6 +732,52 @@ def test_runmeta_records_the_majority_model_and_warns_on_a_mixed_run(
     assert "provider/model-b" in warnings[0]
 
 
+class CancelledAfterFirstHarness(HarnessBackend):
+    """Attempt 1 completes on ``actual``; every later one is killed by Ctrl-C."""
+
+    def __init__(self, actual: str, model: str) -> None:
+        self._actual = actual
+        self._model = model
+        self._calls = 0
+
+    @property
+    def name(self) -> str:
+        return "cancelling"
+
+    def run(self, ctx: RunContext) -> AttemptResult:
+        self._calls += 1
+        first = self._calls == 1
+        return AttemptResult(
+            transcript=[],
+            final_output="done" if first else "",
+            exit_code=0 if first else -1,
+            duration_seconds=0.1,
+            # A killed attempt has no export to read, so it falls back to the
+            # requested model.
+            resolved_model=self._actual if first else self._model,
+            cancelled=not first,
+        )
+
+
+def test_runmeta_ignores_the_models_of_cancelled_attempts(tmp_path) -> None:
+    # A cancelled attempt is discarded, so its fallback model must not outvote
+    # the one attempt that actually ran.
+    spec_path = tmp_path / "prov.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+
+    results = run(
+        spec=_one_task_spec(),
+        spec_path=spec_path,
+        harness=CancelledAfterFirstHarness("provider/model-b", "provider/model-a"),
+        judge=RecordingJudge(),
+        k=3,
+        workers=1,
+        timeout=30,
+    )
+
+    assert results.run.model == "provider/model-b"
+
+
 class TranscriptHarness(HarnessBackend):
     @property
     def name(self) -> str:

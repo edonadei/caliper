@@ -555,15 +555,17 @@ def _measure_attempt(
     # abort.
     invoked = invoke_with_retry(invoke)
     attempt_result = invoked.result
-    if attempt_result.resolved_model:
-        env.resolved_models.append(attempt_result.resolved_model)
-
     # Killed by the cancellation, not by anything about the skill. Returned
     # as nothing at all rather than assembled into an infra_error — the one
     # place that can tell the two apart, because only the spawn knows who
     # killed it.
     if attempt_result.cancelled:
         return None
+
+    # After the cancellation check: a discarded attempt's fallback model must
+    # not vote on the model the run records.
+    if attempt_result.resolved_model:
+        env.resolved_models.append(attempt_result.resolved_model)
 
     assembled = assemble_attempt(
         attempt_result,
