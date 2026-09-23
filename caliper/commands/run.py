@@ -274,6 +274,8 @@ def run_cmd(
         fail(aborted)
     if results.run.interrupted:
         raise typer.Exit(ExitCode.INTERRUPTED)
+    if results.run.hook_failures:
+        raise typer.Exit(ExitCode.CANNOT_RUN)
 
 
 def _save_and_report(
@@ -286,14 +288,14 @@ def _save_and_report(
     sample scores correctly, and ``RunMeta.interrupted`` is what says the sample
     is short. Nothing about the file needs a reader to know it was cut off.
 
-    The exception is a run where **nothing** ran — a spending cap on the first
-    invocation, a Ctrl-C during skill fetching. Salvage exists to keep what you
-    paid for, and here you paid for nothing; worse, an empty run has an
-    ``avg_score`` of 0.0 over zero scored tasks, so saving it puts a row reading
-    "0.0%" into ``caliper list`` — which is exactly the misreading the
-    interrupted marker exists to prevent.
+    A run where **nothing** ran is usually omitted — a spending cap on the
+    first invocation, a Ctrl-C during skill fetching. A hook failure is the
+    exception: its diagnostic must be saved even if no attempt was recorded.
     """
-    if not any(task.attempts for task in results.task_results):
+    if (
+        not any(task.attempts for task in results.task_results)
+        and not results.run.hook_failures
+    ):
         console.print("[dim]Nothing ran — no results saved.[/dim]")
         return
 

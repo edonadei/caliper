@@ -160,6 +160,14 @@ ERA_INSTALL_AND_DISCOVER = "install-and-discover"
 MCP_ABLATION_PREFIX = "mcp:"
 
 
+class HookFailure(BaseModel):
+    task_id: str
+    attempt: int
+    phase: str
+    exit_code: int
+    output: str = ""
+
+
 class RunMeta(BaseModel):
     spec: str
     timestamp: datetime
@@ -202,6 +210,7 @@ class RunMeta(BaseModel):
     # truncates tasks on purpose, and the two must not read alike. Defaults
     # False so runs saved before this existed still load.
     interrupted: bool = False
+    hook_failures: list[HookFailure] = Field(default_factory=list)
 
     @property
     def ablated_skills(self) -> list[str]:
@@ -235,6 +244,7 @@ class AttemptRecord(BaseModel):
     output: str
     duration_seconds: float
     outcome: Outcome
+    hook_failures: list[HookFailure] = Field(default_factory=list)
     # Token accounting for this attempt, when the backend reports it. Optional so
     # results saved before usage tracking still load (they render as "—").
     usage: TokenUsage | None = None

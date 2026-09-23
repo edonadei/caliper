@@ -24,6 +24,7 @@ from caliper.schema.results import (
     ERA_INSTALL_AND_DISCOVER,
     AggregateScore,
     AttemptRecord,
+    HookFailure,
     Outcome,
     RunMeta,
     RunResults,
@@ -106,6 +107,7 @@ class _RunEnv:
     # rather than raised through the pool so the run can be saved before it is
     # surfaced; same append-only, GIL-safe discipline as the two lists above.
     fatal: list[Exception]
+    hook_failures: list[HookFailure]
 
     def expected_activation(self, task: TaskSpec) -> list[str] | None:
         """What this run asserts the task should activate — ``None`` if a skill was ablated.
@@ -226,6 +228,7 @@ def run(
         resolved_models=[],
         judge_models=[],
         fatal=[],
+        hook_failures=[],
     )
 
     # One pool job per *attempt*, not per task. Attempts are independent — each
@@ -300,6 +303,14 @@ def run(
             # run stopped for. Deliberately not inferred from a short attempt
             # list, which fail-fast also produces on purpose.
             interrupted=cancel.requested(),
+            hook_failures=sorted(
+                env.hook_failures,
+                key=lambda failure: (
+                    failure.task_id,
+                    failure.attempt,
+                    0 if failure.phase == "setup" else 1,
+                ),
+            ),
         ),
         skill_snapshots=skill_snapshots,
         task_results=task_results,
@@ -426,79 +437,104 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord | 
     result to :func:`caliper.attempt.assemble_attempt`, which owns what it
     *means*.
     """
-    spec, spec_path = env.spec, env.spec_path
     tmp_dir = tempfile.mkdtemp(prefix="caliper-")
+    failures: list[HookFailure] = []
+    record: AttemptRecord | None = None
     try:
-        _run_shell(task.setup)
-        resolved_extra_path = [
-            str((spec_path.parent / p).resolve()) for p in spec.sandbox.extra_path
-        ]
-
-        # The neighbourhood is *installed* by the harness at its own skills root
-        # and never preloaded. ``env.skill_refs`` is already the ablated set.
-        def invoke():
-            # Built inside the closure, so a retried attempt gets its own
-            # context rather than the previous invocation's scratch
-            # (docs/adr/0019 — the attempt is the shot, not the spawn).
-            return env.harness.run(
-                RunContext(
-                    task_id=task.id,
-                    attempt=attempt,
-                    prompt=task.prompt,
-                    skill_refs=env.skill_refs,
-                    # None → the harness uses the model it was constructed with;
-                    # the engine is resolved once at the run seam (ADR 0004),
-                    # not per spec.
-                    model=None,
-                    timeout=env.timeout,
-                    isolated_home=tmp_dir,
-                    extra_path=resolved_extra_path,
-                    # Declared MCP servers are the agent's tool environment for
-                    # the eval; the backend materializes them. Already reduced by
-                    # any ``--ablate``. ``None`` only when the spec declared no
-                    # ``mcp:`` block; an empty mapping is a declared block whose
-                    # servers were all ablated, and still isolates the attempt.
-                    mcp_servers=env.mcp_servers if env.mcp_declared else None,
-                    forbidden_files=list(spec.sandbox.forbidden_files),
-                )
+        setup = _run_shell(task.setup, task.id, attempt, "setup")
+        if setup is not None:
+            failures.append(setup)
+            record = AttemptRecord(
+                attempt=attempt,
+                output="",
+                duration_seconds=0.0,
+                outcome=Outcome.INFRA_ERROR,
+                assert_evidence=f"setup exited {setup.exit_code}: {setup.output}",
             )
-
-        # A throttled invocation measured nothing, so it is retried rather than
-        # recorded — the attempt is the shot at the task, not the spawn
-        # (docs/adr/0019). The retry holds this worker: under throttling there is
-        # no other work to give the slot, since every peer is meeting the same
-        # 429. Raises SpendingCapReached, which the job above turns into a run
-        # abort.
-        invoked = invoke_with_retry(invoke)
-        attempt_result = invoked.result
-        if attempt_result.resolved_model:
-            env.resolved_models.append(attempt_result.resolved_model)
-
-        # Killed by the cancellation, not by anything about the skill. Returned
-        # as nothing at all rather than assembled into an infra_error — the one
-        # place that can tell the two apart, because only the spawn knows who
-        # killed it.
-        if attempt_result.cancelled:
-            return None
-
-        assembled = assemble_attempt(
-            attempt_result,
-            attempt=attempt,
-            task=task,
-            spec_dir=str(spec_path.parent),
-            expected_activation=env.expected_activation(task),
-            activation=env.activation,
-            sandbox=env.sandbox,
-            judge=env.judge,
-            retries=invoked.retries,
-        )
-        if assembled.judge_model:
-            env.judge_models.append(assembled.judge_model)
-
-        return assembled.record
+        else:
+            record = _measure_attempt(task, attempt, env, tmp_dir)
     finally:
-        _run_shell(task.cleanup)
+        cleanup = _run_shell(task.cleanup, task.id, attempt, "cleanup")
+        if cleanup is not None:
+            failures.append(cleanup)
+        env.hook_failures.extend(failures)
         shutil.rmtree(tmp_dir, ignore_errors=True)
+    if record is not None:
+        record.hook_failures.extend(failures)
+    return record
+
+
+def _measure_attempt(
+    task: TaskSpec, attempt: int, env: _RunEnv, tmp_dir: str
+) -> AttemptRecord | None:
+    spec, spec_path = env.spec, env.spec_path
+
+    resolved_extra_path = [
+        str((spec_path.parent / p).resolve()) for p in spec.sandbox.extra_path
+    ]
+
+    # The neighbourhood is *installed* by the harness at its own skills root
+    # and never preloaded. ``env.skill_refs`` is already the ablated set.
+    def invoke():
+        # Built inside the closure, so a retried attempt gets its own
+        # context rather than the previous invocation's scratch
+        # (docs/adr/0019 — the attempt is the shot, not the spawn).
+        return env.harness.run(
+            RunContext(
+                task_id=task.id,
+                attempt=attempt,
+                prompt=task.prompt,
+                skill_refs=env.skill_refs,
+                # None → the harness uses the model it was constructed with;
+                # the engine is resolved once at the run seam (ADR 0004),
+                # not per spec.
+                model=None,
+                timeout=env.timeout,
+                isolated_home=tmp_dir,
+                extra_path=resolved_extra_path,
+                # Declared MCP servers are the agent's tool environment for
+                # the eval; the backend materializes them. Already reduced by
+                # any ``--ablate``. ``None`` only when the spec declared no
+                # ``mcp:`` block; an empty mapping is a declared block whose
+                # servers were all ablated, and still isolates the attempt.
+                mcp_servers=env.mcp_servers if env.mcp_declared else None,
+                forbidden_files=list(spec.sandbox.forbidden_files),
+            )
+        )
+
+    # A throttled invocation measured nothing, so it is retried rather than
+    # recorded — the attempt is the shot at the task, not the spawn
+    # (docs/adr/0019). The retry holds this worker: under throttling there is
+    # no other work to give the slot, since every peer is meeting the same
+    # 429. Raises SpendingCapReached, which the job above turns into a run
+    # abort.
+    invoked = invoke_with_retry(invoke)
+    attempt_result = invoked.result
+    if attempt_result.resolved_model:
+        env.resolved_models.append(attempt_result.resolved_model)
+
+    # Killed by the cancellation, not by anything about the skill. Returned
+    # as nothing at all rather than assembled into an infra_error — the one
+    # place that can tell the two apart, because only the spawn knows who
+    # killed it.
+    if attempt_result.cancelled:
+        return None
+
+    assembled = assemble_attempt(
+        attempt_result,
+        attempt=attempt,
+        task=task,
+        spec_dir=str(spec_path.parent),
+        expected_activation=env.expected_activation(task),
+        activation=env.activation,
+        sandbox=env.sandbox,
+        judge=env.judge,
+        retries=invoked.retries,
+    )
+    if assembled.judge_model:
+        env.judge_models.append(assembled.judge_model)
+
+    return assembled.record
 
 
 def _announce(
@@ -520,6 +556,21 @@ def _announce(
         )
 
 
-def _run_shell(cmd: str | None) -> None:
-    if cmd:
-        subprocess.run(cmd, shell=True, check=False)
+def _run_shell(
+    cmd: str | None, task_id: str, attempt: int, phase: str
+) -> HookFailure | None:
+    if not cmd:
+        return None
+    completed = subprocess.run(
+        cmd, shell=True, capture_output=True, text=True, errors="replace"
+    )
+    if completed.returncode == 0:
+        return None
+    output = (completed.stdout + completed.stderr).strip()
+    return HookFailure(
+        task_id=task_id,
+        attempt=attempt,
+        phase=phase,
+        exit_code=completed.returncode,
+        output=output[-4000:],
+    )

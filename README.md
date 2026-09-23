@@ -357,8 +357,8 @@ mcp:                            # optional: MCP servers the agent may use
 
 tasks:
   - name: Short task name
-    setup: <shell command>      # optional, runs before each attempt
-    cleanup: <shell command>    # optional, always runs after each attempt
+    setup: <shell command>      # optional; failure skips the agent and judge
+    cleanup: <shell command>    # optional; attempted even after setup failure
     prompt: <prompt sent to the agent>
     expect: <natural-language success condition>
     assert: |
@@ -596,16 +596,16 @@ there. See [docs/adr/0022](docs/adr/0022-saved-runs-live-at-a-discovered-results
 |---|---|
 | `0` | Ran, and nothing asked for a verdict said no |
 | `1` | Bad input — spec not found, invalid spec, unresolvable skills, two references naming one run |
-| `2` | Could not run — backend misconfiguration, a retired flag |
+| `2` | Could not run cleanly — backend misconfiguration, a retired flag, or a failed setup/cleanup hook |
 | `3` | Reserved: ran cleanly, but a declared bar was not met |
 | `130` | Interrupted with Ctrl-C; the partial run was saved |
 
 `2` and `3` are the distinction CI needs: *the eval could not run* is a broken
 pipeline, *the skill did not clear the bar* is the answer you asked for.
 
-A run that stopped before **any** attempt finished writes no results file — there
-is nothing to save, and an empty run would render as `0.0%` in `caliper list`.
-Exits `2` and `130` can therefore leave nothing on disk.
+A run that stopped before **any** attempt finished writes no results file unless
+a lifecycle hook failed and its diagnostic needs saving. Exits `2` and `130`
+can therefore leave nothing on disk.
 
 `caliper compare` deliberately does **not** gate. A regression there is the
 any-below rule — B under A by any amount — which at small k fires on noise about
@@ -701,6 +701,16 @@ not scored as task failure:
 | `timeout` | exceeded the time budget with no result | ❌ unusable |
 | `judge_error` | the judge produced no verdict (unparseable / errored autorater) | ❌ unusable |
 | `not_checked` | the task authored no `expect:`/`assert:`, so it is a trigger probe | ⊘ not asked |
+
+A failed `setup:` records an `infra_error` attempt without invoking the agent or
+judge, even if a previous attempt left files behind. `cleanup:` is attempted
+after setup failure, agent failure, timeout, and interruption. A failed cleanup
+does not change the measured attempt outcome, but the report highlights it and
+`caliper run` exits `2`. Each failure is saved in both
+`AttemptRecord.hook_failures` (when an attempt was recorded) and
+`RunMeta.hook_failures`, with task ID, attempt number, phase, exit code, and
+captured output. The run-level list also retains cleanup failures from
+interrupted attempts that have no attempt record.
 
 `not_checked` is the one outcome that is neither: it leaves the denominator like
 an unusable attempt, but nothing went wrong, so it is never reported as an error
