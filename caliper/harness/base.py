@@ -148,19 +148,14 @@ class ProcessResult:
 def _timeout_output(partial: bytes | str | None, drained: bytes | str | None) -> str:
     """Keep output captured before and after killing a timed-out process.
 
-    ``TimeoutExpired`` carries bytes even for a text-mode pipe. A second
-    ``communicate`` normally returns the entire stream, including those bytes;
-    some process adapters return only the remainder. Join only when needed so
-    neither case loses or duplicates the prefix.
+    A second ``communicate`` returns the complete stream, including bytes read
+    before timeout, with text-mode newlines already normalized. Fall back to
+    ``TimeoutExpired``'s raw bytes if draining yielded nothing.
     """
-
-    def as_bytes(output: bytes | str | None) -> bytes:
-        return output.encode("utf-8") if isinstance(output, str) else output or b""
-
-    before = as_bytes(partial)
-    after = as_bytes(drained)
-    complete = after if after.startswith(before) else before + after
-    return complete.decode("utf-8", errors="replace").strip()
+    output = drained or partial or ""
+    if isinstance(output, bytes):
+        output = output.decode("utf-8", errors="replace")
+    return output.replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
 @dataclass

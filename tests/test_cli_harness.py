@@ -363,3 +363,29 @@ def test_timeout_keeps_the_agents_partial_transcript_and_activation(tmp_path) ->
         "tool_result",
         "assistant",
     ]
+
+
+@pytest.mark.parametrize("line_ending", ["\r\n", "\r"])
+def test_timeout_keeps_each_output_stream_once_with_universal_newlines(
+    tmp_path, line_ending
+) -> None:
+    stdout = f"stdout one{line_ending}stdout two{line_ending}".encode()
+    stderr = f"stderr one{line_ending}stderr two{line_ending}".encode()
+    script = (
+        "import os, time; "
+        f"os.write(1, {stdout!r}); "
+        f"os.write(2, {stderr!r}); "
+        "time.sleep(30)"
+    )
+
+    result = CodexHarness()._execute(
+        [sys.executable, "-u", "-c", script],
+        env=dict(os.environ),
+        cwd=str(tmp_path),
+        timeout=1,
+        stdin=None,
+    )
+
+    assert result.timed_out is True
+    assert result.stdout == "stdout one\nstdout two"
+    assert result.stderr == "stderr one\nstderr two"
