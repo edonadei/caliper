@@ -402,22 +402,37 @@ class ClaudeCodeHarness(CliHarness):
                             )
                         )
 
+            elif etype == "user":
+                # Claude Code streams each tool's output back as a user turn
+                # carrying ``tool_result`` blocks; plain user text is the prompt.
+                content = event.get("message", {}).get("content", [])
+                for block in content if isinstance(content, list) else []:
+                    if isinstance(block, dict) and block.get("type") == "tool_result":
+                        text = _tool_result_text(block.get("content", ""))
+                        transcript.append(
+                            ConversationTurn(
+                                role="tool_result", content=text, tool_output=text
+                            )
+                        )
+
             elif etype == "tool_result":
-                content = event.get("content", "")
-                if isinstance(content, list):
-                    content = " ".join(
-                        c.get("text", "") for c in content if isinstance(c, dict)
-                    )
+                # Older stream shape: a top-level tool_result event.
+                text = _tool_result_text(event.get("content", ""))
                 transcript.append(
-                    ConversationTurn(
-                        role="tool_result", content=content, tool_output=content
-                    )
+                    ConversationTurn(role="tool_result", content=text, tool_output=text)
                 )
 
             elif etype == "result":
                 final_output = event.get("result", "")
 
         return transcript, final_output
+
+
+def _tool_result_text(content: object) -> str:
+    """A tool result's text, whether it came as a string or a list of blocks."""
+    if isinstance(content, list):
+        return " ".join(c.get("text", "") for c in content if isinstance(c, dict))
+    return content if isinstance(content, str) else ""
 
 
 def _classify_claude_prompt_failure(
