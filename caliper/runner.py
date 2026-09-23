@@ -155,6 +155,9 @@ def run(
     # Before anything that can block: a Ctrl-C during skill fetching has to be
     # honoured by the attempts that would otherwise start right after it.
     cancel.reset()
+    # Absolute once, here: every step runs in the attempt workdir, where a
+    # relative spec dir would name nothing (docs/adr/0026).
+    spec_path = spec_path.resolve()
 
     # Resolve the neighbourhood once, up front: a bad entry (a lone .md, a
     # missing frontmatter name:, a duplicate) should fail before any paid

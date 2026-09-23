@@ -814,3 +814,34 @@ def test_hooks_see_the_workdir_and_spec_dir_env(tmp_path) -> None:
     assert Path(pwd).resolve() == Path(workdir).resolve()
     assert workdir == harness.workdir
     assert Path(spec_dir) == tmp_path
+
+
+def test_a_relative_spec_path_still_gives_steps_an_absolute_spec_dir(
+    monkeypatch, tmp_path
+) -> None:
+    """`caliper run evals/x.eval.yaml` must not hand a hook `CALIPER_SPEC_DIR=evals`.
+
+    Every step runs in the attempt workdir, where a relative dir names nothing.
+    """
+    (tmp_path / "evals" / "fixtures").mkdir(parents=True)
+    (tmp_path / "evals" / "fixtures" / "input.txt").write_text("hi")
+    monkeypatch.chdir(tmp_path)
+    task = TaskSpec(
+        id="task-001",
+        name="Fixture copy",
+        prompt="Do it",
+        setup='cp "$CALIPER_SPEC_DIR/fixtures/input.txt" .',
+        assert_script="assert open('input.txt').read() == 'hi'",
+    )
+
+    results = run(
+        EvalSpec(tasks=[task]),
+        Path("evals") / "app.eval.yaml",
+        WorkdirHarness(),
+        EvalJudge(),
+        k=1,
+        workers=1,
+    )
+
+    assert results.run.hook_failures == []
+    assert results.task_results[0].attempts[0].outcome == Outcome.PASS
