@@ -595,12 +595,41 @@ def _run_shell(
                         break
                     keep(chunk)
 
-            reader = threading.Thread(target=drain, daemon=True)
+            reader = threading.Thread(
+                target=drain, name="caliper-hook-output", daemon=True
+            )
             reader.start()
             process.wait()
             reader.join(timeout=0.1)
             if reader.is_alive():
                 stopped.set()
+                # Closing a pipe does not reliably interrupt another thread's
+                # synchronous ReadFile on Windows. Cancel that read explicitly
+                # before closing the stream, then wait for the thread to exit.
+                import ctypes
+                from ctypes import wintypes
+
+                kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+                kernel32.OpenThread.argtypes = (
+                    wintypes.DWORD,
+                    wintypes.BOOL,
+                    wintypes.DWORD,
+                )
+                kernel32.OpenThread.restype = wintypes.HANDLE
+                kernel32.CancelSynchronousIo.argtypes = (wintypes.HANDLE,)
+                kernel32.CancelSynchronousIo.restype = wintypes.BOOL
+                kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+                kernel32.CloseHandle.restype = wintypes.BOOL
+                thread_handle = kernel32.OpenThread(0x0001, False, reader.native_id)
+                if thread_handle:
+                    try:
+                        kernel32.CancelSynchronousIo(thread_handle)
+                    finally:
+                        kernel32.CloseHandle(thread_handle)
+                process.stdout.close()
+                reader.join(timeout=1)
+                if reader.is_alive():
+                    raise RuntimeError("Could not stop lifecycle hook output reader")
         else:
             while process.poll() is None:
                 if select.select([fd], [], [], 0.1)[0]:

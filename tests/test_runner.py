@@ -5,6 +5,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 import pytest
@@ -142,6 +143,21 @@ def test_successful_hook_with_continuous_background_writer_returns(tmp_path) -> 
                 os.kill(int(pid_file.read_text().strip()), signal.SIGTERM)
             except ProcessLookupError:
                 pass
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows background shell syntax")
+def test_windows_silent_background_hook_does_not_leak_reader() -> None:
+    before = sum(t.name == "caliper-hook-output" for t in threading.enumerate())
+    child = subprocess.list2cmdline(
+        [sys.executable, "-c", "import time; time.sleep(3)"]
+    )
+    started = time.monotonic()
+
+    failure = _run_shell(f'start /B "" {child}', "task-001", 1, "setup")
+
+    assert failure is None
+    assert time.monotonic() - started < 2
+    assert sum(t.name == "caliper-hook-output" for t in threading.enumerate()) == before
 
 
 def test_noisy_hook_keeps_only_diagnostic_tail() -> None:
