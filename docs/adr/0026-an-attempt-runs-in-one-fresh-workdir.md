@@ -9,7 +9,7 @@ the user's shell directory.
 
 Each attempt now gets one fresh, empty directory — the **attempt workdir** —
 created beside the isolated home in the attempt's temp dir, and deleted with it.
-`setup:`, the agent, `assert:` (and an autorater's script-mode check) and
+`setup:`, the agent, `assert:`, the autorater (and its script-mode check) and
 `cleanup:` all run there. Hooks and assertions also get two environment
 variables: `CALIPER_WORKDIR` and `CALIPER_SPEC_DIR`.
 
@@ -41,6 +41,16 @@ than adding one.
 
 `assert: ./check.py` still resolves against the spec's directory: it names a
 file in the spec, not in the workdir. It only *runs* in the workdir.
+
+## A retried invocation keeps the workdir
+
+A throttled invocation is retried inside the same attempt (docs/adr/0019), in
+the same workdir and without re-running `setup:`. That is safe because a retry
+only follows an invocation that never answered, so it left nothing behind; the
+isolated home is reused the same way. Resetting the workdir would mean re-running
+`setup:` per invocation, for a case that has no state to reset.
+
+## Hooks keep the caller's environment
 
 Hooks and assertions keep the caller's own environment (real `HOME`, `PATH`),
 as before. They are the spec author's code, not the agent under test.

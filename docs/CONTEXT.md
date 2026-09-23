@@ -563,11 +563,9 @@ read; the run observes it and grades accordingly.
 ## Attempt workdir
 
 The one directory every step of an attempt runs in: `setup:`, the agent,
-`assert:` and `cleanup:`. Fresh and empty for each attempt, separate from the
-agent's isolated home, and deleted when the attempt is recorded — so a relative
-path means the same file to every step, and no step writes where `caliper` was
-launched. The spec's own directory is not it; a step reaches the spec's fixtures
-through `CALIPER_SPEC_DIR`.
+`assert:`, the judge and `cleanup:`. Fresh and empty for each attempt and
+separate from the agent's isolated home, so a relative path means the same file
+to every step. It is not the spec's own directory.
 _Avoid_: sandbox (that is what the agent may not touch), spec dir.
 
 ## Trigger probe

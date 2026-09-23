@@ -118,7 +118,8 @@ tasks:
     assert: |
       import subprocess
       subject = subprocess.run(
-          ["git", "log", "-1", "--pretty=%s"], capture_output=True, text=True
+          ["git", "log", "-1", "--pretty=%s"],
+          capture_output=True, text=True, check=True,  # no commit fails here
       ).stdout.strip()
       assert len(subject) <= 72, f"subject line is {len(subject)} chars"
     activates: [commit-writer]
@@ -544,7 +545,7 @@ When both `expect` and `assert` are present, both must pass.
 
 ### Attempt workdir
 
-Every attempt gets a fresh, empty directory. `setup:`, the agent, `assert:` and
+Every attempt gets a fresh, empty directory. `setup:`, the agent, `assert:`, the judge and
 `cleanup:` all run in it, so a relative path means the same file to each of
 them, and it is deleted once the attempt is recorded. It is not your spec's
 directory and not a git repository: a task that needs files or a repo builds

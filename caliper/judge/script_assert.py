@@ -29,7 +29,8 @@ that asserts those facts and respond with:
    {"mode": "script", "code": "<python script>", "reasoning": "<why you chose this>"}
 
 The script must use `assert` statements. `assert` failure = task failed. \
-The script runs with no extra imports beyond the standard library.
+The script runs with no extra imports beyond the standard library, in the \
+directory the assistant worked in, so relative paths name the files it wrote.
 
 Respond with valid JSON only — no markdown fences, no extra text.
 """
@@ -238,7 +239,10 @@ class EvalJudge(Judge):
         )
         prompt = f"{_SYSTEM}\n\n{user_msg}"
 
-        result = harness.run_prompt(prompt, cwd=spec_dir, timeout=60)
+        # In the workdir, not the spec dir: the judge grades what the agent left
+        # there, and must not sit beside the answer key or write into the
+        # author's repo (docs/adr/0026).
+        result = harness.run_prompt(prompt, cwd=workdir, timeout=60)
         if result.failure is not None:
             # Switch on the typed kind here, in the judge — provider status codes
             # never leak past the harness boundary (issue #75, ADR-0001).

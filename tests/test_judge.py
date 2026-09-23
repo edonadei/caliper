@@ -533,3 +533,24 @@ def test_assert_script_file_resolves_from_spec_dir_and_runs_in_workdir(
     )
 
     assert result.assert_passed is True, result.assert_evidence
+
+
+def test_autorater_runs_in_the_attempt_workdir_not_the_spec_dir(
+    monkeypatch, tmp_path
+) -> None:
+    # #130: a judge agent in the spec dir sits beside the answer key and can
+    # write into the author's repo; the workdir is what it is grading.
+    calls = _spawn(
+        monkeypatch, stdout='{"mode": "verdict", "passed": true, "reasoning": "ok"}'
+    )
+
+    EvalJudge(backend="claude", model="claude-test").evaluate(
+        task=_task(expect="says ok"),
+        transcript=[ConversationTurn(role="assistant", content="ok")],
+        final_output="ok",
+        spec_dir=str(tmp_path / "spec"),
+        workdir=str(tmp_path / "work"),
+    )
+
+    _cmd, kwargs = calls[0]
+    assert kwargs["cwd"] == str(tmp_path / "work")
