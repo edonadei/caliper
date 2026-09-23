@@ -269,6 +269,57 @@ def test_run_cli_exits_two_after_cleanup_failure(monkeypatch, tmp_path) -> None:
     assert saved[0][0].task_results[0].attempts[0].outcome is Outcome.PASS
 
 
+def _with_outcomes(*outcomes: Outcome) -> RunResults:
+    finished = _finished(datetime(2026, 7, 3, tzinfo=timezone.utc))
+    finished.task_results[0].attempts = [
+        AttemptRecord(attempt=i, output="", duration_seconds=0.1, outcome=outcome)
+        for i, outcome in enumerate(outcomes, start=1)
+    ]
+    return finished
+
+
+def _invoke_run(monkeypatch, tmp_path, finished: RunResults):
+    _stub_a_run(monkeypatch, finished)
+    saved = []
+    monkeypatch.setattr(
+        "caliper.commands.run._save_and_report",
+        lambda *args, **kwargs: saved.append(args),
+    )
+    spec_file = tmp_path / "sample.eval.yaml"
+    spec_file.write_text(
+        "tasks:\n  - name: One\n    prompt: Do it\n    assert: assert True\n"
+    )
+    return runner.invoke(app, ["run", str(spec_file), "--k", "3"]), saved
+
+
+def test_run_cli_exits_two_when_no_attempt_was_usable(monkeypatch, tmp_path) -> None:
+    finished = _with_outcomes(Outcome.INFRA_ERROR, Outcome.INFRA_ERROR, Outcome.TIMEOUT)
+
+    result, saved = _invoke_run(monkeypatch, tmp_path, finished)
+
+    assert result.exit_code == 2, result.output
+    assert len(saved) == 1
+    assert "2 infra_error" in result.output
+    assert "1 timeout" in result.output
+
+
+def test_run_cli_exits_zero_when_some_attempt_was_usable(monkeypatch, tmp_path) -> None:
+    finished = _with_outcomes(Outcome.INFRA_ERROR, Outcome.JUDGE_ERROR, Outcome.PASS)
+
+    result, _ = _invoke_run(monkeypatch, tmp_path, finished)
+
+    assert result.exit_code == 0, result.output
+
+
+def test_run_cli_exits_zero_for_a_trigger_probe_run(monkeypatch, tmp_path) -> None:
+    # NOT_CHECKED is unusable but not noise: nothing went wrong.
+    finished = _with_outcomes(Outcome.NOT_CHECKED, Outcome.NOT_CHECKED)
+
+    result, _ = _invoke_run(monkeypatch, tmp_path, finished)
+
+    assert result.exit_code == 0, result.output
+
+
 def test_report_highlights_cleanup_failure_on_passing_attempt(capfd) -> None:
     finished = _finished(datetime(2026, 7, 3, tzinfo=timezone.utc))
     failure = HookFailure(
@@ -386,6 +437,17 @@ def test_baseline_is_retired_and_says_where_the_capability_went(tmp_path) -> Non
     assert result.exit_code == 2
     assert "--ablate" in result.output
     assert "caliper compare" in result.output
+
+
+def test_run_cli_rejects_fewer_than_one_attempt(monkeypatch, tmp_path) -> None:
+    # k=0 schedules nothing, so the run would measure nothing and exit 0.
+    spec_file = tmp_path / "sample.eval.yaml"
+    spec_file.write_text("tasks:\n  - name: One\n    prompt: Do it\n    expect: Done\n")
+    for k in ("0", "-1"):
+        result = runner.invoke(app, ["run", str(spec_file), "--k", k])
+
+        assert result.exit_code == 1, result.output
+        assert "--k" in result.output
 
 
 def test_run_cli_refuses_unknown_backends_before_any_attempt(
