@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 from caliper.harness.base import AttemptResult
 from caliper.judge.base import JudgeResult
@@ -54,15 +55,20 @@ def answered(result: AttemptResult) -> bool:
     )
 
 
-def never_ran(result: AttemptResult) -> bool:
-    """Whether the agent never got as far as a model call.
+def no_model_call_observed(result: AttemptResult) -> bool:
+    """Whether nothing shows the agent ever got as far as a model call.
 
-    Nothing parsed out of the stream *and* no tokens spent: the CLI bailed on its
-    own (an expired login reported inside a zero-exit stream, #132) and whatever
-    it printed is not an answer. Both halves, because either alone is ambiguous —
-    a parser can miss a stream the model did produce (tokens say it ran, and the
-    salvaged stdout is still its answer), and a backend may not report usage at
-    all (a parsed conversation says it ran).
+    Nothing parsed out of the stream *and* no tokens reported: typically the CLI
+    bailed on its own (an expired login reported inside a zero-exit stream,
+    #132) and whatever it printed is not an answer. Both halves, because either
+    alone is ambiguous — a parser can miss a stream the model did produce
+    (tokens say it ran, and the salvaged stdout is still its answer), and a
+    backend may not report usage at all (a parsed conversation says it ran).
+
+    "Observed", not "made": a backend that reads both from a step after the
+    agent (hermes' session export) can lose the evidence of a call that did
+    happen. Either way there is nothing to judge. See
+    docs/adr/0001-attempt-outcome-taxonomy.md.
     """
     parsed = bool(result.transcript) and not result.salvaged
     tokens = result.usage.total_tokens if result.usage is not None else None
@@ -104,31 +110,54 @@ def signal_text(result: AttemptResult) -> str:
     return "\n".join(part for part in (result.final_output, result.error) if part)
 
 
-def classify_pre_judge(harness: AttemptResult) -> Outcome | None:
+@dataclass(frozen=True)
+class PreJudgeExit:
+    """An attempt that ends before the judge: its label and why.
+
+    The reason travels with the label so the evidence a record carries is the
+    branch that fired, never a second guess at it.
+    """
+
+    outcome: Outcome
+    evidence: str
+
+
+def classify_pre_judge(harness: AttemptResult) -> PreJudgeExit | None:
     """The terminal outcome an attempt earns from its harness result alone.
 
-    Returns ``TIMEOUT`` or ``INFRA_ERROR`` when the attempt never got a fair
-    shot, so it must skip cheat detection and the (paid) judge entirely; returns
-    ``None`` when the attempt ran cleanly enough to proceed. ``assemble_attempt``
-    both skips on it and records it as the label, so the two cannot disagree.
+    Returns a ``TIMEOUT`` or ``INFRA_ERROR`` exit when the attempt never got a
+    fair shot, so it must skip cheat detection and the (paid) judge entirely;
+    returns ``None`` when the attempt ran cleanly enough to proceed.
+    ``assemble_attempt`` both skips on it and records it as the label, so the
+    two cannot disagree. The harness's own error, when it reported one, is the
+    evidence; otherwise the branch says what it saw.
     """
+
+    def ends(outcome: Outcome, seen: str) -> PreJudgeExit:
+        return PreJudgeExit(outcome, harness.error or seen)
+
+    exited = f"harness exited {harness.exit_code}"
     if harness.timed_out:
-        return Outcome.TIMEOUT
+        return ends(Outcome.TIMEOUT, exited)
 
     if harness.exit_code != 0:
-        return Outcome.INFRA_ERROR
+        return ends(Outcome.INFRA_ERROR, exited)
 
-    # Zero exit, but no model call was ever made: there is no attempt to judge,
+    # Zero exit, but no model call was ever seen: there is no attempt to judge,
     # and an activation check would read "nothing fired" as a verdict on the
-    # skill rather than on the CLI that never started.
-    if never_ran(harness):
-        return Outcome.INFRA_ERROR
+    # skill rather than on a CLI that never started (docs/adr/0001).
+    if no_model_call_observed(harness):
+        return ends(
+            Outcome.INFRA_ERROR,
+            "no model call observed: nothing parsed from the agent's stream "
+            "and no tokens reported",
+        )
 
     # Zero exit: a provider signal here is only real if the agent never answered.
     # Otherwise this is an attempt that *passed* while writing about rate limits
     # — which, for a tool that evaluates skills, is an ordinary task.
     if not answered(harness) and looks_like_infra_failure(signal_text(harness)):
-        return Outcome.INFRA_ERROR
+        return ends(Outcome.INFRA_ERROR, exited)
 
     return None
 

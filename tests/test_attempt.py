@@ -174,7 +174,7 @@ def test_a_nonzero_exit_is_infra_error_with_the_exit_code_as_evidence():
     assert judge.calls == 0
 
 
-def test_an_agent_that_never_ran_is_infra_error_and_skips_the_judge():
+def test_no_observed_model_call_is_infra_error_and_skips_the_judge():
     judge = RecordingJudge()
 
     assembled = _assemble(
@@ -183,7 +183,10 @@ def test_an_agent_that_never_ran_is_infra_error_and_skips_the_judge():
     )
 
     assert assembled.record.outcome is Outcome.INFRA_ERROR
-    assert assembled.record.assert_evidence == "the agent never ran: no model call"
+    assert assembled.record.assert_evidence == (
+        "no model call observed: nothing parsed from the agent's stream "
+        "and no tokens reported"
+    )
     assert judge.calls == 0
 
 

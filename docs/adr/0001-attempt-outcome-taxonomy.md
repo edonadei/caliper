@@ -14,6 +14,17 @@
 > skip the paid judge *are* the labels, so a separate `classify_outcome`
 > re-deriving them was the same rule written twice. `classify_pre_judge` and
 > `judge_outcome` are the two halves it composes.
+>
+> **Amended (#132):** `infra_error` also covers a zero-exit attempt where **no
+> model call was observed**: nothing parsed from the agent's stream and no
+> tokens reported. Unlike a throttle it is not transient, but it is not a
+> verdict on the skill either: judging it scored an expired pi login as a real
+> 0%, and an `activates: []` probe passed because nothing fired. Where a backend
+> can *recognise* the cause (pi's OAuth refresh failure in its stream), it still
+> raises `HarnessConfigurationError` and aborts the run as below; this label is
+> the backstop for the causes no backend recognises. `classify_pre_judge` now
+> returns the evidence with the label, so the record's `assert_evidence` names
+> the branch that fired rather than re-deriving it.
 
 An attempt's result is a typed `Outcome` (`pass`, `task_fail`, `judge_error`,
 `infra_error`, `timeout`, `cheat`), not just `passed: bool`, so infrastructure
@@ -50,4 +61,5 @@ definitions.
 - **Startup auth/login misconfiguration** keeps its existing behaviour: it raises
   `HarnessConfigurationError` and aborts the whole run (fail-fast on a broken
   machine), rather than being classified as `infra_error` per attempt. Only
-  *transient, mid-run* throttles are `infra_error`.
+  *transient, mid-run* throttles are `infra_error` (and, since the #132
+  amendment above, an attempt where no model call was observed).

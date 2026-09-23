@@ -66,8 +66,8 @@ the separate neighbourhood warning.
 After any `caliper run`, failed tasks are shown automatically with their output
 and `assert_evidence` — no extra command needed. Each attempt is tagged with an
 `outcome`: a real `task_fail` reads as `✗`, while *unusable* attempts
-(`infra_error` from a rate limit that outlasted its retries or an agent that
-never made a model call, `timeout`, or
+(`infra_error` from a rate limit that outlasted its retries or an attempt with
+no model call observed, `timeout`, or
 `judge_error`)
 read as `⊘` and are excluded from the score denominator, with a separate
 "N unusable" count in the summary — so a throttled or judge-flaked run is not

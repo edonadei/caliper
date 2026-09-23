@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 
 from caliper.harness.base import (
     ConversationTurn,
@@ -12,6 +12,7 @@ from caliper.harness.base import (
     PromptCall,
     RunContext,
 )
+from caliper.outcome import looks_like_infra_failure
 from caliper.schema.results import TokenUsage
 
 
@@ -126,16 +127,7 @@ class PiHarness(CliHarness):
         """
         totals = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
         seen = False
-        for line in proc.stdout.splitlines():
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(event, dict) or event.get("type") != "message_end":
-                continue
-            message = event.get("message")
-            if not isinstance(message, dict) or message.get("role") != "assistant":
-                continue
+        for message in self._assistant_messages(proc.stdout):
             usage = message.get("usage")
             if not isinstance(usage, dict):
                 continue
@@ -246,8 +238,14 @@ class PiHarness(CliHarness):
             # In --mode json pi exits 0 even when it never reached the model,
             # and reports why only as an errored assistant message in its stream
             # (#132). Read those alone: the rest of stdout is the agent talking,
-            # and an answer that mentions "401" is not a broken login.
-            text = "\n".join(self._stream_errors(proc.stdout))
+            # and an answer that mentions "401" is not a broken login. A cap or
+            # throttle is left out too, whatever auth words it brushes: the
+            # retry seam reads it from the salvaged stream and knows what to do.
+            text = "\n".join(
+                error
+                for error in self._stream_errors(proc.stdout)
+                if not looks_like_infra_failure(error)
+            )
         else:
             text = "\n".join(p for p in (proc.stdout, proc.stderr) if p).strip()
         if not text:
@@ -307,13 +305,8 @@ class PiHarness(CliHarness):
         return None
 
     @staticmethod
-    def _stream_errors(stdout: str) -> list[str]:
-        """The ``errorMessage`` of each assistant turn pi ended on an error.
-
-        Trimmed at pi's ``; stack=`` suffix: the Node stack trace says where pi
-        failed, which is no help to whoever has to fix their login.
-        """
-        errors: list[str] = []
+    def _assistant_messages(stdout: str) -> Iterator[dict]:
+        """Each finished assistant message in pi's JSON event stream."""
         for line in stdout.splitlines():
             try:
                 event = json.loads(line)
@@ -322,9 +315,19 @@ class PiHarness(CliHarness):
             if not isinstance(event, dict) or event.get("type") != "message_end":
                 continue
             message = event.get("message")
-            if not isinstance(message, dict) or message.get("role") != "assistant":
-                continue
-            error = message.get("errorMessage")
-            if message.get("stopReason") == "error" and isinstance(error, str):
-                errors.append(error.split("; stack=", 1)[0].strip())
-        return errors
+            if isinstance(message, dict) and message.get("role") == "assistant":
+                yield message
+
+    @classmethod
+    def _stream_errors(cls, stdout: str) -> list[str]:
+        """The ``errorMessage`` of each assistant turn pi ended on an error.
+
+        Trimmed at pi's ``; stack=`` suffix: the Node stack trace says where pi
+        failed, which is no help to whoever has to fix their login.
+        """
+        return [
+            error.split("; stack=", 1)[0].strip()
+            for message in cls._assistant_messages(stdout)
+            if message.get("stopReason") == "error"
+            and isinstance(error := message.get("errorMessage"), str)
+        ]

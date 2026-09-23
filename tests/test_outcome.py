@@ -67,11 +67,11 @@ def test_pre_judge_none_on_clean_attempt() -> None:
 
 
 def test_pre_judge_timeout() -> None:
-    assert classify_pre_judge(_harness(timed_out=True)) is Outcome.TIMEOUT
+    assert classify_pre_judge(_harness(timed_out=True)).outcome is Outcome.TIMEOUT
 
 
 def test_pre_judge_infra_on_nonzero_exit() -> None:
-    assert classify_pre_judge(_harness(exit_code=1)) is Outcome.INFRA_ERROR
+    assert classify_pre_judge(_harness(exit_code=1)).outcome is Outcome.INFRA_ERROR
 
 
 def test_pre_judge_infra_on_signal_despite_zero_exit() -> None:
@@ -81,10 +81,10 @@ def test_pre_judge_infra_on_signal_despite_zero_exit() -> None:
         salvaged=True,
         usage=TokenUsage(input_tokens=12),
     )
-    assert classify_pre_judge(h) is Outcome.INFRA_ERROR
+    assert classify_pre_judge(h).outcome is Outcome.INFRA_ERROR
 
 
-def test_pre_judge_infra_when_the_agent_never_ran() -> None:
+def test_pre_judge_infra_when_no_model_call_was_observed() -> None:
     # Zero exit, nothing parsed, no tokens: the CLI bailed before any model
     # call (an expired login reported inside its own stream). Nothing to judge.
     for h in (
@@ -92,7 +92,7 @@ def test_pre_judge_infra_when_the_agent_never_ran() -> None:
         _harness(transcript=[], usage=TokenUsage(input_tokens=0, output_tokens=0)),
         _harness(salvaged=True, final_output='{"type":"agent_end"}'),
     ):
-        assert classify_pre_judge(h) is Outcome.INFRA_ERROR
+        assert classify_pre_judge(h).outcome is Outcome.INFRA_ERROR
 
 
 def test_pre_judge_none_when_an_unparsed_attempt_still_spent_tokens() -> None:

@@ -8,6 +8,7 @@ import pytest
 
 from caliper.harness.base import HarnessConfigurationError
 from caliper.harness.pi import PiHarness
+from caliper.outcome import looks_like_infra_failure, signal_text
 from caliper.skills import resolve_skills
 
 from conftest import patch_cli_calls, run_context
@@ -356,6 +357,23 @@ def test_pi_stream_error_that_is_not_auth_is_left_to_the_outcome(
         monkeypatch, tmp_path, _errored_stream("529 overloaded_error: Overloaded")
     )
     assert result.exit_code == 0
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "You have reached your subscription usage limit. Try again at 4pm.",
+        "429 rate_limit_error: authentication rate limit exceeded",
+    ],
+)
+def test_pi_cap_or_throttle_that_mentions_auth_is_not_a_login_failure(
+    monkeypatch, tmp_path, message
+) -> None:
+    # A cap or throttle whose wording brushes an auth marker belongs to the
+    # cap/retry handling, which reads the salvaged stream — not to /login.
+    result = _run_with_stream(monkeypatch, tmp_path, _errored_stream(message))
+    assert result.exit_code == 0
+    assert looks_like_infra_failure(signal_text(result))
 
 
 def test_pi_answer_mentioning_auth_on_a_zero_exit_is_not_a_misconfiguration(

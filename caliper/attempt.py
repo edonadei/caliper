@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass
 from caliper.activation import ActivationDetector, check_activation
 from caliper.harness.base import AttemptResult, ConversationTurn
 from caliper.judge.base import Judge
-from caliper.outcome import classify_pre_judge, judge_outcome, never_ran
+from caliper.outcome import classify_pre_judge, judge_outcome
 from caliper.sandbox import Sandbox
 from caliper.schema.results import AttemptRecord, Outcome, TranscriptTurn
 from caliper.schema.spec import TaskSpec
@@ -76,14 +76,14 @@ def assemble_attempt(
     # a (paid) judge call on garbage output. The pre-judge classifier owns that
     # predicate — nothing re-derives it — so the skip here and the final label
     # can never drift apart.
-    pre_judge_outcome = classify_pre_judge(result)
+    pre_judge = classify_pre_judge(result)
 
     # A timeout or infra failure can cut the transcript off partway. A skill we
     # saw load before the cut still loaded, so keep it. Seeing nothing is
     # ambiguous (nothing loaded, or we missed it), so record ``None``, not an
     # empty list. Neither is graded. See docs/CONTEXT.md → Activation admissibility.
     observed = activation.detect(result.transcript)
-    if pre_judge_outcome is None:
+    if pre_judge is None:
         activated = observed
         activation_passed = check_activation(activated, expected_activation)
     else:
@@ -120,13 +120,8 @@ def assemble_attempt(
             judge_model=judge_model,
         )
 
-    if pre_judge_outcome is not None:
-        evidence = result.error or (
-            "the agent never ran: no model call"
-            if result.exit_code == 0 and never_ran(result)
-            else f"harness exited {result.exit_code}"
-        )
-        return with_outcome(pre_judge_outcome, assert_evidence=evidence)
+    if pre_judge is not None:
+        return with_outcome(pre_judge.outcome, assert_evidence=pre_judge.evidence)
 
     cheat_violations = sandbox.violations(result.transcript)
     if cheat_violations:
