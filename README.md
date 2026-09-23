@@ -177,7 +177,7 @@ commented lines.
   success rate + saved transcript
 ```
 
-Each attempt runs in an isolated temporary home with no session history. Results are saved as JSON you can inspect and diff later.
+Each attempt runs in an isolated temporary home with no session history, and sees only the MCP servers the spec declares: none of your personal servers, and none of the hosted connectors your Claude or ChatGPT account carries (Gmail, Drive, GitHub, and the like). Results are saved as JSON you can inspect and diff later.
 
 ---
 
@@ -501,7 +501,7 @@ mcp:
 
 `caliper validate` checks the `mcp:` block and reports a malformed entry (bad name, unknown key, unknown `type`, a stdio server missing/blank `command`, or a remote server missing `url`).
 
-A declared server can be ablated for one run exactly like a skill: `caliper run <spec> --ablate weather` leaves it out of the harness config, so the agent never sees its tool definitions. If a skill and a server declare the same name, qualify it — `--ablate mcp:weather` for the server, `--ablate skill:weather` for the skill; an ambiguous bare name is refused rather than guessed at. The run records both what it removed (`RunMeta.ablated`, as `mcp:weather`) and the servers it actually ran with (`RunMeta.mcp_servers`), so `caliper compare` labels the pair from a marker it can check. An ablation that removes every server still isolates the attempt to zero servers, rather than falling back to your ambient config, and an authored `mcp: {}` does the same.
+A declared server can be ablated for one run exactly like a skill: `caliper run <spec> --ablate weather` leaves it out of the harness config, so the agent never sees its tool definitions. If a skill and a server declare the same name, qualify it — `--ablate mcp:weather` for the server, `--ablate skill:weather` for the skill; an ambiguous bare name is refused rather than guessed at. The run records both what it removed (`RunMeta.ablated`, as `mcp:weather`) and the servers it actually ran with (`RunMeta.mcp_servers`), so `caliper compare` labels the pair from a marker it can check. An ablation that removes every server still isolates the attempt to zero servers, rather than falling back to your ambient config, and an authored `mcp: {}` or no `mcp:` block at all does the same. That includes your account's hosted connectors: `claude-code` always runs with `--strict-mcp-config`, and `codex` with its `apps` and `plugins` features turned off. The judge runs with the same switches, so it can't mistake its own connectors for the attempt's.
 
 ---
 

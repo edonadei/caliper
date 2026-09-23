@@ -85,6 +85,9 @@ verdicts are still real.
 
 ## An empty declared set still isolates
 
+> Superseded in part by [0026](0026-attempts-never-see-account-connectors.md):
+> no `mcp:` block now isolates to zero servers too.
+
 `RunContext.mcp_servers` distinguishes "no `mcp:` block" (`None`, so the CLI's own
 ambient config applies, as it always has) from "a declared block whose servers
 were all ablated" (an empty mapping). An authored `mcp: {}` is that same

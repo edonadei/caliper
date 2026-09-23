@@ -209,6 +209,8 @@ def test_eval_judge_claude_code_invokes_claude_cli(monkeypatch, tmp_path) -> Non
     cmd, kwargs = calls[0]
     assert cmd[:2] == ["claude", "-p"]
     assert "--output-format" in cmd
+    # The judge must not see the account's claude.ai connectors (#129).
+    assert "--strict-mcp-config" in cmd
     assert cmd[cmd.index("--model") + 1] == "claude-test"
     assert "The assistant says hello." in cmd[2]
     assert kwargs["timeout"] == 60
@@ -304,6 +306,9 @@ def test_codex_judge_uses_output_last_message(monkeypatch, tmp_path) -> None:
     assert cmd[:2] == ["codex.cmd", "exec"]
     assert cmd[cmd.index("--model") + 1] == "test-model"
     assert cmd[-1] == "-"
+    # The judge must not see the account's hosted connectors (#129).
+    overrides = [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "-c"]
+    assert {"features.apps=false", "features.plugins=false"} <= set(overrides)
     assert "Respond with valid JSON only" in kwargs["input"]
     assert kwargs["cwd"] == str(tmp_path)
 
