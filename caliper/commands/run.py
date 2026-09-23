@@ -274,8 +274,25 @@ def run_cmd(
         fail(aborted)
     if results.run.interrupted:
         raise typer.Exit(ExitCode.INTERRUPTED)
+    nothing_measured = _nothing_measured(results)
+    if nothing_measured is not None:
+        fail(CannotRun(nothing_measured))
     if results.run.hook_failures:
         raise typer.Exit(ExitCode.CANNOT_RUN)
+
+
+def _nothing_measured(results: RunResults) -> str | None:
+    """Why the run measured nothing, or ``None`` if any attempt was measured.
+
+    Only execution noise counts against a run, so an all-``not_checked`` trigger
+    probe still exits ``0`` (docs/CONTEXT.md → Exit code).
+    """
+    attempts = sum(len(task.attempts) for task in results.task_results)
+    counts = results.noise_counts
+    if not attempts or sum(counts.values()) < attempts:
+        return None
+    breakdown = ", ".join(f"{n} {outcome.value}" for outcome, n in counts.items())
+    return f"No attempt was usable ({breakdown}) — the run measured nothing."
 
 
 def _save_and_report(

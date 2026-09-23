@@ -929,6 +929,21 @@ class RunResults(BaseModel):
         (docs/CONTEXT.md → Run usage totals)."""
         return UsageTotals.from_task_results(self.task_results)
 
+    @property
+    def noise_counts(self) -> dict[Outcome, int]:
+        """How many attempts ended in each execution-noise outcome, by name.
+
+        `is_execution_noise`, not `not is_usable`: NOT_CHECKED is excluded from
+        the score without being an error, so a correct activates:-only spec
+        reports no noise at all (docs/CONTEXT.md → Usable / unusable attempt).
+        """
+        counts: dict[Outcome, int] = {}
+        for task in self.task_results:
+            for attempt in task.attempts:
+                if attempt.outcome.is_execution_noise:
+                    counts[attempt.outcome] = counts.get(attempt.outcome, 0) + 1
+        return dict(sorted(counts.items(), key=lambda kv: kv[0].value))
+
 
 class TaskComparison(BaseModel):
     """One matched task diffed across two runs (A vs B).
