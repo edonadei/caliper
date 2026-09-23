@@ -31,6 +31,7 @@ dependencies = [
     "click>=8",
     "rich>=13",
     "pydantic>=2",
+    "psutil>=5.9",
     "pyyaml>=6",
     "tomli-w>=1.0",
 ]

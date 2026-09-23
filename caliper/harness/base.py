@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -680,9 +681,12 @@ class CliHarness(HarnessBackend):
         registered with :mod:`caliper.cancel`: an interrupt has to be able to
         kill an agent mid-flight, or Ctrl-C waits out the full ``--timeout`` of
         every attempt already running. ``start_new_session`` gives each agent
-        its own process group, which is what lets a timeout or a cancellation
-        take the tools it spawned down with it instead of orphaning them.
+        its own process group; cancellation also walks descendants for tools
+        that create separate groups.
         """
+        process_tag = uuid.uuid4().hex
+        process_env = dict(env)
+        process_env[cancel.PROCESS_TAG] = process_tag
         try:
             with subprocess.Popen(
                 cmd,
@@ -691,11 +695,11 @@ class CliHarness(HarnessBackend):
                 stderr=subprocess.PIPE,
                 encoding="utf-8",
                 text=True,
-                env=env,
+                env=process_env,
                 cwd=cwd,
                 start_new_session=True,
             ) as proc:
-                with cancel.track(proc):
+                with cancel.track(proc, process_tag=process_tag):
                     try:
                         stdout, stderr = proc.communicate(input=stdin, timeout=timeout)
                     except subprocess.TimeoutExpired as exc:

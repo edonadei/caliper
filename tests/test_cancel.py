@@ -13,11 +13,14 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Iterator
 
 import pytest
+import psutil
 from typer.testing import CliRunner
 
 from caliper import cancel
@@ -27,6 +30,7 @@ from caliper.harness.base import (
     ConversationTurn,
     HarnessBackend,
     HarnessConfigurationError,
+    ProcessResult,
     RunContext,
 )
 from caliper.judge.base import JudgeResult
@@ -357,6 +361,154 @@ def test_killed_process_does_not_match_reused_pid() -> None:
         if proc.poll() is None:
             proc.kill()
             proc.wait()
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return False
+
+
+@contextmanager
+def _running_attempt(
+    tmp_path: Path, command: list[str], pid_file: Path, timeout: int
+) -> Iterator[tuple[list[int], threading.Event, dict[str, ProcessResult]]]:
+    cancel.reset()
+    finished = threading.Event()
+    box: dict[str, ProcessResult] = {}
+
+    def execute() -> None:
+        box["result"] = SleepHarness()._execute(
+            command,
+            env=dict(os.environ),
+            cwd=str(tmp_path),
+            timeout=timeout,
+            stdin=None,
+        )
+        finished.set()
+
+    thread = threading.Thread(target=execute)
+    thread.start()
+    pids: list[int] = []
+    try:
+        deadline = time.monotonic() + 5
+        while not pid_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert pid_file.exists(), "the agent did not start its tools"
+        pids = [int(pid) for pid in pid_file.read_text().split()]
+        yield pids, finished, box
+    finally:
+        cancel.request()
+        for pid in pids:
+            try:
+                psutil.Process(pid).kill()
+            except psutil.NoSuchProcess:
+                pass
+        thread.join(timeout=5)
+        cancel.reset()
+
+
+@pytest.mark.parametrize("stop", ["cancel", "timeout"])
+def test_stopping_an_attempt_kills_tools_in_their_own_process_groups(
+    tmp_path: Path, stop: str
+) -> None:
+    """Codex-style tools start new sessions and can spawn tools of their own."""
+    pid_file = tmp_path / "tool-pids"
+    tool = (
+        "import os, pathlib, subprocess, sys; "
+        "leaf = subprocess.Popen([sys.executable, '-c', "
+        "'import time; time.sleep(30)'], start_new_session=True, "
+        "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+        "pathlib.Path(sys.argv[1]).write_text(f'{os.getpid()} {leaf.pid}'); "
+        "leaf.wait()"
+    )
+    agent = (
+        "import subprocess, sys; "
+        "tool = subprocess.Popen([sys.executable, '-c', sys.argv[2], sys.argv[1]], "
+        "start_new_session=True, stdout=subprocess.DEVNULL, "
+        "stderr=subprocess.DEVNULL); tool.wait()"
+    )
+    with _running_attempt(
+        tmp_path,
+        [sys.executable, "-c", agent, str(pid_file), tool],
+        pid_file,
+        1 if stop == "timeout" else 30,
+    ) as (pids, finished, box):
+        assert all(_pid_alive(pid) for pid in pids)
+        if stop == "cancel":
+            cancel.request()
+        assert finished.wait(5), "the attempt did not stop promptly"
+        assert box["result"].timed_out is (stop == "timeout")
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and any(_pid_alive(pid) for pid in pids):
+            time.sleep(0.01)
+        assert not any(_pid_alive(pid) for pid in pids), (
+            "an agent tool survived the attempt"
+        )
+
+
+@pytest.mark.parametrize("stop", ["cancel", "timeout"])
+def test_stopping_an_attempt_reaches_a_tool_after_its_agent_exits(
+    tmp_path: Path, stop: str
+) -> None:
+    """A detached tool can spawn another tool after the CLI has exited."""
+    pid_file = tmp_path / "pids"
+    trigger = tmp_path / "spawn-leaf"
+    leaf_pid_file = tmp_path / "leaf-pid"
+    tool = (
+        "import pathlib, subprocess, sys, time\n"
+        "while not pathlib.Path(sys.argv[1]).exists():\n"
+        "    time.sleep(0.005)\n"
+        "leaf = subprocess.Popen([sys.executable, '-c', "
+        "'import time; time.sleep(10)'], start_new_session=True)\n"
+        "pathlib.Path(sys.argv[2]).write_text(str(leaf.pid))\n"
+        "leaf.wait()\n"
+    )
+    agent = (
+        "import os, pathlib, subprocess, sys; "
+        "tool = subprocess.Popen([sys.executable, '-c', sys.argv[2], "
+        "sys.argv[3], sys.argv[4]], start_new_session=True); "
+        "pathlib.Path(sys.argv[1]).write_text(f'{os.getpid()} {tool.pid}')"
+    )
+    with _running_attempt(
+        tmp_path,
+        [
+            sys.executable,
+            "-c",
+            agent,
+            str(pid_file),
+            tool,
+            str(trigger),
+            str(leaf_pid_file),
+        ],
+        pid_file,
+        2 if stop == "timeout" else 30,
+    ) as (pids, finished, box):
+        deadline = time.monotonic() + 5
+        agent_pid, tool_pid = pids
+        while _pid_alive(agent_pid) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert not _pid_alive(agent_pid)
+        assert _pid_alive(tool_pid)
+        assert not leaf_pid_file.exists()
+        trigger.touch()
+        while not leaf_pid_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert leaf_pid_file.exists(), "the detached tool did not spawn its child"
+        leaf_pid = int(leaf_pid_file.read_text())
+        pids.append(leaf_pid)
+        assert _pid_alive(leaf_pid)
+        if stop == "cancel":
+            cancel.request()
+        assert finished.wait(5), "the orphaned tool held the attempt open"
+        assert box["result"].timed_out is (stop == "timeout")
+        deadline = time.monotonic() + 5
+        while any(_pid_alive(pid) for pid in pids) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert not any(_pid_alive(pid) for pid in pids), (
+            "a detached tool survived its agent"
+        )
 
 
 def _one_attempt_run(k: int = 3) -> RunResults:
