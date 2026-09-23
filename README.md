@@ -387,6 +387,8 @@ tasks:
 
 Each task needs at least one of `expect`, `assert` or `activates`. Task IDs are assigned automatically as `task-001`, `task-002`, and so on.
 
+`caliper validate` (and `caliper run`, before its first attempt) also rejects an unknown task or `sandbox:` key such as `asert:`, a `forbidden_files` entry that is not a valid regex, and an `assert:` script file that does not exist beside the spec.
+
 > **Upgrading an existing spec?** `skill:` became `skills:` in v0.10. See [docs/MIGRATING-to-skills.md](docs/MIGRATING-to-skills.md) for a short checklist, including the two traps a find-and-replace misses (stale `skill.path` inside `prompt:`/`expect:`/`assert:` strings, and prompts that name the skill they're testing).
 
 ### `skills:`, the neighbourhood
