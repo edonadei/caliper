@@ -22,7 +22,7 @@ caliper run path/to/spec.eval.yaml --model codex --judge-model claude-code:claud
 caliper validate path/to/spec.eval.yaml
 ```
 
-Rejects unknown task keys (a typo like `asert:`), `forbidden_files` entries that are not valid regexes, and `assert:` script files missing from beside the spec. `caliper run` runs the same checks before its first attempt.
+Rejects unknown task and `sandbox:` keys (a typo like `asert:`), `forbidden_files` entries that are not valid regexes, and `assert:` script files missing from beside the spec. `caliper run` runs the same checks before its first attempt.
 
 ### Browse saved results
 ```bash

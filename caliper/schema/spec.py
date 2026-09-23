@@ -124,6 +124,9 @@ class SandboxConfig(BaseModel):
     forbidden_files: list[str] = []
     extra_path: list[str] = []
 
+    # A typo like ``forbiden_files:`` would otherwise drop its patterns silently.
+    model_config = ConfigDict(extra="forbid")
+
     @field_validator("forbidden_files")
     @classmethod
     def check_patterns_compile(cls, value: list[str]) -> list[str]:

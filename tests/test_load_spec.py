@@ -170,9 +170,16 @@ def test_unknown_task_key_is_rejected(tmp_path, typo) -> None:
     assert typo.split(":")[0] in str(exc.value)
 
 
+def test_unknown_sandbox_key_is_rejected(tmp_path) -> None:
+    with pytest.raises(ValidationError) as exc:
+        load_spec(_write(tmp_path, "sandbox:\n  forbiden_files: ['x']\n" + _TASK))
+    assert "forbiden_files" in str(exc.value)
+
+
 _BROKEN_SPECS = {
     "bad-regex": "sandbox:\n  forbidden_files: ['[unclosed']\n" + _TASK,
     "missing-assert": "tasks:\n  - name: t\n    prompt: p\n    assert: ./nope.py\n",
+    "unknown-sandbox-key": "sandbox:\n  forbiden_files: ['x']\n" + _TASK,
     "unknown-key": "tasks:\n  - name: t\n    prompt: p\n    expect: ok\n    asert: x\n",
 }
 
