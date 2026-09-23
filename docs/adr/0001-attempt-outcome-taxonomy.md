@@ -63,3 +63,10 @@ definitions.
   machine), rather than being classified as `infra_error` per attempt. Only
   *transient, mid-run* throttles are `infra_error` (and, since the #132
   amendment above, an attempt where no model call was observed).
+- **An unavailable model** (the provider's 404: unknown, retired, or not on this
+  account) is treated the same way, for the agent and the judge alike (issue
+  #139). It is not transient — every remaining attempt would meet it — so
+  recording it as `infra_error` or `judge_error` per attempt would pay for each
+  agent run only to discard it. The attempt that hit it is dropped, including
+  any surviving `assert:` verdict, because the run is stopping anyway. A judge
+  auth failure or rate limit stays a per-attempt `judge_error`.

@@ -387,6 +387,8 @@ tasks:
 
 Each task needs at least one of `expect`, `assert` or `activates`. Task IDs are assigned automatically as `task-001`, `task-002`, and so on.
 
+`caliper validate` (and `caliper run`, before its first attempt) also rejects an unknown task or `sandbox:` key such as `asert:`, a `forbidden_files` entry that is not a valid regex, and an `assert:` script file that does not exist beside the spec.
+
 > **Upgrading an existing spec?** `skill:` became `skills:` in v0.10. See [docs/MIGRATING-to-skills.md](docs/MIGRATING-to-skills.md) for a short checklist, including the two traps a find-and-replace misses (stale `skill.path` inside `prompt:`/`expect:`/`assert:` strings, and prompts that name the skill they're testing).
 
 ### `skills:`, the neighbourhood
@@ -735,6 +737,8 @@ not scored as task failure:
 | `judge_error` | the judge produced no verdict (unparseable / errored autorater) | ❌ unusable |
 | `not_checked` | the task authored no `expect:`/`assert:`, so it is a trigger probe | ⊘ not asked |
 
+An unavailable model, for the agent or the judge, is not an outcome: it would fail every attempt alike, so it stops the run with exit `2` instead.
+
 A failed `setup:` records an `infra_error` attempt without invoking the agent or
 judge, even if a previous attempt left files behind. `cleanup:` is attempted
 after setup failure, agent failure, timeout, and interruption. A failed cleanup
@@ -938,7 +942,7 @@ The model name is not available to your Codex account. Use a model that `codex e
 The provider rejected the model in `--model hermes:<provider>/<model>`. hermes itself exits successfully in this case, so Caliper reads the rejection from its output and stops the run rather than grading an empty answer. Check the model id with `hermes -z 'Reply OK' --model <model>`.
 
 **`Judge model ... is unavailable` / `Judge authentication failed` / `Judge rate limited`**
-The judge CLI reached the provider and the call was refused. Caliper classifies these at the harness boundary (from the CLI's structured output) and suggests passing `--judge-model <backend[:model]>` to pick an available judge engine or model. Example: `caliper run my-skill.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001`.
+The judge CLI reached the provider and the call was refused. Caliper classifies these at the harness boundary (from the CLI's structured output) and suggests passing `--judge-model <backend[:model]>` to pick an available judge engine or model. An unavailable judge model fails every attempt the same way, so it stops the run at the first attempt that reaches the judge (exit `2`) instead of recording `judge_error` on each one; an authentication failure or a rate limit stays a per-attempt `judge_error`. An unavailable `claude-code` skill model (`--model claude-code:<model>`) stops the run the same way, and an unknown backend name in `--model` or `--judge-model` is refused before any attempt runs. Example: `caliper run my-skill.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001`.
 
 **A task passes only because of `assert:`**
 When a task has only `assert:`, no LLM judge runs. Add `expect:` if you also want an LLM to evaluate the transcript.
