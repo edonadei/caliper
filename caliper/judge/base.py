@@ -35,6 +35,10 @@ class Judge(Protocol):
     ``backend`` and ``model`` are the judge engine as configured — what
     ``RunMeta`` records, asked of the judge rather than passed in beside it.
     ``model`` is ``None`` when the judge lets its CLI pick.
+
+    ``spec_dir`` is where an ``assert: ./check.py`` path resolves from;
+    ``workdir`` is the attempt workdir, where every assertion *runs*
+    (docs/adr/0026-an-attempt-runs-in-one-fresh-workdir.md).
     """
 
     backend: str
@@ -46,4 +50,5 @@ class Judge(Protocol):
         transcript: list[ConversationTurn],
         final_output: str,
         spec_dir: str,
+        workdir: str,
     ) -> JudgeResult: ...

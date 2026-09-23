@@ -48,6 +48,7 @@ def assemble_attempt(
     attempt: int,
     task: TaskSpec,
     spec_dir: str,
+    workdir: str,
     expected_activation: list[str] | None,
     activation: ActivationDetector,
     sandbox: Sandbox,
@@ -140,6 +141,7 @@ def assemble_attempt(
         transcript=result.transcript,
         final_output=result.final_output,
         spec_dir=spec_dir,
+        workdir=workdir,
     )
     # Timed here rather than inside the judge: this is the only place that knows
     # an attempt reached one at all, and every earlier exit above leaves

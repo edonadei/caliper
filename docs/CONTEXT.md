@@ -560,6 +560,14 @@ not merely counted.
 A sandbox is not a claim that the agent was *contained* — nothing stops the
 read; the run observes it and grades accordingly.
 
+## Attempt workdir
+
+The one directory every step of an attempt runs in: `setup:`, the agent,
+`assert:`, the judge and `cleanup:`. Fresh and empty for each attempt and
+separate from the agent's isolated home, so a relative path means the same file
+to every step. It is not the spec's own directory.
+_Avoid_: sandbox (that is what the agent may not touch), spec dir.
+
 ## Trigger probe
 
 A task that authors `activates:` and no `expect:`/`assert:` — its whole claim is

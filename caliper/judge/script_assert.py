@@ -11,6 +11,7 @@ from caliper.harness.base import ConversationTurn
 from caliper.harness.prompt_failure import format_judge_failure
 from caliper.judge.base import Judge, JudgeResult
 from caliper.schema.spec import DEFAULT_BACKEND, TaskSpec, resolve_judge_model
+from caliper.workdir import step_env
 
 _SYSTEM = """\
 You are an evaluation judge for an AI assistant. You will be shown a conversation \
@@ -28,7 +29,8 @@ that asserts those facts and respond with:
    {"mode": "script", "code": "<python script>", "reasoning": "<why you chose this>"}
 
 The script must use `assert` statements. `assert` failure = task failed. \
-The script runs with no extra imports beyond the standard library.
+The script runs with no extra imports beyond the standard library, in the \
+directory the assistant worked in, so relative paths name the files it wrote.
 
 Respond with valid JSON only — no markdown fences, no extra text.
 """
@@ -68,7 +70,12 @@ def _format_transcript(turns: list[ConversationTurn]) -> str:
     return "\n".join(lines) or "(empty transcript)"
 
 
-def _run_inline_script(code: str, spec_dir: str) -> tuple[bool, str]:
+def _run_inline_script(code: str, spec_dir: str, workdir: str) -> tuple[bool, str]:
+    """Run an assertion in the attempt workdir, where the agent left its files.
+
+    ``spec_dir`` travels as ``CALIPER_SPEC_DIR`` so a script can still reach the
+    author's fixtures (docs/adr/0026).
+    """
     with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
         f.write(code)
         tmp_path = f.name
@@ -78,7 +85,8 @@ def _run_inline_script(code: str, spec_dir: str) -> tuple[bool, str]:
             capture_output=True,
             text=True,
             timeout=30,
-            cwd=spec_dir,
+            cwd=workdir,
+            env=step_env(workdir, spec_dir),
         )
         if result.returncode == 0:
             return True, ""
@@ -90,7 +98,9 @@ def _run_inline_script(code: str, spec_dir: str) -> tuple[bool, str]:
         Path(tmp_path).unlink(missing_ok=True)
 
 
-def _parse_rich_response(raw: str, spec_dir: str) -> tuple[bool, str, bool]:
+def _parse_rich_response(
+    raw: str, spec_dir: str, workdir: str
+) -> tuple[bool, str, bool]:
     """Parse an autorater response into (passed, reasoning, errored).
 
     ``errored`` is True when the autorater failed to yield a usable verdict at
@@ -109,14 +119,16 @@ def _parse_rich_response(raw: str, spec_dir: str) -> tuple[bool, str, bool]:
         code = verdict.get("code", "")
         if not code:
             return False, "Judge returned empty script", True
-        passed, evidence = _run_inline_script(code, spec_dir)
+        passed, evidence = _run_inline_script(code, spec_dir, workdir)
         detail = f"{reasoning} | script: {'ok' if passed else evidence}"
         return passed, detail, False
 
     return bool(verdict.get("passed", False)), reasoning, False
 
 
-def _run_assert_from_task(task: TaskSpec, spec_dir: str) -> tuple[bool, str] | None:
+def _run_assert_from_task(
+    task: TaskSpec, spec_dir: str, workdir: str
+) -> tuple[bool, str] | None:
     """Run the static assert field from the task spec, if present."""
     if not task.assert_script:
         return None
@@ -132,7 +144,7 @@ def _run_assert_from_task(task: TaskSpec, spec_dir: str) -> tuple[bool, str] | N
     else:
         code = raw
 
-    return _run_inline_script(code, spec_dir)
+    return _run_inline_script(code, spec_dir, workdir)
 
 
 class EvalJudge(Judge):
@@ -155,6 +167,7 @@ class EvalJudge(Judge):
         transcript: list[ConversationTurn],
         final_output: str,
         spec_dir: str,
+        workdir: str,
     ) -> JudgeResult:
         assert_passed: bool | None = None
         assert_evidence: str | None = None
@@ -162,7 +175,7 @@ class EvalJudge(Judge):
         autorater_reasoning: str | None = None
         autorater_errored = False
 
-        static_result = _run_assert_from_task(task, spec_dir)
+        static_result = _run_assert_from_task(task, spec_dir, workdir)
         if static_result is not None:
             assert_passed, assert_evidence = static_result
 
@@ -173,7 +186,7 @@ class EvalJudge(Judge):
                 llm_reasoning,
                 autorater_errored,
                 autorater_model,
-            ) = self._llm_evaluate(task, transcript, spec_dir)
+            ) = self._llm_evaluate(task, transcript, spec_dir, workdir)
             autorater_reasoning = llm_reasoning
             # An errored autorater yields no verdict: leave autorater_passed None
             # so it is dropped from the checks rather than counted as a failure.
@@ -204,7 +217,11 @@ class EvalJudge(Judge):
         )
 
     def _llm_evaluate(
-        self, task: TaskSpec, transcript: list[ConversationTurn], spec_dir: str
+        self,
+        task: TaskSpec,
+        transcript: list[ConversationTurn],
+        spec_dir: str,
+        workdir: str,
     ) -> tuple[bool, str, bool, str | None]:
         # An autorater is one bare prompt through a CLI agent — the same
         # backend adapters that run attempts also answer the judge, via the
@@ -222,7 +239,10 @@ class EvalJudge(Judge):
         )
         prompt = f"{_SYSTEM}\n\n{user_msg}"
 
-        result = harness.run_prompt(prompt, cwd=spec_dir, timeout=60)
+        # In the workdir, not the spec dir: the judge grades what the agent left
+        # there, and must not sit beside the answer key or write into the
+        # author's repo (docs/adr/0026).
+        result = harness.run_prompt(prompt, cwd=workdir, timeout=60)
         if result.failure is not None:
             # Switch on the typed kind here, in the judge — provider status codes
             # never leak past the harness boundary (issue #75, ADR-0001).
@@ -231,6 +251,6 @@ class EvalJudge(Judge):
         if result.error:
             return False, result.error, True, result.resolved_model
         passed, reasoning, errored = _parse_rich_response(
-            _strip_markdown_fence(result.text), spec_dir
+            _strip_markdown_fence(result.text), spec_dir, workdir
         )
         return passed, reasoning, errored, result.resolved_model

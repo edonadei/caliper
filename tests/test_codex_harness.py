@@ -45,7 +45,8 @@ def test_codex_installs_the_skill_and_leaves_the_prompt_alone(
         # Codex has no force-load flag and caliper no longer invents one: the
         # prompt on stdin is exactly what the spec authored.
         assert kwargs["input"] == "Validate the spec"
-        assert kwargs["cwd"] == str(tmp_path)
+        # The agent works in the attempt workdir, not its config home (#130).
+        assert kwargs["cwd"] == str(tmp_path / "work")
         return subprocess.CompletedProcess(cmd, 0, stdout="VALID\n", stderr="")
 
     monkeypatch.setattr("caliper.harness.base.shutil.which", fake_which)
@@ -61,6 +62,7 @@ def test_codex_installs_the_skill_and_leaves_the_prompt_alone(
             model="test-model",
             timeout=30,
             isolated_home=str(tmp_path),
+            workdir=str(tmp_path / "work"),
             extra_path=[str(tmp_path / "bin")],
         )
     )
@@ -293,6 +295,7 @@ def test_codex_config_copy_strips_top_level_model(monkeypatch, tmp_path) -> None
         model=None,
         timeout=12,
         isolated_home=str(isolated_home),
+        workdir=str(isolated_home / "work"),
         extra_path=[],
         mcp_servers=None,
     )

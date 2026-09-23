@@ -99,6 +99,9 @@ skills:
 tasks:
   # Autorater: the LLM judge reads the transcript and decides
   - name: Writes a conventional commit message
+    setup: >-
+      git init -q && git config user.name Eval && git config user.email eval@example.com
+      && printf 'retry on 429\n' > NOTES.md && git add NOTES.md
     prompt: "Summarize the staged git diff as a commit message."
     expect: >
       The response is a conventional-commit message: a concise subject
@@ -108,11 +111,15 @@ tasks:
 
   # Script execution: a deterministic Python assertion
   - name: Keeps the subject line under 72 characters
+    setup: >-
+      git init -q && git config user.name Eval && git config user.email eval@example.com
+      && printf 'retry on 429\n' > NOTES.md && git add NOTES.md
     prompt: "Commit the staged changes."
     assert: |
       import subprocess
       subject = subprocess.run(
-          ["git", "log", "-1", "--pretty=%s"], capture_output=True, text=True
+          ["git", "log", "-1", "--pretty=%s"],
+          capture_output=True, text=True, check=True,  # no commit fails here
       ).stdout.strip()
       assert len(subject) <= 72, f"subject line is {len(subject)} chars"
     activates: [commit-writer]
@@ -357,8 +364,8 @@ mcp:                            # optional: MCP servers the agent may use
 
 tasks:
   - name: Short task name
-    setup: <shell command>      # optional; failure skips the agent and judge
-    cleanup: <shell command>    # optional; attempted even after setup failure
+    setup: <shell command>      # optional; runs in the attempt workdir; failure skips the agent and judge
+    cleanup: <shell command>    # optional; runs in the attempt workdir, even after setup failure
     prompt: <prompt sent to the agent>
     expect: <natural-language success condition>
     assert: |
@@ -515,7 +522,7 @@ The judge engine is chosen at run time and defaults to `claude-code`; point it a
 
 ### Deterministic assertions (`assert:`)
 
-Python assertions run locally. Use these for facts the LLM judge might guess:
+Python assertions run locally, in the attempt workdir (see [Attempt workdir](#attempt-workdir)). Use these for facts the LLM judge might guess:
 
 - file exists / exact file contents
 - JSON / schema validity
@@ -526,16 +533,42 @@ Python assertions run locally. Use these for facts the LLM judge might guess:
 ```yaml
 tasks:
   - name: Writes an output file
-    cleanup: rm -f /tmp/out.txt
-    prompt: "Write hello world to /tmp/out.txt"
+    prompt: "Write hello world to out.txt"
     assert: |
       from pathlib import Path
-      path = Path("/tmp/out.txt")
+      path = Path("out.txt")
       assert path.exists(), "Output file was not created"
       assert path.read_text().strip() == "hello world"
 ```
 
 When both `expect` and `assert` are present, both must pass.
+
+### Attempt workdir
+
+Every attempt gets a fresh, empty directory. `setup:`, the agent, `assert:`, the judge and
+`cleanup:` all run in it, so a relative path means the same file to each of
+them, and it is deleted once the attempt is recorded. It is not your spec's
+directory and not a git repository: a task that needs files or a repo builds
+them in `setup:`. Hooks and assertions see two environment variables:
+
+| Variable | Value |
+|---|---|
+| `CALIPER_WORKDIR` | the attempt workdir |
+| `CALIPER_SPEC_DIR` | the directory holding the `.eval.yaml` |
+
+```yaml
+tasks:
+  - name: Fixes the failing test
+    setup: cp -R "$CALIPER_SPEC_DIR/fixtures/broken-app/." .
+    prompt: "The test suite fails. Fix it."
+    assert: |
+      import subprocess
+      assert subprocess.run(["python", "-m", "pytest", "-q"]).returncode == 0
+```
+
+`assert: ./check.py` still resolves against the spec's directory; the script
+runs in the workdir. See
+[docs/adr/0026](docs/adr/0026-an-attempt-runs-in-one-fresh-workdir.md).
 
 ---
 

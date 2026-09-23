@@ -89,6 +89,11 @@ class RunContext:
     model: str | None
     timeout: int
     isolated_home: str
+    # The agent's cwd — the attempt workdir that ``setup:``, ``cleanup:`` and
+    # ``assert:`` also run in. Kept apart from ``isolated_home`` so the agent's
+    # working tree is not its config dir. See
+    # docs/adr/0026-an-attempt-runs-in-one-fresh-workdir.md.
+    workdir: str
     extra_path: list[str]
     # ``sandbox.forbidden_files`` — applied to the install so a skill's answer
     # key never travels with it.
@@ -310,7 +315,7 @@ class CliHarness(HarnessBackend):
         start = time.monotonic()
         try:
             proc = self._execute(
-                cmd, env=env, cwd=ctx.isolated_home, timeout=ctx.timeout, stdin=stdin
+                cmd, env=env, cwd=ctx.workdir, timeout=ctx.timeout, stdin=stdin
             )
         finally:
             if cleanup is not None:

@@ -129,6 +129,7 @@ def test_the_context_owns_its_lists(tmp_path) -> None:
         model=None,
         timeout=30,
         isolated_home=str(tmp_path),
+        workdir=str(tmp_path / "work"),
         extra_path=[],
         forbidden_files=forbidden,
     )
