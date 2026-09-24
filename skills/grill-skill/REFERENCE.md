@@ -110,6 +110,7 @@ skills:                   # installed at the agent's own skills root, never
   - repo: vercel-labs/agent-skills
     ref: a1b2c3d          # optional — omit to track the default branch
     path: skills/tdd/SKILL.md   # optional — defaults to SKILL.md at the root
+                          # a symlink out of the cloned repo refuses the run
 
 sandbox:
   forbidden_files:               # extra patterns only — the spec itself and any

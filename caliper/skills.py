@@ -400,11 +400,7 @@ def install_skills(
             if not item.is_file():
                 continue
             rel = item.relative_to(ref.directory)
-            if any(part in _EXCLUDE_DIRS for part in rel.parts):
-                continue
-            if item.name.endswith(".eval.yaml"):
-                continue
-            if not sandbox.permits_install(rel.as_posix()):
+            if not installs(ref.directory, rel, sandbox):
                 continue
             try:
                 if item.stat().st_size > _MAX_FILE_BYTES:
@@ -414,3 +410,35 @@ def install_skills(
             target = dest / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(item, target)
+
+
+def installs(directory: Path, rel: Path, sandbox: SpecSandbox) -> bool:
+    """Whether the file at ``directory / rel`` passes the install exclusions.
+
+    A file symlink is judged twice, by its own path and by its target's. The
+    link is followed on install (docs/adr/0027), so an ``alias.md`` pointing at
+    ``answers/key.md`` or ``.git/config`` would otherwise deliver an excluded
+    file under an innocent name. A target inside the skill directory is matched
+    by its path relative to it, like any other file; one outside it (a shared
+    guide) by its absolute path, which is how ``forbidden_files`` matches paths
+    in a transcript too.
+
+    Size is left to the caller: it is a limit on copying, not an exclusion.
+    """
+    paths = [rel]
+    item = directory / rel
+    if item.is_symlink():
+        target = item.resolve()
+        root = directory.resolve()
+        paths.append(
+            target.relative_to(root) if target.is_relative_to(root) else target
+        )
+    return all(_passes_exclusions(path, sandbox) for path in paths)
+
+
+def _passes_exclusions(path: Path, sandbox: SpecSandbox) -> bool:
+    if any(part in _EXCLUDE_DIRS for part in path.parts):
+        return False
+    if path.name.endswith(".eval.yaml"):
+        return False
+    return sandbox.permits_install(path.as_posix())

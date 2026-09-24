@@ -155,6 +155,38 @@ def test_an_installed_symlink_is_captured_under_its_link_name(tmp_path: Path):
     assert snap.files["guide.md"].content == "# Shared guide v1\n"
 
 
+def test_a_symlink_to_a_forbidden_file_is_not_captured(tmp_path: Path):
+    """The install skips it, so the run never saw it."""
+    directory = tmp_path / "mine"
+    (directory / "answers").mkdir(parents=True)
+    (directory / "answers" / "key.md").write_text("the answer is 42\n")
+    (directory / "SKILL.md").write_text(
+        "---\nname: mine\ndescription: d.\n---\n\nRead [hint](./hint.md).\n"
+    )
+    (directory / "hint.md").symlink_to(Path("answers/key.md"))
+
+    snap = snapshot_skill(
+        SkillRef(name="mine", path=directory / "SKILL.md"), ["answers/"]
+    )
+
+    assert set(snap.files) == {"SKILL.md"}
+
+
+def test_a_forbidden_companion_file_is_not_captured(tmp_path: Path):
+    directory = tmp_path / "mine"
+    (directory / "answers").mkdir(parents=True)
+    (directory / "answers" / "key.md").write_text("the answer is 42\n")
+    (directory / "SKILL.md").write_text(
+        "---\nname: mine\ndescription: d.\n---\n\nNever read ./answers/key.md.\n"
+    )
+
+    snap = snapshot_skill(
+        SkillRef(name="mine", path=directory / "SKILL.md"), ["answers/"]
+    )
+
+    assert set(snap.files) == {"SKILL.md"}
+
+
 def test_a_changed_symlink_target_shows_as_drift(tmp_path: Path):
     """Editing the symlink's target after the run shows up as drift."""
     shared = tmp_path / "shared"
