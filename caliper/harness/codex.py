@@ -31,7 +31,8 @@ CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
 # (mcp__codex_apps__*) and remote plugins, which stripping [mcp_servers] can't
 # reach. A -c override beats any [features] table in the seeded config.toml,
 # so neither an attempt nor the judge sees them (docs/adr/0026). An attempt run
-# with --inherit-mcp leaves them on; the judge never does (docs/adr/0028).
+# that inherits the user's MCP setup (the default) leaves them on; the judge
+# never does (docs/adr/0028).
 NO_ACCOUNT_CONNECTORS = ("-c", "features.apps=false", "-c", "features.plugins=false")
 
 # The server name codex's hosted connectors surface under
@@ -110,7 +111,7 @@ class CodexHarness(CliHarness):
     def _connector_overrides(ctx: RunContext) -> tuple[str, ...]:
         """The ``-c`` overrides that keep the account's connectors out, if any.
 
-        All of them unless ``--inherit-mcp``. Under it, the hosted apps still
+        All of them for an isolated run. When inheriting, the hosted apps still
         go when the spec names a server ``codex_apps``, ablated or not: the apps
         surface under that name, and the spec wins a clash (docs/adr/0028).
         """
@@ -351,7 +352,7 @@ class CodexHarness(CliHarness):
         written (the CLI falls back to its own defaults). The file may now hold
         resolved secrets, so it is kept ``0600``.
 
-        Under ``--inherit-mcp`` the user's servers are kept, except any whose
+        When inheriting (the default) the user's servers are kept, except any whose
         name the spec declares, ablated or not: the spec wins a name clash
         (docs/adr/0028).
 

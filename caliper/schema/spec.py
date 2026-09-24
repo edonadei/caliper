@@ -23,6 +23,23 @@ DEFAULT_BACKEND: str = "claude-code"
 # Pinned so the claude-code judge does not inherit a stale model from the
 # installed Claude CLI's own default (see issue #59).
 DEFAULT_JUDGE_MODEL: str = "claude-sonnet-5"
+# A run inherits the machine's own MCP setup unless the invocation or the spec
+# says otherwise: most runs test a skill in the user's own agent. See
+# docs/adr/0028-runs-inherit-the-users-mcp-setup-by-default.md.
+DEFAULT_INHERIT_MCP: bool = True
+
+
+def resolve_inherit_mcp(flag: bool | None, spec: "EvalSpec") -> tuple[bool, bool]:
+    """``(inherit, explicit)``: the setting that applies, and whether anyone chose it.
+
+    The invocation wins, then the spec, then :data:`DEFAULT_INHERIT_MCP`.
+    ``explicit`` is what decides how loudly a run says so: a flag or a spec
+    field asked for it, where the default merely applied.
+    """
+    requested = flag if flag is not None else spec.inherit_mcp
+    return (DEFAULT_INHERIT_MCP if requested is None else requested), (
+        requested is not None
+    )
 
 
 def normalize_backend(value: str) -> str:
@@ -270,12 +287,12 @@ class EvalSpec(BaseModel):
     skills: list[str | GitSkillSource] = []
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     mcp: dict[str, McpServer] = {}
-    # The eval's default for inherited MCP: the runner's own MCP servers and
-    # account connectors, for a skill that relies on one no ``mcp:`` entry can
-    # express (a hosted OAuth connector). ``--inherit-mcp``/``--no-inherit-mcp``
-    # override it for one run. See
-    # docs/adr/0028-inherit-mcp-is-an-opt-in-invocation-flag.md.
-    inherit_mcp: bool = False
+    # Whether this eval's runs inherit the runner's own MCP servers and account
+    # connectors. ``None`` (unset) takes :data:`DEFAULT_INHERIT_MCP`; ``false``
+    # pins a portable, isolated measurement; ``true`` says the skill needs the
+    # runner's setup. ``--inherit-mcp``/``--no-inherit-mcp`` override it for one
+    # run. See docs/adr/0028-runs-inherit-the-users-mcp-setup-by-default.md.
+    inherit_mcp: bool | None = None
     tasks: list[TaskSpec]
 
     model_config = ConfigDict(extra="forbid")

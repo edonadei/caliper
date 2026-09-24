@@ -36,7 +36,13 @@ from caliper.schema.results import (
     RunResults,
     TaskResult,
 )
-from caliper.schema.spec import EvalSpec, McpServer, TaskSpec, spec_name
+from caliper.schema.spec import (
+    EvalSpec,
+    McpServer,
+    TaskSpec,
+    resolve_inherit_mcp,
+    spec_name,
+)
 from caliper.skillfetch import SkillFetcher
 from caliper.skills import (
     SkillRef,
@@ -96,7 +102,7 @@ class _RunEnv:
     # was ablated" (an empty mapping). Both isolate the attempt to zero servers
     # (docs/adr/0026-attempts-never-see-account-connectors.md).
     mcp_declared: bool
-    # ``--inherit-mcp``, already cleared on a backend without MCP: each attempt
+    # Inherited MCP, already cleared on a backend without MCP: each attempt
     # keeps the servers and account connectors its CLI loads by itself (docs/adr/0028).
     inherit_mcp: bool
     # The *skills* ``--ablate`` removed. Truthy drops every task's activation
@@ -162,16 +168,16 @@ def run(
     on_warning: Callable[[str], None] | None = None,
     # Keep the servers and account connectors the backend's CLI loads by itself
     # (``--inherit-mcp``/``--no-inherit-mcp``, docs/adr/0028). ``None`` follows
-    # the spec's ``inherit_mcp``.
+    # the spec's ``inherit_mcp``, else the default, which inherits.
     inherit_mcp: bool | None = None,
 ) -> RunResults:
     # Before anything that can block: a Ctrl-C during skill fetching has to be
     # honoured by the attempts that would otherwise start right after it.
     cancel.reset()
 
-    # The spec sets the default; the invocation overrides it either way
-    # (docs/adr/0028). Resolved once, here, so RunMeta records what applied.
-    inherit_mcp = spec.inherit_mcp if inherit_mcp is None else inherit_mcp
+    # The invocation wins, then the spec, then the default (docs/adr/0028).
+    # Resolved once, here, so RunMeta records what applied.
+    inherit_mcp, inherit_explicit = resolve_inherit_mcp(inherit_mcp, spec)
 
     # Resolve the neighbourhood once, up front: a bad entry (a lone .md, a
     # missing frontmatter name:, a duplicate) should fail before any paid
@@ -222,10 +228,11 @@ def run(
     # A backend without MCP has nothing to inherit. Unlike a declared mcp: block
     # this is not refused: inheriting asks for "whatever my setup has", and on
     # such a backend that is nothing. Recorded as off, so `compare` never warns about
-    # a tool-environment difference that did not exist (docs/adr/0028).
+    # a tool-environment difference that did not exist (docs/adr/0028). Said only
+    # when someone asked for it: under the default it would fire on every run.
     if inherit_mcp and not harness.supports_mcp:
         inherit_mcp = False
-        if on_warning:
+        if on_warning and inherit_explicit:
             on_warning(
                 f"Inherited MCP has no effect on the '{harness.name}' backend, "
                 "which has no MCP support; the run records it as off."

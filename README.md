@@ -243,11 +243,26 @@ commented lines.
 ```
 
 Each attempt runs in an isolated temporary home with no session history, in a
-fresh empty working directory. It sees only the MCP servers the spec declares:
-none of your personal servers, and none of the hosted connectors your Claude or
-ChatGPT account carries (Gmail, Drive, GitHub, and the like). A spec's
-`inherit_mcp: true` or the `--inherit-mcp` flag gives a run your own setup back;
-the saved run records that it did. Results are saved as JSON you can inspect and diff later.
+fresh empty working directory. By default it keeps your own MCP setup: the
+servers your CLI is configured with and the hosted connectors your Claude or
+ChatGPT account carries (Gmail, Drive, GitHub, and the like), merged with the
+servers the spec declares. That measures the skill in the agent you actually use.
+Results are saved as JSON you can inspect and diff later, including which MCP
+servers each run inherited.
+
+### Portable scores
+
+A default score depends on your setup. When the number has to mean the same thing
+on another machine, isolate the run so it sees only the servers the spec
+declares:
+
+- `caliper run spec.eval.yaml --no-inherit-mcp` for one run;
+- `inherit_mcp: false` in the spec for every run of it.
+
+Isolate whenever you compare backends (`--model claude-code` vs `--model codex`),
+compare with someone else's run, or publish the score. Each CLI inherits a
+different setup, so otherwise part of the difference is the setups.
+`caliper compare` warns when two runs inherited differently.
 
 ---
 
@@ -338,8 +353,8 @@ The quick start covers the basics. A spec can also:
 - pull neighbour skills from a **git repo**, pinned to a commit
   (`skills: - {repo: owner/name, ref: …, path: …}`)
 - give the agent **MCP servers**, local or remote (`mcp:`)
-- **use your own MCP setup** by default, for a connector no spec can declare
-  (`inherit_mcp: true`; `--no-inherit-mcp` runs it isolated)
+- **pin its MCP setup**: `inherit_mcp: false` for a portable score from anyone,
+  or `inherit_mcp: true` for a skill that needs your own connectors
 - run **`setup:` and `cleanup:`** shell hooks in each attempt's workdir
 - extend `PATH` or **forbid files** the agent must not read (`sandbox:`)
 - assert **silence** (`activates: []`) or a **delegation chain**
@@ -375,13 +390,13 @@ run Caliper, inside the git repository. See
 | Flag | Default | Description |
 |---|---|---|
 | `--k INT` | `3` | Attempts per task |
-| `--ablate NAME` | none | Run without this declared skill or `mcp:` server (repeatable; name every skill for the bare agent). Qualify as `skill:`/`mcp:` when both declare the name |
+| `--ablate NAME` | none | Run without this declared skill or `mcp:` server (repeatable; name every skill, with `--no-inherit-mcp`, for the bare agent). Qualify as `skill:`/`mcp:` when both declare the name |
 | `--workers INT` | `4` | Attempts to run in parallel, across all tasks |
 | `--timeout INT` | `120` | Seconds per attempt |
 | `--fail-fast INT` | `0` | Stop a task after N consecutive `infra_error`/`timeout` attempts (`0` disables; counts attempts, not invocations) |
 | `--model TARGET` | `claude-code` | Skill engine: `backend`, `model`, or `backend:model` ([syntax](docs/backends.md#selecting-an-engine)) |
 | `--judge-model TARGET` | `claude-code` | Judge engine, same syntax |
-| `--inherit-mcp` / `--no-inherit-mcp` | the spec's `inherit_mcp`, else off | Give attempts the MCP servers and account connectors your CLI loads by itself, merged with the spec's `mcp:` (the spec wins a name clash), or not. The judge stays isolated; no effect on `pi` ([details](docs/backends.md#inheriting-your-own-mcp-setup)) |
+| `--inherit-mcp` / `--no-inherit-mcp` | the spec's `inherit_mcp`, else on | Whether attempts get the MCP servers and account connectors your CLI loads by itself, merged with the spec's `mcp:` (the spec wins a name clash). Use `--no-inherit-mcp` for a [portable score](#portable-scores). The judge stays isolated; no effect on `pi` ([details](docs/backends.md#inheriting-your-own-mcp-setup)) |
 | `--verbose` | off | Show per-attempt judge reasoning |
 | `--output PATH` | none | Also save results JSON to a specific path |
 

@@ -51,9 +51,9 @@ codex's `mcp__<server>__<tool>` naming — the *same doubled-underscore form* as
 claude-code, unlike hermes' single-underscore spelling. Because codex seeds each
 attempt from the user's real `~/.codex/config.toml`, its `[mcp_servers.*]` tables
 are normalized to *exactly* the declared set (an empty set when no `mcp:` block),
-so an attempt never inherits the user's personal MCP servers (unless the run
-opts into [[inherited MCP]]) — the same tool-environment neutralization hermes
-performs, needed here despite codex being
+so an isolated attempt never inherits the user's personal MCP servers (a run
+inherits them by default: [[inherited MCP]]) — the same tool-environment
+neutralization hermes performs, needed here despite codex being
 stateless because the leak comes from seeding the real config, not from agent
 state. `pi` will *never* honor `mcp:`
 natively — its agent has no MCP by design (see [[pi-mcp-unsupported-by-design]]),
@@ -67,15 +67,16 @@ _Avoid_: MCP config, tool server.
 
 The MCP servers a backend's CLI loads by itself, outside the [[eval spec]]: the
 account's hosted connectors (claude.ai connectors, ChatGPT apps) and the servers
-in the user's own CLI config. An attempt never sees them by default (see
-[[0026-attempts-never-see-account-connectors]]). A run that opts in gives them
-to every attempt, merged with the
+in the user's own CLI config. A run gives them to every attempt by default,
+merged with the
 [[MCP server (declared)|declared servers]], and the declared server wins a name
 clash. What gets inherited depends on the machine, not the spec. The judge never
 inherits, and a backend without MCP (`pi`) has nothing to inherit. An inherited
-server is never an [[ablation]] subject, because the spec doesn't name it. A
-spec may turn it on by default (`inherit_mcp: true`) and the invocation
-overrides that either way (see [[0028-inherit-mcp-is-an-opt-in-invocation-flag]]).
+server is never an [[ablation]] subject, because the spec doesn't name it. The
+opposite, an *isolated* run, sees only the declared servers; it is what a
+portable score or a comparison between setups needs. A spec may pin either
+(`inherit_mcp:`) and the invocation overrides both (see
+[[0028-runs-inherit-the-users-mcp-setup-by-default]]).
 _Avoid_: ambient MCP, account MCP, connectors (only half of it), default MCP
 ("default" is the engine), reload.
 
@@ -123,8 +124,8 @@ the [[eval spec]]'s declared [[skill neighbourhood]] — the closure that makes
 [[activation]] measurable. Normalization also extends to the tool
 environment: hermes' `mcp_servers` is set to *exactly* the spec's declared
 [[MCP server (declared)|servers]] — an empty set when the spec declares no
-`mcp:` — so an attempt never inherits the user's personal MCP servers from the
-seeded config (unless the run opts into [[inherited MCP]]). Normalized, it is a [[flat backend]] like any
+`mcp:` — so an isolated attempt never inherits the user's personal MCP servers
+from the seeded config (a run inherits them by default: [[inherited MCP]]). Normalized, it is a [[flat backend]] like any
 other. The contrast is with `claude-code`/`codex`/`pi`, which are stateless by
 default and need no normalization.
 

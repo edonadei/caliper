@@ -102,7 +102,7 @@ class HermesHarness(CliHarness):
         unset var fails loudly), so literal credentials — never ``${VAR}`` — land
         in the config; the file may now hold them, so it is kept ``0600``.
 
-        Under ``--inherit-mcp`` the user's ``mcp_servers`` (and
+        When inheriting (the default) the user's ``mcp_servers`` (and
         ``inherit_mcp_toolsets``) stay, with the declared servers merged over
         them — the spec wins a name clash (docs/adr/0028).
         """

@@ -1,6 +1,10 @@
 # End-to-end smoke eval for the `hermes` backend.
 # The engine is a runtime axis, not a spec field — pick it when you run:
 #   caliper run tests/hermes-smoke.eval.yaml --model hermes
+# Pinned isolated: a smoke eval checks the backend itself, and the #129 probe
+# tasks assert the attempt sees only the declared MCP servers (docs/adr/0028).
+inherit_mcp: false
+
 tasks:
   - name: Write hello to a file
     setup: rm -f /tmp/caliper-e2e-smoke-hermes.txt

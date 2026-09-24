@@ -30,6 +30,7 @@ from caliper.schema.spec import (
     VALID_BACKENDS,
     load_spec,
     parse_target,
+    resolve_inherit_mcp,
     spec_name,
 )
 
@@ -124,9 +125,10 @@ def run_cmd(
         "--inherit-mcp/--no-inherit-mcp",
         show_default=False,
         help=(
-            "Give attempts the MCP servers and account connectors your CLI "
-            "loads by itself, merged with the spec's mcp: (the spec wins a name "
-            "clash), or not. Omitted: the spec's inherit_mcp, else off. The "
+            "Whether attempts get the MCP servers and account connectors your "
+            "CLI loads by itself, merged with the spec's mcp: (the spec wins a "
+            "name clash). Omitted: the spec's inherit_mcp, else on. Use "
+            "--no-inherit-mcp for a portable score or a harness comparison. The "
             "judge stays isolated."
         ),
     ),
@@ -220,22 +222,29 @@ def run_cmd(
 
     # A notice, not a prompt: an attempt's isolation was never a security
     # boundary (docs/adr/0027, docs/adr/0028), and a run must stay usable
-    # non-interactively. Named by where it came from, so a spec that turned it
-    # on is never a surprise. A backend without MCP gets the runner's no-effect
-    # warning instead.
-    inheriting = spec.inherit_mcp if inherit_mcp is None else inherit_mcp
+    # non-interactively. Loud when a flag or the spec asked for it, named by its
+    # source; one dim line when the default applied, since that is every run. A
+    # backend without MCP gets the runner's no-effect warning instead.
+    inheriting, explicit = resolve_inherit_mcp(inherit_mcp, spec)
     if inheriting and harness.supports_mcp:
-        source = "--inherit-mcp" if inherit_mcp else "inherit_mcp: true (spec)"
-        console.print(
-            f"[yellow]⚠ {source}:[/yellow] attempts get this machine's MCP "
-            "servers and account connectors. The score depends on this setup, "
-            "and attempts can act on those accounts without asking."
-            + (
-                "\n[dim]  --no-inherit-mcp runs it isolated.[/dim]"
-                if inherit_mcp is None
-                else ""
+        if explicit:
+            source = "--inherit-mcp" if inherit_mcp else "inherit_mcp: true (spec)"
+            console.print(
+                f"[yellow]⚠ {source}:[/yellow] attempts get this machine's MCP "
+                "servers and account connectors. The score depends on this "
+                "setup, and attempts can act on those accounts without asking."
+                + (
+                    "\n[dim]  --no-inherit-mcp runs it isolated.[/dim]"
+                    if inherit_mcp is None
+                    else ""
+                )
             )
-        )
+        else:
+            console.print(
+                "[dim]Inheriting this machine's MCP servers and account "
+                "connectors; attempts can use them without asking.\n"
+                "  --no-inherit-mcp to isolate.[/dim]"
+            )
 
     task_names = [t.name for t in spec.tasks]
     progress, task_ids = make_progress(task_names, k)

@@ -19,6 +19,10 @@
 #   caliper run tests/mcp-smoke.eval.yaml --k 1 --model hermes  # hermes
 #   caliper run tests/mcp-smoke.eval.yaml --k 1 --model codex   # codex
 
+# Pinned isolated: a smoke eval checks the backend itself, and the #129 probe
+# tasks assert the attempt sees only the declared MCP servers (docs/adr/0028).
+inherit_mcp: false
+
 mcp:
   echo:
     command: python3

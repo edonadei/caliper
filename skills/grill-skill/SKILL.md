@@ -43,6 +43,21 @@ Write the spec beside `SKILL.md`, named `<dir-name>.eval.yaml`, with `skill.path
 
 Read the existing spec and report its tasks. **Ask what behaviors are missing or under-tested before proposing or writing anything** — even if the user only asked you to inspect it, report first, then ask. Sharpen each gap into a task, show it, and confirm before writing it in.
 
+## Whose setup is measured
+
+By default every run **inherits the user's own MCP setup**: the servers their CLI is configured with and their account's hosted connectors, merged with the spec's `mcp:`. That answers "does my skill work in *my* agent?", which is what most users want. Isolating a run (`--no-inherit-mcp`, or `inherit_mcp: false` in the spec) gives the attempt only the declared servers, so the score is portable.
+
+**Keep the default** when:
+- the user is testing or iterating on their own skill in their own agent;
+- ablating one of the spec's skills or servers (`--ablate`): both runs inherit the same setup, so the difference is still the removed subject.
+
+**Isolate** when:
+1. comparing backends or models (`--model claude-code` vs `--model codex`): each CLI inherits a different setup, so the delta would partly be the setups;
+2. the number leaves this machine: shared, published, in a README, or compared with someone else's run;
+3. measuring the bare agent, or checking that an attempt sees only the declared servers.
+
+**Always tell the user which mode the run used** and what it inherited: read the report header's `inherited MCP:` line (absent means isolated). A score from their setup and a portable score look identical otherwise. If `caliper compare` warns about inherited MCP, relay its suggested fix rather than the delta alone.
+
 ## Phase 3 — First run
 
 Validate the spec, then run at `k=1` (commands in [REFERENCE.md](REFERENCE.md)). Show the results. Fix any harness or config error (not a task failure) before asking the user what to do next.

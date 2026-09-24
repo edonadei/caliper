@@ -37,7 +37,7 @@ mcp:                            # optional: MCP servers the agent may use
     headers:
       Authorization: Bearer ${GDRIVE_TOKEN}   # ${VAR} resolves at run time
 
-inherit_mcp: true               # optional: use the runner's own MCP setup by default
+inherit_mcp: false              # optional: isolate every run (the default inherits your MCP setup)
 
 tasks:
   - name: Short task name
@@ -241,36 +241,39 @@ agent never sees its tool definitions.
 - The run records what it removed (`RunMeta.ablated`, as `mcp:weather`) and the
   servers it actually ran with (`RunMeta.mcp_servers`), so `caliper compare` can
   check the label against what the run had.
-- An ablation that removes every server still isolates the attempt to zero
-  servers instead of falling back to your ambient config. An authored
-  `mcp: {}`, or no `mcp:` block at all, does the same.
-- That includes your account's hosted connectors: `claude-code` always runs with
-  `--strict-mcp-config`, and `codex` with its `apps` and `plugins` features
-  turned off. The judge runs with the same switches, so it can't mistake its own
-  connectors for the attempt's.
-- `inherit_mcp: true` (below) or `caliper run --inherit-mcp` gives a run your
-  own servers and connectors back, merged with the declared ones. `--ablate`
-  still only names declared servers. See
-  [Inheriting your own MCP setup](backends.md#inheriting-your-own-mcp-setup).
+- An ablated server is gone from the run even if your own config has a server
+  of the same name: a declared name always means the spec's server.
+- By default the attempt also inherits your own servers and account connectors
+  (below). `--ablate` only names declared servers, never inherited ones.
+- An isolated run (`--no-inherit-mcp`, or `inherit_mcp: false`) sees exactly the
+  surviving declared servers, none when every one is ablated or there's no
+  `mcp:` block: `claude-code` runs with `--strict-mcp-config`, and `codex` with
+  its `apps` and `plugins` features off. The judge is always isolated this way,
+  so it can't mistake your connectors for the attempt's.
 
-### Using the runner's own setup (`inherit_mcp:`)
+### Your own MCP setup (`inherit_mcp:`)
 
-Some skills rely on a connector no `mcp:` entry can express, usually a hosted
-OAuth connector such as Drive or Gmail. Run in isolation, every attempt fails for
-a reason unrelated to the skill, and a 0% reads as a broken skill. Such a spec
-turns inheritance on by default:
+By default every run inherits the MCP servers your CLI loads by itself and your
+account's hosted connectors, merged with `mcp:`. That measures the skill in your
+own agent. A spec can pin the setting for every run of it:
 
 ```yaml
-inherit_mcp: true
+inherit_mcp: false   # portable: every run sees only the declared servers
+# inherit_mcp: true  # the skill needs the runner's own connectors
 ```
 
-- Every run of the spec then gets your own MCP servers and account connectors,
-  merged with `mcp:`, without a flag. The run prints a notice naming the spec as
-  the source.
-- `--no-inherit-mcp` runs it isolated for one run; `--inherit-mcp` turns it on
-  for a spec that leaves it off.
-- A backend without MCP (`pi`) warns and runs isolated.
-- `caliper validate` shows the setting in its summary.
+- Pin `false` when the score has to mean the same thing on any machine, e.g. a
+  published eval or one that measures the bare agent.
+- Pin `true` for a skill that relies on a connector no `mcp:` entry can express,
+  usually a hosted OAuth connector such as Drive or Gmail. It says the skill
+  needs your setup rather than leaving it to the default, and the run's notice
+  names the spec as the source.
+- `--inherit-mcp` / `--no-inherit-mcp` override the spec for one run.
+- A backend without MCP (`pi`) runs isolated; it warns only when the flag or the
+  spec asked for inheriting.
+- `caliper validate` shows an explicit setting in its summary.
+
+See [Portable scores](../README.md#portable-scores) for when to isolate.
 
 ## Judging
 

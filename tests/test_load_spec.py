@@ -244,7 +244,27 @@ def test_validate_says_when_a_spec_inherits_mcp(tmp_path) -> None:
     assert "--no-inherit-mcp" in result.output
 
 
+def test_validate_says_when_a_spec_pins_isolation(tmp_path) -> None:
+    result = CliRunner().invoke(
+        app, ["validate", str(_write(tmp_path, "inherit_mcp: false\n" + _TASK))]
+    )
+    assert result.exit_code == 0, result.output
+    assert "inherit_mcp: false" in result.output
+
+
 def test_validate_is_silent_about_inherited_mcp_by_default(tmp_path) -> None:
     result = CliRunner().invoke(app, ["validate", str(_write(tmp_path, _TASK))])
     assert result.exit_code == 0, result.output
     assert "--inherit-mcp" not in result.output
+
+
+def test_every_smoke_eval_pins_isolation() -> None:
+    # Runs inherit the machine's MCP setup by default (docs/adr/0028); a smoke
+    # eval measures the backend, and its probe tasks assert zero undeclared MCP
+    # tools, so each one must opt out explicitly.
+    from pathlib import Path
+
+    smoke = sorted(Path(__file__).parent.glob("*-smoke.eval.yaml"))
+    assert smoke
+    for path in smoke:
+        assert load_spec(path).inherit_mcp is False, path.name

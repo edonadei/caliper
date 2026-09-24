@@ -93,7 +93,7 @@ class ClaudeCodeHarness(CliHarness):
     def _drop_shadowed_user_servers(self, ctx: RunContext) -> None:
         """Remove the user's servers that share a name with a declared one.
 
-        Under ``--inherit-mcp`` the attempt keeps the user-scope ``mcpServers``
+        When inheriting (the default) the attempt keeps the user-scope ``mcpServers``
         from the seeded ``.claude.json``, and the spec wins a name clash
         (docs/adr/0028). Rather than rely on how the CLI orders its scopes, the
         clashing entries are taken out of the isolated copy, so the only server
@@ -140,7 +140,7 @@ class ClaudeCodeHarness(CliHarness):
         # brings along otherwise (docs/adr/0026). The config file (which may hold
         # resolved secrets) lives in the 0700 run tempdir, never argv.
         cmd += ["--mcp-config", str(mcp_config)]
-        # --inherit-mcp drops it: the declared servers then merge with the
+        # Inheriting (the default) drops it: the declared servers then merge with the
         # seeded user config and the account's connectors (docs/adr/0028).
         if not ctx.inherit_mcp:
             cmd.append("--strict-mcp-config")
@@ -163,7 +163,7 @@ class ClaudeCodeHarness(CliHarness):
         No ``mcp:`` block, an authored ``mcp: {}``, and a block whose servers
         were all ablated all write an empty ``mcpServers``: the attempt sees zero
         servers rather than whatever the seeded user config and account carry —
-        unless ``--inherit-mcp`` asked for those too (see ``_command``).
+        unless the run inherits those too (the default; see ``_command``).
         """
         servers: dict[str, dict] = {}
         for name, resolved in resolve_servers(ctx.mcp_servers or {}).items():

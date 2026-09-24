@@ -17,6 +17,10 @@
 #
 # http transport + claude-code backend (this is issue #48's slice).
 
+# Pinned isolated: a smoke eval checks the backend itself, and the #129 probe
+# tasks assert the attempt sees only the declared MCP servers (docs/adr/0028).
+inherit_mcp: false
+
 mcp:
   deepwiki:
     type: http

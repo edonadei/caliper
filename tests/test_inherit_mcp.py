@@ -3,7 +3,7 @@
 Covers the run seam (threading the flag, clearing it on a backend without MCP,
 recording what was inherited), ``compare`` (warnings and ablation pairing) and
 the report header. The per-backend mechanics live beside each harness's tests.
-See docs/adr/0028-inherit-mcp-is-an-opt-in-invocation-flag.md.
+See docs/adr/0028-runs-inherit-the-users-mcp-setup-by-default.md.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ class PassingJudge:
         return JudgeResult(passed=True, reasoning="ok")
 
 
-def _spec(tmp_path, *, mcp=None, spec_inherit=False):
+def _spec(tmp_path, *, mcp=None, spec_inherit=None):
     spec_path = tmp_path / "s.eval.yaml"
     spec_path.write_text("tasks: []\n")
     fields = {
@@ -81,7 +81,7 @@ def _spec(tmp_path, *, mcp=None, spec_inherit=False):
 
 
 def _run(
-    tmp_path, harness, *, k=1, mcp=None, spec_inherit=False, **kwargs
+    tmp_path, harness, *, k=1, mcp=None, spec_inherit=None, **kwargs
 ) -> RunResults:
     spec, spec_path = _spec(tmp_path, mcp=mcp, spec_inherit=spec_inherit)
     return run(
@@ -99,9 +99,18 @@ def _run(
 # --- the run seam ---------------------------------------------------------
 
 
-def test_off_by_default(tmp_path):
+def test_on_by_default(tmp_path):
+    # Most runs test a skill in the user's own agent (docs/adr/0028).
     harness = InheritingHarness()
     results = _run(tmp_path, harness)
+    assert [ctx.inherit_mcp for ctx in harness.contexts] == [True]
+    assert results.run.inherit_mcp is True
+    assert results.run.inherited_mcp_servers == ["gmail"]
+
+
+def test_isolated_on_request(tmp_path):
+    harness = InheritingHarness()
+    results = _run(tmp_path, harness, inherit_mcp=False)
     assert [ctx.inherit_mcp for ctx in harness.contexts] == [False]
     assert results.run.inherit_mcp is False
     assert results.run.inherited_mcp_servers is None
@@ -161,6 +170,16 @@ def test_a_backend_without_mcp_warns_and_records_the_flag_off(tmp_path):
     assert len(warnings) == 1 and "no effect" in warnings[0]
 
 
+def test_the_default_on_a_backend_without_mcp_is_silent(tmp_path):
+    # It would otherwise warn on every pi run.
+    warnings: list[str] = []
+    results = _run(
+        tmp_path, InheritingHarness(supports_mcp=False), on_warning=warnings.append
+    )
+    assert results.run.inherit_mcp is False
+    assert warnings == []
+
+
 def test_a_run_saved_before_the_flag_loads_as_off():
     meta = RunMeta.model_validate(
         {
@@ -202,7 +221,7 @@ def test_a_spec_default_on_a_backend_without_mcp_warns_and_runs(tmp_path):
     assert len(warnings) == 1 and "no effect" in warnings[0]
 
 
-def test_the_spec_field_is_read_from_yaml_and_defaults_off(tmp_path):
+def test_the_spec_field_is_read_from_yaml_and_defaults_unset(tmp_path):
     inheriting = tmp_path / "r.eval.yaml"
     inheriting.write_text(
         "inherit_mcp: true\ntasks:\n  - name: t\n    prompt: p\n    expect: x\n"
@@ -210,7 +229,7 @@ def test_the_spec_field_is_read_from_yaml_and_defaults_off(tmp_path):
     plain = tmp_path / "p.eval.yaml"
     plain.write_text("tasks:\n  - name: t\n    prompt: p\n    expect: x\n")
     assert load_spec(inheriting).inherit_mcp is True
-    assert load_spec(plain).inherit_mcp is False
+    assert load_spec(plain).inherit_mcp is None
 
 
 # --- compare --------------------------------------------------------------
@@ -246,7 +265,57 @@ def _saved(
 def test_a_flag_mismatch_warns():
     comp = diff_runs(_saved(inherit=False), _saved(inherit=True, inherited=["gmail"]))
     assert comp.inherit_mcp_mismatch is True
-    assert any("only B ran with --inherit-mcp" in w for w in comp.warnings)
+    message = next(w for w in comp.warnings if w.startswith("only B inherited"))
+    # Says how to make the pair comparable, since the first diff against a run
+    # saved before the default changed lands here.
+    assert "re-run B with --no-inherit-mcp to match A" in message
+    assert "--inherit-mcp to match" not in message
+
+
+def test_a_cross_backend_diff_with_inherited_mcp_warns():
+    a = _saved(inherit=True, inherited=["gmail"])
+    b = _saved(inherit=True, inherited=["gmail"])
+    b.run.backend = "codex"
+    comp = diff_runs(a, b)
+    assert comp.cross_backend_inherit is True
+    assert any("different backends (claude-code vs codex)" in w for w in comp.warnings)
+
+
+def test_a_cross_backend_diff_gives_one_fix_not_two():
+    a = _saved(inherit=True, inherited=["gmail"])
+    b = _saved(inherit=False)
+    b.run.backend = "codex"
+    comp = diff_runs(a, b)
+    assert comp.cross_backend_inherit and comp.inherit_mcp_mismatch
+    inherit_lines = [w for w in comp.warnings if "inherit" in w]
+    assert len(inherit_lines) == 1
+    assert "re-run both with --no-inherit-mcp" in inherit_lines[0]
+
+
+def test_a_cross_backend_diff_that_inherited_nothing_does_not_warn():
+    a, b = _saved(inherit=True, inherited=[]), _saved(inherit=True, inherited=[])
+    b.run.backend = "codex"
+    assert diff_runs(a, b).cross_backend_inherit is False
+
+
+def test_an_ablation_pair_that_inherited_different_setups_is_not_labelled():
+    full = _saved(inherit=True, inherited=["gmail"])
+    cut = _saved(
+        inherit=True,
+        inherited=["gmail", "drive"],
+        skills=("keeper",),
+        ablated=("subject",),
+    )
+    comp = diff_runs(full, cut)
+    assert comp.a_label is None and comp.b_label is None
+
+
+def test_an_isolated_cross_backend_diff_is_the_harness_comparison():
+    a, b = _saved(inherit=False), _saved(inherit=False)
+    b.run.backend = "codex"
+    comp = diff_runs(a, b)
+    assert comp.cross_backend_inherit is False
+    assert comp.warnings == []
 
 
 def test_different_inherited_servers_warn():

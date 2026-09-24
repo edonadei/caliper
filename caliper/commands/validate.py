@@ -86,15 +86,15 @@ def validate_cmd(
         else ""
     )
 
-    # The one spec default that reaches past the attempt's isolation
+    # Only an explicit setting: the default is the same for every spec
     # (docs/adr/0028).
-    requires = (
-        "\n  [yellow]mcp[/yellow]      [dim]inherits the runner's own MCP servers "
-        "and account connectors\n           (inherit_mcp: true; "
-        "--no-inherit-mcp runs it isolated)[/dim]"
-        if spec.inherit_mcp
-        else ""
-    )
+    requires = {
+        True: "\n  [yellow]mcp[/yellow]      [dim]inherits the runner's own MCP "
+        "servers and account connectors\n           (inherit_mcp: true; "
+        "--no-inherit-mcp runs it isolated)[/dim]",
+        False: "\n  mcp      [dim]isolated from the runner's own MCP setup "
+        "(inherit_mcp: false)[/dim]",
+    }.get(spec.inherit_mcp, "")
 
     console.print(
         Panel(

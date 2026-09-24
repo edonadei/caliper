@@ -1,7 +1,9 @@
 # Attempts never see the account's hosted connectors
 
-> Relaxed by [0028](0028-inherit-mcp-is-an-opt-in-invocation-flag.md): a run can
-> opt back in with `--inherit-mcp`. The default below is unchanged.
+> Superseded as the default by
+> [0028](0028-runs-inherit-the-users-mcp-setup-by-default.md): runs now inherit
+> the user's MCP setup unless isolated with `--no-inherit-mcp` or
+> `inherit_mcp: false`. What follows is what isolation still does.
 
 An attempt sees exactly the MCP servers its spec declares, and none when it
 declares no `mcp:` block. That already held for servers in the seeded config

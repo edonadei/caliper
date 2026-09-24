@@ -47,6 +47,7 @@ from caliper.schema.results import (
     TaskResult,
 )
 from caliper.schema.spec import EvalSpec, TaskSpec
+from conftest import StubHarness
 
 runner = CliRunner()
 
@@ -692,7 +693,9 @@ def test_run_cli_exits_130_and_saves_an_interrupted_run(monkeypatch, tmp_path) -
     def fake_run(**kwargs):
         return _one_attempt_run(k=kwargs["k"])
 
-    monkeypatch.setattr("caliper.commands.run.get_harness", lambda *a, **kw: object())
+    monkeypatch.setattr(
+        "caliper.commands.run.get_harness", lambda *a, **kw: StubHarness()
+    )
     monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **kw: object())
     monkeypatch.setattr("caliper.commands.run.run", fake_run)
 
@@ -718,7 +721,9 @@ def test_run_cli_saves_before_reporting_a_fatal_error(monkeypatch, tmp_path) -> 
     def fake_run(**kwargs):
         raise RunAborted(HarnessConfigurationError("credentials expired"), partial)
 
-    monkeypatch.setattr("caliper.commands.run.get_harness", lambda *a, **kw: object())
+    monkeypatch.setattr(
+        "caliper.commands.run.get_harness", lambda *a, **kw: StubHarness()
+    )
     monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **kw: object())
     monkeypatch.setattr("caliper.commands.run.run", fake_run)
 

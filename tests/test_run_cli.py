@@ -19,6 +19,8 @@ from caliper.schema.results import (
     TaskResult,
 )
 
+from conftest import StubHarness
+
 
 runner = CliRunner()
 
@@ -62,7 +64,7 @@ tasks:
         )
 
     monkeypatch.setattr(
-        "caliper.commands.run.get_harness", lambda *args, **kwargs: object()
+        "caliper.commands.run.get_harness", lambda *args, **kwargs: StubHarness()
     )
     monkeypatch.setattr(
         "caliper.commands.run.EvalJudge", lambda *args, **kwargs: object()
@@ -140,6 +142,14 @@ def test_run_cli_inherit_mcp_forwards_and_prints_a_notice(
     )
     monkeypatch.setattr("caliper.commands.run.run", fake_run)
 
+    # The default: one quiet line, no warning.
+    result = runner.invoke(app, ["run", str(spec_file)])
+    assert result.exit_code == 0, result.output
+    assert calls["inherit_mcp"] is None
+    assert "--no-inherit-mcp to isolate" in result.output
+    assert "without asking" in result.output
+    assert "⚠" not in result.output
+
     result = runner.invoke(app, ["run", str(spec_file), "--inherit-mcp"])
 
     assert result.exit_code == 0, result.output
@@ -158,7 +168,7 @@ def test_run_cli_inherit_mcp_forwards_and_prints_a_notice(
     assert result.exit_code == 0, result.output
     assert calls["inherit_mcp"] is None
     assert "inherit_mcp: true (spec)" in result.output
-    assert "--no-inherit-mcp" in result.output
+    assert "--no-inherit-mcp runs it isolated" in result.output
 
 
 def test_run_cli_resolves_backend_and_judge_model_targets(
@@ -190,7 +200,7 @@ def test_run_cli_resolves_backend_and_judge_model_targets(
 
     def fake_get_harness(backend, model):
         harness_args["backend"], harness_args["model"] = backend, model
-        return object()
+        return StubHarness()
 
     def fake_eval_judge(backend, model):
         judge_args["backend"], judge_args["model"] = backend, model
@@ -246,7 +256,9 @@ def test_run_cli_collects_repeated_ablate_flags(monkeypatch, tmp_path) -> None:
             aggregate=AggregateScore(avg_score=0.0, per_task=[]),
         )
 
-    monkeypatch.setattr("caliper.commands.run.get_harness", lambda *a, **k: object())
+    monkeypatch.setattr(
+        "caliper.commands.run.get_harness", lambda *a, **k: StubHarness()
+    )
     monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **k: object())
     monkeypatch.setattr(
         "caliper.commands.run.make_progress", lambda *a, **k: (_Progress(), {})
@@ -293,7 +305,9 @@ def _finished(timestamp: datetime) -> RunResults:
 
 
 def _stub_a_run(monkeypatch, finished: RunResults) -> None:
-    monkeypatch.setattr("caliper.commands.run.get_harness", lambda *a, **k: object())
+    monkeypatch.setattr(
+        "caliper.commands.run.get_harness", lambda *a, **k: StubHarness()
+    )
     monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **k: object())
     monkeypatch.setattr(
         "caliper.commands.run.make_progress", lambda *a, **k: (_Progress(), {})

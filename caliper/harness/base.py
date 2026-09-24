@@ -71,9 +71,9 @@ class AttemptResult:
     # (docs/adr/0019).
     salvaged: bool = False
     # The MCP servers this attempt inherited from the user's own CLI config and
-    # account under ``--inherit-mcp``, as far as the backend can see them.
+    # account when inheriting (the default), as far as the backend can see them.
     # ``None`` when the flag was off or the backend could not tell; see
-    # docs/adr/0028-inherit-mcp-is-an-opt-in-invocation-flag.md.
+    # docs/adr/0028-runs-inherit-the-users-mcp-setup-by-default.md.
     inherited_mcp_servers: list[str] | None = None
 
 
@@ -114,10 +114,12 @@ class RunContext:
     # no ``mcp:`` block; an empty mapping means it had one whose servers were all
     # ablated, which a backend still isolates to zero servers.
     mcp_servers: dict[str, McpServer] | None = None
-    # ``--inherit-mcp``: keep the MCP servers and account connectors the CLI
+    # Inherited MCP: keep the MCP servers and account connectors the CLI
     # would load by itself, merged with ``mcp_servers`` (the spec wins a name
-    # clash). ``False`` isolates the attempt to the declared set (docs/adr/0026,
-    # docs/adr/0028-inherit-mcp-is-an-opt-in-invocation-flag.md).
+    # clash). ``False`` isolates the attempt to the declared set (docs/adr/0026).
+    # The product default lives in ``DEFAULT_INHERIT_MCP``, resolved by the run
+    # seam; this field stays ``False`` so a context built anywhere else — the
+    # judge's path included — is isolated unless asked (docs/adr/0028).
     inherit_mcp: bool = False
     # Every server name the spec's ``mcp:`` block declares, ablated ones
     # included. Under ``inherit_mcp`` a user's server by one of these names is
@@ -609,7 +611,7 @@ class CliHarness(HarnessBackend):
     def _inherited_mcp_servers(
         self, proc: ProcessResult, ctx: RunContext
     ) -> list[str] | None:
-        """The servers this attempt inherited under ``--inherit-mcp``, if visible.
+        """The servers this attempt inherited from the machine, if visible.
 
         Only asked when ``ctx.inherit_mcp`` is set. Names only, sorted, and
         never a declared ``mcp:`` server: those are the spec's, recorded in

@@ -104,13 +104,22 @@ def _check_era(a: RunMeta, b: RunMeta) -> None:
 
 
 def _inherit_mcp_warning(a: RunMeta, b: RunMeta) -> str | None:
-    """Why the two runs' inherited tool environments differ, or ``None``."""
+    """Why the two runs' inherited tool environments differ, or ``None``.
+
+    Each message says how to make the pair comparable, because since runs
+    inherit by default (docs/adr/0028) the first diff against an older,
+    isolated run lands here.
+    """
     if a.inherit_mcp != b.inherit_mcp:
-        side = "A" if a.inherit_mcp else "B"
+        # Only the isolating direction is offered: it always works, where
+        # re-running the other side inheriting does nothing on a backend
+        # without MCP.
+        side, other = ("A", "B") if a.inherit_mcp else ("B", "A")
         return (
-            f"only {side} ran with --inherit-mcp — its attempts also had the "
-            "machine's own MCP servers and account connectors, so tool "
-            "availability can move the score for reasons unrelated to the skill"
+            f"only {side} inherited this machine's MCP servers and account "
+            f"connectors, so tool availability can move the score for reasons "
+            f"unrelated to the skill — re-run {side} with --no-inherit-mcp to "
+            f"match {other}"
         )
     a_names, b_names = a.inherited_mcp_servers, b.inherited_mcp_servers
     if (
@@ -121,10 +130,36 @@ def _inherit_mcp_warning(a: RunMeta, b: RunMeta) -> str | None:
     ):
         return (
             f"different inherited MCP servers: {a_names or ['(none)']} vs "
-            f"{b_names or ['(none)']} — both ran with --inherit-mcp on different "
-            "setups, so tool availability can move the score"
+            f"{b_names or ['(none)']} — the runs inherited different setups, so "
+            "tool availability can move the score; re-run both with "
+            "--no-inherit-mcp for a portable comparison"
         )
     return None
+
+
+def _may_have_inherited(run: RunMeta) -> bool:
+    """Whether a run may have had inherited tools: it inherited, and did not
+    record an empty set (unknown counts as maybe)."""
+    return run.inherit_mcp and run.inherited_mcp_servers != []
+
+
+def _cross_backend_inherit_warning(a: RunMeta, b: RunMeta) -> str | None:
+    """The harness comparison an inherited setup confounds, or ``None``.
+
+    Two backends never inherit the same thing — claude.ai connectors on one,
+    ChatGPT apps on the other — so a delta between them is partly the two
+    setups, even when their recorded names happen to match. Warned, not
+    refused: "my setup on claude-code vs my setup on codex" is a legitimate
+    question (docs/adr/0028).
+    """
+    if a.backend == b.backend or not (_may_have_inherited(a) or _may_have_inherited(b)):
+        return None
+    return (
+        f"different backends ({a.backend} vs {b.backend}) with inherited MCP — "
+        "each CLI brings its own servers and account connectors, so part of the "
+        "delta is the two setups; re-run both with --no-inherit-mcp for a "
+        "harness comparison"
+    )
 
 
 def _group_by_name(tasks: list[TaskResult]) -> dict[str, list[TaskResult]]:
@@ -188,12 +223,19 @@ def _ablation_labels(
     nothing but this marker could tell that case apart from a legitimate one,
     since both sides simply have a smaller-than-declared neighbourhood.
 
-    Nor are two runs that differ on ``--inherit-mcp``: the inherited servers
-    would be an unrecorded difference between the sides (docs/adr/0028).
+    Nor are two runs that differ on inherited MCP, or that both inherited but
+    recorded different servers: the inherited servers would be a difference
+    between the sides the marker doesn't name (docs/adr/0028).
     """
     if bool(a_run.ablated) == bool(b_run.ablated):
         return None
     if a_run.inherit_mcp != b_run.inherit_mcp:
+        return None
+    # Both inherited, but different setups: the difference is not only the
+    # removed subject. Stands down when either side's set is unknown, as the
+    # server check does for an unrecorded membership.
+    a_inh, b_inh = a_run.inherited_mcp_servers, b_run.inherited_mcp_servers
+    if a_inh is not None and b_inh is not None and set(a_inh) != set(b_inh):
         return None
     if a_run.ablated:
         cut_run, full_run = a_run, b_run
@@ -338,7 +380,12 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
     # different servers. Membership is compared only when both sides recorded
     # it, for the same reason as above.
     inherit_warning = _inherit_mcp_warning(a_run, b_run)
-    if inherit_warning:
+    cross_backend_warning = _cross_backend_inherit_warning(a_run, b_run)
+    # One message per cause: across backends, isolating both runs is the only
+    # fix, and the generic mismatch advice would contradict it.
+    if cross_backend_warning:
+        warnings.append(cross_backend_warning)
+    elif inherit_warning:
         warnings.append(inherit_warning)
 
     # Drift is reported for every member but only *warned* about for a git
@@ -367,6 +414,7 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         neighbourhood_mismatch=neighbourhood_mismatch,
         mcp_mismatch=mcp_mismatch,
         inherit_mcp_mismatch=inherit_warning is not None,
+        cross_backend_inherit=cross_backend_warning is not None,
         skill_drift=skill_drift,
         warnings=warnings,
         # Token/wall totals over each whole run. Shown alongside pass@k but never

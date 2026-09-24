@@ -50,6 +50,16 @@ def task_result(
     )
 
 
+class StubHarness:
+    """A harness double for CLI tests whose ``run`` is itself stubbed.
+
+    ``caliper run`` reads the harness before handing it to ``run``: whether it
+    can inherit MCP decides the start-of-run notice (docs/adr/0028).
+    """
+
+    supports_mcp = False
+
+
 def run_context(**overrides) -> RunContext:
     """A ``RunContext`` with everything a hook needs already filled in.
 
