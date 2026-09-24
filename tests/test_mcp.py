@@ -179,6 +179,27 @@ _TOOLS_REPLY = (
     "'result': {'tools': []}}), flush=True)\n"
     "sys.stdin.readline()\n"
 )
+_TOOL_INITIALIZATION = repr(
+    {
+        "protocolVersion": "2025-03-26",
+        "capabilities": {"tools": {}},
+        "serverInfo": {"name": "test", "version": "1"},
+    }
+)
+_RESOURCE_INITIALIZATION = repr(
+    {
+        "protocolVersion": "2025-03-26",
+        "capabilities": {"resources": {}},
+        "serverInfo": {"name": "test", "version": "1"},
+    }
+)
+_EMPTY_INITIALIZATION = repr(
+    {
+        "protocolVersion": "2025-03-26",
+        "capabilities": {},
+        "serverInfo": {"name": "test", "version": "1"},
+    }
+)
 
 
 def test_resolve_servers_interpolates_stdio_env(monkeypatch) -> None:
@@ -296,6 +317,26 @@ def test_preflight_initializes_a_local_server(tmp_path) -> None:
     )
 
 
+def test_preflight_does_not_inspect_unrelated_process_environments(
+    tmp_path, monkeypatch
+) -> None:
+    script = tmp_path / "server.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
+    )
+
+    def no_global_scan():
+        raise AssertionError("preflight scanned unrelated processes")
+
+    monkeypatch.setattr(psutil, "process_iter", no_global_scan)
+    preflight_stdio_servers(
+        {"echo": McpServer(command=sys.executable, args=[str(script)])}
+    )
+
+
 def test_preflight_ignores_notifications_before_responses(tmp_path) -> None:
     script = tmp_path / "notifying.py"
     script.write_text(
@@ -304,7 +345,7 @@ def test_preflight_ignores_notifications_before_responses(tmp_path) -> None:
         "print(json.dumps({'jsonrpc': '2.0', 'method': 'notifications/message', "
         "'params': {'level': 'info', 'data': 'starting'}}), flush=True)\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {'capabilities': {'tools': {}}}}), flush=True)\n"
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n"
         "sys.stdin.readline()\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'method': 'notifications/message', "
@@ -330,7 +371,7 @@ def test_preflight_answers_server_ping_with_colliding_request_id(tmp_path) -> No
         "if reply != {'jsonrpc': '2.0', 'id': request['id'], 'result': {}}: "
         "sys.exit(2)\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {'capabilities': {'tools': {}}}}), flush=True)\n" + _TOOLS_REPLY
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
     )
 
     preflight_stdio_servers(
@@ -344,7 +385,7 @@ def test_preflight_accepts_resource_only_server(tmp_path) -> None:
         "import json, sys\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {'capabilities': {'resources': {}}}}), flush=True)\n"
+        f"'result': {_RESOURCE_INITIALIZATION}}}), flush=True)\n"
         "sys.stdin.readline()\n"
         "request = sys.stdin.readline()\n"
         "if request:\n"
@@ -377,7 +418,7 @@ def test_preflight_kills_server_child_after_launcher_exits(tmp_path) -> None:
         "while not pathlib.Path(sys.argv[1]).exists(): time.sleep(0.01)\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {'capabilities': {'tools': {}}}}), flush=True)\n" + _TOOLS_REPLY
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
     )
     pid = None
     try:
@@ -410,7 +451,7 @@ def test_preflight_uses_sandbox_extra_path_for_command(tmp_path) -> None:
         "import json, sys\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {'capabilities': {'tools': {}}}}), flush=True)\n" + _TOOLS_REPLY
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
     )
     command.chmod(0o755)
 
@@ -427,7 +468,7 @@ def test_preflight_does_not_inherit_host_only_variables(tmp_path, monkeypatch) -
         "if os.getenv('CALIPER_HOST_ONLY_SECRET'): sys.exit(2)\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {'capabilities': {'tools': {}}}}), flush=True)\n" + _TOOLS_REPLY
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
     )
 
     preflight_stdio_servers(
@@ -471,7 +512,7 @@ def test_server_that_dies_after_initial_preflight_stops_before_agent(tmp_path) -
         "marker.write_text('started')\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {'capabilities': {'tools': {}}}}), flush=True)\n" + _TOOLS_REPLY
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
     )
     servers = {
         "echo": McpServer(command=sys.executable, args=[str(script), str(marker)])
@@ -494,10 +535,36 @@ def test_preflight_rejects_server_exiting_after_initialize(tmp_path) -> None:
         "import json, sys\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {}}), flush=True)\n"
+        f"'result': {_EMPTY_INITIALIZATION}}}), flush=True)\n"
     )
 
     with pytest.raises(HarnessConfigurationError, match="MCP server 'echo'"):
+        preflight_stdio_servers(
+            {"echo": McpServer(command=sys.executable, args=[str(script)])}
+        )
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {},
+        {
+            "protocolVersion": "unsupported",
+            "capabilities": {},
+            "serverInfo": {"name": "test", "version": "1"},
+        },
+    ],
+)
+def test_preflight_rejects_invalid_initialization(tmp_path, result) -> None:
+    script = tmp_path / "invalid.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        f"print(json.dumps({{'jsonrpc': '2.0', 'id': request['id'], 'result': {result!r}}}), flush=True)\n"
+        "sys.stdin.readline()\n"
+    )
+
+    with pytest.raises(HarnessConfigurationError, match="invalid initialization"):
         preflight_stdio_servers(
             {"echo": McpServer(command=sys.executable, args=[str(script)])}
         )
@@ -509,7 +576,7 @@ def test_setup_can_stage_an_mcp_server_before_attempt_preflight(tmp_path) -> Non
         "import json, sys\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {'capabilities': {'tools': {}}}}), flush=True)\n" + _TOOLS_REPLY
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
     )
     staged = tmp_path / "staged-server.py"
     stage_script = tmp_path / "stage.py"
@@ -648,7 +715,7 @@ def test_readme_relative_mcp_arg_starts_from_any_cwd(tmp_path, monkeypatch) -> N
         "import json, sys\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {'capabilities': {'tools': {}}}}), flush=True)\n" + _TOOLS_REPLY
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
     )
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()

@@ -29,7 +29,6 @@ import sys
 import tempfile
 import threading
 import time
-import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -43,7 +42,6 @@ from caliper.schema.spec import McpServer
 # ``headers`` values, a remote ``url``). Only this exact form is honored.
 ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _PREFLIGHT_TIMEOUT = 15.0
-_PREFLIGHT_TAG = "CALIPER_MCP_PREFLIGHT_TAG"
 
 
 class McpPreflightInterrupted(Exception):
@@ -88,6 +86,10 @@ def preflight_stdio_servers(
     or a process can stay alive without speaking MCP. Bound the MCP exchange so
     neither failure becomes a scored attempt or a hanging agent.
     """
+    if os.name == "nt":
+        from caliper.harness import windows_job
+    else:
+        windows_job = None
     for name, server in resolve_servers(declared).items():
         if cancel.requested():
             raise McpPreflightInterrupted
@@ -107,9 +109,8 @@ def preflight_stdio_servers(
             with tempfile.TemporaryDirectory(
                 prefix="caliper-mcp-preflight-"
             ) as tmp_dir:
-                # A run-level check has no attempt yet. Keep its environment as
-                # narrow as an attempt's, so a server cannot pass preflight by
-                # relying on a host variable the agent will never inherit.
+                # Keep preflight as narrow as the attempt's environment, so a
+                # server cannot pass by relying on an ambient host variable.
                 process_env = (
                     dict(env)
                     if env is not None
@@ -127,8 +128,6 @@ def preflight_stdio_servers(
                 ):
                     process_env["SystemRoot"] = os.environ["SystemRoot"]
                 process_env.update(server.env)
-                process_tag = uuid.uuid4().hex
-                process_env[_PREFLIGHT_TAG] = process_tag
                 process = subprocess.Popen(
                     [server.command, *server.args],
                     stdin=subprocess.PIPE,
@@ -139,14 +138,28 @@ def preflight_stdio_servers(
                     cwd=cwd or tmp_dir,
                     env=process_env,
                     start_new_session=os.name == "posix",
+                    creationflags=(
+                        windows_job.CREATE_SUSPENDED if windows_job is not None else 0
+                    ),
                 )
+                job = None
                 try:
+                    if windows_job is not None:
+                        job = windows_job.assign_and_resume(process)
                     with cancel.track(process):
                         response = _exchange(process, initialize, name)
                         result = response.get("result")
-                        if not isinstance(result, dict):
+                        if (
+                            not isinstance(result, dict)
+                            or result.get("protocolVersion")
+                            != initialize["params"]["protocolVersion"]
+                            or not isinstance(result.get("capabilities"), dict)
+                            or not isinstance(result.get("serverInfo"), dict)
+                            or not isinstance(result["serverInfo"].get("name"), str)
+                            or not isinstance(result["serverInfo"].get("version"), str)
+                        ):
                             raise HarnessConfigurationError(
-                                f"MCP server '{name}' rejected initialization"
+                                f"MCP server '{name}' returned an invalid initialization"
                             )
                         process.stdin.write(
                             json.dumps(
@@ -181,35 +194,37 @@ def preflight_stdio_servers(
                                 f"MCP server '{name}' exited after initialization"
                             )
                 finally:
-                    # Launchers such as npx can leave a child holding the stdio
-                    # pipe after their parent exits. End the whole preflight
-                    # group before the real attempt starts.
-                    descendants: set[psutil.Process] = set()
-                    try:
-                        descendants.update(
-                            psutil.Process(process.pid).children(recursive=True)
-                        )
-                    except psutil.Error:
-                        pass
                     if os.name == "posix":
+                        # Capture children before terminating the launcher;
+                        # reparenting would otherwise hide them from the walk.
+                        descendants: set[psutil.Process] = set()
+                        try:
+                            descendants.update(
+                                psutil.Process(process.pid).children(recursive=True)
+                            )
+                        except psutil.Error:
+                            pass
                         try:
                             os.killpg(process.pid, signal.SIGTERM)
                         except OSError:
                             pass
-                    else:
-                        if process.poll() is None:
-                            process.terminate()
-                    try:
-                        process.wait(timeout=1)
-                    except subprocess.TimeoutExpired:
-                        pass
-                    # The launcher can exit before a child in its group does.
-                    # Kill the group even when wait() already reaped the leader.
-                    if os.name == "posix":
+                        try:
+                            process.wait(timeout=1)
+                        except subprocess.TimeoutExpired:
+                            pass
+                        # The launcher can exit before another group member.
                         try:
                             os.killpg(process.pid, signal.SIGKILL)
                         except OSError:
                             pass
+                        for child in descendants:
+                            try:
+                                child.kill()
+                            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                                pass
+                        psutil.wait_procs(list(descendants), timeout=1)
+                    elif job is not None:
+                        windows_job.close(job)
                     elif process.poll() is None:
                         process.kill()
                     try:
@@ -217,20 +232,6 @@ def preflight_stdio_servers(
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait(timeout=1)
-                    # On Windows there is no killpg. Also catch a child whose
-                    # launcher exited before cleanup and lost its parent link.
-                    for child in psutil.process_iter():
-                        try:
-                            if child.environ().get(_PREFLIGHT_TAG) == process_tag:
-                                descendants.add(child)
-                        except (psutil.NoSuchProcess, psutil.AccessDenied):
-                            pass
-                    for child in descendants:
-                        try:
-                            child.kill()
-                        except (psutil.NoSuchProcess, psutil.AccessDenied):
-                            pass
-                    psutil.wait_procs(list(descendants), timeout=1)
         except (OSError, ValueError) as exc:
             raise HarnessConfigurationError(
                 f"MCP server '{name}' failed to start: {exc}"
