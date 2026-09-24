@@ -160,6 +160,63 @@ def test_install_honours_sandbox_forbidden_files(tmp_path):
     assert not (root / "guarded" / "answers.txt").exists()
 
 
+def test_install_follows_a_file_symlink_to_a_shared_file(tmp_path):
+    # Sharing one guide between skills by symlink is supported: the agent
+    # would follow the link in a real install (docs/adr/0027).
+    write_skill(tmp_path / "src", "linked")
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "guide.md").write_text("shared guide")
+    (tmp_path / "src" / "guide.md").symlink_to(Path("../shared/guide.md"))
+    refs = resolve_skills(["./src/SKILL.md"], tmp_path)
+    root = tmp_path / "root"
+
+    install_skills(refs, root, [])
+
+    installed = root / "linked" / "guide.md"
+    assert not installed.is_symlink()
+    assert installed.read_text() == "shared guide"
+
+
+def test_install_does_not_let_a_symlink_reach_a_forbidden_file(tmp_path):
+    write_skill(tmp_path / "src", "guarded")
+    (tmp_path / "src" / "answers").mkdir()
+    (tmp_path / "src" / "answers" / "key.md").write_text("the answer is 42")
+    (tmp_path / "src" / "hint.md").symlink_to(Path("answers/key.md"))
+    refs = resolve_skills(["./src/SKILL.md"], tmp_path)
+    root = tmp_path / "root"
+
+    install_skills(refs, root, ["answers/"])
+
+    assert not (root / "guarded" / "hint.md").exists()
+
+
+def test_install_matches_forbidden_files_against_an_outside_target(tmp_path):
+    write_skill(tmp_path / "src", "guarded")
+    (tmp_path / "answers").mkdir()
+    (tmp_path / "answers" / "key.md").write_text("the answer is 42")
+    (tmp_path / "src" / "hint.md").symlink_to(tmp_path / "answers" / "key.md")
+    refs = resolve_skills(["./src/SKILL.md"], tmp_path)
+    root = tmp_path / "root"
+
+    install_skills(refs, root, ["answers/"])
+
+    assert not (root / "guarded" / "hint.md").exists()
+
+
+@pytest.mark.parametrize("target", [".git/config", "old.eval.yaml"])
+def test_install_does_not_let_a_symlink_reach_an_excluded_file(tmp_path, target):
+    write_skill(tmp_path / "src", "guarded")
+    (tmp_path / "src" / ".git").mkdir()
+    (tmp_path / "src" / target).write_text("excluded")
+    (tmp_path / "src" / "alias.md").symlink_to(Path(target))
+    refs = resolve_skills(["./src/SKILL.md"], tmp_path)
+    root = tmp_path / "root"
+
+    install_skills(refs, root, [])
+
+    assert not (root / "guarded" / "alias.md").exists()
+
+
 def test_install_skips_oversized_files(tmp_path):
     write_skill(tmp_path / "src", "big")
     (tmp_path / "src" / "blob.bin").write_bytes(b"x" * (6 * 1024 * 1024))

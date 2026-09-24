@@ -68,6 +68,9 @@ class FetchedSkill:
     path: Path
     sha: str
     repo: str
+    # The root of the clone ``path`` sits in, so a caller can tell a link to
+    # elsewhere in the repo from one that leaves it.
+    checkout: Path
 
 
 def default_cache_dir() -> Path:
@@ -149,7 +152,7 @@ class SkillFetcher:
                 f"{self._label(src)}: cannot reach the remote to resolve "
                 f"'{src.ref or 'the default branch'}' — using cached {sha[:7]}"
             )
-        return FetchedSkill(path=skill_md, sha=sha, repo=src.repo)
+        return FetchedSkill(path=skill_md, sha=sha, repo=src.repo, checkout=checkout)
 
     # ── resolution ───────────────────────────────────────────────────────────
 

@@ -447,6 +447,10 @@ member silently missing would measure your skill against competition that
 wasn't there. If it's cached but the remote is unreachable, the run uses the
 cache and says so.
 
+A git source whose skill has a symlink pointing outside the cloned repo is
+refused too: its bytes would come from the machine running the eval, not the
+commit. A link to a shared file elsewhere in the repo is fine.
+
 #### Skill drift
 
 `caliper compare` reports any member whose text changed between the two runs.

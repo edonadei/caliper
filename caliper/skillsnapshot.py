@@ -18,16 +18,23 @@ import re
 import subprocess
 from pathlib import Path
 
+from caliper.sandbox import SpecSandbox
 from caliper.schema.results import FileSnapshot, SkillSnapshot
-from caliper.skills import SkillRef
+from caliper.skills import SkillRef, installs
 
 # A relative or home-anchored pointer to a companion file, as a SKILL.md writes
 # one: `./REFERENCE.md`, `references/style.md`, `~/bin/check.sh`.
 _REF_PATTERN = re.compile(r'[./~][^\s"\'<>]+\.(sh|py|md|js|ts)')
 
 
-def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
-    """Capture ``ref``'s files and provenance as they are right now."""
+def snapshot_skill(
+    ref: SkillRef, forbidden_files: list[str] | None = None
+) -> SkillSnapshot:
+    """Capture ``ref``'s files and provenance as they are right now.
+
+    ``forbidden_files`` is the spec's ``sandbox.forbidden_files``: a companion
+    file the install excludes was never seen by the run, so it is not captured.
+    """
     path = Path(ref.path).expanduser().resolve()
     if not path.exists():
         return SkillSnapshot(
@@ -43,6 +50,7 @@ def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
     # written with the symlink's name, even though they were installed.
     directory = Path(os.path.abspath(Path(ref.path).expanduser().parent))
 
+    sandbox = SpecSandbox(declared=list(forbidden_files or []))
     content = path.read_text()
     files: dict[str, FileSnapshot] = {path.name: _file_snapshot(content)}
 
@@ -74,6 +82,10 @@ def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
             continue
         if _reached_through_directory_symlink(directory, rel):
             # Files under a symlinked directory are never installed either.
+            continue
+        if not installs(directory, rel, sandbox):
+            # Excluded from the install (an answer key, a `.git` file, or a
+            # link to one), so the run never saw it.
             continue
         files[str(rel)] = _file_snapshot(referenced.read_text())
 
