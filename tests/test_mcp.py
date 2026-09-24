@@ -618,8 +618,6 @@ def test_setup_can_stage_an_mcp_server_before_attempt_preflight(tmp_path) -> Non
 def test_cancel_interrupts_stalled_preflight_and_skips_next_server(
     tmp_path,
 ) -> None:
-    from caliper.harness import mcp
-
     ready = tmp_path / "ready"
     second = tmp_path / "second"
     script = tmp_path / "stalled.py"
@@ -633,13 +631,11 @@ def test_cancel_interrupts_stalled_preflight_and_skips_next_server(
         "first": McpServer(command=sys.executable, args=[str(script), str(ready)]),
         "second": McpServer(command=sys.executable, args=[str(script), str(second)]),
     }
-    old_timeout = mcp._PREFLIGHT_TIMEOUT
-    mcp._PREFLIGHT_TIMEOUT = 5
     errors: list[Exception] = []
 
     def check() -> None:
         try:
-            preflight_stdio_servers(servers)
+            preflight_stdio_servers(servers, timeout=5)
         except Exception as exc:
             errors.append(exc)
 
@@ -660,7 +656,6 @@ def test_cancel_interrupts_stalled_preflight_and_skips_next_server(
         cancel.request()
         thread.join(timeout=2)
         cancel.reset()
-        mcp._PREFLIGHT_TIMEOUT = old_timeout
 
 
 def test_interrupt_during_preflight_returns_an_interrupted_run(tmp_path) -> None:
@@ -714,6 +709,45 @@ def test_interrupt_during_preflight_returns_an_interrupted_run(tmp_path) -> None
         cancel.reset()
 
 
+def test_preflight_waits_for_a_slow_server_within_its_timeout(tmp_path) -> None:
+    script = tmp_path / "slow.py"
+    script.write_text(
+        "import json, sys, time\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "time.sleep(0.5)\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        f"'result': {_EMPTY_INITIALIZATION}}}), flush=True)\n"
+        "sys.stdin.readline()\n"
+        "sys.stdin.readline()\n"
+    )
+    server = {"echo": McpServer(command=sys.executable, args=[str(script)])}
+
+    with pytest.raises(HarnessConfigurationError, match="within 0.2 seconds"):
+        preflight_stdio_servers(server, timeout=0.2)
+    preflight_stdio_servers(server, timeout=5)
+
+
+def test_preflight_times_out_when_server_stops_reading_stdin(tmp_path) -> None:
+    # Floods ping requests without reading replies, so preflight's writes fill
+    # the stdin pipe and block.
+    script = tmp_path / "flood.py"
+    script.write_text(
+        "import json, sys\n"
+        "i = 0\n"
+        "while True:\n"
+        "    i += 1\n"
+        "    print(json.dumps({'jsonrpc': '2.0', 'id': f'p{i}', 'method': 'ping', "
+        "'params': {'pad': 'x' * 4096}}), flush=True)\n"
+    )
+    start = time.monotonic()
+    with pytest.raises(HarnessConfigurationError, match="did not answer"):
+        preflight_stdio_servers(
+            {"echo": McpServer(command=sys.executable, args=[str(script)])},
+            timeout=1,
+        )
+    assert time.monotonic() - start < 5
+
+
 def test_readme_relative_mcp_arg_starts_from_any_cwd(tmp_path, monkeypatch) -> None:
     spec_dir = tmp_path / "specs"
     server_dir = spec_dir / "servers"
@@ -744,12 +778,7 @@ def test_readme_relative_mcp_arg_starts_from_any_cwd(tmp_path, monkeypatch) -> N
 @pytest.mark.parametrize(
     "script", ["raise RuntimeError('broken')\n", "import time; time.sleep(30)\n"]
 )
-def test_dead_server_stops_run_before_any_attempt(
-    tmp_path, monkeypatch, script
-) -> None:
-    from caliper.harness import mcp
-
-    monkeypatch.setattr(mcp, "_PREFLIGHT_TIMEOUT", 0.1)
+def test_dead_server_stops_run_before_any_attempt(tmp_path, script) -> None:
     server = tmp_path / "broken.py"
     server.write_text(script)
     spec_path = tmp_path / "m.eval.yaml"
@@ -757,8 +786,17 @@ def test_dead_server_stops_run_before_any_attempt(
     spec = _spec_with_mcp()
     spec.mcp = {"broken": McpServer(command=sys.executable, args=[str(server)])}
 
+    # The attempt's --timeout bounds its preflight.
     with pytest.raises(RunAborted, match="MCP server 'broken'") as exc:
-        run(spec, spec_path, _AttemptPreflightHarness(), _PassJudge(), k=1, workers=1)
+        run(
+            spec,
+            spec_path,
+            _AttemptPreflightHarness(),
+            _PassJudge(),
+            k=1,
+            workers=1,
+            timeout=1,
+        )
     assert exc.value.results.task_results[0].attempts == []
 
 

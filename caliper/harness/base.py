@@ -333,7 +333,9 @@ class CliHarness(HarnessBackend):
                 # Check again in the actual attempt environment immediately
                 # before the agent starts. A server can fail after the run's
                 # initial preflight or depend on the backend's isolated env.
-                preflight_stdio_servers(ctx.mcp_servers, env=env, cwd=ctx.workdir)
+                preflight_stdio_servers(
+                    ctx.mcp_servers, env=env, cwd=ctx.workdir, timeout=ctx.timeout
+                )
             proc = self._execute(
                 cmd, env=env, cwd=ctx.workdir, timeout=ctx.timeout, stdin=stdin
             )

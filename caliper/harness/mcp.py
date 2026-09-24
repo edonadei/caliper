@@ -84,12 +84,15 @@ def preflight_stdio_servers(
     extra_path: list[str] | None = None,
     env: dict[str, str] | None = None,
     cwd: str | None = None,
+    timeout: float = _PREFLIGHT_TIMEOUT,
 ) -> None:
     """Verify each local server in its prepared attempt before the agent starts.
 
     A successful process spawn is insufficient: a dead script can exit at once,
     or a process can stay alive without speaking MCP. Bound the MCP exchange so
-    neither failure becomes a scored attempt or a hanging agent.
+    neither failure becomes a scored attempt or a hanging agent. ``timeout``
+    bounds each exchange; an attempt passes its ``--timeout`` so a server that
+    starts slowly gets the same budget the agent would.
     """
     if os.name == "nt":
         from caliper.harness import windows_job
@@ -152,7 +155,7 @@ def preflight_stdio_servers(
                     if windows_job is not None:
                         job = windows_job.assign_and_resume(process)
                     with cancel.track(process):
-                        response = _exchange(process, initialize, name)
+                        response = _exchange(process, initialize, name, timeout)
                         result = response.get("result")
                         if (
                             not isinstance(result, dict)
@@ -166,22 +169,25 @@ def preflight_stdio_servers(
                             raise HarnessConfigurationError(
                                 f"MCP server '{name}' returned an invalid initialization"
                             )
-                        process.stdin.write(
-                            json.dumps(
+                        _bounded(
+                            lambda: _send(
+                                process,
                                 {
                                     "jsonrpc": "2.0",
                                     "method": "notifications/initialized",
-                                }
-                            )
-                            + "\n"
+                                },
+                            ),
+                            time.monotonic() + timeout,
+                            f"MCP server '{name}' did not accept "
+                            f"notifications/initialized within {timeout:g} seconds",
                         )
-                        process.stdin.flush()
                         capabilities = result.get("capabilities")
                         if isinstance(capabilities, dict) and "tools" in capabilities:
                             response = _exchange(
                                 process,
                                 {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
                                 name,
+                                timeout,
                             )
                             tools_result = response.get("result")
                             if not isinstance(tools_result, dict) or not isinstance(
@@ -243,48 +249,68 @@ def preflight_stdio_servers(
             ) from exc
 
 
-def _exchange(process: subprocess.Popen, request: dict, name: str) -> dict:
-    """Read the matching MCP response, ignoring intervening notifications."""
-    process.stdin.write(json.dumps(request) + "\n")
+def _send(process: subprocess.Popen, message: dict) -> None:
+    process.stdin.write(json.dumps(message) + "\n")
     process.stdin.flush()
-    deadline = time.monotonic() + _PREFLIGHT_TIMEOUT
+
+
+def _bounded(work, deadline: float, timeout_message: str):
+    """Run blocking pipe I/O off-thread so the deadline and Ctrl-C still apply.
+
+    A server that stops reading stdin can block a write indefinitely; the
+    caller's cleanup kills the process, which releases the abandoned worker.
+    """
+    outcome: queue.Queue[tuple[bool, object]] = queue.Queue(maxsize=1)
+
+    def run() -> None:
+        try:
+            outcome.put((True, work()))
+        except BaseException as exc:  # re-raised on the calling thread
+            outcome.put((False, exc))
+
+    threading.Thread(target=run, daemon=True).start()
     while True:
-        replies: queue.Queue[str] = queue.Queue(maxsize=1)
-        reader = threading.Thread(
-            target=lambda: replies.put(process.stdout.readline()), daemon=True
-        )
-        reader.start()
+        if cancel.requested():
+            raise McpPreflightInterrupted
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise HarnessConfigurationError(timeout_message)
+        try:
+            ok, value = outcome.get(timeout=min(0.05, remaining))
+        except queue.Empty:
+            continue
+        if ok:
+            return value
+        raise value
+
+
+def _exchange(
+    process: subprocess.Popen, request: dict, name: str, timeout: float
+) -> dict:
+    """Read the matching MCP response, ignoring intervening notifications."""
+
+    def work() -> dict:
+        _send(process, request)
         while True:
-            if cancel.requested():
-                raise McpPreflightInterrupted
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
+            line = process.stdout.readline()
+            if not line:
+                if cancel.requested():
+                    raise McpPreflightInterrupted
                 raise HarnessConfigurationError(
-                    f"MCP server '{name}' did not answer {request['method']} within "
-                    f"{_PREFLIGHT_TIMEOUT:g} seconds"
+                    f"MCP server '{name}' exited before answering {request['method']}"
                 )
-            try:
-                line = replies.get(timeout=min(0.05, remaining))
-                break
-            except queue.Empty:
-                continue
-        if not line:
-            if cancel.requested():
-                raise McpPreflightInterrupted
-            raise HarnessConfigurationError(
-                f"MCP server '{name}' exited before answering {request['method']}"
-            )
-        response = json.loads(line)
-        if not isinstance(response, dict):
-            raise HarnessConfigurationError(
-                f"MCP server '{name}' sent an invalid response"
-            )
-        if "method" in response and "id" in response:
-            # We advertise no client capabilities, so a server-initiated
-            # request other than ping cannot be served. Reply rather than
-            # leaving the server waiting; IDs are independent in each direction.
-            process.stdin.write(
-                json.dumps(
+            response = json.loads(line)
+            if not isinstance(response, dict):
+                raise HarnessConfigurationError(
+                    f"MCP server '{name}' sent an invalid response"
+                )
+            if "method" in response and "id" in response:
+                # We advertise no client capabilities, so a server-initiated
+                # request other than ping cannot be served. Reply rather than
+                # leaving the server waiting; IDs are independent in each
+                # direction.
+                _send(
+                    process,
                     {
                         "jsonrpc": "2.0",
                         "id": response["id"],
@@ -298,18 +324,22 @@ def _exchange(process: subprocess.Popen, request: dict, name: str) -> dict:
                                 }
                             }
                         ),
-                    }
+                    },
                 )
-                + "\n"
-            )
-            process.stdin.flush()
-            continue
-        if response.get("id") == request["id"]:
-            if "result" not in response:
-                raise HarnessConfigurationError(
-                    f"MCP server '{name}' rejected {request['method']}"
-                )
-            return response
+                continue
+            if response.get("id") == request["id"]:
+                if "result" not in response:
+                    raise HarnessConfigurationError(
+                        f"MCP server '{name}' rejected {request['method']}"
+                    )
+                return response
+
+    return _bounded(
+        work,
+        time.monotonic() + timeout,
+        f"MCP server '{name}' did not answer {request['method']} within "
+        f"{timeout:g} seconds",
+    )
 
 
 def interpolate(value: str, *, server_name: str, field_label: str) -> str:
