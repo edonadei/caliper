@@ -564,6 +564,24 @@ def test_large_prompt_reaches_agent_after_a_slow_stdin_start(tmp_path: Path) -> 
     assert result.stdout == str(len(prompt))
 
 
+@pytest.mark.skipif(os.name != "posix", reason="chmod does not lock Windows dirs")
+def test_prompt_stdin_works_from_read_only_workdir(tmp_path: Path) -> None:
+    tmp_path.chmod(0o555)
+    try:
+        result = SleepHarness()._execute(
+            [sys.executable, "-c", "import sys; print(sys.stdin.read())"],
+            env=dict(os.environ),
+            cwd=str(tmp_path),
+            timeout=5,
+            stdin="prompt",
+        )
+    finally:
+        tmp_path.chmod(0o755)
+
+    assert result.returncode == 0
+    assert result.stdout == "prompt"
+
+
 def _one_attempt_run(k: int = 3) -> RunResults:
     """A partial run with something in it — the shape salvage exists to keep."""
     return RunResults(

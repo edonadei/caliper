@@ -692,16 +692,14 @@ class CliHarness(HarnessBackend):
         process_env[cancel.PROCESS_TAG] = process_tag
         # File-backed stdin lets communicate() be retried without abandoning
         # a partially written prompt or leaving a blocked worker thread.
-        prompt_file = (
-            tempfile.TemporaryFile(dir=cwd if os.path.isdir(cwd) else None)
-            if stdin is not None
-            else None
-        )
-        if prompt_file is not None:
-            prompt_file.write(stdin.encode("utf-8"))
-            prompt_file.seek(0)
-
+        prompt_file = None
         try:
+            # The attempt cwd can be read-only even when a CLI can run there.
+            # TemporaryFile is private and removed on close.
+            if stdin is not None:
+                prompt_file = tempfile.TemporaryFile()
+                prompt_file.write(stdin.encode("utf-8"))
+                prompt_file.seek(0)
             with subprocess.Popen(
                 cmd,
                 stdin=prompt_file if prompt_file is not None else subprocess.DEVNULL,
