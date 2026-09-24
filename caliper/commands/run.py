@@ -148,6 +148,15 @@ def run_cmd(
         fail(
             BadInput(f"--k must be at least 1, got {k}: the run would measure nothing.")
         )
+    if workers < 1:
+        fail(BadInput(f"--workers must be at least 1, got {workers}."))
+    if timeout < 1:
+        fail(
+            BadInput(
+                f"--timeout must be at least 1 second, got {timeout}: every "
+                "attempt would time out before the agent started."
+            )
+        )
     if not spec_file.exists():
         fail(BadInput(f"File not found: {spec_file}"))
 

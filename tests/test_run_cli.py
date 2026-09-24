@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from caliper.main import app
@@ -517,3 +518,25 @@ def test_run_cli_refuses_unknown_backends_before_any_attempt(
         # Names what is wrong and what would be right.
         assert "Unknown backend" in result.output
         assert "claude-code" in result.output and "codex" in result.output
+
+
+@pytest.mark.parametrize(
+    "flag, value",
+    [("--k", "0"), ("--workers", "0"), ("--timeout", "0"), ("--timeout", "-5")],
+)
+def test_run_rejects_a_value_below_one_before_running(
+    monkeypatch, tmp_path, flag, value
+) -> None:
+    import caliper.commands.run as run_module
+
+    def never_run(**_: object):
+        raise AssertionError("run() should not be reached")
+
+    monkeypatch.setattr(run_module, "run", never_run)
+    spec = tmp_path / "s.eval.yaml"
+    spec.write_text("tasks:\n  - {name: t, prompt: p, assert: 'assert True'}\n")
+
+    result = runner.invoke(app, ["run", str(spec), flag, value])
+
+    assert result.exit_code == 1
+    assert f"{flag} must be at least 1" in result.output
