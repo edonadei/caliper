@@ -10,7 +10,7 @@ import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable
+from typing import IO, Callable
 
 from caliper import cancel
 from caliper.harness.prompt_failure import (
@@ -160,6 +160,31 @@ def _timeout_output(partial: bytes | str | None, drained: bytes | str | None) ->
     if isinstance(output, bytes):
         output = output.decode("utf-8", errors="replace")
     return output.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+def _stage_prompt(text: str, cwd: str) -> IO[bytes]:
+    """Write a prompt to an unlinked temporary file, rewound for reading.
+
+    Prefer the attempt workdir, whose volume the run already relies on; fall
+    back to the system temp dir when the workdir is read-only or full.
+    """
+    data = text.encode("utf-8")
+    try:
+        return _write_temp(data, cwd)
+    except OSError:
+        return _write_temp(data, None)
+
+
+def _write_temp(data: bytes, directory: str | None) -> IO[bytes]:
+    staged = tempfile.TemporaryFile(dir=directory)
+    try:
+        staged.write(data)
+        staged.flush()
+    except BaseException:
+        staged.close()
+        raise
+    staged.seek(0)
+    return staged
 
 
 @dataclass
@@ -694,12 +719,8 @@ class CliHarness(HarnessBackend):
         # a partially written prompt or leaving a blocked worker thread.
         prompt_file = None
         try:
-            # The attempt cwd can be read-only even when a CLI can run there.
-            # TemporaryFile is private and removed on close.
             if stdin is not None:
-                prompt_file = tempfile.TemporaryFile()
-                prompt_file.write(stdin.encode("utf-8"))
-                prompt_file.seek(0)
+                prompt_file = _stage_prompt(stdin, cwd)
             with subprocess.Popen(
                 cmd,
                 stdin=prompt_file if prompt_file is not None else subprocess.DEVNULL,
@@ -721,16 +742,20 @@ class CliHarness(HarnessBackend):
                                 )
                             )
                             break
-                        except subprocess.TimeoutExpired:
+                        except subprocess.TimeoutExpired as exc:
                             interrupted = cancel.requested()
                             if not interrupted and time.monotonic() < deadline:
                                 continue
                             cancel.kill(proc)
                             try:
-                                proc.communicate(timeout=_POST_KILL_DRAIN_TIMEOUT)
-                            except subprocess.TimeoutExpired:
+                                stdout, stderr = proc.communicate(
+                                    timeout=_POST_KILL_DRAIN_TIMEOUT
+                                )
+                            except subprocess.TimeoutExpired as drain:
                                 # An untagged detached tool may still hold the
-                                # pipes after its CLI parent has exited.
+                                # pipes after its CLI parent has exited. Keep
+                                # what was read before giving up on them.
+                                stdout, stderr = drain.stdout, drain.stderr
                                 for pipe in (proc.stdout, proc.stderr):
                                     if pipe is not None:
                                         pipe.close()
@@ -738,7 +763,12 @@ class CliHarness(HarnessBackend):
                                 return ProcessResult(
                                     "", "interrupted", -9, False, cancelled=True
                                 )
-                            return ProcessResult("", "timeout", 124, True)
+                            return ProcessResult(
+                                _timeout_output(exc.stdout, stdout),
+                                _timeout_output(exc.stderr, stderr),
+                                124,
+                                True,
+                            )
         except OSError as exc:
             return ProcessResult("", f"{self.name} CLI failed: {exc}", 1, False)
         finally:

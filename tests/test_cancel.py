@@ -8,9 +8,11 @@ and a fatal error diagnosed mid-run salvages the same way an interrupt does.
 
 from __future__ import annotations
 
+import errno
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from contextlib import contextmanager
@@ -580,6 +582,57 @@ def test_prompt_stdin_works_from_read_only_workdir(tmp_path: Path) -> None:
 
     assert result.returncode == 0
     assert result.stdout == "prompt"
+
+
+@pytest.mark.parametrize("workdir_full", [False, True])
+def test_prompt_is_staged_in_the_workdir_unless_it_is_full(
+    tmp_path: Path, monkeypatch, workdir_full: bool
+) -> None:
+    real = tempfile.TemporaryFile
+    staged_in: list[str | None] = []
+
+    def temporary_file(dir=None):  # noqa: A002 - tempfile's name
+        staged_in.append(dir)
+        if workdir_full and dir == str(tmp_path):
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real(dir=dir)
+
+    monkeypatch.setattr(tempfile, "TemporaryFile", temporary_file)
+    result = SleepHarness()._execute(
+        [sys.executable, "-c", "import sys; print(sys.stdin.read())"],
+        env=dict(os.environ),
+        cwd=str(tmp_path),
+        timeout=5,
+        stdin="prompt",
+    )
+
+    assert result.stdout == "prompt"
+    assert staged_in == ([str(tmp_path), None] if workdir_full else [str(tmp_path)])
+
+
+def test_timeout_keeps_partial_output_when_a_pipe_holder_survives(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The bounded drain gives up on the pipes but not on what they carried."""
+    monkeypatch.setattr(psutil.Process, "children", lambda self, recursive=False: [])
+    monkeypatch.setattr(cancel, "_tagged_processes", lambda tag: set())
+    pid_file = tmp_path / "pids"
+    agent = (
+        "import os, pathlib, subprocess, sys; "
+        "print('partial transcript', flush=True); "
+        "tool = subprocess.Popen([sys.executable, '-c', "
+        "'import time; time.sleep(30)'], env={}, start_new_session=True, "
+        "stdout=sys.stdout, stderr=sys.stderr); "
+        "pathlib.Path(sys.argv[1]).write_text(f'{os.getpid()} {tool.pid}'); "
+        "os._exit(0)"
+    )
+
+    with _running_attempt(
+        tmp_path, [sys.executable, "-c", agent, str(pid_file)], pid_file, 1
+    ) as (pids, finished, box):
+        assert finished.wait(4), "the inherited pipe held the attempt open"
+        assert box["result"].timed_out
+        assert box["result"].stdout == "partial transcript"
 
 
 def _one_attempt_run(k: int = 3) -> RunResults:
