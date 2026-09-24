@@ -21,7 +21,7 @@ from caliper.harness.base import (
     HarnessConfigurationError,
     RunContext,
 )
-from caliper.harness.mcp import resolve_declared_paths
+from caliper.harness.mcp import McpPreflightInterrupted, resolve_declared_paths
 from caliper.judge.base import Judge
 from caliper.retry import SpendingCapReached, invoke_with_retry
 from caliper.sandbox import SpecSandbox
@@ -357,6 +357,8 @@ def _attempt_or_none(
             return None
         _announce(record, task, env.on_attempt_done)
         return record
+    except McpPreflightInterrupted:
+        return None
     except (HarnessConfigurationError, SpendingCapReached) as exc:
         # Two different diagnoses, one response: a misconfiguration found
         # mid-run (an expired credential, a CLI that stopped resolving) and a

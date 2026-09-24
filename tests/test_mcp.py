@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import os
-import signal
-import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
 
 import pytest
+import psutil
 from pydantic import ValidationError
 
 from caliper import cancel
@@ -20,7 +19,11 @@ from caliper.harness.base import (
     HarnessConfigurationError,
     RunContext,
 )
-from caliper.harness.mcp import preflight_stdio_servers, resolve_servers
+from caliper.harness.mcp import (
+    McpPreflightInterrupted,
+    preflight_stdio_servers,
+    resolve_servers,
+)
 from caliper.judge.base import JudgeResult
 from caliper.runner import RunAborted, run
 from caliper.schema.results import Outcome
@@ -316,6 +319,25 @@ def test_preflight_ignores_notifications_before_responses(tmp_path) -> None:
     )
 
 
+def test_preflight_answers_server_ping_with_colliding_request_id(tmp_path) -> None:
+    script = tmp_path / "ping.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        "'method': 'ping'}), flush=True)\n"
+        "reply = json.loads(sys.stdin.readline())\n"
+        "if reply != {'jsonrpc': '2.0', 'id': request['id'], 'result': {}}: "
+        "sys.exit(2)\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        "'result': {'capabilities': {'tools': {}}}}), flush=True)\n" + _TOOLS_REPLY
+    )
+
+    preflight_stdio_servers(
+        {"echo": McpServer(command=sys.executable, args=[str(script)])}
+    )
+
+
 def test_preflight_accepts_resource_only_server(tmp_path) -> None:
     script = tmp_path / "resources.py"
     script.write_text(
@@ -335,13 +357,16 @@ def test_preflight_accepts_resource_only_server(tmp_path) -> None:
     )
 
 
-@pytest.mark.skipif(os.name != "posix", reason="requires POSIX process groups")
 def test_preflight_kills_server_child_after_launcher_exits(tmp_path) -> None:
     marker = tmp_path / "child-pid"
     child_code = (
         "import os, pathlib, signal, sys, time\n"
-        "signal.signal(signal.SIGTERM, lambda *_: None)\n"
-        "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\n"
+        + (
+            "signal.signal(signal.SIGTERM, lambda *_: None)\n"
+            if os.name == "posix"
+            else ""
+        )
+        + "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\n"
         "time.sleep(30)\n"
     )
     script = tmp_path / "launcher.py"
@@ -360,17 +385,21 @@ def test_preflight_kills_server_child_after_launcher_exits(tmp_path) -> None:
             {"echo": McpServer(command=sys.executable, args=[str(script), str(marker)])}
         )
         pid = int(marker.read_text())
-        status = subprocess.run(
-            ["ps", "-p", str(pid), "-o", "stat="], capture_output=True, text=True
-        ).stdout.strip()
-        assert not status or status.startswith("Z"), "server child survived preflight"
+        try:
+            child = psutil.Process(pid)
+        except psutil.NoSuchProcess:
+            pass
+        else:
+            assert not child.is_running() or child.status() == psutil.STATUS_ZOMBIE, (
+                "server child survived preflight"
+            )
     finally:
         if pid is None and marker.exists():
             pid = int(marker.read_text())
         if pid is not None:
             try:
-                os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError:
+                psutil.Process(pid).kill()
+            except psutil.NoSuchProcess:
                 pass
 
 
@@ -550,13 +579,64 @@ def test_cancel_interrupts_stalled_preflight_and_skips_next_server(
         cancel.request()
         thread.join(timeout=2)
         assert not thread.is_alive(), "Ctrl-C waited for the preflight timeout"
-        assert errors and isinstance(errors[0], HarnessConfigurationError)
+        assert errors and isinstance(errors[0], McpPreflightInterrupted)
         assert not second.exists()
     finally:
         cancel.request()
         thread.join(timeout=2)
         cancel.reset()
         mcp._PREFLIGHT_TIMEOUT = old_timeout
+
+
+def test_interrupt_during_preflight_returns_an_interrupted_run(tmp_path) -> None:
+    ready = tmp_path / "ready"
+    script = tmp_path / "stalled.py"
+    script.write_text(
+        "from pathlib import Path\n"
+        "import sys, time\n"
+        "Path(sys.argv[1]).write_text('started')\n"
+        "time.sleep(30)\n"
+    )
+    spec_path = tmp_path / "m.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    spec = EvalSpec(
+        mcp={"slow": McpServer(command=sys.executable, args=[str(script), str(ready)])},
+        tasks=[
+            TaskSpec(
+                id="task-001",
+                name="slow server",
+                prompt="use it",
+                assert_script="assert True",
+            )
+        ],
+    )
+    box: dict[str, object] = {}
+
+    def execute() -> None:
+        try:
+            box["result"] = run(
+                spec, spec_path, _AttemptPreflightHarness(), _PassJudge(), k=1
+            )
+        except Exception as exc:
+            box["error"] = exc
+
+    thread = threading.Thread(target=execute)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 3
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ready.exists()
+        cancel.request()
+        thread.join(timeout=3)
+        assert not thread.is_alive()
+        assert "error" not in box
+        assert box["result"].run.interrupted
+        assert box["result"].task_results[0].attempts == []
+    finally:
+        cancel.request()
+        thread.join(timeout=3)
+        cancel.reset()
 
 
 def test_readme_relative_mcp_arg_starts_from_any_cwd(tmp_path, monkeypatch) -> None:

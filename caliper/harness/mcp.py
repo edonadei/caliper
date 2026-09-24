@@ -29,8 +29,11 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import psutil
 
 from caliper import cancel
 from caliper.harness.base import HarnessConfigurationError
@@ -40,6 +43,11 @@ from caliper.schema.spec import McpServer
 # ``headers`` values, a remote ``url``). Only this exact form is honored.
 ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _PREFLIGHT_TIMEOUT = 15.0
+_PREFLIGHT_TAG = "CALIPER_MCP_PREFLIGHT_TAG"
+
+
+class McpPreflightInterrupted(Exception):
+    """Cooperative cancellation while checking a declared MCP server."""
 
 
 def resolve_declared_paths(
@@ -82,7 +90,7 @@ def preflight_stdio_servers(
     """
     for name, server in resolve_servers(declared).items():
         if cancel.requested():
-            raise HarnessConfigurationError("MCP preflight interrupted")
+            raise McpPreflightInterrupted
         if server.is_remote:
             continue
         initialize = {
@@ -119,6 +127,8 @@ def preflight_stdio_servers(
                 ):
                     process_env["SystemRoot"] = os.environ["SystemRoot"]
                 process_env.update(server.env)
+                process_tag = uuid.uuid4().hex
+                process_env[_PREFLIGHT_TAG] = process_tag
                 process = subprocess.Popen(
                     [server.command, *server.args],
                     stdin=subprocess.PIPE,
@@ -174,10 +184,17 @@ def preflight_stdio_servers(
                     # Launchers such as npx can leave a child holding the stdio
                     # pipe after their parent exits. End the whole preflight
                     # group before the real attempt starts.
+                    descendants: set[psutil.Process] = set()
+                    try:
+                        descendants.update(
+                            psutil.Process(process.pid).children(recursive=True)
+                        )
+                    except psutil.Error:
+                        pass
                     if os.name == "posix":
                         try:
                             os.killpg(process.pid, signal.SIGTERM)
-                        except ProcessLookupError:
+                        except OSError:
                             pass
                     else:
                         if process.poll() is None:
@@ -191,11 +208,29 @@ def preflight_stdio_servers(
                     if os.name == "posix":
                         try:
                             os.killpg(process.pid, signal.SIGKILL)
-                        except ProcessLookupError:
+                        except OSError:
                             pass
                     elif process.poll() is None:
                         process.kill()
-                    process.wait()
+                    try:
+                        process.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=1)
+                    # On Windows there is no killpg. Also catch a child whose
+                    # launcher exited before cleanup and lost its parent link.
+                    for child in psutil.process_iter():
+                        try:
+                            if child.environ().get(_PREFLIGHT_TAG) == process_tag:
+                                descendants.add(child)
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+                    for child in descendants:
+                        try:
+                            child.kill()
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+                    psutil.wait_procs(list(descendants), timeout=1)
         except (OSError, ValueError) as exc:
             raise HarnessConfigurationError(
                 f"MCP server '{name}' failed to start: {exc}"
@@ -215,7 +250,7 @@ def _exchange(process: subprocess.Popen, request: dict, name: str) -> dict:
         reader.start()
         while True:
             if cancel.requested():
-                raise HarnessConfigurationError("MCP preflight interrupted")
+                raise McpPreflightInterrupted
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise HarnessConfigurationError(
@@ -228,6 +263,8 @@ def _exchange(process: subprocess.Popen, request: dict, name: str) -> dict:
             except queue.Empty:
                 continue
         if not line:
+            if cancel.requested():
+                raise McpPreflightInterrupted
             raise HarnessConfigurationError(
                 f"MCP server '{name}' exited before answering {request['method']}"
             )
@@ -236,26 +273,37 @@ def _exchange(process: subprocess.Popen, request: dict, name: str) -> dict:
             raise HarnessConfigurationError(
                 f"MCP server '{name}' sent an invalid response"
             )
+        if "method" in response and "id" in response:
+            # We advertise no client capabilities, so a server-initiated
+            # request other than ping cannot be served. Reply rather than
+            # leaving the server waiting; IDs are independent in each direction.
+            process.stdin.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": response["id"],
+                        **(
+                            {"result": {}}
+                            if response["method"] == "ping"
+                            else {
+                                "error": {
+                                    "code": -32601,
+                                    "message": "Method not found",
+                                }
+                            }
+                        ),
+                    }
+                )
+                + "\n"
+            )
+            process.stdin.flush()
+            continue
         if response.get("id") == request["id"]:
             if "result" not in response:
                 raise HarnessConfigurationError(
                     f"MCP server '{name}' rejected {request['method']}"
                 )
             return response
-        if "method" in response and "id" in response:
-            # We advertise no client capabilities, so a server-initiated
-            # request cannot be served. Reply rather than leaving it waiting.
-            process.stdin.write(
-                json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": response["id"],
-                        "error": {"code": -32601, "message": "Method not found"},
-                    }
-                )
-                + "\n"
-            )
-            process.stdin.flush()
 
 
 def interpolate(value: str, *, server_name: str, field_label: str) -> str:
