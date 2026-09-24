@@ -160,6 +160,18 @@ def test_report_prints_both_scoreboards_separately():
     assert "50.0%" in out
 
 
+def test_a_timed_out_attempt_shows_what_it_activated_and_its_error():
+    timed_out = attempt(1, outcome=Outcome.TIMEOUT, activated=["sleeper"])
+    timed_out.assert_evidence = "timeout"
+    tasks = [task([timed_out], ["sleeper"])]
+
+    out = render(_results(tasks, AggregateScore(avg_score=0.0, per_task=[])))
+
+    assert "activated before it stopped: sleeper" in out
+    assert "error: timeout" in out
+    assert "assert: timeout" not in out
+
+
 def test_activation_line_is_absent_when_nothing_was_asserted():
     tasks = [task([attempt(1, activated=["mine"])], None)]
     out = render(_results(tasks, AggregateScore(avg_score=1.0, per_task=[])))

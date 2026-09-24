@@ -599,6 +599,9 @@ def _format_output(output: str) -> str:
     return output
 
 
+_HARNESS_FAILURES = frozenset({Outcome.TIMEOUT, Outcome.INFRA_ERROR})
+
+
 def _print_task_detail(tr: TaskResult, k: int) -> None:
     lines: list[str] = []
     if tr.aborted(k):
@@ -633,9 +636,17 @@ def _print_task_detail(tr: TaskResult, k: int) -> None:
             # column carries a verdict rather than the skill names.
             reached = ", ".join(attempt.activated or []) or "(nothing)"
             lines.append(f"    [dim]activated: {reached}[/dim]")
+        elif attempt.activated:
+            # A timed-out or failed attempt keeps what it saw load before it
+            # stopped. Not graded, but it is the first thing to look at.
+            reached = ", ".join(attempt.activated)
+            lines.append(f"    [dim]activated before it stopped: {reached}[/dim]")
         lines.append(f"    [dim]output:[/dim] {_format_output(attempt.output)}")
         if attempt.assert_evidence:
-            lines.append(f"    [dim]assert: {attempt.assert_evidence}[/dim]")
+            # A timeout or infra failure stores the harness's error here, not an
+            # assertion's.
+            label = "error" if attempt.outcome in _HARNESS_FAILURES else "assert"
+            lines.append(f"    [dim]{label}: {attempt.assert_evidence}[/dim]")
         if attempt.autorater_reasoning:
             lines.append(f"    [dim]{attempt.autorater_reasoning}[/dim]")
 
