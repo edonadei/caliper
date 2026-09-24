@@ -68,6 +68,9 @@ class FetchedSkill:
     path: Path
     sha: str
     repo: str
+    # The root of the clone ``path`` sits in, so a caller can tell a link to
+    # elsewhere in the repo from one that leaves it.
+    checkout: Path
 
 
 def default_cache_dir() -> Path:
@@ -144,24 +147,12 @@ class SkillFetcher:
                 "the ref if the skill moved."
             )
 
-        escaping = _links_escaping(skill_md.parent, checkout)
-        if escaping:
-            listed = "\n".join(f"  {link}" for link in escaping)
-            raise SkillFetchError(
-                f"{self._label(src)} at {sha[:7]} has symlinks that point "
-                f"outside the repo:\n{listed}\n\n"
-                "Their bytes would come from whichever machine runs the eval, "
-                "so the pinned commit would no longer say what was installed. "
-                "Keep shared files inside the repo and link to them there. "
-                "See docs/adr/0027."
-            )
-
         if stale:
             self._warn(
                 f"{self._label(src)}: cannot reach the remote to resolve "
                 f"'{src.ref or 'the default branch'}' — using cached {sha[:7]}"
             )
-        return FetchedSkill(path=skill_md, sha=sha, repo=src.repo)
+        return FetchedSkill(path=skill_md, sha=sha, repo=src.repo, checkout=checkout)
 
     # ── resolution ───────────────────────────────────────────────────────────
 
@@ -352,18 +343,3 @@ class SkillFetcher:
                 f"git {args[0]} failed: {detail[0] if detail else 'unknown error'}"
             )
         return proc.stdout
-
-
-def _links_escaping(directory: Path, checkout: Path) -> list[str]:
-    """Symlinks under ``directory`` whose target lies outside ``checkout``.
-
-    Listed relative to the checkout, for the refusal message. Every link is
-    checked, dangling or not: one that happens to dangle here can resolve on
-    another machine.
-    """
-    root = checkout.resolve()
-    return [
-        str(item.relative_to(checkout))
-        for item in sorted(directory.rglob("*"))
-        if item.is_symlink() and not item.resolve().is_relative_to(root)
-    ]

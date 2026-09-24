@@ -266,10 +266,47 @@ def test_a_symlink_escaping_the_repo_refuses(tmp_path: Path, origin: Path):
     _commit_link(origin, "host.md", tmp_path / "host.md")
     fetcher = SkillFetcher(cache_dir=tmp_path / "cache")
 
-    with pytest.raises(SkillFetchError, match="point outside the repo"):
-        fetcher.materialize(
-            GitSkillSource(repo=str(origin), path="skills/pr-review/SKILL.md")
+    with pytest.raises(SkillResolutionError, match="point outside the repo"):
+        resolve_skills(
+            [GitSkillSource(repo=str(origin), path="skills/pr-review/SKILL.md")],
+            tmp_path,
+            fetcher=fetcher,
         )
+
+
+def test_a_skill_directory_linked_outside_the_repo_refuses(
+    tmp_path: Path, origin: Path
+):
+    host = tmp_path / "host-skill"
+    _write_skill(host, "review")
+    (origin / "skills" / "review").symlink_to(host, target_is_directory=True)
+    _git("add", "-A", cwd=origin)
+    _git("commit", "-m", "link dir", cwd=origin)
+    fetcher = SkillFetcher(cache_dir=tmp_path / "cache")
+
+    with pytest.raises(SkillResolutionError, match="skills/review"):
+        resolve_skills(
+            [GitSkillSource(repo=str(origin), path="skills/review/SKILL.md")],
+            tmp_path,
+            fetcher=fetcher,
+        )
+
+
+def test_an_outward_link_the_install_skips_does_not_refuse(
+    tmp_path: Path, origin: Path
+):
+    (tmp_path / "tool").write_text("host tool")
+    (origin / "skills" / "pr-review" / "node_modules").mkdir()
+    _commit_link(origin, "node_modules/tool", tmp_path / "tool")
+    fetcher = SkillFetcher(cache_dir=tmp_path / "cache")
+
+    refs = resolve_skills(
+        [GitSkillSource(repo=str(origin), path="skills/pr-review/SKILL.md")],
+        tmp_path,
+        fetcher=fetcher,
+    )
+
+    assert [ref.name for ref in refs] == ["pr-review"]
 
 
 def test_a_symlink_to_a_shared_file_inside_the_repo_is_allowed(
