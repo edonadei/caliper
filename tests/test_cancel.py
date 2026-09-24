@@ -511,8 +511,9 @@ def test_stopping_an_attempt_reaches_a_tool_after_its_agent_exits(
         )
 
 
-def test_timeout_does_not_hang_on_an_unidentifiable_pipe_holder(
-    tmp_path: Path, monkeypatch
+@pytest.mark.parametrize("stop", ["cancel", "timeout"])
+def test_stopping_does_not_hang_on_an_unidentifiable_pipe_holder(
+    tmp_path: Path, monkeypatch, stop: str
 ) -> None:
     """Even a tool that clears its tag cannot hold the run open forever."""
     monkeypatch.setattr(psutil.Process, "children", lambda self, recursive=False: [])
@@ -531,11 +532,14 @@ def test_timeout_does_not_hang_on_an_unidentifiable_pipe_holder(
         tmp_path,
         [sys.executable, "-c", agent, str(pid_file)],
         pid_file,
-        1,
+        1 if stop == "timeout" else 5,
     ) as (pids, finished, box):
         assert _pid_alive(pids[1])
-        assert finished.wait(4), "the timed-out pipe drain never returned"
-        assert box["result"].timed_out
+        if stop == "cancel":
+            cancel.request()
+        assert finished.wait(4), "the inherited pipe held the attempt open"
+        assert box["result"].timed_out is (stop == "timeout")
+        assert box["result"].cancelled is (stop == "cancel")
 
 
 def _one_attempt_run(k: int = 3) -> RunResults:

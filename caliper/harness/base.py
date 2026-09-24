@@ -689,6 +689,15 @@ class CliHarness(HarnessBackend):
         process_tag = uuid.uuid4().hex
         process_env = dict(env)
         process_env[cancel.PROCESS_TAG] = process_tag
+
+        def drain_after_kill(proc: subprocess.Popen) -> None:
+            try:
+                proc.communicate(timeout=_POST_KILL_DRAIN_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                for pipe in (proc.stdout, proc.stderr):
+                    if pipe is not None:
+                        pipe.close()
+
         try:
             with subprocess.Popen(
                 cmd,
@@ -702,29 +711,31 @@ class CliHarness(HarnessBackend):
                 start_new_session=True,
             ) as proc:
                 with cancel.track(proc, process_tag=process_tag):
-                    try:
-                        stdout, stderr = proc.communicate(input=stdin, timeout=timeout)
-                    except subprocess.TimeoutExpired as exc:
-                        cancel.kill(proc)
-                        # A detached tool may have cleared the invocation tag
-                        # and inherited a pipe after its CLI parent exited.
-                        # No process-tree walk can then identify it. Never let
-                        # that pipe holder keep the timeout handler blocked.
+                    deadline = time.monotonic() + timeout
+                    input_data = stdin
+                    while True:
                         try:
                             stdout, stderr = proc.communicate(
-                                timeout=_POST_KILL_DRAIN_TIMEOUT
+                                input=input_data,
+                                timeout=max(
+                                    0.001, min(0.1, deadline - time.monotonic())
+                                ),
                             )
-                        except subprocess.TimeoutExpired as drain:
-                            stdout, stderr = drain.stdout, drain.stderr
-                            for pipe in (proc.stdout, proc.stderr):
-                                if pipe is not None:
-                                    pipe.close()
-                        return ProcessResult(
-                            _timeout_output(exc.stdout, stdout),
-                            _timeout_output(exc.stderr, stderr),
-                            124,
-                            True,
-                        )
+                            break
+                        except subprocess.TimeoutExpired:
+                            input_data = None
+                            if cancel.requested():
+                                cancel.kill(proc)
+                                drain_after_kill(proc)
+                                return ProcessResult(
+                                    "", "interrupted", -9, False, cancelled=True
+                                )
+                            if time.monotonic() >= deadline:
+                                cancel.kill(proc)
+                                # A detached tool can clear its invocation tag
+                                # and keep a pipe open after its CLI parent exits.
+                                drain_after_kill(proc)
+                                return ProcessResult("", "timeout", 124, True)
         except OSError as exc:
             return ProcessResult("", f"{self.name} CLI failed: {exc}", 1, False)
         return ProcessResult(
