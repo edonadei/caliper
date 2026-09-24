@@ -7,6 +7,7 @@ import typer
 from rich.console import Console
 
 from caliper.commands.diagnosis import BadInput, fail
+from caliper.commands.report import OutputFormat
 from caliper.compare import IncomparableRunsError, diff_runs
 from caliper.reporter import comparison_to_json, print_comparison
 from caliper.runstore import RunStore, UnreadableRun
@@ -81,8 +82,8 @@ def compare_cmd(
         typer.Argument(help="Run B: spec name (latest run) or path to results JSON"),
     ],
     fmt: Annotated[
-        str, typer.Option("--format", "-f", help="Output format: table | json")
-    ] = "table",
+        OutputFormat, typer.Option("--format", "-f", help="Output format")
+    ] = OutputFormat.TABLE,
     verbose: Annotated[
         bool, typer.Option("--verbose", "-v", help="Also show pass@k and pass^k")
     ] = False,
@@ -101,7 +102,7 @@ def compare_cmd(
     except IncomparableRunsError as exc:
         fail(exc)
 
-    if fmt == "json":
+    if fmt is OutputFormat.JSON:
         console.print_json(comparison_to_json(comparison))
     else:
         print_comparison(comparison, verbose=verbose)

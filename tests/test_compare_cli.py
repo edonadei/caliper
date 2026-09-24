@@ -12,6 +12,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from caliper.main import app
@@ -152,3 +153,13 @@ def test_an_unreadable_side_is_diagnosed_not_swallowed(monkeypatch, tmp_path) ->
 
     assert result.exit_code == 1
     assert "parsing results" in result.output
+
+
+@pytest.mark.parametrize(
+    "argv", [["report", "demo", "--format", "xml"], ["compare", "a", "b", "-f", "yaml"]]
+)
+def test_an_unknown_format_is_refused(argv) -> None:
+    result = runner.invoke(app, argv)
+
+    assert result.exit_code == 2
+    assert "Invalid value for '--format'" in result.output

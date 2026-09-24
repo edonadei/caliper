@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import Enum
 from typing import Annotated, Optional
 
 import typer
@@ -12,6 +13,14 @@ from caliper.runstore import RunStore, UnreadableRun
 console = Console()
 
 
+class OutputFormat(str, Enum):
+    """What ``report`` and ``compare`` can print. A typer choice, so an unknown
+    value is refused rather than silently rendered as a table."""
+
+    TABLE = "table"
+    JSON = "json"
+
+
 def report_cmd(
     spec_or_file: Annotated[
         str, typer.Argument(help="Spec name or path to results JSON")
@@ -20,8 +29,8 @@ def report_cmd(
         Optional[str], typer.Option("--run", help="Specific run timestamp")
     ] = None,
     fmt: Annotated[
-        str, typer.Option("--format", "-f", help="Output format: table | json")
-    ] = "table",
+        OutputFormat, typer.Option("--format", "-f", help="Output format")
+    ] = OutputFormat.TABLE,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
     store = RunStore.discover()
@@ -34,7 +43,7 @@ def report_cmd(
     except UnreadableRun as exc:
         fail(exc)
 
-    if fmt == "json":
+    if fmt is OutputFormat.JSON:
         # Derive the run usage totals on the fly (never persisted on RunResults —
         # see docs/CONTEXT.md → Run usage totals); the saved file keeps only the raw
         # per-attempt usage.
