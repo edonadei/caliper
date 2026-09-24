@@ -145,6 +145,19 @@ class ProcessResult:
         return self.stderr or None
 
 
+def _timeout_output(partial: bytes | str | None, drained: bytes | str | None) -> str:
+    """Keep output captured before and after killing a timed-out process.
+
+    A second ``communicate`` returns the complete stream, including bytes read
+    before timeout, with text-mode newlines already normalized. Fall back to
+    ``TimeoutExpired``'s raw bytes if draining yielded nothing.
+    """
+    output = drained or partial or ""
+    if isinstance(output, bytes):
+        output = output.decode("utf-8", errors="replace")
+    return output.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
 @dataclass
 class PromptResult:
     """The outcome of running one bare prompt through a CLI agent.
@@ -324,7 +337,10 @@ class CliHarness(HarnessBackend):
 
         transcript, final_output = self._parse_stream_with_tail(proc.stdout)
 
-        diagnostic = self._diagnose(proc, final_output)
+        # A timeout is the process outcome even if its partial conversation
+        # mentions a configuration error. Backend diagnostics inspect incomplete
+        # stdout and can mistake the agent's own words for a CLI failure.
+        diagnostic = None if proc.timed_out else self._diagnose(proc, final_output)
         if diagnostic:
             raise HarnessConfigurationError(diagnostic)
 
@@ -682,10 +698,15 @@ class CliHarness(HarnessBackend):
                 with cancel.track(proc):
                     try:
                         stdout, stderr = proc.communicate(input=stdin, timeout=timeout)
-                    except subprocess.TimeoutExpired:
+                    except subprocess.TimeoutExpired as exc:
                         cancel.kill(proc)
-                        proc.communicate()
-                        return ProcessResult("", "timeout", 124, True)
+                        stdout, stderr = proc.communicate()
+                        return ProcessResult(
+                            _timeout_output(exc.stdout, stdout),
+                            _timeout_output(exc.stderr, stderr),
+                            124,
+                            True,
+                        )
         except OSError as exc:
             return ProcessResult("", f"{self.name} CLI failed: {exc}", 1, False)
         return ProcessResult(
