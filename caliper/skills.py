@@ -132,6 +132,17 @@ def resolve_skills(
             if fetched is None:
                 continue
             path, raw = fetched.path, f"{entry.repo}:{entry.path}"
+            escaping = _links_escaping(path, fetched.checkout)
+            if escaping:
+                listed = "\n".join(f"  {link}" for link in escaping)
+                raise SkillResolutionError(
+                    f"{raw} at {fetched.sha[:7]} has symlinks that point "
+                    f"outside the repo:\n{listed}\n\n"
+                    "Their bytes would come from whichever machine runs the "
+                    "eval, so the pinned commit would no longer say what was "
+                    "installed. Keep shared files inside the repo and link to "
+                    "them there. See docs/adr/0027."
+                )
             provenance = {
                 "source_kind": "git",
                 "git_repo": fetched.repo,
@@ -400,11 +411,7 @@ def install_skills(
             if not item.is_file():
                 continue
             rel = item.relative_to(ref.directory)
-            if any(part in _EXCLUDE_DIRS for part in rel.parts):
-                continue
-            if item.name.endswith(".eval.yaml"):
-                continue
-            if not sandbox.permits_install(rel.as_posix()):
+            if not installs(ref.directory, rel, sandbox):
                 continue
             try:
                 if item.stat().st_size > _MAX_FILE_BYTES:
@@ -414,3 +421,73 @@ def install_skills(
             target = dest / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(item, target)
+
+
+def installs(directory: Path, rel: Path, sandbox: SpecSandbox) -> bool:
+    """Whether the file at ``directory / rel`` passes the install exclusions.
+
+    A file symlink is judged twice, by its own path and by its target's. The
+    link is followed on install (docs/adr/0027), so an ``alias.md`` pointing at
+    ``answers/key.md`` or ``.git/config`` would otherwise deliver an excluded
+    file under an innocent name. A target inside the skill directory is matched
+    by its path relative to it, like any other file; one outside it (a shared
+    guide) by its absolute path, which is how ``forbidden_files`` matches paths
+    in a transcript too.
+
+    Size is left to the caller: it is a limit on copying, not an exclusion.
+    """
+    paths = [rel]
+    item = directory / rel
+    if item.is_symlink():
+        target = item.resolve()
+        root = directory.resolve()
+        paths.append(
+            target.relative_to(root) if target.is_relative_to(root) else target
+        )
+    return all(_passes_exclusions(path, sandbox) for path in paths)
+
+
+def _passes_exclusions(path: Path, sandbox: SpecSandbox) -> bool:
+    if any(part in _EXCLUDE_DIRS for part in path.parts):
+        return False
+    if path.name.endswith(".eval.yaml"):
+        return False
+    return sandbox.permits_install(path.as_posix())
+
+
+def _links_escaping(skill_md: Path, checkout: Path) -> list[str]:
+    """Symlinks a git source's install would follow out of its clone.
+
+    Two places are checked. First the selected path itself: ``SKILL.md`` and
+    every directory from the checkout down to it, because a directory link there
+    would make the whole skill a host directory. Then each file link below the
+    skill directory that the install would copy. Links the install never
+    follows (under an excluded directory, or to a directory) contribute no
+    bytes, so they are left alone. ``forbidden_files`` is not known here, so a
+    forbidden outward link still refuses.
+
+    Dangling links are checked too: one that dangles here can resolve on
+    another machine. Listed relative to the checkout, for the refusal message.
+    """
+    root = checkout.resolve()
+
+    def escapes(item: Path) -> bool:
+        return item.is_symlink() and not item.resolve().is_relative_to(root)
+
+    parts = skill_md.relative_to(checkout).parts
+    selected = [checkout.joinpath(*parts[:i]) for i in range(1, len(parts) + 1)]
+    escaping = [str(item.relative_to(checkout)) for item in selected if escapes(item)]
+    if escaping:
+        # The skill directory is (or sits in) a host directory; scanning it
+        # would list the host's files.
+        return escaping
+
+    directory = skill_md.parent
+    no_patterns = SpecSandbox()
+    return [
+        str(item.relative_to(checkout))
+        for item in sorted(directory.rglob("*"))
+        if escapes(item)
+        and not item.is_dir()
+        and _passes_exclusions(item.relative_to(directory), no_patterns)
+    ]

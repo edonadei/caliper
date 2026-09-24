@@ -206,7 +206,9 @@ def run(
 
     # Only the installed skills: a snapshot claims "this is what produced the
     # score", which an ablated skill demonstrably did not.
-    skill_snapshots = [snapshot_skill(ref) for ref in skill_refs]
+    skill_snapshots = [
+        snapshot_skill(ref, spec.sandbox.forbidden_files) for ref in skill_refs
+    ]
     detector = ActivationDetector(
         [ref.name for ref in skill_refs], harness.activation_tool_names
     )
