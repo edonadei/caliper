@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 
@@ -92,6 +93,25 @@ def looks_like_spending_cap(text: str) -> bool:
     the same wall. See docs/adr/0019.
     """
     return bool(text) and bool(_CAP_SIGNALS.search(text))
+
+
+def spending_cap_line(text: str) -> str:
+    """The line of ``text`` that says the account is out of budget.
+
+    What the abort quotes. A CLI's first line is usually its own chatter (codex
+    opens with ``thread.started``), while the line that matched is the one that
+    says when the limit resets.
+    """
+    lines = text.strip().splitlines()
+    line = next((line for line in lines if _CAP_SIGNALS.search(line)), lines[0])
+    # A JSON event line (codex's `{"type":"error","message":…}`) is quoted by
+    # its message, so the reset time survives the length cap.
+    try:
+        event = json.loads(line)
+    except ValueError:
+        return line
+    message = event.get("message") if isinstance(event, dict) else None
+    return message if isinstance(message, str) and message else line
 
 
 def looks_like_infra_failure(text: str) -> bool:

@@ -28,6 +28,7 @@ from caliper.harness.base import AttemptResult
 from caliper.outcome import (
     answered,
     looks_like_spending_cap,
+    spending_cap_line,
     looks_like_throttle,
     signal_text,
 )
@@ -166,7 +167,7 @@ def invoke_with_retry(
         if looks_like_spending_cap(text):
             raise SpendingCapReached(
                 "The provider reports a spending cap or usage limit reached:\n\n"
-                f"  {text.strip().splitlines()[0][:200]}\n\n"
+                f"  {spending_cap_line(text)[:300]}\n\n"
                 "Every remaining attempt would meet the same wall, so the run "
                 "stopped here rather than spending them to find that out."
             )

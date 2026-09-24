@@ -143,6 +143,24 @@ def test_a_spending_cap_raises_instead_of_retrying() -> None:
     assert "usage limit" in str(excinfo.value)
 
 
+def test_a_spending_cap_quotes_the_line_that_says_so() -> None:
+    # codex opens its stream with its own chatter; the limit is further down.
+    output = (
+        '{"type":"thread.started","thread_id":"t"}\n'
+        '{"type":"error","message":"You\'ve hit your usage limit. Upgrade to Pro '
+        "(https://chatgpt.com/explore/pro), visit "
+        "https://chatgpt.com/codex/settings/usage to purchase more credits or "
+        'try again at Sep 24th, 2026 2:02 AM."}'
+    )
+    invoke, _ = _queue(_result(output=output, exit_code=1, salvaged=True))
+
+    with pytest.raises(SpendingCapReached) as excinfo:
+        invoke_with_retry(invoke, NO_WAIT)
+
+    assert "try again at Sep 24th, 2026 2:02 AM." in str(excinfo.value)
+    assert "thread.started" not in str(excinfo.value)
+
+
 def test_a_cancelled_backoff_stops_retrying() -> None:
     """Ctrl-C during a backoff must not sit out the wait for a doomed attempt."""
     cancel.request()
