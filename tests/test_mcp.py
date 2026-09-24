@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import signal
+import subprocess
 import sys
 import threading
 import time
@@ -281,13 +284,94 @@ def test_preflight_initializes_a_local_server(tmp_path) -> None:
         "import json, sys\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {'protocolVersion': '2025-03-26', 'capabilities': {}, "
+        "'result': {'protocolVersion': '2025-03-26', 'capabilities': {'tools': {}}, "
         "'serverInfo': {'name': 'test', 'version': '1'}}}), flush=True)\n"
         + _TOOLS_REPLY
     )
     preflight_stdio_servers(
         {"echo": McpServer(command=sys.executable, args=[str(script)])}
     )
+
+
+def test_preflight_ignores_notifications_before_responses(tmp_path) -> None:
+    script = tmp_path / "notifying.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'method': 'notifications/message', "
+        "'params': {'level': 'info', 'data': 'starting'}}), flush=True)\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        "'result': {'capabilities': {'tools': {}}}}), flush=True)\n"
+        "sys.stdin.readline()\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'method': 'notifications/message', "
+        "'params': {'level': 'info', 'data': 'ready'}}), flush=True)\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        "'result': {'tools': []}}), flush=True)\n"
+        "sys.stdin.readline()\n"
+    )
+
+    preflight_stdio_servers(
+        {"echo": McpServer(command=sys.executable, args=[str(script)])}
+    )
+
+
+def test_preflight_accepts_resource_only_server(tmp_path) -> None:
+    script = tmp_path / "resources.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        "'result': {'capabilities': {'resources': {}}}}), flush=True)\n"
+        "sys.stdin.readline()\n"
+        "request = sys.stdin.readline()\n"
+        "if request:\n"
+        "    print(json.dumps({'jsonrpc': '2.0', 'id': json.loads(request)['id'], "
+        "'error': {'code': -32601, 'message': 'Method not found'}}), flush=True)\n"
+    )
+
+    preflight_stdio_servers(
+        {"resources": McpServer(command=sys.executable, args=[str(script)])}
+    )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX process groups")
+def test_preflight_kills_server_child_after_launcher_exits(tmp_path) -> None:
+    marker = tmp_path / "child-pid"
+    child_code = (
+        "import os, pathlib, signal, sys, time\n"
+        "signal.signal(signal.SIGTERM, lambda *_: None)\n"
+        "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\n"
+        "time.sleep(30)\n"
+    )
+    script = tmp_path / "launcher.py"
+    script.write_text(
+        "import json, pathlib, subprocess, sys, time\n"
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}, sys.argv[1]], "
+        "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+        "while not pathlib.Path(sys.argv[1]).exists(): time.sleep(0.01)\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        "'result': {'capabilities': {'tools': {}}}}), flush=True)\n" + _TOOLS_REPLY
+    )
+    pid = None
+    try:
+        preflight_stdio_servers(
+            {"echo": McpServer(command=sys.executable, args=[str(script), str(marker)])}
+        )
+        pid = int(marker.read_text())
+        status = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "stat="], capture_output=True, text=True
+        ).stdout.strip()
+        assert not status or status.startswith("Z"), "server child survived preflight"
+    finally:
+        if pid is None and marker.exists():
+            pid = int(marker.read_text())
+        if pid is not None:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
 
 
 def test_preflight_uses_sandbox_extra_path_for_command(tmp_path) -> None:
@@ -297,7 +381,7 @@ def test_preflight_uses_sandbox_extra_path_for_command(tmp_path) -> None:
         "import json, sys\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {}}), flush=True)\n" + _TOOLS_REPLY
+        "'result': {'capabilities': {'tools': {}}}}), flush=True)\n" + _TOOLS_REPLY
     )
     command.chmod(0o755)
 
@@ -314,7 +398,7 @@ def test_preflight_does_not_inherit_host_only_variables(tmp_path, monkeypatch) -
         "if os.getenv('CALIPER_HOST_ONLY_SECRET'): sys.exit(2)\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {}}), flush=True)\n" + _TOOLS_REPLY
+        "'result': {'capabilities': {'tools': {}}}}), flush=True)\n" + _TOOLS_REPLY
     )
 
     preflight_stdio_servers(
@@ -358,7 +442,7 @@ def test_server_that_dies_after_initial_preflight_stops_before_agent(tmp_path) -
         "marker.write_text('started')\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {}}), flush=True)\n" + _TOOLS_REPLY
+        "'result': {'capabilities': {'tools': {}}}}), flush=True)\n" + _TOOLS_REPLY
     )
     servers = {
         "echo": McpServer(command=sys.executable, args=[str(script), str(marker)])
@@ -396,7 +480,7 @@ def test_setup_can_stage_an_mcp_server_before_attempt_preflight(tmp_path) -> Non
         "import json, sys\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {}}), flush=True)\n" + _TOOLS_REPLY
+        "'result': {'capabilities': {'tools': {}}}}), flush=True)\n" + _TOOLS_REPLY
     )
     staged = tmp_path / "staged-server.py"
     stage_script = tmp_path / "stage.py"
@@ -484,7 +568,7 @@ def test_readme_relative_mcp_arg_starts_from_any_cwd(tmp_path, monkeypatch) -> N
         "import json, sys\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {}}), flush=True)\n" + _TOOLS_REPLY
+        "'result': {'capabilities': {'tools': {}}}}), flush=True)\n" + _TOOLS_REPLY
     )
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
