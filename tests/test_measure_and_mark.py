@@ -96,6 +96,18 @@ def test_judge_time_is_none_when_no_judge_ran() -> None:
     assert record.judge_seconds is None
 
 
+def test_judge_time_is_none_for_an_assert_only_task() -> None:
+    """A local assertion is not an LLM judge, so it leaves no Judge line."""
+    task = TaskSpec(
+        id="task-001", name="One", prompt="Do it", assert_script="assert True"
+    )
+
+    record = _assemble(task, _harness_result())
+
+    assert record.outcome == Outcome.PASS
+    assert record.judge_seconds is None
+
+
 def test_judge_time_is_none_when_the_attempt_never_reached_the_judge() -> None:
     task = TaskSpec(id="task-001", name="One", prompt="Do it", expect="it works")
 
