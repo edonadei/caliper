@@ -542,6 +542,24 @@ def test_stopping_does_not_hang_on_an_unidentifiable_pipe_holder(
         assert box["result"].cancelled is (stop == "cancel")
 
 
+def test_large_prompt_reaches_agent_after_a_slow_stdin_start(tmp_path: Path) -> None:
+    prompt = "x" * 1_000_000
+    result = SleepHarness()._execute(
+        [
+            sys.executable,
+            "-c",
+            "import sys,time; time.sleep(0.3); print(len(sys.stdin.read()))",
+        ],
+        env=dict(os.environ),
+        cwd=str(tmp_path),
+        timeout=5,
+        stdin=prompt,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == str(len(prompt))
+
+
 def _one_attempt_run(k: int = 3) -> RunResults:
     """A partial run with something in it — the shape salvage exists to keep."""
     return RunResults(

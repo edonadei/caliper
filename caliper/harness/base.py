@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+import queue
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -690,14 +692,6 @@ class CliHarness(HarnessBackend):
         process_env = dict(env)
         process_env[cancel.PROCESS_TAG] = process_tag
 
-        def drain_after_kill(proc: subprocess.Popen) -> None:
-            try:
-                proc.communicate(timeout=_POST_KILL_DRAIN_TIMEOUT)
-            except subprocess.TimeoutExpired:
-                for pipe in (proc.stdout, proc.stderr):
-                    if pipe is not None:
-                        pipe.close()
-
         try:
             with subprocess.Popen(
                 cmd,
@@ -711,31 +705,46 @@ class CliHarness(HarnessBackend):
                 start_new_session=True,
             ) as proc:
                 with cancel.track(proc, process_tag=process_tag):
+                    completed: queue.Queue[
+                        tuple[tuple[str, str] | None, Exception | None]
+                    ] = queue.Queue(maxsize=1)
+
+                    def communicate() -> None:
+                        try:
+                            completed.put((proc.communicate(input=stdin), None))
+                        except Exception as exc:
+                            completed.put((None, exc))
+
+                    worker = threading.Thread(target=communicate, daemon=True)
+                    worker.start()
                     deadline = time.monotonic() + timeout
-                    input_data = stdin
                     while True:
                         try:
-                            stdout, stderr = proc.communicate(
-                                input=input_data,
-                                timeout=max(
-                                    0.001, min(0.1, deadline - time.monotonic())
-                                ),
+                            output, error = completed.get(
+                                timeout=max(0, min(0.05, deadline - time.monotonic()))
                             )
+                            if error is not None:
+                                raise error
+                            assert output is not None
+                            stdout, stderr = output
                             break
-                        except subprocess.TimeoutExpired:
-                            input_data = None
-                            if cancel.requested():
-                                cancel.kill(proc)
-                                drain_after_kill(proc)
+                        except queue.Empty:
+                            interrupted = cancel.requested()
+                            if not interrupted and time.monotonic() < deadline:
+                                continue
+                            cancel.kill(proc)
+                            worker.join(timeout=_POST_KILL_DRAIN_TIMEOUT)
+                            if worker.is_alive():
+                                # An untagged detached tool may still hold the
+                                # pipes after its CLI parent has exited.
+                                for pipe in (proc.stdout, proc.stderr):
+                                    if pipe is not None:
+                                        pipe.close()
+                            if interrupted:
                                 return ProcessResult(
                                     "", "interrupted", -9, False, cancelled=True
                                 )
-                            if time.monotonic() >= deadline:
-                                cancel.kill(proc)
-                                # A detached tool can clear its invocation tag
-                                # and keep a pipe open after its CLI parent exits.
-                                drain_after_kill(proc)
-                                return ProcessResult("", "timeout", 124, True)
+                            return ProcessResult("", "timeout", 124, True)
         except OSError as exc:
             return ProcessResult("", f"{self.name} CLI failed: {exc}", 1, False)
         return ProcessResult(
