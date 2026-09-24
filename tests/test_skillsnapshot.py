@@ -9,7 +9,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from caliper.skills import SkillRef
+from caliper.skills import SkillRef, install_skills
 from caliper.skillsnapshot import snapshot_skill
 
 
@@ -145,6 +145,45 @@ def test_an_external_symlink_is_not_captured(tmp_path: Path):
 
     snap = snapshot_skill(SkillRef(name="mine", path=directory / "SKILL.md"))
 
+    assert set(snap.files) == {"SKILL.md"}
+
+
+def test_an_alias_to_excluded_git_file_is_neither_installed_nor_saved(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "mine"
+    (directory / ".git").mkdir(parents=True)
+    (directory / ".git" / "config.md").write_text("private data")
+    (directory / "SKILL.md").write_text(
+        "---\nname: mine\ndescription: d.\n---\n\nRead ./alias.md.\n"
+    )
+    (directory / "alias.md").symlink_to(".git/config.md")
+    ref = SkillRef(name="mine", path=directory / "SKILL.md")
+
+    install_skills([ref], tmp_path / "installed", [])
+    snap = snapshot_skill(ref)
+
+    assert not (tmp_path / "installed" / "mine" / "alias.md").exists()
+    assert set(snap.files) == {"SKILL.md"}
+
+
+def test_an_alias_to_forbidden_file_is_neither_installed_nor_saved(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "mine"
+    directory.mkdir()
+    (directory / "secret.md").write_text("private data")
+    (directory / "SKILL.md").write_text(
+        "---\nname: mine\ndescription: d.\n---\n\nRead ./alias.md.\n"
+    )
+    (directory / "alias.md").symlink_to("secret.md")
+    ref = SkillRef(name="mine", path=directory / "SKILL.md")
+    forbidden = [r"secret\.md"]
+
+    install_skills([ref], tmp_path / "installed", forbidden)
+    snap = snapshot_skill(ref, forbidden)
+
+    assert not (tmp_path / "installed" / "mine" / "alias.md").exists()
     assert set(snap.files) == {"SKILL.md"}
 
 

@@ -18,15 +18,18 @@ import re
 import subprocess
 from pathlib import Path
 
+from caliper.sandbox import SpecSandbox
 from caliper.schema.results import FileSnapshot, SkillSnapshot
-from caliper.skills import SkillRef, _contained_skill_file
+from caliper.skills import SkillRef, _installable_skill_file
 
 # A relative or home-anchored pointer to a companion file, as a SKILL.md writes
 # one: `./REFERENCE.md`, `references/style.md`, `~/bin/check.sh`.
 _REF_PATTERN = re.compile(r'[./~][^\s"\'<>]+\.(sh|py|md|js|ts)')
 
 
-def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
+def snapshot_skill(
+    ref: SkillRef, forbidden_files: list[str] | None = None
+) -> SkillSnapshot:
     """Capture ``ref``'s files and provenance as they are right now."""
     path = Path(ref.path).expanduser().resolve()
     if not path.exists():
@@ -43,9 +46,15 @@ def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
     # written with the symlink's name, even though they were installed.
     directory = Path(os.path.abspath(Path(ref.path).expanduser().parent))
     source_root = directory.resolve()
+    sandbox = SpecSandbox(declared=list(forbidden_files or []))
 
     content = path.read_text()
-    files: dict[str, FileSnapshot] = {path.name: _file_snapshot(content)}
+    primary = _installable_skill_file(
+        directory / path.name, source_root, Path(path.name), sandbox
+    )
+    files: dict[str, FileSnapshot] = (
+        {path.name: _file_snapshot(content)} if primary is not None else {}
+    )
 
     # `referenced`, not `ref`: the parameter is the SkillRef, and reusing the
     # name here silently rebound it to a Path for every skill whose SKILL.md
@@ -72,10 +81,10 @@ def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
         if _reached_through_directory_symlink(directory, rel):
             # Files under a symlinked directory are never installed either.
             continue
-        source = _contained_skill_file(referenced, source_root)
+        source = _installable_skill_file(referenced, source_root, rel, sandbox)
         if source is None:
-            # External symlink targets are skipped by install_skills, so they
-            # cannot contribute to the run's skill drift.
+            # The install skips external or forbidden targets, so a snapshot
+            # cannot record their contents either.
             continue
         files[str(rel)] = _file_snapshot(source.read_text())
 

@@ -398,23 +398,9 @@ def install_skills(
         dest = skills_root / ref.name
         source_root = ref.directory.resolve()
         for item in sorted(ref.directory.rglob("*")):
-            source = _contained_skill_file(item, source_root)
-            if source is None:
-                continue
             rel = item.relative_to(ref.directory)
-            source_rel = source.relative_to(source_root)
-            if any(part in _EXCLUDE_DIRS for part in (*rel.parts, *source_rel.parts)):
-                continue
-            if item.name.endswith(".eval.yaml") or source.name.endswith(".eval.yaml"):
-                continue
-            if not sandbox.permits_install(
-                rel.as_posix()
-            ) or not sandbox.permits_install(source_rel.as_posix()):
-                continue
-            try:
-                if source.stat().st_size > _MAX_FILE_BYTES:
-                    continue
-            except OSError:
+            source = _installable_skill_file(item, source_root, rel, sandbox)
+            if source is None:
                 continue
             target = dest / rel
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -428,5 +414,29 @@ def _contained_skill_file(item: Path, source_root: Path) -> Path | None:
     except (OSError, RuntimeError):
         return None
     if not source.is_relative_to(source_root) or not source.is_file():
+        return None
+    return source
+
+
+def _installable_skill_file(
+    item: Path, source_root: Path, rel: Path, sandbox: SpecSandbox
+) -> Path | None:
+    """Apply the same source and exclusion rules to installs and snapshots."""
+    source = _contained_skill_file(item, source_root)
+    if source is None:
+        return None
+    source_rel = source.relative_to(source_root)
+    if any(part in _EXCLUDE_DIRS for part in (*rel.parts, *source_rel.parts)):
+        return None
+    if item.name.endswith(".eval.yaml") or source.name.endswith(".eval.yaml"):
+        return None
+    if not sandbox.permits_install(rel.as_posix()) or not sandbox.permits_install(
+        source_rel.as_posix()
+    ):
+        return None
+    try:
+        if source.stat().st_size > _MAX_FILE_BYTES:
+            return None
+    except OSError:
         return None
     return source
