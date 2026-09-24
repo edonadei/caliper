@@ -144,12 +144,16 @@ class HermesHarness(CliHarness):
         """The user's servers left in the attempt's ``config.yaml``.
 
         Read off the config this attempt actually ran with, minus the declared
-        servers. Hermes has no account connectors, so that is the whole set.
+        servers. Hermes has no account connectors, but ``inherit_mcp_toolsets``
+        brings toolsets caliper cannot list, so with it on the set is unknown
+        (``None``) rather than claimed complete.
         """
         config_path = self._hermes_home(ctx) / "config.yaml"
         if not config_path.exists():
             return []
         loaded = yaml.safe_load(config_path.read_text())
+        if isinstance(loaded, dict) and loaded.get("inherit_mcp_toolsets"):
+            return None
         servers = loaded.get("mcp_servers") if isinstance(loaded, dict) else None
         if not isinstance(servers, dict):
             return []

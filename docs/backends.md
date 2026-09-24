@@ -180,8 +180,9 @@ OAuth connector a spec can't declare.
 - **The judge stays isolated**, whatever the flag says.
 - **The run says so.** It prints a notice at the start: the score depends on
   this machine's setup, and attempts can act on those accounts without asking.
-  The saved run records `inherit_mcp` and the inherited server names, the report
-  header lists them, and `caliper compare` warns when two runs inherited
+  The saved run records `inherit_mcp` and the inherited server names (or
+  "unknown" when a source such as codex plugins or hermes' inherited toolsets
+  can't be listed), the report header lists them, and `caliper compare` warns when two runs inherited
   differently (see [Results JSON](results.md#results-json)).
 - **`--ablate` can't remove an inherited server.** It only names what the spec
   declares.

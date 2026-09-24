@@ -433,6 +433,8 @@ _AMBIENT_CONFIG = (
 
 
 _CHATGPT_AUTH = '{"tokens": {"access_token": "t"}}'
+# A ChatGPT login's plugins are unlistable; turned off, the rest is recordable.
+_NO_PLUGINS = "[features]\nplugins = false\n"
 
 
 def _fake_codex_home(tmp_path, config_text: str | None, *, auth: str = "{}"):
@@ -581,7 +583,9 @@ def test_codex_inherit_mcp_keeps_user_servers_and_connectors(
         monkeypatch,
         tmp_path,
         {"echo": McpServer(command="python3")},
-        home=_fake_codex_home(tmp_path, _AMBIENT_CONFIG, auth=_CHATGPT_AUTH),
+        home=_fake_codex_home(
+            tmp_path, _AMBIENT_CONFIG + _NO_PLUGINS, auth=_CHATGPT_AUTH
+        ),
         inherit_mcp=True,
         captured=captured,
     )
@@ -646,6 +650,7 @@ def test_codex_reads_dotted_keys_and_commented_headers(monkeypatch, tmp_path) ->
     home = _fake_codex_home(
         tmp_path,
         "features.apps = false\n"
+        "features.plugins = false\n"
         "[ mcp_servers ]  # mine\n"
         'foo.command = "u"\n'
         'foo.args = ["a"]\n'
@@ -691,7 +696,8 @@ def test_codex_inherit_mcp_handles_a_bare_mcp_servers_table(
         '"quoted" = { command = "other" }\n'
         "\n"
         "[features]\n"
-        "apps = false # the user turned hosted apps off\n",
+        "apps = false # the user turned hosted apps off\n"
+        "plugins = false\n",
         auth=_CHATGPT_AUTH,
     )
     captured: dict = {}
@@ -785,6 +791,23 @@ def test_codex_inherit_mcp_turns_hosted_apps_off_for_a_declared_codex_apps(
 def test_codex_inherit_mcp_leaves_connectors_on_otherwise() -> None:
     ctx = run_context(inherit_mcp=True, mcp_declared_names=frozenset({"echo"}))
     assert CodexHarness._connector_overrides(ctx) == ()
+
+
+def test_codex_records_unknown_when_a_chatgpt_login_keeps_plugins(
+    monkeypatch, tmp_path
+) -> None:
+    # Plugins can bring tools caliper cannot list, so "[]" or a partial list
+    # would claim an environment the attempt did not have.
+    captured: dict = {}
+    _run_codex_mcp(
+        monkeypatch,
+        tmp_path,
+        None,
+        home=_fake_codex_home(tmp_path, _AMBIENT_CONFIG, auth=_CHATGPT_AUTH),
+        inherit_mcp=True,
+        captured=captured,
+    )
+    assert captured["result"].inherited_mcp_servers is None
 
 
 def test_codex_judge_keeps_connectors_off(monkeypatch) -> None:

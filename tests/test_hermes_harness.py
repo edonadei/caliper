@@ -282,16 +282,20 @@ def test_hermes_inherit_mcp_merges_user_servers_with_the_spec_winning(
         "echo": {"command": "python3"},
     }
     assert config["inherit_mcp_toolsets"] is True
-    # Every surviving server is a declared one, so nothing was inherited.
-    assert captured["result"].inherited_mcp_servers == []
+    # Inherited toolsets can't be listed, so the set is unknown, not empty.
+    assert captured["result"].inherited_mcp_servers is None
 
 
 def test_hermes_inherit_mcp_keeps_and_records_user_servers(
     monkeypatch, tmp_path
 ) -> None:
     captured: dict = {}
+    home = _fake_home(tmp_path)
+    (home / ".hermes" / "config.yaml").write_text(
+        yaml.safe_dump({"mcp_servers": {"personal": {"command": "my-private-server"}}})
+    )
     config, _ = _run_hermes_mcp(
-        monkeypatch, tmp_path, None, inherit_mcp=True, captured=captured
+        monkeypatch, tmp_path, None, home=home, inherit_mcp=True, captured=captured
     )
     assert config["mcp_servers"] == {"personal": {"command": "my-private-server"}}
     assert captured["result"].inherited_mcp_servers == ["personal"]

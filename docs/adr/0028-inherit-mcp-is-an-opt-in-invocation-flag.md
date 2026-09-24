@@ -115,6 +115,10 @@ setup otherwise reads exactly like an isolated one.
   start is part of the setup the run was asked to reproduce.
 - `codex_apps` is recorded only for a ChatGPT login whose config leaves the
   `apps` feature on; an API-key login carries no hosted connectors.
+- When a source of inherited tools can't be listed (a ChatGPT login's codex
+  plugins, hermes' `inherit_mcp_toolsets`), `inherited_mcp_servers` is `None`
+  rather than a partial list, so `compare` never treats an unlisted environment
+  as empty or calls such a run a bare agent.
 - Keeping *some* of the user's codex servers means editing their config rather
   than dropping whole tables, so codex's `config.toml` is now read with a TOML
   parser (`tomllib`, or `tomli` on Python 3.10) and written back whole. That

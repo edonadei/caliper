@@ -423,7 +423,10 @@ class CodexHarness(CliHarness):
         Read off the ``config.toml`` this attempt actually ran with, minus the
         spec's servers. Codex's hosted connectors all surface under one server,
         ``codex_apps``, which counts only for a ChatGPT login (an API key carries
-        no connectors) whose config did not turn the ``apps`` feature off.
+        no connectors) whose config did not turn the ``apps`` feature off. A
+        ChatGPT login's remote plugins can bring tools too, and caliper cannot
+        list them, so with plugins on the set is unknown (``None``) rather than
+        claimed complete.
         """
         codex_home = Path(ctx.isolated_home) / ".codex"
         config_path = codex_home / "config.toml"
@@ -431,9 +434,12 @@ class CodexHarness(CliHarness):
         servers = config.get("mcp_servers")
         names = set(servers) if isinstance(servers, dict) else set()
         features = config.get("features")
-        apps_off = isinstance(features, dict) and features.get("apps") is False
-        if not apps_off and _chatgpt_login(codex_home / "auth.json"):
-            names.add(CODEX_APPS_SERVER)
+        features = features if isinstance(features, dict) else {}
+        if _chatgpt_login(codex_home / "auth.json"):
+            if features.get("plugins") is not False:
+                return None
+            if features.get("apps") is not False:
+                names.add(CODEX_APPS_SERVER)
         return sorted(names - ctx.spec_mcp_names)
 
     def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
