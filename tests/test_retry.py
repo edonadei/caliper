@@ -161,6 +161,21 @@ def test_a_spending_cap_quotes_the_line_that_says_so() -> None:
     assert "thread.started" not in str(excinfo.value)
 
 
+def test_a_spending_cap_nested_in_a_json_event_is_quoted_by_its_text() -> None:
+    # pi reports the limit inside the assistant message it failed to produce.
+    output = (
+        '{"type":"message_end","message":{"role":"assistant","content":[],'
+        '"usage":{"input":0},"errorMessage":"Codex error: The usage limit '
+        'has been reached"}}'
+    )
+    invoke, _ = _queue(_result(output=output, salvaged=True))
+
+    with pytest.raises(SpendingCapReached) as excinfo:
+        invoke_with_retry(invoke, NO_WAIT)
+
+    assert "  Codex error: The usage limit has been reached\n" in str(excinfo.value)
+
+
 def test_a_cancelled_backoff_stops_retrying() -> None:
     """Ctrl-C during a backoff must not sit out the wait for a doomed attempt."""
     cancel.request()
