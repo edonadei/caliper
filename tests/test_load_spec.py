@@ -235,32 +235,30 @@ def test_a_malformed_tasks_list_says_what_shape_it_needs(
         load_spec(_write(tmp_path, text))
 
 
-def test_validate_says_when_a_spec_loads_user_customizations(tmp_path) -> None:
+@pytest.mark.parametrize(
+    "prefix, shown",
+    [
+        ("user_customizations: true\n", "user_customizations: true"),
+        ("user_customizations: false\n", "user_customizations: false"),
+        ("", None),
+    ],
+)
+def test_validate_shows_an_explicit_user_customizations_setting(
+    tmp_path, prefix, shown
+) -> None:
     result = CliRunner().invoke(
-        app,
-        ["validate", str(_write(tmp_path, "user_customizations: true\n" + _TASK))],
+        app, ["validate", str(_write(tmp_path, prefix + _TASK))]
     )
     assert result.exit_code == 0, result.output
-    assert "--no-user-customizations" in result.output
-
-
-def test_validate_says_when_a_spec_pins_isolation(tmp_path) -> None:
-    result = CliRunner().invoke(
-        app, ["validate", str(_write(tmp_path, "user_customizations: false\n" + _TASK))]
-    )
-    assert result.exit_code == 0, result.output
-    assert "user_customizations: false" in result.output
-
-
-def test_validate_is_silent_about_user_customizations_by_default(tmp_path) -> None:
-    result = CliRunner().invoke(app, ["validate", str(_write(tmp_path, _TASK))])
-    assert result.exit_code == 0, result.output
-    assert "--user-customizations" not in result.output
+    if shown:
+        assert shown in result.output
+    else:
+        assert "user_customizations" not in result.output
 
 
 def test_every_smoke_eval_pins_isolation() -> None:
-    # Runs inherit the machine's MCP setup by default (docs/adr/0028); a smoke
-    # eval measures the backend, and its probe tasks assert zero undeclared MCP
+    # Runs load user customizations by default (docs/adr/0028); a smoke eval
+    # measures the backend, and its #129 probe tasks assert zero undeclared MCP
     # tools, so each one must opt out explicitly.
     from pathlib import Path
 

@@ -20,7 +20,7 @@ from caliper.harness.prompt_failure import (
     PromptFailureKind,
     classify_claude_api_error_status,
 )
-from caliper.harness.mcp import resolve_servers
+from caliper.harness.mcp import merge_user_servers, resolve_servers
 from caliper.schema.results import TokenUsage
 
 
@@ -91,31 +91,25 @@ class ClaudeCodeHarness(CliHarness):
             self._drop_shadowed_user_servers(ctx)
 
     def _drop_shadowed_user_servers(self, ctx: RunContext) -> None:
-        """Remove the user's servers that share a name with a declared one.
+        """Take the spec's names out of the isolated ``.claude.json``'s servers.
 
-        When inheriting (the default) the attempt keeps the user-scope ``mcpServers``
-        from the seeded ``.claude.json``, and the spec wins a name clash
-        (docs/adr/0028). Rather than rely on how the CLI orders its scopes, the
-        clashing entries are taken out of the isolated copy, so the only server
-        by that name is the one ``--mcp-config`` supplies — or none, when
-        ``--ablate`` removed it. The user's real file is never touched.
+        So the only server by a declared name is the one ``--mcp-config``
+        supplies (or none, if ablated), whatever order the CLI merges its scopes
+        in (docs/adr/0028). The user's real file is never touched.
         """
         path = Path(ctx.isolated_home) / ".claude.json"
-        if not path.exists():
-            return
         try:
             config = json.loads(path.read_text())
-        except (json.JSONDecodeError, UnicodeDecodeError):
+        except (OSError, ValueError):
             return
-        user_servers = config.get("mcpServers") if isinstance(config, dict) else None
-        if not isinstance(user_servers, dict):
+        if not isinstance(config, dict) or not isinstance(
+            config.get("mcpServers"), dict
+        ):
             return
-        shadowed = [name for name in ctx.spec_mcp_names if name in user_servers]
-        if not shadowed:
-            return
-        for name in shadowed:
-            del user_servers[name]
-        path.write_text(json.dumps(config, indent=2))
+        kept = merge_user_servers(config["mcpServers"], {}, ctx)
+        if kept != config["mcpServers"]:
+            config["mcpServers"] = kept
+            path.write_text(json.dumps(config, indent=2))
 
     def _command(
         self, ctx: RunContext
@@ -140,8 +134,8 @@ class ClaudeCodeHarness(CliHarness):
         # brings along otherwise (docs/adr/0026). The config file (which may hold
         # resolved secrets) lives in the 0700 run tempdir, never argv.
         cmd += ["--mcp-config", str(mcp_config)]
-        # Inheriting (the default) drops it: the declared servers then merge with the
-        # seeded user config and the account's connectors (docs/adr/0028).
+        # Loading user customizations drops it, so the declared servers merge
+        # with the user's own and the account's connectors (docs/adr/0028).
         if not ctx.user_customizations:
             cmd.append("--strict-mcp-config")
 
@@ -162,8 +156,8 @@ class ClaudeCodeHarness(CliHarness):
 
         No ``mcp:`` block, an authored ``mcp: {}``, and a block whose servers
         were all ablated all write an empty ``mcpServers``: the attempt sees zero
-        servers rather than whatever the seeded user config and account carry —
-        unless the run inherits those too (the default; see ``_command``).
+        servers of the spec's; the user's own are added only when loading user
+        customizations (see ``_command``).
         """
         servers: dict[str, dict] = {}
         for name, resolved in resolve_servers(ctx.mcp_servers or {}).items():
@@ -390,36 +384,31 @@ class ClaudeCodeHarness(CliHarness):
     def _loaded_user_customizations(
         self, proc: ProcessResult, ctx: RunContext
     ) -> list[str] | None:
-        """The non-declared servers the CLI's ``init`` event says it loaded.
+        """Every server the CLI's ``init`` event lists, whatever its status.
 
-        The stream opens with a ``system``/``init`` event whose ``mcp_servers``
-        lists every server the CLI configured — user config, account connectors
-        and ``--mcp-config`` alike — each with a connection status. Every name
-        counts, whatever its status: the record is what the attempt was given,
-        not what happened to connect. ``None`` when no ``init`` event arrived.
+        The record is what the attempt was given, not what happened to connect.
+        ``None`` when no ``init`` event arrived.
         """
-        declared = ctx.spec_mcp_names
         for line in proc.stdout.splitlines():
-            line = line.strip()
-            if not line:
-                continue
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if not isinstance(event, dict):
-                continue
-            if event.get("type") != "system" or event.get("subtype") != "init":
-                continue
-            servers = event.get("mcp_servers")
-            if not isinstance(servers, list):
-                return None
-            names = {
-                server.get("name")
-                for server in servers
-                if isinstance(server, dict) and isinstance(server.get("name"), str)
-            }
-            return sorted(names - declared)
+            if isinstance(event, dict) and (
+                event.get("type"),
+                event.get("subtype"),
+            ) == (
+                "system",
+                "init",
+            ):
+                servers = event.get("mcp_servers")
+                if not isinstance(servers, list):
+                    return None
+                return [
+                    s["name"]
+                    for s in servers
+                    if isinstance(s, dict) and isinstance(s.get("name"), str)
+                ]
         return None
 
     def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:

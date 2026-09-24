@@ -45,18 +45,9 @@ Read the existing spec and report its tasks. **Ask what behaviors are missing or
 
 ## Whose setup is measured
 
-By default every run **loads the user's own customizations**: the servers their CLI is configured with and their account's hosted connectors, merged with the spec's `mcp:`. That answers "does my skill work in *my* agent?", which is what most users want. Isolating a run (`--no-user-customizations`, or `user_customizations: false` in the spec) gives the attempt only the declared servers, so the score is portable.
+Runs load the user's own customizations by default (their MCP servers and account connectors, merged with the spec's `mcp:`), which answers "does my skill work in *my* agent?". **Isolate** (`--no-user-customizations`, or `user_customizations: false` in the spec) when comparing backends or models, when the number leaves this machine (shared, published, compared with someone else's run), or when measuring the bare agent: each setup is different, so otherwise part of the delta is the setups. `--ablate` of the user's own skill needs no isolation, since both runs load the same setup.
 
-**Keep the default** when:
-- the user is testing or iterating on their own skill in their own agent;
-- ablating one of the spec's skills or servers (`--ablate`): both runs load the same setup, so the difference is still the removed subject.
-
-**Isolate** when:
-1. comparing backends or models (`--model claude-code` vs `--model codex`): each CLI loads a different setup, so the delta would partly be the setups;
-2. the number leaves this machine: shared, published, in a README, or compared with someone else's run;
-3. measuring the bare agent, or checking that an attempt sees only the declared servers.
-
-**Always tell the user which mode the run used** and what it loaded: read the report header's `user customizations:` line (absent means isolated). A score from their setup and a portable score look identical otherwise. If `caliper compare` warns about user customizations, relay its suggested fix rather than the delta alone.
+**Always tell the user which mode ran** and what it loaded, from the report header's `user customizations:` line (absent means isolated), and relay any fix `caliper compare` suggests about it.
 
 ## Phase 3 — First run
 

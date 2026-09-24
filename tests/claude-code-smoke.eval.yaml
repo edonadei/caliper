@@ -1,8 +1,7 @@
 # End-to-end smoke eval for the `claude-code` backend (the default engine).
 # The engine is a runtime axis, not a spec field — pick it when you run:
 #   caliper run tests/claude-code-smoke.eval.yaml --model claude-code:claude-haiku-4-5-20251001
-# Pinned isolated: a smoke eval checks the backend itself, and the #129 probe
-# tasks assert the attempt sees only the declared MCP servers (docs/adr/0028).
+# Pinned isolated: see test_every_smoke_eval_pins_isolation.
 user_customizations: false
 
 tasks:

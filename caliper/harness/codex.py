@@ -22,7 +22,7 @@ from caliper.harness.base import (
     PromptResult,
     RunContext,
 )
-from caliper.harness.mcp import resolve_servers
+from caliper.harness.mcp import merge_user_servers, resolve_servers
 from caliper.schema.results import TokenUsage
 
 CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
@@ -30,14 +30,13 @@ CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
 # The ChatGPT login in auth.json carries the account's hosted connectors
 # (mcp__codex_apps__*) and remote plugins, which stripping [mcp_servers] can't
 # reach. A -c override beats any [features] table in the seeded config.toml,
-# so neither an attempt nor the judge sees them (docs/adr/0026). An attempt run
-# that inherits the user's MCP setup (the default) leaves them on; the judge
-# never does (docs/adr/0028).
+# so neither an isolated attempt nor the judge sees them (docs/adr/0026); an
+# attempt loading user customizations leaves them on (docs/adr/0028).
 NO_ACCOUNT_CONNECTORS = ("-c", "features.apps=false", "-c", "features.plugins=false")
 
 # The server name codex's hosted connectors surface under
-# (``mcp__codex_apps__<tool>``). Recorded as one inherited server: caliper cannot
-# list the connectors behind it without driving the ChatGPT account.
+# (``mcp__codex_apps__<tool>``), recorded as one server: caliper can't list the
+# connectors behind it.
 CODEX_APPS_SERVER = "codex_apps"
 
 
@@ -111,9 +110,9 @@ class CodexHarness(CliHarness):
     def _connector_overrides(ctx: RunContext) -> tuple[str, ...]:
         """The ``-c`` overrides that keep the account's connectors out, if any.
 
-        All of them for an isolated run. When inheriting, the hosted apps still
-        go when the spec names a server ``codex_apps``, ablated or not: the apps
-        surface under that name, and the spec wins a clash (docs/adr/0028).
+        All of them when isolated. When loading user customizations, only the
+        hosted apps, and only if the spec declares a ``codex_apps`` of its own:
+        the spec wins a name clash, ablated or not (docs/adr/0028).
         """
         if not ctx.user_customizations:
             return NO_ACCOUNT_CONNECTORS
@@ -340,26 +339,14 @@ class CodexHarness(CliHarness):
     def _materialize_config(
         self, ctx: RunContext, codex_home: Path, real_config: Path
     ) -> None:
-        """Seed the isolated ``config.toml``: stripped user config + declared MCP.
+        """Seed the isolated ``config.toml`` from the user's, parsed and rewritten.
 
-        The user's real config is read, its top-level ``model`` dropped (the
-        seeded config never pins a model over the invocation, docs/adr/0012) and
-        its ``mcp_servers`` replaced by exactly the declared ``mcp:`` servers.
-        That is the tool-environment normalization: an attempt sees only the
-        spec's servers, never the user's personal ones — even though codex is
-        otherwise stateless, because the leak comes from seeding the real config.
-        When neither a real config nor a declared server exists, nothing is
-        written (the CLI falls back to its own defaults). The file may now hold
-        resolved secrets, so it is kept ``0600``.
-
-        When inheriting (the default) the user's servers are kept, except any whose
-        name the spec declares, ablated or not: the spec wins a name clash
-        (docs/adr/0028).
-
-        Read with a real TOML parser and written back whole, so every way TOML
-        can spell a server — tables, dotted keys, an inline ``mcp_servers = {…}``
-        — is handled alike, and a multi-line value never reads as a header. The
-        user's comments and layout don't survive; the copy is the attempt's.
+        The top-level ``model`` is dropped, so the seeded config never pins a
+        model over the invocation (docs/adr/0012), and ``mcp_servers`` becomes
+        :func:`merge_user_servers` of the user's and the declared ones
+        (docs/adr/0028). Parsing rather than line-editing handles every TOML
+        spelling of a server. Nothing is written when there is neither a real
+        config nor a declared server. Kept ``0600``: it may hold resolved secrets.
         """
         servers = self._translate_mcp_servers(ctx)
         real_exists = real_config.exists()
@@ -377,17 +364,7 @@ class CodexHarness(CliHarness):
                     "it there too. Fix the file, then rerun caliper."
                 ) from exc
         config.pop("model", None)
-        user_servers = config.pop("mcp_servers", None)
-        kept = (
-            {
-                name: entry
-                for name, entry in user_servers.items()
-                if name not in ctx.spec_mcp_names
-            }
-            if ctx.user_customizations and isinstance(user_servers, dict)
-            else {}
-        )
-        merged = {**kept, **servers}
+        merged = merge_user_servers(config.pop("mcp_servers", None), servers, ctx)
         if merged:
             config["mcp_servers"] = merged
 
@@ -418,16 +395,12 @@ class CodexHarness(CliHarness):
 
     def _loaded_user_customizations(
         self, proc: ProcessResult, ctx: RunContext
-    ) -> list[str] | None:
-        """The user's servers left in the attempt's config, plus the hosted apps.
+    ) -> set[str] | None:
+        """The servers in the ``config.toml`` the attempt ran with, plus hosted apps.
 
-        Read off the ``config.toml`` this attempt actually ran with, minus the
-        spec's servers. Codex's hosted connectors all surface under one server,
-        ``codex_apps``, which counts only for a ChatGPT login (an API key carries
-        no connectors) whose config did not turn the ``apps`` feature off. A
-        ChatGPT login's remote plugins can bring tools too, and caliper cannot
-        list them, so with plugins on the set is unknown (``None``) rather than
-        claimed complete.
+        The hosted apps surface as one server, ``codex_apps``, and only for a
+        ChatGPT login whose config leaves ``apps`` on. Such a login's plugins
+        bring tools caliper can't list, so with plugins on the set is unknown.
         """
         codex_home = Path(ctx.isolated_home) / ".codex"
         config_path = codex_home / "config.toml"
@@ -441,7 +414,7 @@ class CodexHarness(CliHarness):
                 return None
             if features.get("apps") is not False:
                 names.add(CODEX_APPS_SERVER)
-        return sorted(names - ctx.spec_mcp_names)
+        return names
 
     def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
         if proc.returncode == 0:

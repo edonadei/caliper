@@ -288,7 +288,7 @@ def test_hermes_user_customizations_merges_user_servers_with_the_spec_winning(
         "echo": {"command": "python3"},
     }
     assert config["inherit_mcp_toolsets"] is True
-    # Inherited toolsets can't be listed, so the set is unknown, not empty.
+    # Loaded toolsets can't be listed, so the set is unknown, not empty.
     assert captured["result"].loaded_user_customizations is None
 
 
@@ -325,7 +325,7 @@ def test_hermes_user_customizations_still_ablates_a_server_the_user_also_has(
         run_context(
             isolated_home=str(iso),
             mcp_servers={},
-            mcp_declared_names=frozenset({"personal"}),
+            spec_mcp_names=frozenset({"personal"}),
             user_customizations=True,
         )
     )

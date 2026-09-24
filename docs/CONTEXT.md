@@ -66,17 +66,12 @@ _Avoid_: MCP config, tool server.
 ## User customizations
 
 What a backend's CLI loads from the user's own setup rather than from the
-[[eval spec]]. Today: the MCP servers in the user's CLI config and the account's
-hosted connectors (claude.ai connectors, ChatGPT apps and plugins); user skills,
-plugins, rules and settings are meant to join them (#177). A run loads them into
-every attempt by default, merged with the
-[[MCP server (declared)|declared servers]], and a declared server wins a name
-clash. What gets loaded depends on the machine, not the spec. The judge never
-loads them, and a backend without MCP (`pi`) has nothing to load. A user's server
-is never an [[ablation]] subject, because the spec doesn't name it. The opposite,
-an *isolated* run, sees only the declared servers; it is what a portable score or
-a comparison between setups needs. A spec may pin either
-(`user_customizations:`) and the invocation overrides both (see
+[[eval spec]]: today the MCP servers in the user's CLI config and the account's
+hosted connectors; later also user skills, plugins, rules and settings. A run
+loads them by default, beside the [[MCP server (declared)|declared servers]].
+What gets loaded depends on the machine, not the spec, and a user's server is
+never an [[ablation]] subject. The opposite is an *isolated* run, which sees
+only the declared servers: what a portable score needs (see
 [[0028-runs-load-user-customizations-by-default]]).
 _Avoid_: inherited MCP, ambient MCP, account MCP, connectors (only part of it),
 default MCP ("default" is the engine), extensions (misses rules and settings).
@@ -126,7 +121,8 @@ the [[eval spec]]'s declared [[skill neighbourhood]] — the closure that makes
 environment: hermes' `mcp_servers` is set to *exactly* the spec's declared
 [[MCP server (declared)|servers]] — an empty set when the spec declares no
 `mcp:` — so an isolated attempt never loads the user's personal MCP servers
-from the seeded config (a run loads them by default: [[user customizations]]). Normalized, it is a [[flat backend]] like any
+from the seeded config (a run loads them by default:
+[[user customizations]]). Normalized, it is a [[flat backend]] like any
 other. The contrast is with `claude-code`/`codex`/`pi`, which are stateless by
 default and need no normalization.
 

@@ -30,7 +30,7 @@ from caliper.schema.results import (
     RunResults,
     SkillSnapshot,
 )
-from caliper.schema.spec import EvalSpec, McpServer, TaskSpec, load_spec
+from caliper.schema.spec import EvalSpec, McpServer, TaskSpec
 
 
 class CustomizingHarness(HarnessBackend):
@@ -99,143 +99,76 @@ def _run(
 # --- the run seam ---------------------------------------------------------
 
 
-def test_on_by_default(tmp_path):
-    # Most runs test a skill in the user's own agent (docs/adr/0028).
-    harness = CustomizingHarness()
-    results = _run(tmp_path, harness)
-    assert [ctx.user_customizations for ctx in harness.contexts] == [True]
-    assert results.run.user_customizations is True
-    assert results.run.loaded_user_customizations == ["gmail"]
-
-
-def test_isolated_on_request(tmp_path):
-    harness = CustomizingHarness()
-    results = _run(tmp_path, harness, user_customizations=False)
-    assert [ctx.user_customizations for ctx in harness.contexts] == [False]
-    assert results.run.user_customizations is False
-    assert results.run.loaded_user_customizations is None
-
-
-def test_the_flag_reaches_every_attempt_and_is_recorded(tmp_path):
-    harness = CustomizingHarness()
-    results = _run(tmp_path, harness, k=2, user_customizations=True)
-    assert [ctx.user_customizations for ctx in harness.contexts] == [True, True]
-    assert results.run.user_customizations is True
-    assert results.run.loaded_user_customizations == ["gmail"]
-
-
-def test_declared_servers_stay_in_mcp_servers_only(tmp_path):
-    # Ablation pairing reads mcp_servers as the spec's own set, so the
-    # loaded customizations never leak into it.
+@pytest.mark.parametrize(
+    "flag, spec_setting, expected",
+    [
+        (None, None, True),  # the default loads them (docs/adr/0028)
+        (None, True, True),
+        (None, False, False),
+        (False, None, False),
+        (False, True, False),  # the invocation wins, either way
+        (True, False, True),
+    ],
+)
+def test_the_invocation_then_the_spec_then_the_default(
+    tmp_path, flag, spec_setting, expected
+):
     harness = CustomizingHarness()
     results = _run(
-        tmp_path,
-        harness,
-        mcp={"echo": McpServer(command="python3")},
-        user_customizations=True,
+        tmp_path, harness, k=2, spec_setting=spec_setting, user_customizations=flag
     )
+    assert [ctx.user_customizations for ctx in harness.contexts] == [expected] * 2
+    assert results.run.user_customizations is expected
+    assert results.run.loaded_user_customizations == (["gmail"] if expected else None)
+
+
+def test_declared_and_ablated_servers_stay_the_specs(tmp_path):
+    # mcp_servers stays the spec's own set, which ablation pairing reads; an
+    # ablated name still reaches the harness so it can keep a user's server of
+    # that name out of the run.
+    harness = CustomizingHarness()
+    mcp = {"echo": McpServer(command="python3"), "gone": McpServer(command="x")}
+    results = _run(tmp_path, harness, mcp=mcp, ablate=["gone"])
     assert results.run.mcp_servers == ["echo"]
     assert results.run.loaded_user_customizations == ["gmail"]
-    assert harness.contexts[0].mcp_servers == {"echo": McpServer(command="python3")}
-
-
-def test_ablated_names_still_reach_the_harness(tmp_path):
-    # So a backend can keep the user's server of that name out of the run.
-    harness = CustomizingHarness()
-    _run(
-        tmp_path,
-        harness,
-        mcp={"echo": McpServer(command="python3")},
-        user_customizations=True,
-        ablate=["echo"],
-    )
-    ctx = harness.contexts[0]
-    assert ctx.mcp_servers == {}
-    assert ctx.mcp_declared_names == frozenset({"echo"})
+    assert harness.contexts[0].spec_mcp_names == frozenset({"echo", "gone"})
 
 
 def test_a_backend_that_cannot_see_them_records_unknown(tmp_path):
-    results = _run(tmp_path, CustomizingHarness(loaded=None), user_customizations=True)
+    results = _run(tmp_path, CustomizingHarness(loaded=None))
     assert results.run.user_customizations is True
     assert results.run.loaded_user_customizations is None
 
 
-def test_a_backend_without_mcp_warns_and_records_the_flag_off(tmp_path):
+@pytest.mark.parametrize(
+    "flag, spec_setting, warned",
+    [(True, None, True), (None, True, True), (None, None, False)],
+)
+def test_a_backend_without_mcp_runs_isolated_and_warns_only_when_asked(
+    tmp_path, flag, spec_setting, warned
+):
+    # Silent under the default: it would otherwise warn on every pi run.
     harness = CustomizingHarness(supports_mcp=False)
     warnings: list[str] = []
     results = _run(
-        tmp_path, harness, user_customizations=True, on_warning=warnings.append
+        tmp_path,
+        harness,
+        spec_setting=spec_setting,
+        user_customizations=flag,
+        on_warning=warnings.append,
     )
     assert [ctx.user_customizations for ctx in harness.contexts] == [False]
     assert results.run.user_customizations is False
     assert results.run.loaded_user_customizations is None
-    assert len(warnings) == 1 and "no effect" in warnings[0]
+    assert len(warnings) == (1 if warned else 0)
 
 
-def test_the_default_on_a_backend_without_mcp_is_silent(tmp_path):
-    # It would otherwise warn on every pi run.
-    warnings: list[str] = []
-    results = _run(
-        tmp_path, CustomizingHarness(supports_mcp=False), on_warning=warnings.append
-    )
-    assert results.run.user_customizations is False
-    assert warnings == []
-
-
-def test_a_run_saved_before_the_flag_loads_as_off():
+def test_a_run_saved_before_the_field_loads_as_isolated():
     meta = RunMeta.model_validate(
-        {
-            "spec": "demo",
-            "timestamp": "2026-08-01T00:00:00Z",
-            "k": 1,
-            "backend": "claude-code",
-        }
+        {"spec": "demo", "timestamp": "2026-08-01T00:00:00Z", "k": 1, "backend": "x"}
     )
     assert meta.user_customizations is False
     assert meta.loaded_user_customizations is None
-
-
-# --- the spec's default -----------------------------------------------------
-
-
-def test_a_spec_can_turn_it_on_by_default(tmp_path):
-    harness = CustomizingHarness()
-    results = _run(tmp_path, harness, spec_setting=True)
-    assert [ctx.user_customizations for ctx in harness.contexts] == [True]
-    assert results.run.user_customizations is True
-    assert results.run.loaded_user_customizations == ["gmail"]
-
-
-def test_the_invocation_overrides_the_spec_either_way(tmp_path):
-    off = _run(
-        tmp_path, CustomizingHarness(), spec_setting=True, user_customizations=False
-    )
-    on = _run(
-        tmp_path, CustomizingHarness(), spec_setting=False, user_customizations=True
-    )
-    assert off.run.user_customizations is False
-    assert off.run.loaded_user_customizations is None
-    assert on.run.user_customizations is True
-
-
-def test_a_spec_default_on_a_backend_without_mcp_warns_and_runs(tmp_path):
-    harness = CustomizingHarness(supports_mcp=False)
-    warnings: list[str] = []
-    results = _run(tmp_path, harness, spec_setting=True, on_warning=warnings.append)
-    assert [ctx.user_customizations for ctx in harness.contexts] == [False]
-    assert results.run.user_customizations is False
-    assert len(warnings) == 1 and "no effect" in warnings[0]
-
-
-def test_the_spec_field_is_read_from_yaml_and_defaults_unset(tmp_path):
-    setting = tmp_path / "r.eval.yaml"
-    setting.write_text(
-        "user_customizations: true\ntasks:\n  - name: t\n    prompt: p\n    expect: x\n"
-    )
-    plain = tmp_path / "p.eval.yaml"
-    plain.write_text("tasks:\n  - name: t\n    prompt: p\n    expect: x\n")
-    assert load_spec(setting).user_customizations is True
-    assert load_spec(plain).user_customizations is None
 
 
 # --- compare --------------------------------------------------------------
@@ -268,113 +201,86 @@ def _saved(
     )
 
 
-def test_a_flag_mismatch_warns():
+def test_a_flag_mismatch_warns_with_the_isolating_fix():
     comp = diff_runs(_saved(loads=False), _saved(loads=True, loaded=["gmail"]))
     assert comp.user_customizations_mismatch is True
-    message = next(w for w in comp.warnings if w.startswith("only B loaded"))
-    # Says how to make the pair comparable, since the first diff against a run
-    # saved before the default changed lands here.
-    assert "re-run B with --no-user-customizations to match A" in message
-    assert "--user-customizations to match" not in message
-
-
-def test_a_cross_backend_diff_with_user_customizations_warns():
-    a = _saved(loads=True, loaded=["gmail"])
-    b = _saved(loads=True, loaded=["gmail"])
-    b.run.backend = "codex"
-    comp = diff_runs(a, b)
-    assert comp.cross_backend_user_customizations is True
-    assert any("different backends (claude-code vs codex)" in w for w in comp.warnings)
-
-
-def test_a_cross_backend_diff_gives_one_fix_not_two():
-    a = _saved(loads=True, loaded=["gmail"])
-    b = _saved(loads=False)
-    b.run.backend = "codex"
-    comp = diff_runs(a, b)
-    assert comp.cross_backend_user_customizations and comp.user_customizations_mismatch
-    custom_lines = [w for w in comp.warnings if "customizations" in w]
-    assert len(custom_lines) == 1
-    assert "re-run both with --no-user-customizations" in custom_lines[0]
-
-
-def test_a_cross_backend_diff_that_loaded_nothing_does_not_warn():
-    a, b = _saved(loads=True, loaded=[]), _saved(loads=True, loaded=[])
-    b.run.backend = "codex"
-    assert diff_runs(a, b).cross_backend_user_customizations is False
-
-
-def test_an_ablation_pair_that_loaded_different_setups_is_not_labelled():
-    full = _saved(loads=True, loaded=["gmail"])
-    cut = _saved(
-        loads=True,
-        loaded=["gmail", "drive"],
-        skills=("keeper",),
-        ablated=("subject",),
+    # The first diff against a run saved before the default changed lands
+    # here; only the isolating direction always works.
+    assert any(
+        "only B loaded" in w and "re-run B with --no-user-customizations" in w
+        for w in comp.warnings
     )
-    comp = diff_runs(full, cut)
-    assert comp.a_label is None and comp.b_label is None
 
 
-def test_an_isolated_cross_backend_diff_is_the_harness_comparison():
-    a, b = _saved(loads=False), _saved(loads=False)
-    b.run.backend = "codex"
-    comp = diff_runs(a, b)
-    assert comp.cross_backend_user_customizations is False
-    assert comp.warnings == []
-
-
-def test_different_loaded_customizations_warn():
+@pytest.mark.parametrize(
+    "a_loaded, b_loaded, mismatch",
+    [
+        (["gmail"], ["drive"], True),
+        (["gmail"], ["gmail"], False),
+        (["gmail"], None, False),
+    ],
+)
+def test_loaded_sets_warn_only_when_both_are_known_and_differ(
+    a_loaded, b_loaded, mismatch
+):
     comp = diff_runs(
-        _saved(loads=True, loaded=["gmail"]),
-        _saved(loads=True, loaded=["drive"]),
+        _saved(loads=True, loaded=a_loaded), _saved(loads=True, loaded=b_loaded)
     )
-    assert comp.user_customizations_mismatch is True
-    assert any("different user customizations" in w for w in comp.warnings)
+    assert comp.user_customizations_mismatch is mismatch
+    assert bool(comp.warnings) is mismatch
 
 
-def test_matching_or_unknown_customizations_do_not_warn():
-    same = diff_runs(
-        _saved(loads=True, loaded=["gmail"]),
-        _saved(loads=True, loaded=["gmail"]),
+@pytest.mark.parametrize(
+    "a, b, warns",
+    [
+        (dict(loads=True, loaded=["gmail"]), dict(loads=True, loaded=["gmail"]), True),
+        (dict(loads=True, loaded=["gmail"]), dict(loads=False), True),
+        (dict(loads=True, loaded=[]), dict(loads=True, loaded=[]), False),
+        (dict(loads=False), dict(loads=False), False),  # the harness comparison
+    ],
+)
+def test_a_cross_backend_diff_warns_once_when_a_setup_may_confound_it(a, b, warns):
+    a_run, b_run = _saved(**a), _saved(**b)
+    b_run.run.backend = "codex"
+    comp = diff_runs(a_run, b_run)
+    assert comp.cross_backend_user_customizations is warns
+    lines = [w for w in comp.warnings if "customizations" in w]
+    assert len(lines) == (1 if warns else 0)
+    if warns:
+        assert "re-run both with --no-user-customizations" in lines[0]
+
+
+@pytest.mark.parametrize(
+    "full, cut, label",
+    [
+        (
+            dict(loads=True, loaded=["gmail"]),
+            dict(loads=True, loaded=["gmail"]),
+            "without subject",
+        ),
+        (dict(loads=True, loaded=["gmail"]), dict(loads=False), None),
+        (
+            dict(loads=True, loaded=["gmail"]),
+            dict(loads=True, loaded=["gmail", "drive"]),
+            None,
+        ),
+    ],
+)
+def test_an_ablation_pair_needs_the_same_customizations(full, cut, label):
+    comp = diff_runs(
+        _saved(**full), _saved(**cut, skills=("keeper",), ablated=("subject",))
     )
-    unknown = diff_runs(
-        _saved(loads=True, loaded=["gmail"]),
-        _saved(loads=True, loaded=None),
-    )
-    for comp in (same, unknown):
-        assert comp.user_customizations_mismatch is False
-        assert comp.warnings == []
+    assert comp.b_label == label
 
 
-def test_an_ablation_pair_needs_the_same_flag_state():
-    full = _saved(loads=True, loaded=["gmail"])
-    cut = _saved(loads=False, skills=("keeper",), ablated=("subject",))
-    comp = diff_runs(full, cut)
-    assert comp.a_label is None and comp.b_label is None
-    assert comp.user_customizations_mismatch is True
-
-
-def test_an_ablation_pair_under_the_flag_is_still_labelled():
-    full = _saved(loads=True, loaded=["gmail"])
-    cut = _saved(loads=True, loaded=["gmail"], skills=("keeper",), ablated=("subject",))
-    comp = diff_runs(full, cut)
-    assert (comp.a_label, comp.b_label) == ("full neighbourhood", "without subject")
-    assert comp.warnings == []
-
-
-@pytest.mark.parametrize("loaded", [["gmail"], None])
-def test_an_all_ablated_run_with_customizations_is_not_a_bare_agent(loaded):
+@pytest.mark.parametrize(
+    "loaded, label",
+    [(["gmail"], "without subject"), (None, "without subject"), ([], "bare agent")],
+)
+def test_a_bare_agent_is_claimed_only_when_nothing_was_loaded(loaded, label):
     full = _saved(loads=True, loaded=loaded, skills=("subject",))
     cut = _saved(loads=True, loaded=loaded, skills=(), ablated=("subject",))
-    comp = diff_runs(full, cut)
-    assert comp.b_label == "without subject"
-
-
-def test_an_all_ablated_run_that_loaded_nothing_is_a_bare_agent():
-    full = _saved(loads=True, loaded=[], skills=("subject",))
-    cut = _saved(loads=True, loaded=[], skills=(), ablated=("subject",))
-    assert diff_runs(full, cut).b_label == "bare agent"
+    assert diff_runs(full, cut).b_label == label
 
 
 # --- report ---------------------------------------------------------------
@@ -391,16 +297,18 @@ def _render(results: RunResults) -> str:
     return buf.getvalue()
 
 
-def test_the_report_header_names_the_loaded_customizations():
-    out = _render(_saved(loads=True, loaded=["drive", "gmail"]))
-    assert "user customizations:" in out
-    assert "drive, gmail" in out
-
-
-def test_the_report_header_says_when_the_list_is_unknown():
-    assert "not listed by this backend" in _render(_saved(loads=True))
-    assert "none found" in _render(_saved(loads=True, loaded=[]))
-
-
-def test_an_isolated_run_has_no_marker():
-    assert "user customizations" not in _render(_saved(loads=False))
+@pytest.mark.parametrize(
+    "loads, loaded, shown",
+    [
+        (True, ["drive", "gmail"], "drive, gmail"),
+        (True, None, "not listed by this backend"),
+        (True, [], "none found"),
+        (False, None, None),
+    ],
+)
+def test_the_report_header_says_what_was_loaded(loads, loaded, shown):
+    out = _render(_saved(loads=loads, loaded=loaded))
+    if shown:
+        assert "user customizations:" in out and shown in out
+    else:
+        assert "user customizations" not in out

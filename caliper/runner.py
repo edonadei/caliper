@@ -102,8 +102,7 @@ class _RunEnv:
     # was ablated" (an empty mapping). Both isolate the attempt to zero servers
     # (docs/adr/0026-attempts-never-see-account-connectors.md).
     mcp_declared: bool
-    # User customizations, already cleared on a backend without MCP: each attempt
-    # keeps the servers and account connectors its CLI loads by itself (docs/adr/0028).
+    # Load the user's customizations; already cleared on a backend without MCP.
     user_customizations: bool
     # The *skills* ``--ablate`` removed. Truthy drops every task's activation
     # expectation. Removing a server is deliberately not on this list: activation
@@ -118,8 +117,7 @@ class _RunEnv:
     # the GIL, so these are safe to share across the pool's worker threads.
     resolved_models: list[str]
     judge_models: list[str]
-    # Each attempt's inherited servers, where its backend could see them. The
-    # same append-only discipline as the two lists above.
+    # Each attempt's loaded customizations, where visible; same discipline.
     loaded_user_customizations: list[list[str]]
     # The first fatal misconfiguration a worker diagnosed, if any. Collected
     # rather than raised through the pool so the run can be saved before it is
@@ -166,9 +164,8 @@ def run(
     fetcher: SkillFetcher | None = None,
     # Told when the backend reports running a different model than requested.
     on_warning: Callable[[str], None] | None = None,
-    # Keep the servers and account connectors the backend's CLI loads by itself
-    # (``--user-customizations``/``--no-user-customizations``, docs/adr/0028). ``None`` follows
-    # the spec's ``user_customizations``, else the default, which inherits.
+    # ``--user-customizations``/``--no-user-customizations``; ``None`` follows the
+    # spec, else the default (docs/adr/0028).
     user_customizations: bool | None = None,
 ) -> RunResults:
     # Before anything that can block: a Ctrl-C during skill fetching has to be
@@ -227,11 +224,9 @@ def run(
             "mcp: block from the spec."
         )
 
-    # A backend without MCP has nothing to load. Unlike a declared mcp: block
-    # this is not refused: it asks for "whatever my setup has", and on
-    # such a backend that is nothing. Recorded as off, so `compare` never warns about
-    # a tool-environment difference that did not exist (docs/adr/0028). Said only
-    # when someone asked for it: under the default it would fire on every run.
+    # A backend without MCP has nothing to load. Not refused, unlike a declared
+    # mcp: block: recorded as off, and said only when someone asked for it, or
+    # it would fire on every pi run (docs/adr/0028).
     if user_customizations and not harness.supports_mcp:
         user_customizations = False
         if on_warning and explicit:
@@ -609,7 +604,7 @@ def _measure_attempt(
                 user_customizations=env.user_customizations,
                 # Ablated names too, so --ablate still removes a server the
                 # user also has under that name (docs/adr/0028).
-                mcp_declared_names=frozenset(spec.mcp),
+                spec_mcp_names=frozenset(spec.mcp),
                 forbidden_files=list(spec.sandbox.forbidden_files),
             )
         )

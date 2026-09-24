@@ -14,7 +14,7 @@ from caliper.harness.base import (
     PromptCall,
     RunContext,
 )
-from caliper.harness.mcp import resolve_servers
+from caliper.harness.mcp import merge_user_servers, resolve_servers
 from caliper.schema.results import TokenUsage
 
 # Config files copied verbatim into the isolated HERMES_HOME so the agent can
@@ -102,9 +102,9 @@ class HermesHarness(CliHarness):
         unset var fails loudly), so literal credentials — never ``${VAR}`` — land
         in the config; the file may now hold them, so it is kept ``0600``.
 
-        When inheriting (the default) the user's ``mcp_servers`` (and
-        ``inherit_mcp_toolsets``) stay, with the declared servers merged over
-        them — the spec wins a name clash (docs/adr/0028).
+        When loading user customizations, ``mcp_servers`` is instead
+        :func:`merge_user_servers` of the user's and the declared ones, and
+        ``inherit_mcp_toolsets`` stays (docs/adr/0028).
         """
         servers = self._translate_mcp_servers(ctx)
         config_path = hermes_home / "config.yaml"
@@ -112,19 +112,8 @@ class HermesHarness(CliHarness):
         if config_path.exists():
             loaded = yaml.safe_load(config_path.read_text())
             config = loaded if isinstance(loaded, dict) else {}
-            if ctx.user_customizations:
-                user_servers = config.get("mcp_servers")
-                merged = {
-                    name: entry
-                    for name, entry in (
-                        user_servers.items() if isinstance(user_servers, dict) else ()
-                    )
-                    # An ablated declared name stays removed (docs/adr/0028).
-                    if name not in ctx.spec_mcp_names
-                }
-                merged.update(servers)
-                servers = merged
-            else:
+            servers = merge_user_servers(config.get("mcp_servers"), servers, ctx)
+            if not ctx.user_customizations:
                 config.pop("inherit_mcp_toolsets", None)
             if servers:
                 config["mcp_servers"] = servers
@@ -141,23 +130,18 @@ class HermesHarness(CliHarness):
     def _loaded_user_customizations(
         self, proc: ProcessResult, ctx: RunContext
     ) -> list[str] | None:
-        """The user's servers left in the attempt's ``config.yaml``.
+        """The servers in the ``config.yaml`` the attempt ran with.
 
-        Read off the config this attempt actually ran with, minus the declared
-        servers. Hermes has no account connectors, but ``inherit_mcp_toolsets``
-        brings toolsets caliper cannot list, so with it on the set is unknown
-        (``None``) rather than claimed complete.
+        Unknown when ``inherit_mcp_toolsets`` is on: it brings toolsets caliper
+        can't list.
         """
         config_path = self._hermes_home(ctx) / "config.yaml"
-        if not config_path.exists():
-            return []
-        loaded = yaml.safe_load(config_path.read_text())
-        if isinstance(loaded, dict) and loaded.get("inherit_mcp_toolsets"):
+        loaded = yaml.safe_load(config_path.read_text()) if config_path.exists() else {}
+        config = loaded if isinstance(loaded, dict) else {}
+        if config.get("inherit_mcp_toolsets"):
             return None
-        servers = loaded.get("mcp_servers") if isinstance(loaded, dict) else None
-        if not isinstance(servers, dict):
-            return []
-        return sorted(set(servers) - ctx.spec_mcp_names)
+        servers = config.get("mcp_servers")
+        return list(servers) if isinstance(servers, dict) else []
 
     def _translate_mcp_servers(self, ctx: RunContext) -> dict[str, dict]:
         """Translate the declared ``mcp:`` servers into Hermes' ``mcp_servers`` shape.

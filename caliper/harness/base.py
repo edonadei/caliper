@@ -10,7 +10,7 @@ import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import IO, Callable
+from typing import IO, Callable, Iterable
 
 from caliper import cancel
 from caliper.harness.prompt_failure import (
@@ -70,10 +70,8 @@ class AttemptResult:
     # a provider signal is told apart from an agent *writing about* one
     # (docs/adr/0019).
     salvaged: bool = False
-    # The MCP servers this attempt inherited from the user's own CLI config and
-    # account when inheriting (the default), as far as the backend can see them.
-    # ``None`` when the flag was off or the backend could not tell; see
-    # docs/adr/0028-runs-load-user-customizations-by-default.md.
+    # The user customizations this attempt loaded, by name, declared servers
+    # excluded. ``None`` when isolated or when the backend can't tell (docs/adr/0028).
     loaded_user_customizations: list[str] | None = None
 
 
@@ -114,23 +112,13 @@ class RunContext:
     # no ``mcp:`` block; an empty mapping means it had one whose servers were all
     # ablated, which a backend still isolates to zero servers.
     mcp_servers: dict[str, McpServer] | None = None
-    # User customizations: keep the MCP servers and account connectors the CLI
-    # would load by itself, merged with ``mcp_servers`` (the spec wins a name
-    # clash). ``False`` isolates the attempt to the declared set (docs/adr/0026).
-    # The product default lives in ``DEFAULT_USER_CUSTOMIZATIONS``, resolved by the run
-    # seam; this field stays ``False`` so a context built anywhere else — the
-    # judge's path included — is isolated unless asked (docs/adr/0028).
+    # Load the user's own MCP servers and connectors beside ``mcp_servers``.
+    # ``False`` here: the run seam resolves the product default, so any other
+    # context (the judge's) stays isolated (docs/adr/0028).
     user_customizations: bool = False
-    # Every server name the spec's ``mcp:`` block declares, ablated ones
-    # included. Under ``user_customizations`` a user's server by one of these names is
-    # dropped, so a declared name always means the spec's server — or none at
-    # all when ``--ablate`` removed it (docs/adr/0028).
-    mcp_declared_names: frozenset[str] = frozenset()
-
-    @property
-    def spec_mcp_names(self) -> frozenset[str]:
-        """The names a user's inherited server may not take: the spec's own."""
-        return self.mcp_declared_names | frozenset(self.mcp_servers or {})
+    # Every name the spec's ``mcp:`` declares, ablated ones included: a user's
+    # server never takes one of them (docs/adr/0028).
+    spec_mcp_names: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         """The context owns its lists, and tolerates ``None`` for the optional ones.
@@ -148,6 +136,9 @@ class RunContext:
         self.skill_refs = list(self.skill_refs or [])
         self.extra_path = list(self.extra_path or [])
         self.forbidden_files = list(self.forbidden_files or [])
+        self.spec_mcp_names = frozenset(self.spec_mcp_names) | frozenset(
+            self.mcp_servers or {}
+        )
 
 
 @dataclass
@@ -420,11 +411,7 @@ class CliHarness(HarnessBackend):
             usage=self._safe_usage(proc, ctx),
             cancelled=proc.cancelled,
             salvaged=not parsed,
-            loaded_user_customizations=(
-                self._safe_loaded_user_customizations(proc, ctx)
-                if ctx.user_customizations
-                else None
-            ),
+            loaded_user_customizations=self._recorded_customizations(proc, ctx),
         )
 
     def run_prompt(
@@ -612,28 +599,30 @@ class CliHarness(HarnessBackend):
 
     def _loaded_user_customizations(
         self, proc: ProcessResult, ctx: RunContext
-    ) -> list[str] | None:
-        """The servers this attempt inherited from the machine, if visible.
+    ) -> Iterable[str] | None:
+        """The MCP server names this attempt had, where the backend can see them.
 
-        Only asked when ``ctx.user_customizations`` is set. Names only, sorted, and
-        never a declared ``mcp:`` server: those are the spec's, recorded in
-        ``RunMeta.mcp_servers``. Default: ``None``, which a saved run reads as
-        "unknown" rather than "none".
+        Only asked when the attempt loaded user customizations; may include the
+        spec's own servers, which :meth:`_recorded_customizations` removes.
+        Default: ``None``, "unknown".
         """
         return None
 
-    def _safe_loaded_user_customizations(
+    def _recorded_customizations(
         self, proc: ProcessResult, ctx: RunContext
     ) -> list[str] | None:
-        """Read the inherited servers, degrading to ``None`` rather than raising.
+        """What ``AttemptResult.loaded_user_customizations`` records.
 
-        The same chokepoint discipline as :meth:`_safe_usage`: a provenance
-        record that failed to parse must not sink the attempt it describes.
+        ``None`` when isolated or unknown, and when reading fails: like
+        :meth:`_safe_usage`, a provenance record must not sink the attempt.
         """
+        if not ctx.user_customizations:
+            return None
         try:
-            return self._loaded_user_customizations(proc, ctx)
+            names = self._loaded_user_customizations(proc, ctx)
         except Exception:
             return None
+        return None if names is None else sorted(set(names) - ctx.spec_mcp_names)
 
     def _safe_usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
         """Extract usage, but never let a token-accounting failure sink an attempt.

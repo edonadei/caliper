@@ -102,75 +102,6 @@ tasks:
     assert callable(calls["on_warning"])
 
 
-def test_run_cli_user_customizations_forwards_and_prints_a_notice(
-    monkeypatch, tmp_path
-) -> None:
-    spec_file = tmp_path / "sample.eval.yaml"
-    spec_file.write_text(
-        "tasks:\n  - name: One\n    prompt: Do it\n    assert: assert True\n"
-    )
-    calls = {}
-
-    def fake_run(**kwargs):
-        calls.update(kwargs)
-        return RunResults(
-            run=RunMeta(
-                spec="sample",
-                timestamp=datetime(2026, 7, 3, tzinfo=timezone.utc),
-                k=kwargs["k"],
-                backend="claude-code",
-            ),
-            skill_snapshots=[],
-            task_results=[],
-            aggregate=AggregateScore(avg_score=0.0, per_task=[]),
-        )
-
-    class _McpHarness:
-        supports_mcp = True
-
-    monkeypatch.setattr(
-        "caliper.commands.run.get_harness", lambda *args, **kwargs: _McpHarness()
-    )
-    monkeypatch.setattr(
-        "caliper.commands.run.EvalJudge", lambda *args, **kwargs: object()
-    )
-    monkeypatch.setattr(
-        "caliper.commands.run.make_progress", lambda *args, **kwargs: (_Progress(), {})
-    )
-    monkeypatch.setattr(
-        "caliper.commands.run.print_banner", lambda *args, **kwargs: None
-    )
-    monkeypatch.setattr("caliper.commands.run.run", fake_run)
-
-    # The default: one quiet line, no warning.
-    result = runner.invoke(app, ["run", str(spec_file)])
-    assert result.exit_code == 0, result.output
-    assert calls["user_customizations"] is None
-    assert "--no-user-customizations to isolate" in result.output
-    assert "without asking" in result.output
-    assert "⚠" not in result.output
-
-    result = runner.invoke(app, ["run", str(spec_file), "--user-customizations"])
-
-    assert result.exit_code == 0, result.output
-    assert calls["user_customizations"] is True
-    assert "--user-customizations" in result.output
-    assert "account connectors" in result.output
-
-    result = runner.invoke(app, ["run", str(spec_file), "--no-user-customizations"])
-    assert result.exit_code == 0, result.output
-    assert calls["user_customizations"] is False
-    assert "account connectors" not in result.output
-
-    # A spec that turns it on gets the notice without the flag, naming itself.
-    spec_file.write_text("user_customizations: true\n" + spec_file.read_text())
-    result = runner.invoke(app, ["run", str(spec_file)])
-    assert result.exit_code == 0, result.output
-    assert calls["user_customizations"] is None
-    assert "user_customizations: true (spec)" in result.output
-    assert "--no-user-customizations runs it isolated" in result.output
-
-
 def test_run_cli_resolves_backend_and_judge_model_targets(
     monkeypatch, tmp_path
 ) -> None:
@@ -316,6 +247,47 @@ def _stub_a_run(monkeypatch, finished: RunResults) -> None:
     monkeypatch.setattr("caliper.commands.run.print_banner", lambda *a, **k: None)
     monkeypatch.setattr("caliper.commands.run.print_results", lambda *a, **k: None)
     monkeypatch.setattr("caliper.commands.run.run", lambda **kwargs: finished)
+
+
+@pytest.mark.parametrize(
+    "argv, spec_prefix, forwarded, shown, hidden",
+    [
+        # The default: one quiet line saying how to isolate, no warning.
+        ([], "", None, "without asking", "⚠"),
+        (["--user-customizations"], "", True, "⚠ --user-customizations", None),
+        (["--no-user-customizations"], "", False, None, "account connectors"),
+        # A spec that turns it on gets the full warning, naming itself.
+        ([], "user_customizations: true\n", None, "(spec)", None),
+    ],
+)
+def test_run_cli_user_customizations_notice(
+    monkeypatch, tmp_path, argv, spec_prefix, forwarded, shown, hidden
+) -> None:
+    spec_file = tmp_path / "sample.eval.yaml"
+    spec_file.write_text(
+        spec_prefix
+        + "tasks:\n  - name: One\n    prompt: Do it\n    assert: assert True\n"
+    )
+    calls = {}
+    finished = _finished(datetime(2026, 7, 3, tzinfo=timezone.utc))
+    _stub_a_run(monkeypatch, finished)
+    monkeypatch.setattr(
+        "caliper.commands.run.get_harness",
+        lambda *a, **k: StubHarness(supports_mcp=True),
+    )
+    monkeypatch.setattr(
+        "caliper.commands.run.run", lambda **kw: calls.update(kw) or finished
+    )
+    monkeypatch.setattr("caliper.commands.run._save_and_report", lambda *a, **k: None)
+
+    result = runner.invoke(app, ["run", str(spec_file), *argv])
+
+    assert result.exit_code == 0, result.output
+    assert calls["user_customizations"] is forwarded
+    if shown:
+        assert shown in result.output
+    if hidden:
+        assert hidden not in result.output
 
 
 def test_run_cli_exits_two_after_cleanup_failure(monkeypatch, tmp_path) -> None:

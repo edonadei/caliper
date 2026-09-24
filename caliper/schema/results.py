@@ -202,17 +202,13 @@ class RunMeta(BaseModel):
     # drift is a separate concern. See
     # docs/adr/0025-ablation-covers-mcp-servers.md.
     mcp_servers: list[str] | None = None
-    # User customizations: the attempts kept the MCP servers and account connectors
-    # their CLI loads by itself, beside the declared ones — the default, unless
-    # ``--no-user-customizations`` or the spec's ``user_customizations: false`` isolated them.
+    # Whether the attempts loaded the user's customizations; ``False`` when
+    # isolated, on a backend without MCP, and on runs saved before the field.
     # Kept apart from ``mcp_servers``, which ablation pairing reads as the
-    # spec's own set. False on a backend without MCP, where there was nothing
-    # to bring, and on runs saved before the field existed (isolated). See
-    # docs/adr/0028-runs-load-user-customizations-by-default.md.
+    # spec's own set (docs/adr/0028).
     user_customizations: bool = False
-    # The inherited servers the attempts reported, declared ones excluded: every
-    # name any attempt saw. ``None`` = unknown (the flag was off, or the backend
-    # could not see them), so an empty list means "inherited, but there were none".
+    # Every name any attempt loaded, declared servers excluded. ``None`` =
+    # unknown, so ``[]`` means "loaded, and there were none".
     loaded_user_customizations: list[str] | None = None
     # The judge engine that graded this run. Optional so results saved before
     # judge provenance was recorded still load (they render as an unknown judge).
@@ -1064,14 +1060,11 @@ class RunComparison(BaseModel):
     # ``mcp_servers`` existed cannot be compared on this axis. Silent on a
     # recognised ablation pair, whose difference *is* the experiment.
     mcp_mismatch: bool = False
-    # The two runs' inherited tool environments differ: one inherited
-    # the machine's MCP setup and the other did not, or both did and recorded
-    # different inherited servers (the same spec on two machines). A warning,
-    # like ``mcp_mismatch``; see docs/adr/0028.
+    # One run loaded user customizations and the other didn't, or both did
+    # and recorded different ones. A warning, like ``mcp_mismatch``.
     user_customizations_mismatch: bool = False
-    # The runs used different backends and at least one inherited MCP: part of
-    # the delta is each CLI's own setup, not the harness. A warning; an isolated
-    # (``--no-user-customizations``) pair is the harness comparison (docs/adr/0028).
+    # Different backends with user customizations: part of the delta is each
+    # CLI's own setup. An isolated pair is the harness comparison.
     cross_backend_user_customizations: bool = False
     # Members installed by both runs whose *text* differs — the complement of
     # ``neighbourhood_mismatch``, which is a change in *membership*. Every

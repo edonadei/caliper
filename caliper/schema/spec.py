@@ -23,20 +23,18 @@ DEFAULT_BACKEND: str = "claude-code"
 # Pinned so the claude-code judge does not inherit a stale model from the
 # installed Claude CLI's own default (see issue #59).
 DEFAULT_JUDGE_MODEL: str = "claude-sonnet-5"
-# A run inherits the machine's own MCP setup unless the invocation or the spec
-# says otherwise: most runs test a skill in the user's own agent. See
-# docs/adr/0028-runs-load-user-customizations-by-default.md.
+# Runs load the user's customizations unless the invocation or the spec says
+# otherwise: most runs test a skill in the user's own agent (docs/adr/0028).
 DEFAULT_USER_CUSTOMIZATIONS: bool = True
 
 
 def resolve_user_customizations(
     flag: bool | None, spec: "EvalSpec"
 ) -> tuple[bool, bool]:
-    """``(inherit, explicit)``: the setting that applies, and whether anyone chose it.
+    """``(load, explicit)``: the flag, else the spec, else the default.
 
-    The invocation wins, then the spec, then :data:`DEFAULT_USER_CUSTOMIZATIONS`.
-    ``explicit`` is what decides how loudly a run says so: a flag or a spec
-    field asked for it, where the default merely applied.
+    ``explicit`` says whether the flag or spec chose it, which decides how
+    loudly the run says so.
     """
     requested = flag if flag is not None else spec.user_customizations
     return (DEFAULT_USER_CUSTOMIZATIONS if requested is None else requested), (
@@ -289,11 +287,9 @@ class EvalSpec(BaseModel):
     skills: list[str | GitSkillSource] = []
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     mcp: dict[str, McpServer] = {}
-    # Whether this eval's runs inherit the runner's own MCP servers and account
-    # connectors. ``None`` (unset) takes :data:`DEFAULT_USER_CUSTOMIZATIONS`; ``false``
-    # pins a portable, isolated measurement; ``true`` says the skill needs the
-    # runner's setup. ``--user-customizations``/``--no-user-customizations`` override it for one
-    # run. See docs/adr/0028-runs-load-user-customizations-by-default.md.
+    # Whether runs load the user's customizations: ``false`` pins a portable,
+    # isolated score, ``true`` says the skill needs them, unset takes the
+    # default. The CLI flags override it (docs/adr/0028).
     user_customizations: bool | None = None
     tasks: list[TaskSpec]
 

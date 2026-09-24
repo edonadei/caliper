@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from caliper.harness.base import HarnessConfigurationError
+from caliper.harness.base import ProcessResult
 from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
@@ -386,47 +387,7 @@ def _init_stream(cmd: list[str], servers: list[str]) -> subprocess.CompletedProc
     return ok
 
 
-def test_claude_harness_user_customizations_drops_strict_and_records_servers(
-    monkeypatch, tmp_path
-) -> None:
-    monkeypatch.setattr(
-        "caliper.harness.mcp.preflight_stdio_servers", lambda *a, **kw: None
-    )
-    captured: dict = {}
-
-    def fake_run(cmd, **kwargs):
-        if cmd[0] != "claude":
-            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
-        captured["cmd"] = cmd
-        idx = cmd.index("--mcp-config")
-        captured["config"] = json.loads(Path(cmd[idx + 1]).read_text())
-        return _init_stream(cmd, ["claude.ai Gmail", "echo", "personal"])
-
-    patch_cli_calls(monkeypatch, fake_run)
-    home = tmp_path / "home"
-    home.mkdir()
-
-    result = ClaudeCodeHarness().run(
-        run_context(
-            prompt="p",
-            model=None,
-            timeout=30,
-            isolated_home=str(home),
-            extra_path=[],
-            mcp_servers={"echo": McpServer(command="python3")},
-            user_customizations=True,
-        )
-    )
-
-    # The declared server still arrives through --mcp-config, merged rather
-    # than exclusive.
-    assert "--strict-mcp-config" not in captured["cmd"]
-    assert captured["config"] == {"mcpServers": {"echo": {"command": "python3"}}}
-    # Recorded off the init event, declared server excluded.
-    assert result.loaded_user_customizations == ["claude.ai Gmail", "personal"]
-
-
-def test_claude_harness_user_customizations_lets_the_spec_win_a_name_clash(
+def test_claude_harness_user_customizations_merge_with_the_spec_winning(
     monkeypatch, tmp_path
 ) -> None:
     monkeypatch.setattr(
@@ -434,51 +395,55 @@ def test_claude_harness_user_customizations_lets_the_spec_win_a_name_clash(
     )
     real_home = tmp_path / "real"
     real_home.mkdir()
-    (real_home / ".claude.json").write_text(
-        json.dumps(
-            {
-                "mcpServers": {
-                    "echo": {"command": "user-echo"},
-                    "personal": {"command": "mine"},
-                },
-                "theme": "dark",
-            }
-        )
-    )
+    user_config = {
+        "mcpServers": {
+            "echo": {"command": "user-echo"},
+            "personal": {"command": "mine"},
+        },
+        "theme": "dark",
+    }
+    (real_home / ".claude.json").write_text(json.dumps(user_config))
     monkeypatch.setattr("caliper.harness.claude_code.Path.home", lambda: real_home)
+    home = tmp_path / "home"
+    home.mkdir()
     captured: dict = {}
 
     def fake_run(cmd, **kwargs):
         if cmd[0] != "claude":
             return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        captured["cmd"] = cmd
+        captured["config"] = json.loads(
+            Path(cmd[cmd.index("--mcp-config") + 1]).read_text()
+        )
         captured["seeded"] = json.loads((home / ".claude.json").read_text())
-        return _ok_stream(cmd)
+        return _init_stream(cmd, ["claude.ai Gmail", "echo", "personal"])
 
     patch_cli_calls(monkeypatch, fake_run)
-    home = tmp_path / "home"
-    home.mkdir()
-
     result = ClaudeCodeHarness().run(
         run_context(
             prompt="p",
-            model=None,
-            timeout=30,
             isolated_home=str(home),
-            extra_path=[],
             mcp_servers={"echo": McpServer(command="python3")},
             user_customizations=True,
         )
     )
 
-    # The user's clashing `echo` is gone from the isolated copy, the rest stays.
-    assert captured["seeded"] == {
-        "mcpServers": {"personal": {"command": "mine"}},
-        "theme": "dark",
-    }
-    # The real file is untouched.
-    assert "echo" in json.loads((real_home / ".claude.json").read_text())["mcpServers"]
-    # No init event in the stream: the inherited set is unknown, not empty.
-    assert result.loaded_user_customizations is None
+    # Merged rather than exclusive; the spec's `echo` comes via --mcp-config
+    # and the user's is gone from the isolated copy, never from the real file.
+    assert "--strict-mcp-config" not in captured["cmd"]
+    assert captured["config"] == {"mcpServers": {"echo": {"command": "python3"}}}
+    assert captured["seeded"]["mcpServers"] == {"personal": {"command": "mine"}}
+    assert json.loads((real_home / ".claude.json").read_text()) == user_config
+    # Recorded off the init event, the declared server excluded.
+    assert result.loaded_user_customizations == ["claude.ai Gmail", "personal"]
+
+
+def test_claude_harness_records_unknown_without_an_init_event() -> None:
+    proc = ProcessResult(
+        stdout='{"type": "result"}', stderr="", returncode=0, timed_out=False
+    )
+    ctx = run_context(user_customizations=True)
+    assert ClaudeCodeHarness()._loaded_user_customizations(proc, ctx) is None
 
 
 def test_claude_harness_user_customizations_still_ablates_a_server_the_user_also_has(
@@ -493,7 +458,7 @@ def test_claude_harness_user_customizations_still_ablates_a_server_the_user_also
         run_context(
             isolated_home=str(home),
             mcp_servers={},
-            mcp_declared_names=frozenset({"github"}),
+            spec_mcp_names=frozenset({"github"}),
             user_customizations=True,
         )
     )

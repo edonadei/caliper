@@ -20,8 +20,7 @@
 #   caliper run tests/mcp-header-smoke.eval.yaml --k 1                 # claude-code
 #   caliper run tests/mcp-header-smoke.eval.yaml --k 1 --model hermes  # hermes
 
-# Pinned isolated: a smoke eval checks the backend itself, and the #129 probe
-# tasks assert the attempt sees only the declared MCP servers (docs/adr/0028).
+# Pinned isolated: see test_every_smoke_eval_pins_isolation.
 user_customizations: false
 
 mcp:

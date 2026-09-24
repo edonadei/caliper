@@ -398,7 +398,7 @@ run Caliper, inside the git repository. See
 | `--fail-fast INT` | `0` | Stop a task after N consecutive `infra_error`/`timeout` attempts (`0` disables; counts attempts, not invocations) |
 | `--model TARGET` | `claude-code` | Skill engine: `backend`, `model`, or `backend:model` ([syntax](docs/backends.md#selecting-an-engine)) |
 | `--judge-model TARGET` | `claude-code` | Judge engine, same syntax |
-| `--user-customizations` / `--no-user-customizations` | the spec's `user_customizations`, else on | Whether attempts load your user customizations (the MCP servers and account connectors your CLI loads by itself), merged with the spec's `mcp:` (the spec wins a name clash). Use `--no-user-customizations` for a [portable score](#portable-scores). The judge stays isolated; no effect on `pi` ([details](docs/backends.md#loading-your-user-customizations)) |
+| `--user-customizations` / `--no-user-customizations` | the spec's `user_customizations`, else on | Load your MCP servers and account connectors into attempts, or not. See [Portable scores](#portable-scores) |
 | `--verbose` | off | Show per-attempt judge reasoning |
 | `--output PATH` | none | Also save results JSON to a specific path |
 

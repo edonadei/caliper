@@ -88,14 +88,17 @@ def validate_cmd(
 
     # Only an explicit setting: the default is the same for every spec
     # (docs/adr/0028).
-    requires = {
-        True: "\n  [yellow]user[/yellow]     [dim]loads the runner's own "
-        "customizations (MCP servers, account connectors)\n           "
-        "(user_customizations: true; --no-user-customizations runs it "
-        "isolated)[/dim]",
-        False: "\n  user     [dim]isolated from the runner's own customizations "
-        "(user_customizations: false)[/dim]",
-    }.get(spec.user_customizations, "")
+    requires = ""
+    if spec.user_customizations is True:
+        requires = (
+            "\n  [yellow]user[/yellow]     [dim]loads the runner's own "
+            "customizations (user_customizations: true)[/dim]"
+        )
+    elif spec.user_customizations is False:
+        requires = (
+            "\n  user     [dim]isolated from the runner's own customizations "
+            "(user_customizations: false)[/dim]"
+        )
 
     console.print(
         Panel(

@@ -225,20 +225,8 @@ def _ablation_labels(
     Two runs that ablated *different* subjects are deliberately **not** a pair —
     nothing but this marker could tell that case apart from a legitimate one,
     since both sides simply have a smaller-than-declared neighbourhood.
-
-    Nor are two runs that differ on inherited MCP, or that both inherited but
-    recorded different servers: the inherited servers would be a difference
-    between the sides the marker doesn't name (docs/adr/0028).
     """
     if bool(a_run.ablated) == bool(b_run.ablated):
-        return None
-    if a_run.user_customizations != b_run.user_customizations:
-        return None
-    # Both inherited, but different setups: the difference is not only the
-    # removed subject. Stands down when either side's set is unknown, as the
-    # server check does for an unrecorded membership.
-    a_inh, b_inh = a_run.loaded_user_customizations, b_run.loaded_user_customizations
-    if a_inh is not None and b_inh is not None and set(a_inh) != set(b_inh):
         return None
     if a_run.ablated:
         cut_run, full_run = a_run, b_run
@@ -261,15 +249,9 @@ def _ablation_labels(
     # "Bare agent" means nothing was configured, tools included: a run that
     # ablated every skill but kept a server is not a bare agent. The server side
     # must be a *recorded* empty set — an unrecorded membership is unknown, and
-    # "without ..." is the honest label for it. That goes for user customizations
-    # too: a run that inherited any, or can't say, isn't bare (docs/adr/0028).
-    bare = (
-        not cut_nb
-        and cut_mcp == []
-        and (
-            not cut_run.user_customizations or cut_run.loaded_user_customizations == []
-        )
-    )
+    # "without ..." is the honest label for it. So does a run that may have
+    # loaded user customizations (docs/adr/0028).
+    bare = not cut_nb and cut_mcp == [] and not _may_have_loaded_customizations(cut_run)
     cut_label = (
         "bare agent" if bare else f"without {', '.join(sorted(cut_run.ablated))}"
     )
@@ -351,8 +333,15 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         )
     # On a recognised ablation pair the differing neighbourhood *is* the
     # experiment, so the generic warning would be describing the design as a
-    # mistake — and the sides get titled from the marker instead.
-    labels = _ablation_labels(a_run, a_neighbourhood, b_run, b_neighbourhood)
+    # mistake — and the sides get titled from the marker instead. Runs whose
+    # user customizations differ are no pair: the difference would not only be
+    # what the marker names (docs/adr/0028).
+    customizations_warning = _user_customizations_warning(a_run, b_run)
+    labels = (
+        None
+        if customizations_warning
+        else _ablation_labels(a_run, a_neighbourhood, b_run, b_neighbourhood)
+    )
     a_label, b_label = labels if labels else (None, None)
     neighbourhood_mismatch = labels is None and a_neighbourhood != b_neighbourhood
     if neighbourhood_mismatch:
@@ -379,12 +368,6 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
             "reasons unrelated to the skill"
         )
 
-    # The inherited half of the tool environment (docs/adr/0028). Checked on
-    # every pair, ablation pairs included — an ablation pair already requires
-    # the same flag state, but two inheriting runs can still have inherited
-    # different servers. Membership is compared only when both sides recorded
-    # it, for the same reason as above.
-    customizations_warning = _user_customizations_warning(a_run, b_run)
     cross_backend_warning = _cross_backend_user_customizations_warning(a_run, b_run)
     # One message per cause: across backends, isolating both runs is the only
     # fix, and the generic mismatch advice would contradict it.

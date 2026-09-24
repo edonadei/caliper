@@ -180,18 +180,11 @@ hosted OAuth connector a spec can't declare. `--no-user-customizations`, or
 - **The spec wins a name clash.** A declared server replaces your server of the
   same name, in the attempt's copy of the config. Your real config is never
   changed.
-- **The judge stays isolated**, whatever the flag says.
-- **The run says so.** Under the default it prints one line at the start; when
-  a flag or the spec asked for it, a full warning naming the source: the score
-  depends on this machine's setup, and attempts can act on those accounts
-  without asking. The saved run records `user_customizations` and the loaded server names (or
-  "unknown" when a source such as codex plugins or hermes' inherited toolsets
-  can't be listed), the report header lists them, and `caliper compare` warns
-  when two runs loaded different customizations, or compares two backends with
-  user customizations loaded
-  MCP (see [Results JSON](results.md#results-json)).
+- **The judge stays isolated**, whatever the setting.
+- **The run says so**: a notice at the start (attempts can act on those accounts
+  without asking), and the saved run records what was loaded, or "unknown" when
+  a source such as codex plugins can't be listed. See
+  [Results JSON](results.md#results-json) for how `compare` uses it.
 - **`--ablate` can't remove one of your servers.** It only names what the spec
-  declares.
-- **A spec can pin it** with `user_customizations: false` (portable) or `true` (needs
-  your setup); the flags override it for one run. See
+  declares. A spec can pin the setting; see
   [the spec reference](spec-reference.md#user-customizations-user_customizations).
