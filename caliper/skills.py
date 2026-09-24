@@ -396,21 +396,37 @@ def install_skills(
 
     for ref in refs:
         dest = skills_root / ref.name
+        source_root = ref.directory.resolve()
         for item in sorted(ref.directory.rglob("*")):
-            if not item.is_file():
+            source = _contained_skill_file(item, source_root)
+            if source is None:
                 continue
             rel = item.relative_to(ref.directory)
-            if any(part in _EXCLUDE_DIRS for part in rel.parts):
+            source_rel = source.relative_to(source_root)
+            if any(part in _EXCLUDE_DIRS for part in (*rel.parts, *source_rel.parts)):
                 continue
-            if item.name.endswith(".eval.yaml"):
+            if item.name.endswith(".eval.yaml") or source.name.endswith(".eval.yaml"):
                 continue
-            if not sandbox.permits_install(rel.as_posix()):
+            if not sandbox.permits_install(
+                rel.as_posix()
+            ) or not sandbox.permits_install(source_rel.as_posix()):
                 continue
             try:
-                if item.stat().st_size > _MAX_FILE_BYTES:
+                if source.stat().st_size > _MAX_FILE_BYTES:
                     continue
             except OSError:
                 continue
             target = dest / rel
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(item, target)
+            shutil.copy2(source, target)
+
+
+def _contained_skill_file(item: Path, source_root: Path) -> Path | None:
+    """Return a file's real path only when it stays within the skill directory."""
+    try:
+        source = item.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None
+    if not source.is_relative_to(source_root) or not source.is_file():
+        return None
+    return source

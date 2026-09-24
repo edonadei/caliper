@@ -131,14 +131,8 @@ def test_a_reference_outside_the_skill_directory_is_not_captured(tmp_path: Path)
     assert set(snap.files) == {"SKILL.md"}
 
 
-def test_an_installed_symlink_is_captured_under_its_link_name(tmp_path: Path):
-    """A symlinked companion file is stored under the link's name.
-
-    ``install_skills`` copies the target's content to the link's own path
-    (``shutil.copy2`` follows file symlinks), so that is the file the agent
-    read. If the snapshot resolved the link instead, the file would fall
-    outside the skill directory and be dropped.
-    """
+def test_an_external_symlink_is_not_captured(tmp_path: Path):
+    """A skipped external symlink contributes no content to the snapshot."""
     shared = tmp_path / "shared"
     shared.mkdir()
     (shared / "guide.md").write_text("# Shared guide v1\n")
@@ -151,25 +145,22 @@ def test_an_installed_symlink_is_captured_under_its_link_name(tmp_path: Path):
 
     snap = snapshot_skill(SkillRef(name="mine", path=directory / "SKILL.md"))
 
-    assert set(snap.files) == {"SKILL.md", "guide.md"}
-    assert snap.files["guide.md"].content == "# Shared guide v1\n"
+    assert set(snap.files) == {"SKILL.md"}
 
 
 def test_a_changed_symlink_target_shows_as_drift(tmp_path: Path):
-    """Editing the symlink's target after the run shows up as drift."""
-    shared = tmp_path / "shared"
-    shared.mkdir()
-    (shared / "guide.md").write_text("# Shared guide v1\n")
+    """Editing an internal symlink's target shows up as drift."""
     directory = tmp_path / "mine"
     directory.mkdir()
+    (directory / "real-guide.md").write_text("# Shared guide v1\n")
     (directory / "SKILL.md").write_text(
         "---\nname: mine\ndescription: d.\n---\n\nRead [guide](./guide.md).\n"
     )
-    (directory / "guide.md").symlink_to(Path("../shared/guide.md"))
+    (directory / "guide.md").symlink_to(Path("real-guide.md"))
     ref = SkillRef(name="mine", path=directory / "SKILL.md")
 
     before = snapshot_skill(ref)
-    (shared / "guide.md").write_text("# Shared guide v2\n")
+    (directory / "real-guide.md").write_text("# Shared guide v2\n")
     after = snapshot_skill(ref)
 
     assert before.files["guide.md"].hash != after.files["guide.md"].hash

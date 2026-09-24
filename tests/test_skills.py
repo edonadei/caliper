@@ -126,6 +126,62 @@ def test_install_carries_the_whole_directory_for_progressive_disclosure(tmp_path
     assert (root / "deep" / "references" / "extra.md").read_text() == "more details"
 
 
+@pytest.mark.parametrize("target_kind", ["absolute", "relative"])
+def test_install_skips_file_symlink_outside_the_skill_directory(tmp_path, target_kind):
+    write_skill(tmp_path / "src", "guarded")
+    secret = tmp_path / "host-secret.txt"
+    secret.write_text("host data")
+    target = secret if target_kind == "absolute" else Path("../host-secret.txt")
+    (tmp_path / "src" / "cfg.txt").symlink_to(target)
+    refs = resolve_skills(["./src/SKILL.md"], tmp_path)
+    root = tmp_path / "root"
+
+    install_skills(refs, root, [])
+
+    assert (root / "guarded" / "SKILL.md").exists()
+    assert not (root / "guarded" / "cfg.txt").exists()
+
+
+def test_install_skips_directory_symlink_outside_the_skill_directory(tmp_path):
+    write_skill(tmp_path / "src", "guarded")
+    shared = tmp_path / "host-data"
+    shared.mkdir()
+    (shared / "secret.txt").write_text("host data")
+    (tmp_path / "src" / "references").symlink_to(shared, target_is_directory=True)
+    refs = resolve_skills(["./src/SKILL.md"], tmp_path)
+    root = tmp_path / "root"
+
+    install_skills(refs, root, [])
+
+    assert (root / "guarded" / "SKILL.md").exists()
+    assert not (root / "guarded" / "references").exists()
+
+
+def test_install_copies_file_symlink_within_the_skill_directory(tmp_path):
+    write_skill(tmp_path / "src", "guarded")
+    (tmp_path / "src" / "reference.md").write_text("safe reference")
+    (tmp_path / "src" / "alias.md").symlink_to("reference.md")
+    refs = resolve_skills(["./src/SKILL.md"], tmp_path)
+    root = tmp_path / "root"
+
+    install_skills(refs, root, [])
+
+    assert (root / "guarded" / "alias.md").read_text() == "safe reference"
+
+
+def test_install_does_not_use_internal_symlink_to_bypass_exclusions(tmp_path):
+    write_skill(tmp_path / "src", "guarded")
+    (tmp_path / "src" / ".git").mkdir()
+    (tmp_path / "src" / ".git" / "config").write_text("private data")
+    (tmp_path / "src" / "cfg").symlink_to(Path(".git/config"))
+    refs = resolve_skills(["./src/SKILL.md"], tmp_path)
+    root = tmp_path / "root"
+
+    install_skills(refs, root, [])
+
+    assert not (root / "guarded" / "cfg").exists()
+
+
 def test_install_excludes_cheat_surfaces_for_every_entry(tmp_path):
     # A neighbour's answer key is as much an answer key as the subject's.
     for dirname, skill in (("subject", "subject"), ("neighbour", "neighbour")):

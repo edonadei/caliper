@@ -19,7 +19,7 @@ import subprocess
 from pathlib import Path
 
 from caliper.schema.results import FileSnapshot, SkillSnapshot
-from caliper.skills import SkillRef
+from caliper.skills import SkillRef, _contained_skill_file
 
 # A relative or home-anchored pointer to a companion file, as a SKILL.md writes
 # one: `./REFERENCE.md`, `references/style.md`, `~/bin/check.sh`.
@@ -42,6 +42,7 @@ def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
     # directory (`~/.claude/skills/foo` -> some repo) would lose references
     # written with the symlink's name, even though they were installed.
     directory = Path(os.path.abspath(Path(ref.path).expanduser().parent))
+    source_root = directory.resolve()
 
     content = path.read_text()
     files: dict[str, FileSnapshot] = {path.name: _file_snapshot(content)}
@@ -53,12 +54,8 @@ def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
         referenced = Path(match.group()).expanduser()
         if not referenced.is_absolute():
             referenced = directory / referenced
-        # Clean up `..` segments but do not follow symlinks. When a companion
-        # file is a symlink, `install_skills` copies the target's bytes under
-        # the link's own name, so the link's path is what the run saw. If we
-        # resolved the link here, a companion pointing outside the directory
-        # would be dropped, and later edits to its target would never show up
-        # as drift.
+        # Clean up `..` segments but keep the link's path as the installed
+        # name. Internal file symlinks are copied under that name.
         referenced = Path(os.path.normpath(referenced))
         # Skip the SKILL.md itself by comparing paths as written, not by what
         # they resolve to. An `alias.md -> SKILL.md` symlink is installed as a
@@ -75,7 +72,12 @@ def snapshot_skill(ref: SkillRef) -> SkillSnapshot:
         if _reached_through_directory_symlink(directory, rel):
             # Files under a symlinked directory are never installed either.
             continue
-        files[str(rel)] = _file_snapshot(referenced.read_text())
+        source = _contained_skill_file(referenced, source_root)
+        if source is None:
+            # External symlink targets are skipped by install_skills, so they
+            # cannot contribute to the run's skill drift.
+            continue
+        files[str(rel)] = _file_snapshot(source.read_text())
 
     # A git source already knows its provenance exactly — caliper resolved the
     # ref and cloned that commit — so it is taken from the ref rather than
