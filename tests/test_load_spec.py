@@ -220,7 +220,16 @@ def test_a_spec_that_is_not_a_mapping_says_so(tmp_path, text, message) -> None:
         load_spec(_write(tmp_path, text))
 
 
-@pytest.mark.parametrize("text", ["tasks:\n", "tasks: [foo]\n"])
-def test_a_malformed_tasks_list_is_a_schema_error(tmp_path, text) -> None:
-    with pytest.raises(ValidationError):
+@pytest.mark.parametrize(
+    "text, message",
+    [
+        ("tasks:\n", "`tasks:` must be a list of tasks, not nothing"),
+        ("tasks: go\n", "`tasks:` must be a list of tasks, not a string"),
+        ("tasks: [foo]\n", "task 1 must be a mapping with `name:` and `prompt:`"),
+    ],
+)
+def test_a_malformed_tasks_list_says_what_shape_it_needs(
+    tmp_path, text, message
+) -> None:
+    with pytest.raises(ValueError, match=message):
         load_spec(_write(tmp_path, text))

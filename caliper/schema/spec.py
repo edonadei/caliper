@@ -355,15 +355,27 @@ def load_spec(path: Path) -> EvalSpec:
     # should hear about the engine move, which is the older migration.
     _reject_removed_keys(raw)
     _reject_singular_skill(raw)
-    # Ids only where the shape allows it: `tasks: null` or `tasks: [foo]` is
-    # left for the schema to reject by field rather than failing here on a
-    # Python type error.
+    # Shape errors are named here in the spec's own terms; the schema would
+    # word them as "instance of TaskSpec".
     tasks = raw.get("tasks")
-    if isinstance(tasks, list):
-        for i, task in enumerate(tasks, 1):
-            if isinstance(task, dict):
-                task["id"] = f"task-{i:03d}"
+    if "tasks" in raw and not isinstance(tasks, list):
+        raise ValueError(f"`tasks:` must be a list of tasks, not {_yaml_kind(tasks)}")
+    for i, task in enumerate(tasks or [], 1):
+        if not isinstance(task, dict):
+            raise ValueError(
+                f"task {i} must be a mapping with `name:` and `prompt:`, not "
+                f"{_yaml_kind(task)} ({task!r})"
+            )
+        task["id"] = f"task-{i:03d}"
     return EvalSpec.model_validate(raw, context={"spec_dir": path.parent})
+
+
+def _yaml_kind(value: object) -> str:
+    """How a YAML value reads to a spec author: 'a string', 'nothing', …"""
+    if value is None:
+        return "nothing"
+    kinds = {str: "a string", int: "a number", float: "a number", bool: "a boolean"}
+    return kinds.get(type(value), "a list" if isinstance(value, list) else "a mapping")
 
 
 def spec_name(path: Path) -> str:
