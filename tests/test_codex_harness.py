@@ -444,6 +444,9 @@ def _fake_codex_home(tmp_path, config_text: str | None):
 
 def _run_codex_mcp(monkeypatch, tmp_path, mcp_servers, *, home=None):
     """Seed an attempt with declared mcp_servers; return the seeded config.toml path."""
+    monkeypatch.setattr(
+        "caliper.harness.mcp.preflight_stdio_servers", lambda *a, **kw: None
+    )
     home = home if home is not None else _fake_codex_home(tmp_path, _AMBIENT_CONFIG)
     iso = tmp_path / "iso"
     iso.mkdir()

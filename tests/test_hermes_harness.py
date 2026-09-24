@@ -173,6 +173,9 @@ def _fake_home_with_user_mcp(tmp_path):
 
 def _run_hermes_mcp(monkeypatch, tmp_path, mcp_servers, *, home=None):
     """Run the harness with declared mcp_servers and return the seeded config."""
+    monkeypatch.setattr(
+        "caliper.harness.mcp.preflight_stdio_servers", lambda *a, **kw: None
+    )
     home = home or _fake_home_with_user_mcp(tmp_path)
     iso = tmp_path / "iso"
     iso.mkdir()

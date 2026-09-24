@@ -1,18 +1,35 @@
 from __future__ import annotations
 
+import os
+import sys
+import threading
+import time
+from pathlib import Path
+
 import pytest
+import psutil
 from pydantic import ValidationError
 
+from caliper import cancel
 from caliper.harness.base import (
     AttemptResult,
+    CliHarness,
+    ConversationTurn,
     HarnessBackend,
     HarnessConfigurationError,
     RunContext,
 )
-from caliper.harness.mcp import resolve_servers
+from caliper.harness.mcp import (
+    McpPreflightInterrupted,
+    preflight_stdio_servers,
+    resolve_servers,
+)
 from caliper.judge.base import JudgeResult
-from caliper.runner import run
+from caliper.runner import RunAborted, run
+from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, McpServer, TaskSpec
+
+from conftest import run_context
 
 
 # --- schema validation ----------------------------------------------------
@@ -155,6 +172,35 @@ def test_mcp_rejects_missing_command() -> None:
 
 # --- shared resolution (harness/mcp.py) ------------------------------------
 
+_TOOLS_REPLY = (
+    "sys.stdin.readline()\n"  # notifications/initialized
+    "request = json.loads(sys.stdin.readline())\n"
+    "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+    "'result': {'tools': []}}), flush=True)\n"
+    "sys.stdin.readline()\n"
+)
+_TOOL_INITIALIZATION = repr(
+    {
+        "protocolVersion": "2025-03-26",
+        "capabilities": {"tools": {}},
+        "serverInfo": {"name": "test", "version": "1"},
+    }
+)
+_RESOURCE_INITIALIZATION = repr(
+    {
+        "protocolVersion": "2025-03-26",
+        "capabilities": {"resources": {}},
+        "serverInfo": {"name": "test", "version": "1"},
+    }
+)
+_EMPTY_INITIALIZATION = repr(
+    {
+        "protocolVersion": "2025-03-26",
+        "capabilities": {},
+        "serverInfo": {"name": "test", "version": "1"},
+    }
+)
+
 
 def test_resolve_servers_interpolates_stdio_env(monkeypatch) -> None:
     monkeypatch.setenv("MCP_API_TOKEN", "sk-secret")
@@ -223,6 +269,564 @@ def test_resolve_servers_unset_var_fails_at_the_boundary(monkeypatch) -> None:
 def test_resolve_servers_handles_no_declaration() -> None:
     assert resolve_servers(None) == {}
     assert resolve_servers({}) == {}
+
+
+def test_run_anchors_explicit_mcp_paths_to_spec_directory(
+    tmp_path, monkeypatch
+) -> None:
+    spec_dir = tmp_path / "specs"
+    spec_dir.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    spec_path = spec_dir / "m.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    spec = _spec_with_mcp()
+    spec.mcp = {
+        "echo": McpServer(
+            command="./bin/server",
+            args=["./servers/weather.py", "../shared/data", "bare", "/absolute"],
+        )
+    }
+    harness = _McpHarness()
+
+    run(spec, spec_path, harness, _PassJudge(), k=1, workers=1)
+
+    assert harness.seen["echo"].command == str(spec_dir / "bin/server")
+    assert harness.seen["echo"].args == [
+        str(spec_dir / "servers/weather.py"),
+        str(tmp_path / "shared/data"),
+        "bare",
+        "/absolute",
+    ]
+    assert spec.mcp["echo"].args[0] == "./servers/weather.py"
+
+
+def test_preflight_initializes_a_local_server(tmp_path) -> None:
+    script = tmp_path / "server.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        "'result': {'protocolVersion': '2025-03-26', 'capabilities': {'tools': {}}, "
+        "'serverInfo': {'name': 'test', 'version': '1'}}}), flush=True)\n"
+        + _TOOLS_REPLY
+    )
+    preflight_stdio_servers(
+        {"echo": McpServer(command=sys.executable, args=[str(script)])}
+    )
+
+
+def test_preflight_accepts_bundled_echo_server_protocol_version() -> None:
+    # echo_server.py answers 2024-11-05, not the version preflight proposes.
+    script = Path(__file__).parent / "fixtures" / "mcp" / "echo_server.py"
+    preflight_stdio_servers(
+        {"echo": McpServer(command=sys.executable, args=[str(script)])}
+    )
+
+
+def test_preflight_does_not_inspect_unrelated_process_environments(
+    tmp_path, monkeypatch
+) -> None:
+    script = tmp_path / "server.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
+    )
+
+    def no_global_scan():
+        raise AssertionError("preflight scanned unrelated processes")
+
+    monkeypatch.setattr(psutil, "process_iter", no_global_scan)
+    preflight_stdio_servers(
+        {"echo": McpServer(command=sys.executable, args=[str(script)])}
+    )
+
+
+def test_preflight_ignores_notifications_before_responses(tmp_path) -> None:
+    script = tmp_path / "notifying.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'method': 'notifications/message', "
+        "'params': {'level': 'info', 'data': 'starting'}}), flush=True)\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n"
+        "sys.stdin.readline()\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'method': 'notifications/message', "
+        "'params': {'level': 'info', 'data': 'ready'}}), flush=True)\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        "'result': {'tools': []}}), flush=True)\n"
+        "sys.stdin.readline()\n"
+    )
+
+    preflight_stdio_servers(
+        {"echo": McpServer(command=sys.executable, args=[str(script)])}
+    )
+
+
+def test_preflight_answers_server_ping_with_colliding_request_id(tmp_path) -> None:
+    script = tmp_path / "ping.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        "'method': 'ping'}), flush=True)\n"
+        "reply = json.loads(sys.stdin.readline())\n"
+        "if reply != {'jsonrpc': '2.0', 'id': request['id'], 'result': {}}: "
+        "sys.exit(2)\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
+    )
+
+    preflight_stdio_servers(
+        {"echo": McpServer(command=sys.executable, args=[str(script)])}
+    )
+
+
+def test_preflight_accepts_resource_only_server(tmp_path) -> None:
+    script = tmp_path / "resources.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        f"'result': {_RESOURCE_INITIALIZATION}}}), flush=True)\n"
+        "sys.stdin.readline()\n"
+        "request = sys.stdin.readline()\n"
+        "if request:\n"
+        "    print(json.dumps({'jsonrpc': '2.0', 'id': json.loads(request)['id'], "
+        "'error': {'code': -32601, 'message': 'Method not found'}}), flush=True)\n"
+    )
+
+    preflight_stdio_servers(
+        {"resources": McpServer(command=sys.executable, args=[str(script)])}
+    )
+
+
+def test_preflight_kills_server_child_after_launcher_exits(tmp_path) -> None:
+    marker = tmp_path / "child-pid"
+    child_code = (
+        "import os, pathlib, signal, sys, time\n"
+        + (
+            "signal.signal(signal.SIGTERM, lambda *_: None)\n"
+            if os.name == "posix"
+            else ""
+        )
+        + "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\n"
+        "time.sleep(30)\n"
+    )
+    script = tmp_path / "launcher.py"
+    script.write_text(
+        "import json, pathlib, subprocess, sys, time\n"
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}, sys.argv[1]], "
+        "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+        "while not pathlib.Path(sys.argv[1]).exists(): time.sleep(0.01)\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
+    )
+    pid = None
+    try:
+        preflight_stdio_servers(
+            {"echo": McpServer(command=sys.executable, args=[str(script), str(marker)])}
+        )
+        pid = int(marker.read_text())
+        try:
+            child = psutil.Process(pid)
+        except psutil.NoSuchProcess:
+            pass
+        else:
+            assert not child.is_running() or child.status() == psutil.STATUS_ZOMBIE, (
+                "server child survived preflight"
+            )
+    finally:
+        if pid is None and marker.exists():
+            pid = int(marker.read_text())
+        if pid is not None:
+            try:
+                psutil.Process(pid).kill()
+            except psutil.NoSuchProcess:
+                pass
+
+
+def test_preflight_uses_sandbox_extra_path_for_command(tmp_path) -> None:
+    command = tmp_path / "mcp-server"
+    command.write_text(
+        f"#!{sys.executable}\n"
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
+    )
+    command.chmod(0o755)
+
+    preflight_stdio_servers(
+        {"echo": McpServer(command="mcp-server")}, extra_path=[str(tmp_path)]
+    )
+
+
+def test_preflight_does_not_inherit_host_only_variables(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("CALIPER_HOST_ONLY_SECRET", "not-in-attempt")
+    script = tmp_path / "server.py"
+    script.write_text(
+        "import json, os, sys\n"
+        "if os.getenv('CALIPER_HOST_ONLY_SECRET'): sys.exit(2)\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
+    )
+
+    preflight_stdio_servers(
+        {"echo": McpServer(command=sys.executable, args=[str(script)])}
+    )
+
+
+class _AttemptPreflightHarness(CliHarness):
+    supports_mcp = True
+
+    @property
+    def name(self) -> str:
+        return "attempt-preflight"
+
+    def skills_root(self, ctx: RunContext) -> Path:
+        return Path(ctx.isolated_home) / "skills"
+
+    def _command(self, ctx: RunContext):
+        return (
+            [sys.executable, "-c", "print('ok')"],
+            None,
+            None,
+        )
+
+    def _environment(self, ctx: RunContext) -> dict[str, str]:
+        return self._isolated_env(ctx)
+
+    def _parse_stream(self, stdout: str):
+        return [
+            ConversationTurn(role="assistant", content=stdout.strip())
+        ], stdout.strip()
+
+
+def test_server_that_dies_after_initial_preflight_stops_before_agent(tmp_path) -> None:
+    marker = tmp_path / "started"
+    script = tmp_path / "server.py"
+    script.write_text(
+        "import json, pathlib, sys\n"
+        "marker = pathlib.Path(sys.argv[1])\n"
+        "if marker.exists(): sys.exit(3)\n"
+        "marker.write_text('started')\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
+    )
+    servers = {
+        "echo": McpServer(command=sys.executable, args=[str(script), str(marker)])
+    }
+    preflight_stdio_servers(servers)
+    home = tmp_path / "home"
+    workdir = home / "work"
+    workdir.mkdir(parents=True)
+    ctx = run_context(
+        isolated_home=str(home), workdir=str(workdir), mcp_servers=servers
+    )
+
+    with pytest.raises(HarnessConfigurationError, match="MCP server 'echo'"):
+        _AttemptPreflightHarness().run(ctx)
+
+
+def test_preflight_rejects_server_exiting_after_initialize(tmp_path) -> None:
+    script = tmp_path / "one_reply.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        f"'result': {_EMPTY_INITIALIZATION}}}), flush=True)\n"
+    )
+
+    with pytest.raises(HarnessConfigurationError, match="MCP server 'echo'"):
+        preflight_stdio_servers(
+            {"echo": McpServer(command=sys.executable, args=[str(script)])}
+        )
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {},
+        {
+            "protocolVersion": "unsupported",
+            "capabilities": {},
+            "serverInfo": {"name": "test", "version": "1"},
+        },
+    ],
+)
+def test_preflight_rejects_invalid_initialization(tmp_path, result) -> None:
+    script = tmp_path / "invalid.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        f"print(json.dumps({{'jsonrpc': '2.0', 'id': request['id'], 'result': {result!r}}}), flush=True)\n"
+        "sys.stdin.readline()\n"
+    )
+
+    with pytest.raises(HarnessConfigurationError, match="invalid initialization"):
+        preflight_stdio_servers(
+            {"echo": McpServer(command=sys.executable, args=[str(script)])}
+        )
+
+
+def test_setup_can_stage_an_mcp_server_before_attempt_preflight(tmp_path) -> None:
+    template = tmp_path / "server-template.py"
+    template.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
+    )
+    staged = tmp_path / "staged-server.py"
+    stage_script = tmp_path / "stage.py"
+    stage_script.write_text(
+        "from pathlib import Path\n"
+        "import shutil\n"
+        "here = Path(__file__).parent\n"
+        "shutil.copyfile(here / 'server-template.py', here / 'staged-server.py')\n"
+    )
+    spec_path = tmp_path / "m.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    spec = EvalSpec(
+        mcp={"echo": McpServer(command=sys.executable, args=[str(staged)])},
+        tasks=[
+            TaskSpec(
+                id="task-001",
+                name="staged server",
+                prompt="use it",
+                setup=f'"{sys.executable}" "{stage_script}"',
+                assert_script="assert True",
+            )
+        ],
+    )
+
+    results = run(spec, spec_path, _AttemptPreflightHarness(), _PassJudge(), k=1)
+
+    assert staged.exists()
+    assert results.task_results[0].attempts[0].outcome == Outcome.PASS
+
+
+def test_cancel_interrupts_stalled_preflight_and_skips_next_server(
+    tmp_path,
+) -> None:
+    ready = tmp_path / "ready"
+    second = tmp_path / "second"
+    script = tmp_path / "stalled.py"
+    script.write_text(
+        "from pathlib import Path\n"
+        "import sys, time\n"
+        "Path(sys.argv[1]).write_text('started')\n"
+        "time.sleep(30)\n"
+    )
+    servers = {
+        "first": McpServer(command=sys.executable, args=[str(script), str(ready)]),
+        "second": McpServer(command=sys.executable, args=[str(script), str(second)]),
+    }
+    errors: list[Exception] = []
+
+    def check() -> None:
+        try:
+            preflight_stdio_servers(servers, timeout=5)
+        except Exception as exc:
+            errors.append(exc)
+
+    cancel.reset()
+    thread = threading.Thread(target=check)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 3
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ready.exists()
+        cancel.request()
+        thread.join(timeout=2)
+        assert not thread.is_alive(), "Ctrl-C waited for the preflight timeout"
+        assert errors and isinstance(errors[0], McpPreflightInterrupted)
+        assert not second.exists()
+    finally:
+        cancel.request()
+        thread.join(timeout=2)
+        cancel.reset()
+
+
+def test_interrupt_during_preflight_returns_an_interrupted_run(tmp_path) -> None:
+    ready = tmp_path / "ready"
+    script = tmp_path / "stalled.py"
+    script.write_text(
+        "from pathlib import Path\n"
+        "import sys, time\n"
+        "Path(sys.argv[1]).write_text('started')\n"
+        "time.sleep(30)\n"
+    )
+    spec_path = tmp_path / "m.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    spec = EvalSpec(
+        mcp={"slow": McpServer(command=sys.executable, args=[str(script), str(ready)])},
+        tasks=[
+            TaskSpec(
+                id="task-001",
+                name="slow server",
+                prompt="use it",
+                assert_script="assert True",
+            )
+        ],
+    )
+    box: dict[str, object] = {}
+
+    def execute() -> None:
+        try:
+            box["result"] = run(
+                spec, spec_path, _AttemptPreflightHarness(), _PassJudge(), k=1
+            )
+        except Exception as exc:
+            box["error"] = exc
+
+    thread = threading.Thread(target=execute)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 3
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ready.exists()
+        cancel.request()
+        thread.join(timeout=3)
+        assert not thread.is_alive()
+        assert "error" not in box
+        assert box["result"].run.interrupted
+        assert box["result"].task_results[0].attempts == []
+    finally:
+        cancel.request()
+        thread.join(timeout=3)
+        cancel.reset()
+
+
+def test_preflight_waits_for_a_slow_server_within_its_timeout(tmp_path) -> None:
+    script = tmp_path / "slow.py"
+    script.write_text(
+        "import json, sys, time\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "time.sleep(0.5)\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        f"'result': {_EMPTY_INITIALIZATION}}}), flush=True)\n"
+        "sys.stdin.readline()\n"
+        "sys.stdin.readline()\n"
+    )
+    server = {"echo": McpServer(command=sys.executable, args=[str(script)])}
+
+    with pytest.raises(HarnessConfigurationError, match="within 0.2 seconds"):
+        preflight_stdio_servers(server, timeout=0.2)
+    preflight_stdio_servers(server, timeout=5)
+
+
+def test_preflight_shares_one_deadline_across_servers(tmp_path) -> None:
+    script = tmp_path / "slow.py"
+    script.write_text(
+        "import json, sys, time\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "time.sleep(0.6)\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        f"'result': {_EMPTY_INITIALIZATION}}}), flush=True)\n"
+        "sys.stdin.readline()\n"
+        "sys.stdin.readline()\n"
+    )
+    server = McpServer(command=sys.executable, args=[str(script)])
+
+    # Each server fits in 1s alone; together they exceed it.
+    with pytest.raises(HarnessConfigurationError, match="MCP server 'second'"):
+        preflight_stdio_servers({"first": server, "second": server}, timeout=1)
+
+
+def test_preflight_times_out_when_server_stops_reading_stdin(tmp_path) -> None:
+    # Floods ping requests without reading replies, so preflight's writes fill
+    # the stdin pipe and block.
+    script = tmp_path / "flood.py"
+    script.write_text(
+        "import json, sys\n"
+        "i = 0\n"
+        "while True:\n"
+        "    i += 1\n"
+        "    print(json.dumps({'jsonrpc': '2.0', 'id': f'p{i}', 'method': 'ping', "
+        "'params': {'pad': 'x' * 4096}}), flush=True)\n"
+    )
+    start = time.monotonic()
+    with pytest.raises(HarnessConfigurationError, match="did not answer"):
+        preflight_stdio_servers(
+            {"echo": McpServer(command=sys.executable, args=[str(script)])},
+            timeout=1,
+        )
+    assert time.monotonic() - start < 5
+
+
+def test_readme_relative_mcp_arg_starts_from_any_cwd(tmp_path, monkeypatch) -> None:
+    spec_dir = tmp_path / "specs"
+    server_dir = spec_dir / "servers"
+    server_dir.mkdir(parents=True)
+    script = server_dir / "weather.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
+    )
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    spec_path = spec_dir / "weather.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    spec = _spec_with_mcp()
+    spec.mcp = {
+        "weather": McpServer(command=sys.executable, args=["./servers/weather.py"])
+    }
+    harness = _McpHarness()
+
+    run(spec, spec_path, harness, _PassJudge(), k=1, workers=1)
+
+    assert harness.seen["weather"].args == [str(script)]
+
+
+@pytest.mark.parametrize(
+    "script", ["raise RuntimeError('broken')\n", "import time; time.sleep(30)\n"]
+)
+def test_dead_server_stops_run_before_any_attempt(tmp_path, script) -> None:
+    server = tmp_path / "broken.py"
+    server.write_text(script)
+    spec_path = tmp_path / "m.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    spec = _spec_with_mcp()
+    spec.mcp = {"broken": McpServer(command=sys.executable, args=[str(server)])}
+
+    # The attempt's --timeout bounds its preflight.
+    with pytest.raises(RunAborted, match="MCP server 'broken'") as exc:
+        run(
+            spec,
+            spec_path,
+            _AttemptPreflightHarness(),
+            _PassJudge(),
+            k=1,
+            workers=1,
+            timeout=1,
+        )
+    assert exc.value.results.task_results[0].attempts == []
+
+
+def test_missing_server_command_stops_run_before_any_attempt(tmp_path) -> None:
+    spec_path = tmp_path / "m.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    spec = _spec_with_mcp()
+    spec.mcp = {"missing": McpServer(command="./missing-server")}
+
+    with pytest.raises(RunAborted, match="MCP server 'missing'") as exc:
+        run(spec, spec_path, _AttemptPreflightHarness(), _PassJudge(), k=1, workers=1)
+    assert exc.value.results.task_results[0].attempts == []
 
 
 # --- run-seam capability guard --------------------------------------------

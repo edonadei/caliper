@@ -167,6 +167,11 @@ def test_claude_harness_forwards_the_oauth_token_past_the_api_key_guard(
 
 def test_claude_harness_materializes_mcp_config(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("MCP_API_TOKEN", "sk-secret")
+    # This test inspects config rendering with a fake agent process; MCP
+    # initialization itself is covered by test_mcp.py using real subprocesses.
+    monkeypatch.setattr(
+        "caliper.harness.mcp.preflight_stdio_servers", lambda *a, **kw: None
+    )
     captured: dict = {}
 
     def fake_run(cmd, **kwargs):

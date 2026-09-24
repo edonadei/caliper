@@ -21,6 +21,7 @@ from caliper.harness.base import (
     HarnessConfigurationError,
     RunContext,
 )
+from caliper.harness.mcp import McpPreflightInterrupted, resolve_declared_paths
 from caliper.judge.base import Judge
 from caliper.retry import SpendingCapReached, invoke_with_retry
 from caliper.sandbox import SpecSandbox
@@ -204,6 +205,11 @@ def run(
             "mcp: block from the spec."
         )
 
+    # Attempts run from fresh temporary workdirs. Anchor explicit ./ and ../
+    # server paths to the spec once, before any backend writes its config.
+    mcp_servers = resolve_declared_paths(
+        ablation.mcp_servers, spec_path.resolve().parent
+    )
     # Only the installed skills: a snapshot claims "this is what produced the
     # score", which an ablated skill demonstrably did not.
     skill_snapshots = [
@@ -227,7 +233,7 @@ def run(
         # relative spec dir would name a path under it (docs/adr/0026).
         spec_path=spec_path.resolve(),
         skill_refs=skill_refs,
-        mcp_servers=ablation.mcp_servers,
+        mcp_servers=mcp_servers,
         # Field presence, not truthiness: an authored `mcp: {}` parses to an
         # empty mapping but still declares the block, and must isolate.
         mcp_declared="mcp" in spec.model_fields_set,
@@ -353,6 +359,8 @@ def _attempt_or_none(
             return None
         _announce(record, task, env.on_attempt_done)
         return record
+    except McpPreflightInterrupted:
+        return None
     except (HarnessConfigurationError, SpendingCapReached) as exc:
         # Two different diagnoses, one response: a misconfiguration found
         # mid-run (an expired credential, a CLI that stopped resolving) and a
