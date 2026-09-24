@@ -237,3 +237,14 @@ def _counts(outcomes: list[Outcome]) -> tuple[int, int]:
         sum(1 for o in outcomes if o == Outcome.PASS),
         sum(1 for o in outcomes if o.is_usable),
     )
+
+
+def test_no_comparable_task_shows_no_overall_delta(capsys) -> None:
+    a = _run([_task("alpha", [P, F])])
+    b = _run([_task("beta", [P, P])])
+
+    print_comparison(diff_runs(a, b))
+
+    out = capsys.readouterr().out
+    assert "no task measured on both sides" in out
+    assert "+0.0%" not in out

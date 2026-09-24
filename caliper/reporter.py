@@ -897,14 +897,26 @@ def _print_comparison_summary(comp: RunComparison) -> None:
     grid.add_column()  # arrow
     grid.add_column(justify="left")  # after
     grid.add_column()  # Δ note
-    grid.add_row(
-        " Overall",
-        f"[cyan]{comp.a_matched_avg * 100:.1f}%[/cyan]",
-        _to,
-        f"[{after}]{comp.b_matched_avg * 100:.1f}%[/{after}]",
-        f"[bold]{_delta_symbol()} (matched)[/bold] "
-        f"[{color}]{sign}{delta * 100:.1f}%[/{color}] {arrow}",
-    )
+    # With no task measured on both sides the averages are empty, not 0%, and a
+    # "+0.0% ↑" would read as a comparison that held steady.
+    if any(tc.a_score is not None and tc.b_score is not None for tc in comp.matched):
+        grid.add_row(
+            " Overall",
+            f"[cyan]{comp.a_matched_avg * 100:.1f}%[/cyan]",
+            _to,
+            f"[{after}]{comp.b_matched_avg * 100:.1f}%[/{after}]",
+            f"[bold]{_delta_symbol()} (matched)[/bold] "
+            f"[{color}]{sign}{delta * 100:.1f}%[/{color}] {arrow}",
+        )
+    else:
+        grid.add_row(
+            " Overall",
+            "[dim]—[/dim]",
+            _to,
+            "[dim]—[/dim]",
+            f"[bold]{_delta_symbol()} (matched)[/bold] [dim]— no task measured "
+            "on both sides[/dim]",
+        )
     a, b = comp.a_usage, comp.b_usage
     if a.tokens_reported and b.tokens_reported:
         tb, ta, td = _usage_cells(
