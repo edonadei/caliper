@@ -112,7 +112,7 @@ class HermesHarness(CliHarness):
         if config_path.exists():
             loaded = yaml.safe_load(config_path.read_text())
             config = loaded if isinstance(loaded, dict) else {}
-            if ctx.inherit_mcp:
+            if ctx.user_customizations:
                 user_servers = config.get("mcp_servers")
                 merged = {
                     name: entry
@@ -138,7 +138,7 @@ class HermesHarness(CliHarness):
         if config_path.exists():
             config_path.chmod(0o600)
 
-    def _inherited_mcp_servers(
+    def _loaded_user_customizations(
         self, proc: ProcessResult, ctx: RunContext
     ) -> list[str] | None:
         """The user's servers left in the attempt's ``config.yaml``.

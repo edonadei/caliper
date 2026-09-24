@@ -73,8 +73,8 @@ class AttemptResult:
     # The MCP servers this attempt inherited from the user's own CLI config and
     # account when inheriting (the default), as far as the backend can see them.
     # ``None`` when the flag was off or the backend could not tell; see
-    # docs/adr/0028-runs-inherit-the-users-mcp-setup-by-default.md.
-    inherited_mcp_servers: list[str] | None = None
+    # docs/adr/0028-runs-load-user-customizations-by-default.md.
+    loaded_user_customizations: list[str] | None = None
 
 
 @dataclass
@@ -114,15 +114,15 @@ class RunContext:
     # no ``mcp:`` block; an empty mapping means it had one whose servers were all
     # ablated, which a backend still isolates to zero servers.
     mcp_servers: dict[str, McpServer] | None = None
-    # Inherited MCP: keep the MCP servers and account connectors the CLI
+    # User customizations: keep the MCP servers and account connectors the CLI
     # would load by itself, merged with ``mcp_servers`` (the spec wins a name
     # clash). ``False`` isolates the attempt to the declared set (docs/adr/0026).
-    # The product default lives in ``DEFAULT_INHERIT_MCP``, resolved by the run
+    # The product default lives in ``DEFAULT_USER_CUSTOMIZATIONS``, resolved by the run
     # seam; this field stays ``False`` so a context built anywhere else — the
     # judge's path included — is isolated unless asked (docs/adr/0028).
-    inherit_mcp: bool = False
+    user_customizations: bool = False
     # Every server name the spec's ``mcp:`` block declares, ablated ones
-    # included. Under ``inherit_mcp`` a user's server by one of these names is
+    # included. Under ``user_customizations`` a user's server by one of these names is
     # dropped, so a declared name always means the spec's server — or none at
     # all when ``--ablate`` removed it (docs/adr/0028).
     mcp_declared_names: frozenset[str] = frozenset()
@@ -420,8 +420,10 @@ class CliHarness(HarnessBackend):
             usage=self._safe_usage(proc, ctx),
             cancelled=proc.cancelled,
             salvaged=not parsed,
-            inherited_mcp_servers=(
-                self._safe_inherited_mcp_servers(proc, ctx) if ctx.inherit_mcp else None
+            loaded_user_customizations=(
+                self._safe_loaded_user_customizations(proc, ctx)
+                if ctx.user_customizations
+                else None
             ),
         )
 
@@ -608,19 +610,19 @@ class CliHarness(HarnessBackend):
         """
         return None
 
-    def _inherited_mcp_servers(
+    def _loaded_user_customizations(
         self, proc: ProcessResult, ctx: RunContext
     ) -> list[str] | None:
         """The servers this attempt inherited from the machine, if visible.
 
-        Only asked when ``ctx.inherit_mcp`` is set. Names only, sorted, and
+        Only asked when ``ctx.user_customizations`` is set. Names only, sorted, and
         never a declared ``mcp:`` server: those are the spec's, recorded in
         ``RunMeta.mcp_servers``. Default: ``None``, which a saved run reads as
         "unknown" rather than "none".
         """
         return None
 
-    def _safe_inherited_mcp_servers(
+    def _safe_loaded_user_customizations(
         self, proc: ProcessResult, ctx: RunContext
     ) -> list[str] | None:
         """Read the inherited servers, degrading to ``None`` rather than raising.
@@ -629,7 +631,7 @@ class CliHarness(HarnessBackend):
         record that failed to parse must not sink the attempt it describes.
         """
         try:
-            return self._inherited_mcp_servers(proc, ctx)
+            return self._loaded_user_customizations(proc, ctx)
         except Exception:
             return None
 

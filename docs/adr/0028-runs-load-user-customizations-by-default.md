@@ -1,4 +1,4 @@
-# Runs inherit the user's MCP setup by default
+# Runs load the user's customizations by default
 
 [0026](0026-attempts-never-see-account-connectors.md) cut every attempt off from
 the user's own MCP setup. That left two gaps (#175). A skill that relies on a
@@ -14,7 +14,20 @@ account's hosted connectors **and** the servers in the user's own CLI config
 (`~/.claude.json`, `~/.codex/config.toml`, `~/.hermes/config.yaml`). Both halves,
 because "reproduce my setup" means both.
 
-## Inheriting is the default
+## Named for everything the harness loads
+
+The switch is called **user customizations** (`--user-customizations`,
+`user_customizations:`), not after MCP. It stands for everything a harness loads
+from the user's own layer, which Claude Code calls *user scope*: MCP servers and
+connectors today, and user skills, plugins, rules (`CLAUDE.md`) and settings to
+follow (#177), each with its own decision (user skills compete with the skill
+under test for activation). Naming the whole layer now means those join without
+a rename. "Customizations" rather than "extensions" because rules and settings
+change behaviour rather than add capabilities; "user" because that is the scope
+the CLIs themselves use. `inherit-mcp` was the working name and was dropped as an
+implementation word that also described only part of the layer.
+
+## Loading them is the default
 
 What a default run answers is "does my skill work in *my* agent, as I use it?"
 Most people evaluate their own skills in their own setup, and caliper's own pitch
@@ -24,19 +37,19 @@ made every one of those users remember a flag.
 The cost is that a default score depends on the machine that produced it, so
 portability becomes the opt-out:
 
-- `--no-inherit-mcp` isolates one run.
-- `inherit_mcp: false` in a spec isolates every run of it, for an author who
+- `--no-user-customizations` isolates one run.
+- `user_customizations: false` in a spec isolates every run of it, for an author who
   wants a portable number from anyone. The repo's smoke evals pin it: they check
   the backend, and the #129 probe tasks assert that an attempt sees only the
   declared servers.
-- `inherit_mcp: true` says the skill needs the runner's setup, and
-  `--inherit-mcp` turns it back on over a spec that pins `false`. The invocation
+- `user_customizations: true` says the skill needs the runner's setup, and
+  `--user-customizations` turns it back on over a spec that pins `false`. The invocation
   wins, then the spec, then the default.
 
 There is no CI detection. The same command measuring different things on a
 laptop and in a pipeline is the kind of invisible difference 0026 cleaned up, and
-a CI runner logged in with an API key has little to inherit anyway; the saved run
-records what it did inherit.
+a CI runner logged in with an API key has little to load anyway; the saved run
+records what it did load.
 
 Isolation is still what a comparison *between setups* needs: two backends, two
 machines, or a number that leaves this one. The agent-facing methods
@@ -46,7 +59,7 @@ warns on it.
 It is not a security gate. An attempt's isolation kept a measurement clean and
 was never a boundary ([0027](0027-an-attempt-is-not-a-security-boundary.md)):
 running an eval already means trusting its skills with the user's filesystem.
-A run that inherits by default prints one dim line saying so; one that a flag or
+A run that loads by default prints one dim line saying so; one that a flag or
 the spec asked for prints a full warning naming its source. Neither prompts, so
 `caliper run` stays usable non-interactively.
 
@@ -70,10 +83,11 @@ real file:
 - `hermes` keeps the user's `mcp_servers` (and `inherit_mcp_toolsets`) with the
   declared servers merged on top.
 
-`--ablate` still only resolves declared names. An inherited server has no name in
+`--ablate` still only resolves declared names. A user's server has no name in
 the spec, and ablation measures what the spec is answerable for
 ([0025](0025-ablation-covers-mcp-servers.md)'s "refuse rather than guess"). A
-declared name stays the spec's even once ablated: an inheriting `--ablate github`
+declared name stays the spec's even once ablated: `--ablate github` under the
+default
 also drops the user's own `github`, or the ablated arm would quietly get a server
 back under the name it claims to have removed.
 
@@ -88,7 +102,7 @@ want the user's own.
 
 ## Where it does nothing
 
-`pi` has no MCP by design ([0010](0010-pi-mcp-unsupported-by-design.md)). Inheriting
+`pi` has no MCP by design ([0010](0010-pi-mcp-unsupported-by-design.md)). Loading
 isn't refused there, unlike a declared `mcp:` block: it asks for "whatever my
 setup has", and on pi that is nothing. The run records it as off, so `compare`
 never reports a tool-environment difference that didn't exist. It warns only
@@ -103,22 +117,22 @@ the attempt's tools (0026).
 `RunMeta.mcp_servers` keeps meaning the spec's surviving servers only, since
 ablation pairing reads it. Two fields sit beside it:
 
-- `inherit_mcp`, the setting that applied (a run saved before the field existed
+- `user_customizations`, the setting that applied (a run saved before the field existed
   reads `false`: it was isolated);
-- `inherited_mcp_servers`, the inherited server names where the backend can see
+- `loaded_user_customizations`, the loaded server names where the backend can see
   them. `claude-code` reads its `init` event; `codex` and `hermes` read the
   config the attempt ran with, and codex's hosted connectors count as one server,
   `codex_apps`. `None` means unknown, not none.
 
-`compare` warns and never refuses. It warns when one side inherited and the
+`compare` warns and never refuses. It warns when one side loaded and the
 other didn't, saying how to match them, since the first diff against a run saved
-before this default lands there; when both inherited but recorded different
-servers; and when the two runs used different backends and either inherited,
-because two CLIs never inherit the same setup, so part of that delta is the
+before this default lands there; when both loaded but recorded different
+servers; and when the two runs used different backends and either loaded,
+because two CLIs never load the same setup, so part of that delta is the
 setups rather than the harness. Two runs form an ablation pair only if they
-agree on the setting, or the inherited servers would be an unrecorded difference
+agree on the setting, or the loaded servers would be an unrecorded difference
 between the sides. `report` shows the
-inherited servers in the run header, because a score measured with the machine's
+loaded servers in the run header, because a score measured with the machine's
 setup otherwise reads exactly like an isolated one.
 
 ## Consequences
@@ -128,13 +142,13 @@ setup otherwise reads exactly like an isolated one.
   is one flag or one spec line away.
 - Local-scope servers Claude Code keys to a project path don't apply: the attempt
   runs in a fresh workdir, the same as a new project would.
-- Inherited servers aren't preflighted the way declared stdio servers are.
+- Loaded servers aren't preflighted the way declared stdio servers are.
   caliper can't start a hosted connector, and a personal server that fails to
   start is part of the setup the run was asked to reproduce.
 - `codex_apps` is recorded only for a ChatGPT login whose config leaves the
   `apps` feature on; an API-key login carries no hosted connectors.
-- When a source of inherited tools can't be listed (a ChatGPT login's codex
-  plugins, hermes' `inherit_mcp_toolsets`), `inherited_mcp_servers` is `None`
+- When a source of loaded tools can't be listed (a ChatGPT login's codex
+  plugins, hermes' `inherit_mcp_toolsets`), `loaded_user_customizations` is `None`
   rather than a partial list, so `compare` never treats an unlisted environment
   as empty or calls such a run a bare agent.
 - Keeping *some* of the user's codex servers means editing their config rather
@@ -145,4 +159,4 @@ setup otherwise reads exactly like an isolated one.
   copy loses the user's comments and layout, which nothing reads.
 - This supersedes 0026's default: attempts see the account's connectors unless
   isolated. 0026's mechanism is what isolation still does, and the smoke evals,
-  pinned `inherit_mcp: false`, keep guarding it with the #129 probe tasks.
+  pinned `user_customizations: false`, keep guarding it with the #129 probe tasks.

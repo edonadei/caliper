@@ -235,27 +235,27 @@ def test_a_malformed_tasks_list_says_what_shape_it_needs(
         load_spec(_write(tmp_path, text))
 
 
-def test_validate_says_when_a_spec_inherits_mcp(tmp_path) -> None:
+def test_validate_says_when_a_spec_loads_user_customizations(tmp_path) -> None:
     result = CliRunner().invoke(
         app,
-        ["validate", str(_write(tmp_path, "inherit_mcp: true\n" + _TASK))],
+        ["validate", str(_write(tmp_path, "user_customizations: true\n" + _TASK))],
     )
     assert result.exit_code == 0, result.output
-    assert "--no-inherit-mcp" in result.output
+    assert "--no-user-customizations" in result.output
 
 
 def test_validate_says_when_a_spec_pins_isolation(tmp_path) -> None:
     result = CliRunner().invoke(
-        app, ["validate", str(_write(tmp_path, "inherit_mcp: false\n" + _TASK))]
+        app, ["validate", str(_write(tmp_path, "user_customizations: false\n" + _TASK))]
     )
     assert result.exit_code == 0, result.output
-    assert "inherit_mcp: false" in result.output
+    assert "user_customizations: false" in result.output
 
 
-def test_validate_is_silent_about_inherited_mcp_by_default(tmp_path) -> None:
+def test_validate_is_silent_about_user_customizations_by_default(tmp_path) -> None:
     result = CliRunner().invoke(app, ["validate", str(_write(tmp_path, _TASK))])
     assert result.exit_code == 0, result.output
-    assert "--inherit-mcp" not in result.output
+    assert "--user-customizations" not in result.output
 
 
 def test_every_smoke_eval_pins_isolation() -> None:
@@ -267,4 +267,4 @@ def test_every_smoke_eval_pins_isolation() -> None:
     smoke = sorted(Path(__file__).parent.glob("*-smoke.eval.yaml"))
     assert smoke
     for path in smoke:
-        assert load_spec(path).inherit_mcp is False, path.name
+        assert load_spec(path).user_customizations is False, path.name

@@ -386,7 +386,7 @@ def _init_stream(cmd: list[str], servers: list[str]) -> subprocess.CompletedProc
     return ok
 
 
-def test_claude_harness_inherit_mcp_drops_strict_and_records_servers(
+def test_claude_harness_user_customizations_drops_strict_and_records_servers(
     monkeypatch, tmp_path
 ) -> None:
     monkeypatch.setattr(
@@ -414,7 +414,7 @@ def test_claude_harness_inherit_mcp_drops_strict_and_records_servers(
             isolated_home=str(home),
             extra_path=[],
             mcp_servers={"echo": McpServer(command="python3")},
-            inherit_mcp=True,
+            user_customizations=True,
         )
     )
 
@@ -423,10 +423,10 @@ def test_claude_harness_inherit_mcp_drops_strict_and_records_servers(
     assert "--strict-mcp-config" not in captured["cmd"]
     assert captured["config"] == {"mcpServers": {"echo": {"command": "python3"}}}
     # Recorded off the init event, declared server excluded.
-    assert result.inherited_mcp_servers == ["claude.ai Gmail", "personal"]
+    assert result.loaded_user_customizations == ["claude.ai Gmail", "personal"]
 
 
-def test_claude_harness_inherit_mcp_lets_the_spec_win_a_name_clash(
+def test_claude_harness_user_customizations_lets_the_spec_win_a_name_clash(
     monkeypatch, tmp_path
 ) -> None:
     monkeypatch.setattr(
@@ -466,7 +466,7 @@ def test_claude_harness_inherit_mcp_lets_the_spec_win_a_name_clash(
             isolated_home=str(home),
             extra_path=[],
             mcp_servers={"echo": McpServer(command="python3")},
-            inherit_mcp=True,
+            user_customizations=True,
         )
     )
 
@@ -478,10 +478,10 @@ def test_claude_harness_inherit_mcp_lets_the_spec_win_a_name_clash(
     # The real file is untouched.
     assert "echo" in json.loads((real_home / ".claude.json").read_text())["mcpServers"]
     # No init event in the stream: the inherited set is unknown, not empty.
-    assert result.inherited_mcp_servers is None
+    assert result.loaded_user_customizations is None
 
 
-def test_claude_harness_inherit_mcp_still_ablates_a_server_the_user_also_has(
+def test_claude_harness_user_customizations_still_ablates_a_server_the_user_also_has(
     tmp_path,
 ) -> None:
     home = tmp_path / "home"
@@ -494,7 +494,7 @@ def test_claude_harness_inherit_mcp_still_ablates_a_server_the_user_also_has(
             isolated_home=str(home),
             mcp_servers={},
             mcp_declared_names=frozenset({"github"}),
-            inherit_mcp=True,
+            user_customizations=True,
         )
     )
     assert json.loads((home / ".claude.json").read_text()) == {"mcpServers": {}}

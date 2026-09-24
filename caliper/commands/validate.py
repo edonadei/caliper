@@ -89,12 +89,13 @@ def validate_cmd(
     # Only an explicit setting: the default is the same for every spec
     # (docs/adr/0028).
     requires = {
-        True: "\n  [yellow]mcp[/yellow]      [dim]inherits the runner's own MCP "
-        "servers and account connectors\n           (inherit_mcp: true; "
-        "--no-inherit-mcp runs it isolated)[/dim]",
-        False: "\n  mcp      [dim]isolated from the runner's own MCP setup "
-        "(inherit_mcp: false)[/dim]",
-    }.get(spec.inherit_mcp, "")
+        True: "\n  [yellow]user[/yellow]     [dim]loads the runner's own "
+        "customizations (MCP servers, account connectors)\n           "
+        "(user_customizations: true; --no-user-customizations runs it "
+        "isolated)[/dim]",
+        False: "\n  user     [dim]isolated from the runner's own customizations "
+        "(user_customizations: false)[/dim]",
+    }.get(spec.user_customizations, "")
 
     console.print(
         Panel(

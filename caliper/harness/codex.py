@@ -115,7 +115,7 @@ class CodexHarness(CliHarness):
         go when the spec names a server ``codex_apps``, ablated or not: the apps
         surface under that name, and the spec wins a clash (docs/adr/0028).
         """
-        if not ctx.inherit_mcp:
+        if not ctx.user_customizations:
             return NO_ACCOUNT_CONNECTORS
         if CODEX_APPS_SERVER in ctx.spec_mcp_names:
             return ("-c", "features.apps=false")
@@ -384,7 +384,7 @@ class CodexHarness(CliHarness):
                 for name, entry in user_servers.items()
                 if name not in ctx.spec_mcp_names
             }
-            if ctx.inherit_mcp and isinstance(user_servers, dict)
+            if ctx.user_customizations and isinstance(user_servers, dict)
             else {}
         )
         merged = {**kept, **servers}
@@ -416,7 +416,7 @@ class CodexHarness(CliHarness):
             servers[name] = entry
         return servers
 
-    def _inherited_mcp_servers(
+    def _loaded_user_customizations(
         self, proc: ProcessResult, ctx: RunContext
     ) -> list[str] | None:
         """The user's servers left in the attempt's config, plus the hosted apps.

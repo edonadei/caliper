@@ -30,7 +30,7 @@ from caliper.schema.spec import (
     VALID_BACKENDS,
     load_spec,
     parse_target,
-    resolve_inherit_mcp,
+    resolve_user_customizations,
     spec_name,
 )
 
@@ -120,16 +120,16 @@ def run_cmd(
         "--judge-model",
         help="Override judge backend/model (e.g. claude-code:claude-haiku-4-5-20251001)",
     ),
-    inherit_mcp: Optional[bool] = typer.Option(
+    user_customizations: Optional[bool] = typer.Option(
         None,
-        "--inherit-mcp/--no-inherit-mcp",
+        "--user-customizations/--no-user-customizations",
         show_default=False,
         help=(
-            "Whether attempts get the MCP servers and account connectors your "
-            "CLI loads by itself, merged with the spec's mcp: (the spec wins a "
-            "name clash). Omitted: the spec's inherit_mcp, else on. Use "
-            "--no-inherit-mcp for a portable score or a harness comparison. The "
-            "judge stays isolated."
+            "Whether attempts load your user customizations (the MCP servers "
+            "and account connectors your CLI loads by itself), merged with the "
+            "spec's mcp: (the spec wins a name clash). Omitted: the spec's "
+            "user_customizations, else on. Use --no-user-customizations for a "
+            "portable score or a harness comparison. The judge stays isolated."
         ),
     ),
 ) -> None:
@@ -225,25 +225,30 @@ def run_cmd(
     # non-interactively. Loud when a flag or the spec asked for it, named by its
     # source; one dim line when the default applied, since that is every run. A
     # backend without MCP gets the runner's no-effect warning instead.
-    inheriting, explicit = resolve_inherit_mcp(inherit_mcp, spec)
-    if inheriting and harness.supports_mcp:
+    loading, explicit = resolve_user_customizations(user_customizations, spec)
+    if loading and harness.supports_mcp:
         if explicit:
-            source = "--inherit-mcp" if inherit_mcp else "inherit_mcp: true (spec)"
+            source = (
+                "--user-customizations"
+                if user_customizations
+                else "user_customizations: true (spec)"
+            )
             console.print(
-                f"[yellow]⚠ {source}:[/yellow] attempts get this machine's MCP "
-                "servers and account connectors. The score depends on this "
-                "setup, and attempts can act on those accounts without asking."
+                f"[yellow]⚠ {source}:[/yellow] attempts get this machine's user "
+                "customizations (MCP servers, account connectors). The score "
+                "depends on this setup, and attempts can act on those accounts "
+                "without asking."
                 + (
-                    "\n[dim]  --no-inherit-mcp runs it isolated.[/dim]"
-                    if inherit_mcp is None
+                    "\n[dim]  --no-user-customizations runs it isolated.[/dim]"
+                    if user_customizations is None
                     else ""
                 )
             )
         else:
             console.print(
-                "[dim]Inheriting this machine's MCP servers and account "
-                "connectors; attempts can use them without asking.\n"
-                "  --no-inherit-mcp to isolate.[/dim]"
+                "[dim]Loading this machine's user customizations (MCP servers, "
+                "account connectors); attempts can use them without asking.\n"
+                "  --no-user-customizations to isolate.[/dim]"
             )
 
     task_names = [t.name for t in spec.tasks]
@@ -325,7 +330,7 @@ def run_cmd(
                 on_warning=warn,
                 on_attempt_done=on_attempt_done,
                 on_task_done=on_task_done,
-                inherit_mcp=inherit_mcp,
+                user_customizations=user_customizations,
             )
         except (SkillResolutionError, HarnessConfigurationError) as exc:
             fail(exc)

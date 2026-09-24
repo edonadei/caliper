@@ -148,7 +148,7 @@ error, never a silent no-op.
   the isolated `HERMES_HOME`.
 - On both, `${VAR}` values are resolved at the harness boundary. Your personal
   servers from the real config are kept alongside the declared set by default
-  ([inherited](#inheriting-your-own-mcp-setup)); an isolated run replaces them,
+  ([loaded](#loading-your-user-customizations)); an isolated run replaces them,
   so it sees only the declared set.
 - **Remote OAuth** isn't supported on `codex` or `hermes`: it needs an
   interactive browser flow the harness can't drive.
@@ -159,17 +159,18 @@ error, never a silent no-op.
 
 See [MCP servers](spec-reference.md#mcp-servers-mcp) for the spec format.
 
-## Inheriting your own MCP setup
+## Loading your user customizations
 
-By default every attempt gets the MCP servers and account connectors your CLI
-loads by itself, merged with the spec's `mcp:` block
-([ADR 0028](adr/0028-runs-inherit-the-users-mcp-setup-by-default.md)), so a score
+By default every attempt loads your **user customizations**: the MCP servers and
+account connectors your CLI loads by itself (user skills, plugins, rules and
+settings are planned to join them: #177), merged with the spec's `mcp:` block
+([ADR 0028](adr/0028-runs-load-user-customizations-by-default.md)), so a score
 measures the skill in the agent you actually use, including skills that rely on a
-hosted OAuth connector a spec can't declare. `--no-inherit-mcp`, or
-`inherit_mcp: false` in the spec, isolates a run to the declared servers; see
+hosted OAuth connector a spec can't declare. `--no-user-customizations`, or
+`user_customizations: false` in the spec, isolates a run to the declared servers; see
 [Portable scores](../README.md#portable-scores) for when that's needed.
 
-| Backend | What is inherited |
+| Backend | What is loaded |
 |---|---|
 | `claude-code` | The `mcpServers` in your `~/.claude.json`, plus your claude.ai connectors (`--strict-mcp-config` is dropped) |
 | `codex` | The `[mcp_servers.*]` tables in your `~/.codex/config.toml`, plus ChatGPT apps and plugins (surfacing as `codex_apps`) |
@@ -183,13 +184,14 @@ hosted OAuth connector a spec can't declare. `--no-inherit-mcp`, or
 - **The run says so.** Under the default it prints one line at the start; when
   a flag or the spec asked for it, a full warning naming the source: the score
   depends on this machine's setup, and attempts can act on those accounts
-  without asking. The saved run records `inherit_mcp` and the inherited server names (or
+  without asking. The saved run records `user_customizations` and the loaded server names (or
   "unknown" when a source such as codex plugins or hermes' inherited toolsets
   can't be listed), the report header lists them, and `caliper compare` warns
-  when two runs inherited differently, or compares two backends with inherited
+  when two runs loaded different customizations, or compares two backends with
+  user customizations loaded
   MCP (see [Results JSON](results.md#results-json)).
-- **`--ablate` can't remove an inherited server.** It only names what the spec
+- **`--ablate` can't remove one of your servers.** It only names what the spec
   declares.
-- **A spec can pin it** with `inherit_mcp: false` (portable) or `true` (needs
+- **A spec can pin it** with `user_customizations: false` (portable) or `true` (needs
   your setup); the flags override it for one run. See
-  [the spec reference](spec-reference.md#your-own-mcp-setup-inherit_mcp).
+  [the spec reference](spec-reference.md#user-customizations-user_customizations).

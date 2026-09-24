@@ -172,7 +172,13 @@ def _fake_home_with_user_mcp(tmp_path):
 
 
 def _run_hermes_mcp(
-    monkeypatch, tmp_path, mcp_servers, *, home=None, inherit_mcp=False, captured=None
+    monkeypatch,
+    tmp_path,
+    mcp_servers,
+    *,
+    home=None,
+    user_customizations=False,
+    captured=None,
 ):
     """Run the harness with declared mcp_servers and return the seeded config.
 
@@ -198,7 +204,7 @@ def _run_hermes_mcp(
             timeout=30,
             isolated_home=str(iso),
             mcp_servers=mcp_servers,
-            inherit_mcp=inherit_mcp,
+            user_customizations=user_customizations,
         )
     )
     if captured is not None:
@@ -262,7 +268,7 @@ def test_hermes_removes_mcp_servers_when_spec_declares_none(
     assert "inherit_mcp_toolsets" not in config
 
 
-def test_hermes_inherit_mcp_merges_user_servers_with_the_spec_winning(
+def test_hermes_user_customizations_merges_user_servers_with_the_spec_winning(
     monkeypatch, tmp_path
 ) -> None:
     captured: dict = {}
@@ -273,7 +279,7 @@ def test_hermes_inherit_mcp_merges_user_servers_with_the_spec_winning(
             "echo": McpServer(command="python3"),
             "personal": McpServer(command="spec-server"),
         },
-        inherit_mcp=True,
+        user_customizations=True,
         captured=captured,
     )
     # The spec's `personal` replaces the user's; nothing else of theirs is lost.
@@ -283,10 +289,10 @@ def test_hermes_inherit_mcp_merges_user_servers_with_the_spec_winning(
     }
     assert config["inherit_mcp_toolsets"] is True
     # Inherited toolsets can't be listed, so the set is unknown, not empty.
-    assert captured["result"].inherited_mcp_servers is None
+    assert captured["result"].loaded_user_customizations is None
 
 
-def test_hermes_inherit_mcp_keeps_and_records_user_servers(
+def test_hermes_user_customizations_keeps_and_records_user_servers(
     monkeypatch, tmp_path
 ) -> None:
     captured: dict = {}
@@ -295,13 +301,18 @@ def test_hermes_inherit_mcp_keeps_and_records_user_servers(
         yaml.safe_dump({"mcp_servers": {"personal": {"command": "my-private-server"}}})
     )
     config, _ = _run_hermes_mcp(
-        monkeypatch, tmp_path, None, home=home, inherit_mcp=True, captured=captured
+        monkeypatch,
+        tmp_path,
+        None,
+        home=home,
+        user_customizations=True,
+        captured=captured,
     )
     assert config["mcp_servers"] == {"personal": {"command": "my-private-server"}}
-    assert captured["result"].inherited_mcp_servers == ["personal"]
+    assert captured["result"].loaded_user_customizations == ["personal"]
 
 
-def test_hermes_inherit_mcp_still_ablates_a_server_the_user_also_has(
+def test_hermes_user_customizations_still_ablates_a_server_the_user_also_has(
     monkeypatch, tmp_path
 ) -> None:
     home = _fake_home_with_user_mcp(tmp_path)
@@ -315,7 +326,7 @@ def test_hermes_inherit_mcp_still_ablates_a_server_the_user_also_has(
             isolated_home=str(iso),
             mcp_servers={},
             mcp_declared_names=frozenset({"personal"}),
-            inherit_mcp=True,
+            user_customizations=True,
         )
     )
     config = yaml.safe_load((iso / ".hermes" / "config.yaml").read_text())

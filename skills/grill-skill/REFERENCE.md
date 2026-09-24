@@ -27,9 +27,9 @@ caliper run path/to/spec.eval.yaml --model codex:gpt-5-codex
 caliper run path/to/spec.eval.yaml --model codex
 caliper run path/to/spec.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001
 
-# Runs inherit your MCP servers + account connectors by default; isolate for a
-# portable score (or pin inherit_mcp: false in the spec)
-caliper run path/to/spec.eval.yaml --no-inherit-mcp
+# Runs load your user customizations (MCP servers + account connectors) by default; isolate for a
+# portable score (or pin user_customizations: false in the spec)
+caliper run path/to/spec.eval.yaml --no-user-customizations
 
 # Browse past results
 caliper list
@@ -227,7 +227,7 @@ Add `assert:` when the outcome is a fact that an LLM judge might guess wrong:
 
 ## MCP servers (`mcp:`)
 
-If the skill under test needs MCP tools, declare them in a top-level `mcp:` block (a mapping keyed by server name) — a capability granted to the agent-under-test for the eval, part of the run environment like `sandbox:` (a sibling of it and of `skills:`), so they belong in the spec, not on the command line. A server is either **local stdio** (a `command`, optional `args`, optional `env`) or **remote** (`type: http`/`sse`, a `url`, optional `headers` for auth); the two field sets are mutually exclusive. Supported on **`claude-code`** (stdio + remote HTTP/SSE), **`hermes`** (stdio + remote header-auth; not remote OAuth), and **`codex`** (stdio + remote header-auth, translated into `[mcp_servers.*]` tables in the isolated `~/.codex/config.toml`; not remote OAuth). A tool call appears in the transcript as a namespaced name — `mcp__<server>__<tool>` on `claude-code` and `codex`, `mcp_<server>_<tool>` on `hermes` — so an `expect:` criterion can check the skill actually used it; word it around behaviour, not one backend's spelling, if the spec runs under more than one engine. Put secrets in a host env var and reference it as `${VAR}` inside a stdio `env:`, a remote `headers:`, or a remote `url:` — it resolves at the harness boundary from your shell at run time and never lands in the committed spec (an unset var fails the run). Running an `mcp:` spec on a backend that can't honor it is a hard error, not a silent no-op: `pi` has no MCP by design and will not honor `mcp:` natively — expose the capability as a CLI tool the skill drives or a pi extension, or run the eval on `claude-code`/`hermes`/`codex`. By default a run also inherits the user's own MCP servers and account connectors (Gmail, Drive, GitHub, and the like), merged with `mcp:` — the declared server wins a name clash — so a task may rely on a connector the user has. The judge is always isolated, and `pi` has nothing to inherit. For a portable score (published, compared across machines or backends, or measuring the bare agent), put `inherit_mcp: false` at the top level of the spec, or run with `--no-inherit-mcp`; a skill that can't be measured without the user's connectors (a hosted OAuth connector like Drive) can say `inherit_mcp: true`. The saved run records what was inherited, so `compare` can warn when two runs inherited differently. See "Whose setup is measured" in SKILL.md for when to isolate.
+If the skill under test needs MCP tools, declare them in a top-level `mcp:` block (a mapping keyed by server name) — a capability granted to the agent-under-test for the eval, part of the run environment like `sandbox:` (a sibling of it and of `skills:`), so they belong in the spec, not on the command line. A server is either **local stdio** (a `command`, optional `args`, optional `env`) or **remote** (`type: http`/`sse`, a `url`, optional `headers` for auth); the two field sets are mutually exclusive. Supported on **`claude-code`** (stdio + remote HTTP/SSE), **`hermes`** (stdio + remote header-auth; not remote OAuth), and **`codex`** (stdio + remote header-auth, translated into `[mcp_servers.*]` tables in the isolated `~/.codex/config.toml`; not remote OAuth). A tool call appears in the transcript as a namespaced name — `mcp__<server>__<tool>` on `claude-code` and `codex`, `mcp_<server>_<tool>` on `hermes` — so an `expect:` criterion can check the skill actually used it; word it around behaviour, not one backend's spelling, if the spec runs under more than one engine. Put secrets in a host env var and reference it as `${VAR}` inside a stdio `env:`, a remote `headers:`, or a remote `url:` — it resolves at the harness boundary from your shell at run time and never lands in the committed spec (an unset var fails the run). Running an `mcp:` spec on a backend that can't honor it is a hard error, not a silent no-op: `pi` has no MCP by design and will not honor `mcp:` natively — expose the capability as a CLI tool the skill drives or a pi extension, or run the eval on `claude-code`/`hermes`/`codex`. By default a run also loads the user's own MCP servers and account connectors (Gmail, Drive, GitHub, and the like), merged with `mcp:` — the declared server wins a name clash — so a task may rely on a connector the user has. The judge is always isolated, and `pi` has nothing to load. For a portable score (published, compared across machines or backends, or measuring the bare agent), put `user_customizations: false` at the top level of the spec, or run with `--no-user-customizations`; a skill that can't be measured without the user's connectors (a hosted OAuth connector like Drive) can say `user_customizations: true`. The saved run records what was loaded, so `compare` can warn when two runs loaded differently. See "Whose setup is measured" in SKILL.md for when to isolate.
 
 Stdio `command` and `args` entries starting with `./` or `../` resolve from the spec's directory; bare command names remain unchanged. Caliper checks each surviving stdio server after task setup and before the agent starts, so a missing or dead server stops the run with a configuration error instead of receiving a task score.
 
@@ -261,10 +261,10 @@ servers it ran with (`RunMeta.mcp_servers`), so `compare` can check the marker
 rather than trust it. A run saved before that field existed loads it as `null` —
 unknown, not "no servers". Two runs that recorded different servers outside an
 ablation pair get the `different MCP servers configured` warning, the tool-side
-twin of the neighbourhood warning. A run also records `RunMeta.inherit_mcp`
-and `RunMeta.inherited_mcp_servers` (what it inherited from the machine, the
+twin of the neighbourhood warning. A run also records `RunMeta.user_customizations`
+and `RunMeta.loaded_user_customizations` (what it loaded from the machine, the
 default), kept apart from `mcp_servers`; `compare` warns when two runs
-inherited differently, or compares two backends with inherited MCP.
+loaded differently, or compares two backends with user customizations.
 
 ## Troubleshooting
 

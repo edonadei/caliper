@@ -40,7 +40,7 @@ from caliper.schema.spec import (
     EvalSpec,
     McpServer,
     TaskSpec,
-    resolve_inherit_mcp,
+    resolve_user_customizations,
     spec_name,
 )
 from caliper.skillfetch import SkillFetcher
@@ -102,9 +102,9 @@ class _RunEnv:
     # was ablated" (an empty mapping). Both isolate the attempt to zero servers
     # (docs/adr/0026-attempts-never-see-account-connectors.md).
     mcp_declared: bool
-    # Inherited MCP, already cleared on a backend without MCP: each attempt
+    # User customizations, already cleared on a backend without MCP: each attempt
     # keeps the servers and account connectors its CLI loads by itself (docs/adr/0028).
-    inherit_mcp: bool
+    user_customizations: bool
     # The *skills* ``--ablate`` removed. Truthy drops every task's activation
     # expectation. Removing a server is deliberately not on this list: activation
     # asserts on skills, and those are still installed and observable.
@@ -120,7 +120,7 @@ class _RunEnv:
     judge_models: list[str]
     # Each attempt's inherited servers, where its backend could see them. The
     # same append-only discipline as the two lists above.
-    inherited_mcp_servers: list[list[str]]
+    loaded_user_customizations: list[list[str]]
     # The first fatal misconfiguration a worker diagnosed, if any. Collected
     # rather than raised through the pool so the run can be saved before it is
     # surfaced; same append-only, GIL-safe discipline as the two lists above.
@@ -167,9 +167,9 @@ def run(
     # Told when the backend reports running a different model than requested.
     on_warning: Callable[[str], None] | None = None,
     # Keep the servers and account connectors the backend's CLI loads by itself
-    # (``--inherit-mcp``/``--no-inherit-mcp``, docs/adr/0028). ``None`` follows
-    # the spec's ``inherit_mcp``, else the default, which inherits.
-    inherit_mcp: bool | None = None,
+    # (``--user-customizations``/``--no-user-customizations``, docs/adr/0028). ``None`` follows
+    # the spec's ``user_customizations``, else the default, which inherits.
+    user_customizations: bool | None = None,
 ) -> RunResults:
     # Before anything that can block: a Ctrl-C during skill fetching has to be
     # honoured by the attempts that would otherwise start right after it.
@@ -177,7 +177,9 @@ def run(
 
     # The invocation wins, then the spec, then the default (docs/adr/0028).
     # Resolved once, here, so RunMeta records what applied.
-    inherit_mcp, inherit_explicit = resolve_inherit_mcp(inherit_mcp, spec)
+    user_customizations, explicit = resolve_user_customizations(
+        user_customizations, spec
+    )
 
     # Resolve the neighbourhood once, up front: a bad entry (a lone .md, a
     # missing frontmatter name:, a duplicate) should fail before any paid
@@ -225,16 +227,16 @@ def run(
             "mcp: block from the spec."
         )
 
-    # A backend without MCP has nothing to inherit. Unlike a declared mcp: block
-    # this is not refused: inheriting asks for "whatever my setup has", and on
+    # A backend without MCP has nothing to load. Unlike a declared mcp: block
+    # this is not refused: it asks for "whatever my setup has", and on
     # such a backend that is nothing. Recorded as off, so `compare` never warns about
     # a tool-environment difference that did not exist (docs/adr/0028). Said only
     # when someone asked for it: under the default it would fire on every run.
-    if inherit_mcp and not harness.supports_mcp:
-        inherit_mcp = False
-        if on_warning and inherit_explicit:
+    if user_customizations and not harness.supports_mcp:
+        user_customizations = False
+        if on_warning and explicit:
             on_warning(
-                f"Inherited MCP has no effect on the '{harness.name}' backend, "
+                f"User customizations have no effect on the '{harness.name}' backend, "
                 "which has no MCP support; the run records it as off."
             )
 
@@ -270,7 +272,7 @@ def run(
         # Field presence, not truthiness: an authored `mcp: {}` parses to an
         # empty mapping but still declares the block, and must isolate.
         mcp_declared="mcp" in spec.model_fields_set,
-        inherit_mcp=inherit_mcp,
+        user_customizations=user_customizations,
         ablated_skills=ablation.skill_names,
         timeout=timeout,
         fail_fast_unusable=fail_fast_unusable,
@@ -278,7 +280,7 @@ def run(
         on_task_done=on_task_done,
         resolved_models=[],
         judge_models=[],
-        inherited_mcp_servers=[],
+        loaded_user_customizations=[],
         fatal=[],
         hook_failures=[],
     )
@@ -347,8 +349,10 @@ def run(
             # describes itself and `compare` can check an `mcp:` marker against
             # it rather than trusting the marker alone.
             mcp_servers=sorted(ablation.mcp_servers),
-            inherit_mcp=inherit_mcp,
-            inherited_mcp_servers=_recorded_inherited(env.inherited_mcp_servers),
+            user_customizations=user_customizations,
+            loaded_user_customizations=_recorded_customizations(
+                env.loaded_user_customizations
+            ),
             # True when attempts were left unrun: Ctrl-C, or a fatal error the
             # run stopped for. Deliberately not inferred from a short attempt
             # list, which fail-fast also produces on purpose.
@@ -452,8 +456,8 @@ def _recorded_model(
     return actual
 
 
-def _recorded_inherited(per_attempt: list[list[str]]) -> list[str] | None:
-    """The inherited servers a run records: every name any attempt reported.
+def _recorded_customizations(per_attempt: list[list[str]]) -> list[str] | None:
+    """The customizations a run records: every name any attempt reported.
 
     A union, because the question the record answers is "what could this run's
     attempts reach". ``None`` when no attempt could tell — the flag was off, or
@@ -602,7 +606,7 @@ def _measure_attempt(
                 # ``mcp:`` block; an empty mapping is a declared block whose
                 # servers were all ablated, and still isolates the attempt.
                 mcp_servers=env.mcp_servers if env.mcp_declared else None,
-                inherit_mcp=env.inherit_mcp,
+                user_customizations=env.user_customizations,
                 # Ablated names too, so --ablate still removes a server the
                 # user also has under that name (docs/adr/0028).
                 mcp_declared_names=frozenset(spec.mcp),
@@ -629,8 +633,8 @@ def _measure_attempt(
     # not vote on the model the run records.
     if attempt_result.resolved_model:
         env.resolved_models.append(attempt_result.resolved_model)
-    if attempt_result.inherited_mcp_servers is not None:
-        env.inherited_mcp_servers.append(attempt_result.inherited_mcp_servers)
+    if attempt_result.loaded_user_customizations is not None:
+        env.loaded_user_customizations.append(attempt_result.loaded_user_customizations)
 
     assembled = assemble_attempt(
         attempt_result,

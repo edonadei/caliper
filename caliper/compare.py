@@ -103,61 +103,64 @@ def _check_era(a: RunMeta, b: RunMeta) -> None:
     )
 
 
-def _inherit_mcp_warning(a: RunMeta, b: RunMeta) -> str | None:
-    """Why the two runs' inherited tool environments differ, or ``None``.
+def _user_customizations_warning(a: RunMeta, b: RunMeta) -> str | None:
+    """Why the two runs' user customizations differ, or ``None``.
 
-    Each message says how to make the pair comparable, because since runs
-    inherit by default (docs/adr/0028) the first diff against an older,
-    isolated run lands here.
+    Each message says how to make the pair comparable, because since runs load
+    them by default (docs/adr/0028) the first diff against an older, isolated
+    run lands here.
     """
-    if a.inherit_mcp != b.inherit_mcp:
+    if a.user_customizations != b.user_customizations:
         # Only the isolating direction is offered: it always works, where
-        # re-running the other side inheriting does nothing on a backend
+        # re-running the other side with them does nothing on a backend
         # without MCP.
-        side, other = ("A", "B") if a.inherit_mcp else ("B", "A")
+        side, other = ("A", "B") if a.user_customizations else ("B", "A")
         return (
-            f"only {side} inherited this machine's MCP servers and account "
-            f"connectors, so tool availability can move the score for reasons "
-            f"unrelated to the skill — re-run {side} with --no-inherit-mcp to "
-            f"match {other}"
+            f"only {side} loaded this machine's user customizations (MCP "
+            f"servers, account connectors), so tool availability can move the "
+            f"score for reasons unrelated to the skill — re-run {side} with "
+            f"--no-user-customizations to match {other}"
         )
-    a_names, b_names = a.inherited_mcp_servers, b.inherited_mcp_servers
+    a_names, b_names = a.loaded_user_customizations, b.loaded_user_customizations
     if (
-        a.inherit_mcp
+        a.user_customizations
         and a_names is not None
         and b_names is not None
         and set(a_names) != set(b_names)
     ):
         return (
-            f"different inherited MCP servers: {a_names or ['(none)']} vs "
-            f"{b_names or ['(none)']} — the runs inherited different setups, so "
+            f"different user customizations: {a_names or ['(none)']} vs "
+            f"{b_names or ['(none)']} — the runs loaded different setups, so "
             "tool availability can move the score; re-run both with "
-            "--no-inherit-mcp for a portable comparison"
+            "--no-user-customizations for a portable comparison"
         )
     return None
 
 
-def _may_have_inherited(run: RunMeta) -> bool:
-    """Whether a run may have had inherited tools: it inherited, and did not
-    record an empty set (unknown counts as maybe)."""
-    return run.inherit_mcp and run.inherited_mcp_servers != []
+def _may_have_loaded_customizations(run: RunMeta) -> bool:
+    """Whether a run may have had user customizations: it loaded them, and did
+    not record an empty set (unknown counts as maybe)."""
+    return run.user_customizations and run.loaded_user_customizations != []
 
 
-def _cross_backend_inherit_warning(a: RunMeta, b: RunMeta) -> str | None:
-    """The harness comparison an inherited setup confounds, or ``None``.
+def _cross_backend_user_customizations_warning(a: RunMeta, b: RunMeta) -> str | None:
+    """The harness comparison a user's setup confounds, or ``None``.
 
-    Two backends never inherit the same thing — claude.ai connectors on one,
+    Two backends never load the same customizations — claude.ai connectors on one,
     ChatGPT apps on the other — so a delta between them is partly the two
     setups, even when their recorded names happen to match. Warned, not
     refused: "my setup on claude-code vs my setup on codex" is a legitimate
     question (docs/adr/0028).
     """
-    if a.backend == b.backend or not (_may_have_inherited(a) or _may_have_inherited(b)):
+    if a.backend == b.backend or not (
+        _may_have_loaded_customizations(a) or _may_have_loaded_customizations(b)
+    ):
         return None
     return (
-        f"different backends ({a.backend} vs {b.backend}) with inherited MCP — "
+        f"different backends ({a.backend} vs {b.backend}) with user "
+        "customizations — "
         "each CLI brings its own servers and account connectors, so part of the "
-        "delta is the two setups; re-run both with --no-inherit-mcp for a "
+        "delta is the two setups; re-run both with --no-user-customizations for a "
         "harness comparison"
     )
 
@@ -229,12 +232,12 @@ def _ablation_labels(
     """
     if bool(a_run.ablated) == bool(b_run.ablated):
         return None
-    if a_run.inherit_mcp != b_run.inherit_mcp:
+    if a_run.user_customizations != b_run.user_customizations:
         return None
     # Both inherited, but different setups: the difference is not only the
     # removed subject. Stands down when either side's set is unknown, as the
     # server check does for an unrecorded membership.
-    a_inh, b_inh = a_run.inherited_mcp_servers, b_run.inherited_mcp_servers
+    a_inh, b_inh = a_run.loaded_user_customizations, b_run.loaded_user_customizations
     if a_inh is not None and b_inh is not None and set(a_inh) != set(b_inh):
         return None
     if a_run.ablated:
@@ -258,12 +261,14 @@ def _ablation_labels(
     # "Bare agent" means nothing was configured, tools included: a run that
     # ablated every skill but kept a server is not a bare agent. The server side
     # must be a *recorded* empty set — an unrecorded membership is unknown, and
-    # "without ..." is the honest label for it. That goes for inherited servers
+    # "without ..." is the honest label for it. That goes for user customizations
     # too: a run that inherited any, or can't say, isn't bare (docs/adr/0028).
     bare = (
         not cut_nb
         and cut_mcp == []
-        and (not cut_run.inherit_mcp or cut_run.inherited_mcp_servers == [])
+        and (
+            not cut_run.user_customizations or cut_run.loaded_user_customizations == []
+        )
     )
     cut_label = (
         "bare agent" if bare else f"without {', '.join(sorted(cut_run.ablated))}"
@@ -379,14 +384,14 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
     # the same flag state, but two inheriting runs can still have inherited
     # different servers. Membership is compared only when both sides recorded
     # it, for the same reason as above.
-    inherit_warning = _inherit_mcp_warning(a_run, b_run)
-    cross_backend_warning = _cross_backend_inherit_warning(a_run, b_run)
+    customizations_warning = _user_customizations_warning(a_run, b_run)
+    cross_backend_warning = _cross_backend_user_customizations_warning(a_run, b_run)
     # One message per cause: across backends, isolating both runs is the only
     # fix, and the generic mismatch advice would contradict it.
     if cross_backend_warning:
         warnings.append(cross_backend_warning)
-    elif inherit_warning:
-        warnings.append(inherit_warning)
+    elif customizations_warning:
+        warnings.append(customizations_warning)
 
     # Drift is reported for every member but only *warned* about for a git
     # source. Warning on a path source would fire on every iteration of the core
@@ -413,8 +418,8 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         spec_mismatch=spec_mismatch,
         neighbourhood_mismatch=neighbourhood_mismatch,
         mcp_mismatch=mcp_mismatch,
-        inherit_mcp_mismatch=inherit_warning is not None,
-        cross_backend_inherit=cross_backend_warning is not None,
+        user_customizations_mismatch=customizations_warning is not None,
+        cross_backend_user_customizations=cross_backend_warning is not None,
         skill_drift=skill_drift,
         warnings=warnings,
         # Token/wall totals over each whole run. Shown alongside pass@k but never

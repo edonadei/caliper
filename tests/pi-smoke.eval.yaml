@@ -3,7 +3,7 @@
 #   caliper run tests/pi-smoke.eval.yaml --model pi
 # Pinned isolated: a smoke eval checks the backend itself, and the #129 probe
 # tasks assert the attempt sees only the declared MCP servers (docs/adr/0028).
-inherit_mcp: false
+user_customizations: false
 
 tasks:
   - name: Write hello to a file

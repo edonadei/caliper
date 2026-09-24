@@ -87,7 +87,7 @@ class ClaudeCodeHarness(CliHarness):
         if sys.platform == "darwin" and not creds_dst.exists():
             self._seed_credentials_from_keychain(creds_dst)
 
-        if ctx.inherit_mcp and ctx.spec_mcp_names:
+        if ctx.user_customizations and ctx.spec_mcp_names:
             self._drop_shadowed_user_servers(ctx)
 
     def _drop_shadowed_user_servers(self, ctx: RunContext) -> None:
@@ -142,7 +142,7 @@ class ClaudeCodeHarness(CliHarness):
         cmd += ["--mcp-config", str(mcp_config)]
         # Inheriting (the default) drops it: the declared servers then merge with the
         # seeded user config and the account's connectors (docs/adr/0028).
-        if not ctx.inherit_mcp:
+        if not ctx.user_customizations:
             cmd.append("--strict-mcp-config")
 
         if ctx.model:
@@ -387,7 +387,7 @@ class ClaudeCodeHarness(CliHarness):
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_text(out)
 
-    def _inherited_mcp_servers(
+    def _loaded_user_customizations(
         self, proc: ProcessResult, ctx: RunContext
     ) -> list[str] | None:
         """The non-declared servers the CLI's ``init`` event says it loaded.

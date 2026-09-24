@@ -97,12 +97,12 @@ tasks:
     assert calls["timeout"] == 120
     assert calls["ablate"] == []
     # Omitted: None, so the runner follows the spec's own default.
-    assert calls["inherit_mcp"] is None
+    assert calls["user_customizations"] is None
     # A requested/reported model mismatch has somewhere to surface (#131).
     assert callable(calls["on_warning"])
 
 
-def test_run_cli_inherit_mcp_forwards_and_prints_a_notice(
+def test_run_cli_user_customizations_forwards_and_prints_a_notice(
     monkeypatch, tmp_path
 ) -> None:
     spec_file = tmp_path / "sample.eval.yaml"
@@ -145,30 +145,30 @@ def test_run_cli_inherit_mcp_forwards_and_prints_a_notice(
     # The default: one quiet line, no warning.
     result = runner.invoke(app, ["run", str(spec_file)])
     assert result.exit_code == 0, result.output
-    assert calls["inherit_mcp"] is None
-    assert "--no-inherit-mcp to isolate" in result.output
+    assert calls["user_customizations"] is None
+    assert "--no-user-customizations to isolate" in result.output
     assert "without asking" in result.output
     assert "⚠" not in result.output
 
-    result = runner.invoke(app, ["run", str(spec_file), "--inherit-mcp"])
+    result = runner.invoke(app, ["run", str(spec_file), "--user-customizations"])
 
     assert result.exit_code == 0, result.output
-    assert calls["inherit_mcp"] is True
-    assert "--inherit-mcp" in result.output
+    assert calls["user_customizations"] is True
+    assert "--user-customizations" in result.output
     assert "account connectors" in result.output
 
-    result = runner.invoke(app, ["run", str(spec_file), "--no-inherit-mcp"])
+    result = runner.invoke(app, ["run", str(spec_file), "--no-user-customizations"])
     assert result.exit_code == 0, result.output
-    assert calls["inherit_mcp"] is False
+    assert calls["user_customizations"] is False
     assert "account connectors" not in result.output
 
     # A spec that turns it on gets the notice without the flag, naming itself.
-    spec_file.write_text("inherit_mcp: true\n" + spec_file.read_text())
+    spec_file.write_text("user_customizations: true\n" + spec_file.read_text())
     result = runner.invoke(app, ["run", str(spec_file)])
     assert result.exit_code == 0, result.output
-    assert calls["inherit_mcp"] is None
-    assert "inherit_mcp: true (spec)" in result.output
-    assert "--no-inherit-mcp runs it isolated" in result.output
+    assert calls["user_customizations"] is None
+    assert "user_customizations: true (spec)" in result.output
+    assert "--no-user-customizations runs it isolated" in result.output
 
 
 def test_run_cli_resolves_backend_and_judge_model_targets(
