@@ -28,9 +28,11 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from caliper import cancel
 from caliper.harness.base import HarnessConfigurationError
 from caliper.schema.spec import McpServer
 
@@ -72,16 +74,18 @@ def preflight_stdio_servers(
     env: dict[str, str] | None = None,
     cwd: str | None = None,
 ) -> None:
-    """Initialize each local server once before a model can score without it.
+    """Verify each local server in its prepared attempt before the agent starts.
 
     A successful process spawn is insufficient: a dead script can exit at once,
-    or a process can stay alive without speaking MCP. Bound the initialization
-    exchange so neither failure becomes a scored attempt or a hanging agent.
+    or a process can stay alive without speaking MCP. Bound the MCP exchange so
+    neither failure becomes a scored attempt or a hanging agent.
     """
     for name, server in resolve_servers(declared).items():
+        if cancel.requested():
+            raise HarnessConfigurationError("MCP preflight interrupted")
         if server.is_remote:
             continue
-        request = {
+        initialize = {
             "jsonrpc": "2.0",
             "id": 1,
             "method": "initialize",
@@ -127,34 +131,42 @@ def preflight_stdio_servers(
                     start_new_session=os.name == "posix",
                 )
                 try:
-                    replies: queue.Queue[str] = queue.Queue(maxsize=1)
-                    reader = threading.Thread(
-                        target=lambda: replies.put(process.stdout.readline()),
-                        daemon=True,
-                    )
-                    reader.start()
-                    process.stdin.write(json.dumps(request) + "\n")
-                    process.stdin.flush()
-                    try:
-                        line = replies.get(timeout=_PREFLIGHT_TIMEOUT)
-                    except queue.Empty as exc:
-                        raise HarnessConfigurationError(
-                            f"MCP server '{name}' did not initialize within "
-                            f"{_PREFLIGHT_TIMEOUT:g} seconds"
-                        ) from exc
-                    if not line:
-                        raise HarnessConfigurationError(
-                            f"MCP server '{name}' exited before initialization"
+                    with cancel.track(process):
+                        response = _exchange(process, initialize, name)
+                        if not isinstance(response.get("result"), dict):
+                            raise HarnessConfigurationError(
+                                f"MCP server '{name}' rejected initialization"
+                            )
+                        process.stdin.write(
+                            json.dumps(
+                                {
+                                    "jsonrpc": "2.0",
+                                    "method": "notifications/initialized",
+                                }
+                            )
+                            + "\n"
                         )
-                    response = json.loads(line)
-                    if (
-                        not isinstance(response, dict)
-                        or response.get("id") != 1
-                        or "result" not in response
-                    ):
-                        raise HarnessConfigurationError(
-                            f"MCP server '{name}' rejected initialization"
+                        process.stdin.flush()
+                        response = _exchange(
+                            process,
+                            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                            name,
                         )
+                        result = response.get("result")
+                        if not isinstance(result, dict) or not isinstance(
+                            result.get("tools"), list
+                        ):
+                            raise HarnessConfigurationError(
+                                f"MCP server '{name}' did not list tools"
+                            )
+                        try:
+                            process.wait(timeout=0.05)
+                        except subprocess.TimeoutExpired:
+                            pass
+                        else:
+                            raise HarnessConfigurationError(
+                                f"MCP server '{name}' exited after initialization"
+                            )
                 finally:
                     # Launchers such as npx can leave a child holding the stdio
                     # pipe after their parent exits. End the whole preflight
@@ -181,6 +193,46 @@ def preflight_stdio_servers(
             raise HarnessConfigurationError(
                 f"MCP server '{name}' failed to start: {exc}"
             ) from exc
+
+
+def _exchange(process: subprocess.Popen, request: dict, name: str) -> dict:
+    """Read one MCP response without making Ctrl-C wait through its timeout."""
+    replies: queue.Queue[str] = queue.Queue(maxsize=1)
+    reader = threading.Thread(
+        target=lambda: replies.put(process.stdout.readline()), daemon=True
+    )
+    reader.start()
+    process.stdin.write(json.dumps(request) + "\n")
+    process.stdin.flush()
+    deadline = time.monotonic() + _PREFLIGHT_TIMEOUT
+    while True:
+        if cancel.requested():
+            raise HarnessConfigurationError("MCP preflight interrupted")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise HarnessConfigurationError(
+                f"MCP server '{name}' did not answer {request['method']} within "
+                f"{_PREFLIGHT_TIMEOUT:g} seconds"
+            )
+        try:
+            line = replies.get(timeout=min(0.05, remaining))
+            break
+        except queue.Empty:
+            continue
+    if not line:
+        raise HarnessConfigurationError(
+            f"MCP server '{name}' exited before answering {request['method']}"
+        )
+    response = json.loads(line)
+    if (
+        not isinstance(response, dict)
+        or response.get("id") != request["id"]
+        or "result" not in response
+    ):
+        raise HarnessConfigurationError(
+            f"MCP server '{name}' rejected {request['method']}"
+        )
+    return response
 
 
 def interpolate(value: str, *, server_name: str, field_label: str) -> str:

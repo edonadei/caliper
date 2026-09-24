@@ -210,12 +210,6 @@ def run(
     mcp_servers = resolve_declared_paths(
         ablation.mcp_servers, spec_path.resolve().parent
     )
-    if mcp_servers:
-        harness.preflight_mcp(
-            mcp_servers,
-            [str((spec_path.parent / p).resolve()) for p in spec.sandbox.extra_path],
-        )
-
     # Only the installed skills: a snapshot claims "this is what produced the
     # score", which an ablated skill demonstrably did not.
     skill_snapshots = [snapshot_skill(ref) for ref in skill_refs]

@@ -1,22 +1,26 @@
 from __future__ import annotations
 
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
+from caliper import cancel
 from caliper.harness.base import (
     AttemptResult,
     CliHarness,
+    ConversationTurn,
     HarnessBackend,
     HarnessConfigurationError,
     RunContext,
 )
-from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.harness.mcp import preflight_stdio_servers, resolve_servers
 from caliper.judge.base import JudgeResult
-from caliper.runner import run
+from caliper.runner import RunAborted, run
+from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, McpServer, TaskSpec
 
 from conftest import run_context
@@ -162,6 +166,14 @@ def test_mcp_rejects_missing_command() -> None:
 
 # --- shared resolution (harness/mcp.py) ------------------------------------
 
+_TOOLS_REPLY = (
+    "sys.stdin.readline()\n"  # notifications/initialized
+    "request = json.loads(sys.stdin.readline())\n"
+    "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+    "'result': {'tools': []}}), flush=True)\n"
+    "sys.stdin.readline()\n"
+)
+
 
 def test_resolve_servers_interpolates_stdio_env(monkeypatch) -> None:
     monkeypatch.setenv("MCP_API_TOKEN", "sk-secret")
@@ -271,7 +283,7 @@ def test_preflight_initializes_a_local_server(tmp_path) -> None:
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
         "'result': {'protocolVersion': '2025-03-26', 'capabilities': {}, "
         "'serverInfo': {'name': 'test', 'version': '1'}}}), flush=True)\n"
-        "sys.stdin.readline()\n"
+        + _TOOLS_REPLY
     )
     preflight_stdio_servers(
         {"echo": McpServer(command=sys.executable, args=[str(script)])}
@@ -285,8 +297,7 @@ def test_preflight_uses_sandbox_extra_path_for_command(tmp_path) -> None:
         "import json, sys\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {}}), flush=True)\n"
-        "sys.stdin.readline()\n"
+        "'result': {}}), flush=True)\n" + _TOOLS_REPLY
     )
     command.chmod(0o755)
 
@@ -303,7 +314,7 @@ def test_preflight_does_not_inherit_host_only_variables(tmp_path, monkeypatch) -
         "if os.getenv('CALIPER_HOST_ONLY_SECRET'): sys.exit(2)\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {}}), flush=True)\n"
+        "'result': {}}), flush=True)\n" + _TOOLS_REPLY
     )
 
     preflight_stdio_servers(
@@ -323,7 +334,7 @@ class _AttemptPreflightHarness(CliHarness):
 
     def _command(self, ctx: RunContext):
         return (
-            [sys.executable, "-c", "raise AssertionError('agent started')"],
+            [sys.executable, "-c", "print('ok')"],
             None,
             None,
         )
@@ -332,7 +343,9 @@ class _AttemptPreflightHarness(CliHarness):
         return self._isolated_env(ctx)
 
     def _parse_stream(self, stdout: str):
-        return [], stdout
+        return [
+            ConversationTurn(role="assistant", content=stdout.strip())
+        ], stdout.strip()
 
 
 def test_server_that_dies_after_initial_preflight_stops_before_agent(tmp_path) -> None:
@@ -345,7 +358,7 @@ def test_server_that_dies_after_initial_preflight_stops_before_agent(tmp_path) -
         "marker.write_text('started')\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {}}), flush=True)\n"
+        "'result': {}}), flush=True)\n" + _TOOLS_REPLY
     )
     servers = {
         "echo": McpServer(command=sys.executable, args=[str(script), str(marker)])
@@ -362,11 +375,107 @@ def test_server_that_dies_after_initial_preflight_stops_before_agent(tmp_path) -
         _AttemptPreflightHarness().run(ctx)
 
 
-def test_readme_relative_mcp_arg_starts_from_any_cwd(tmp_path, monkeypatch) -> None:
-    class _PreflightHarness(_McpHarness):
-        def preflight_mcp(self, servers, extra_path):
-            preflight_stdio_servers(servers, extra_path=extra_path)
+def test_preflight_rejects_server_exiting_after_initialize(tmp_path) -> None:
+    script = tmp_path / "one_reply.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        "'result': {}}), flush=True)\n"
+    )
 
+    with pytest.raises(HarnessConfigurationError, match="MCP server 'echo'"):
+        preflight_stdio_servers(
+            {"echo": McpServer(command=sys.executable, args=[str(script)])}
+        )
+
+
+def test_setup_can_stage_an_mcp_server_before_attempt_preflight(tmp_path) -> None:
+    template = tmp_path / "server-template.py"
+    template.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        "'result': {}}), flush=True)\n" + _TOOLS_REPLY
+    )
+    staged = tmp_path / "staged-server.py"
+    stage_script = tmp_path / "stage.py"
+    stage_script.write_text(
+        "from pathlib import Path\n"
+        "import shutil\n"
+        "here = Path(__file__).parent\n"
+        "shutil.copyfile(here / 'server-template.py', here / 'staged-server.py')\n"
+    )
+    spec_path = tmp_path / "m.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    spec = EvalSpec(
+        mcp={"echo": McpServer(command=sys.executable, args=[str(staged)])},
+        tasks=[
+            TaskSpec(
+                id="task-001",
+                name="staged server",
+                prompt="use it",
+                setup=f'"{sys.executable}" "{stage_script}"',
+                assert_script="assert True",
+            )
+        ],
+    )
+
+    results = run(spec, spec_path, _AttemptPreflightHarness(), _PassJudge(), k=1)
+
+    assert staged.exists()
+    assert results.task_results[0].attempts[0].outcome == Outcome.PASS
+
+
+def test_cancel_interrupts_stalled_preflight_and_skips_next_server(
+    tmp_path,
+) -> None:
+    from caliper.harness import mcp
+
+    ready = tmp_path / "ready"
+    second = tmp_path / "second"
+    script = tmp_path / "stalled.py"
+    script.write_text(
+        "from pathlib import Path\n"
+        "import sys, time\n"
+        "Path(sys.argv[1]).write_text('started')\n"
+        "time.sleep(30)\n"
+    )
+    servers = {
+        "first": McpServer(command=sys.executable, args=[str(script), str(ready)]),
+        "second": McpServer(command=sys.executable, args=[str(script), str(second)]),
+    }
+    old_timeout = mcp._PREFLIGHT_TIMEOUT
+    mcp._PREFLIGHT_TIMEOUT = 5
+    errors: list[Exception] = []
+
+    def check() -> None:
+        try:
+            preflight_stdio_servers(servers)
+        except Exception as exc:
+            errors.append(exc)
+
+    cancel.reset()
+    thread = threading.Thread(target=check)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 3
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ready.exists()
+        cancel.request()
+        thread.join(timeout=2)
+        assert not thread.is_alive(), "Ctrl-C waited for the preflight timeout"
+        assert errors and isinstance(errors[0], HarnessConfigurationError)
+        assert not second.exists()
+    finally:
+        cancel.request()
+        thread.join(timeout=2)
+        cancel.reset()
+        mcp._PREFLIGHT_TIMEOUT = old_timeout
+
+
+def test_readme_relative_mcp_arg_starts_from_any_cwd(tmp_path, monkeypatch) -> None:
     spec_dir = tmp_path / "specs"
     server_dir = spec_dir / "servers"
     server_dir.mkdir(parents=True)
@@ -375,8 +484,7 @@ def test_readme_relative_mcp_arg_starts_from_any_cwd(tmp_path, monkeypatch) -> N
         "import json, sys\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
-        "'result': {}}), flush=True)\n"
-        "sys.stdin.readline()\n"
+        "'result': {}}), flush=True)\n" + _TOOLS_REPLY
     )
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
@@ -387,7 +495,7 @@ def test_readme_relative_mcp_arg_starts_from_any_cwd(tmp_path, monkeypatch) -> N
     spec.mcp = {
         "weather": McpServer(command=sys.executable, args=["./servers/weather.py"])
     }
-    harness = _PreflightHarness()
+    harness = _McpHarness()
 
     run(spec, spec_path, harness, _PassJudge(), k=1, workers=1)
 
@@ -410,8 +518,9 @@ def test_dead_server_stops_run_before_any_attempt(
     spec = _spec_with_mcp()
     spec.mcp = {"broken": McpServer(command=sys.executable, args=[str(server)])}
 
-    with pytest.raises(HarnessConfigurationError, match="MCP server 'broken'"):
-        run(spec, spec_path, ClaudeCodeHarness(), _PassJudge(), k=1, workers=1)
+    with pytest.raises(RunAborted, match="MCP server 'broken'") as exc:
+        run(spec, spec_path, _AttemptPreflightHarness(), _PassJudge(), k=1, workers=1)
+    assert exc.value.results.task_results[0].attempts == []
 
 
 def test_missing_server_command_stops_run_before_any_attempt(tmp_path) -> None:
@@ -420,8 +529,9 @@ def test_missing_server_command_stops_run_before_any_attempt(tmp_path) -> None:
     spec = _spec_with_mcp()
     spec.mcp = {"missing": McpServer(command="./missing-server")}
 
-    with pytest.raises(HarnessConfigurationError, match="MCP server 'missing'"):
-        run(spec, spec_path, ClaudeCodeHarness(), _PassJudge(), k=1, workers=1)
+    with pytest.raises(RunAborted, match="MCP server 'missing'") as exc:
+        run(spec, spec_path, _AttemptPreflightHarness(), _PassJudge(), k=1, workers=1)
+    assert exc.value.results.task_results[0].attempts == []
 
 
 # --- run-seam capability guard --------------------------------------------
