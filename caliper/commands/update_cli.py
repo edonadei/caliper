@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -104,7 +105,11 @@ def _print_checks(targets: list[CliTarget]) -> None:
         command = _command_for(cli)
         current = _current_version(command) if command else "not found"
         latest = _latest_npm_version(cli.npm_package) or "unknown"
-        update = _update_hint(cli, command)
+        update = (
+            "up to date"
+            if _same_version(current, latest)
+            else _update_hint(cli, command)
+        )
         table.add_row(cli.name, command or "-", current, latest, update)
 
     console.print(table)
@@ -196,6 +201,19 @@ def _latest_npm_version(package: str) -> str | None:
     if proc.returncode != 0:
         return None
     return proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else None
+
+
+_VERSION_RE = re.compile(r"\d+\.\d+\.\d+\S*")
+
+
+def _same_version(current: str, latest: str) -> bool:
+    """Whether ``current`` (a CLI's ``--version`` line) is the ``latest`` release.
+
+    The CLI decorates its version (``2.1.281 (Claude Code)``, ``codex-cli
+    0.156.1``), so the first version-shaped token is compared.
+    """
+    found = _VERSION_RE.search(current)
+    return found is not None and found.group() == latest.strip()
 
 
 def _update_hint(cli: CliTarget, command: str | None) -> str:

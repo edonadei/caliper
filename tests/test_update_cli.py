@@ -43,6 +43,7 @@ def test_update_cli_check_prints_versions(monkeypatch, tmp_path) -> None:
     assert result.exit_code == 0, result.output
     assert "codex-cli 0.132.0" in result.output
     assert "0.133.0" in result.output
+    assert "up to date" not in result.output
 
 
 def test_update_cli_requires_target_for_updates() -> None:
@@ -98,3 +99,28 @@ def test_update_cli_refuses_codex_app_bundle(monkeypatch, tmp_path) -> None:
 
     assert result.exit_code == 1
     assert "Codex app bundle detected" in result.output
+
+
+def test_update_cli_check_says_up_to_date_when_versions_match(
+    monkeypatch, tmp_path
+) -> None:
+    def fake_which(name: str) -> str | None:
+        return {"npm": "npm", "claude": "claude"}.get(name)
+
+    def fake_run(cmd, **kwargs):
+        if cmd[-1] == "--version":
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="2.1.281 (Claude Code)\n", stderr=""
+            )
+        if cmd[:2] == ["npm", "view"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="2.1.281\n", stderr="")
+        raise AssertionError(cmd)
+
+    monkeypatch.setattr("caliper.commands.update_cli.shutil.which", fake_which)
+    monkeypatch.setattr("caliper.commands.update_cli.subprocess.run", fake_run)
+
+    result = runner.invoke(app, ["update-cli", "claude-code", "--check"])
+
+    assert result.exit_code == 0, result.output
+    assert "up to date" in result.output
+    assert "caliper update-cli" not in result.output
