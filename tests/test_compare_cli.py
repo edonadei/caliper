@@ -9,6 +9,7 @@ against itself renders a clean table of zeros with no guard tripped.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -161,5 +162,7 @@ def test_an_unreadable_side_is_diagnosed_not_swallowed(monkeypatch, tmp_path) ->
 def test_an_unknown_format_is_refused(argv) -> None:
     result = runner.invoke(app, argv)
 
+    # CI forces color, so typer's error panel arrives with ANSI codes in it.
+    output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
     assert result.exit_code == 2
-    assert "Invalid value for '--format'" in result.output
+    assert "Invalid value for '--format'" in output
