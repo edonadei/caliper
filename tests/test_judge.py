@@ -227,7 +227,8 @@ def test_eval_judge_claude_code_invokes_claude_cli(monkeypatch, tmp_path) -> Non
     assert "--strict-mcp-config" in cmd
     assert cmd[cmd.index("--model") + 1] == "claude-test"
     assert "The assistant says hello." in cmd[2]
-    assert kwargs["timeout"] == 60
+    # The harness polls communicate() while enforcing the 60s deadline.
+    assert 0 < kwargs["timeout"] <= 60
 
 
 def test_eval_judge_claude_code_uses_pinned_default_model(
