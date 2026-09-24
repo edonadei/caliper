@@ -113,8 +113,8 @@ def kill(proc: subprocess.Popen) -> None:
     The whole process group, not just the child: an agent CLI spawns tools of
     its own, and killing only the parent orphans them holding the isolated home
     open. Backends spawn with ``start_new_session=True`` precisely so there is a
-    group to address here. ``SIGKILL`` rather than a graceful term — the
-    attempt's output is discarded either way, so there is nothing to flush.
+    group to address here. ``SIGKILL`` rather than a graceful term stops the
+    process promptly; output it already wrote to the pipes remains readable.
     """
     if proc.poll() is not None:
         return

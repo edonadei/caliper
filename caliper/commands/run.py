@@ -340,7 +340,11 @@ def _save_and_report(
     # (docs/adr/0022-saved-runs-live-at-a-discovered-results-root.md).
     saved_path = RunStore.discover().save(results)
     if output:
-        Path(output).write_text(results.model_dump_json(indent=2))
+        try:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(results.model_dump_json(indent=2))
+        except OSError as exc:
+            console.print(f"[yellow]Could not write --output {output}: {exc}[/yellow]")
 
     print_results(results, verbose=verbose)
     console.print(f"[dim]Results saved to {saved_path}[/dim]")
