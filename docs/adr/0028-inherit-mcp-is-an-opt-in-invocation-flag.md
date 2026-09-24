@@ -38,7 +38,8 @@ real file:
 - `codex` leaves off its `-c features.apps=false -c features.plugins=false`
   overrides and keeps the user's `[mcp_servers.*]` tables, except the clashing
   ones. The model strip ([0012](0012-cli-harnesses-copy-cli-config-verbatim.md))
-  still applies.
+  still applies. The hosted apps surface as a server named `codex_apps`, so a
+  spec that declares that name, ablated or not, keeps `features.apps=false`.
 - `hermes` keeps the user's `mcp_servers` (and `inherit_mcp_toolsets`) with the
   declared servers merged on top.
 

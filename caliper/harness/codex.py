@@ -99,12 +99,26 @@ class CodexHarness(CliHarness):
             "--dangerously-bypass-approvals-and-sandbox",
             "--color",
             "never",
-            *(() if ctx.inherit_mcp else NO_ACCOUNT_CONNECTORS),
+            *self._connector_overrides(ctx),
             "-",
         ]
         if ctx.model:
             cmd[2:2] = ["--model", ctx.model]
         return cmd, full_prompt, None
+
+    @staticmethod
+    def _connector_overrides(ctx: RunContext) -> tuple[str, ...]:
+        """The ``-c`` overrides that keep the account's connectors out, if any.
+
+        All of them unless ``--inherit-mcp``. Under it, the hosted apps still
+        go when the spec names a server ``codex_apps``, ablated or not: the apps
+        surface under that name, and the spec wins a clash (docs/adr/0028).
+        """
+        if not ctx.inherit_mcp:
+            return NO_ACCOUNT_CONNECTORS
+        if CODEX_APPS_SERVER in ctx.spec_mcp_names:
+            return ("-c", "features.apps=false")
+        return ()
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
         return self._isolated_env(ctx)

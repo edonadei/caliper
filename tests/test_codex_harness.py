@@ -768,6 +768,25 @@ def test_codex_refuses_an_invalid_user_config(monkeypatch, tmp_path) -> None:
         _run_codex_mcp(monkeypatch, tmp_path, None, home=home)
 
 
+@pytest.mark.parametrize("ablated", [False, True])
+def test_codex_inherit_mcp_turns_hosted_apps_off_for_a_declared_codex_apps(
+    ablated,
+) -> None:
+    # The hosted apps surface as `codex_apps`, so a spec server of that name
+    # must win the clash, and ablating it must remove the hosted tools too.
+    ctx = run_context(
+        mcp_servers={} if ablated else {"codex_apps": McpServer(command="x")},
+        mcp_declared_names=frozenset({"codex_apps"}),
+        inherit_mcp=True,
+    )
+    assert CodexHarness._connector_overrides(ctx) == ("-c", "features.apps=false")
+
+
+def test_codex_inherit_mcp_leaves_connectors_on_otherwise() -> None:
+    ctx = run_context(inherit_mcp=True, mcp_declared_names=frozenset({"echo"}))
+    assert CodexHarness._connector_overrides(ctx) == ()
+
+
 def test_codex_judge_keeps_connectors_off(monkeypatch) -> None:
     monkeypatch.setattr(CodexHarness, "cli_path", lambda self: "codex")
     call = CodexHarness()._prompt_command("grade this", None)
