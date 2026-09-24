@@ -26,10 +26,18 @@ import weakref
 from contextlib import contextmanager
 from typing import Iterator
 
+import psutil
+
 _lock = threading.Lock()
 _live: set[subprocess.Popen] = set()
 _killed: weakref.WeakSet[subprocess.Popen] = weakref.WeakSet()
+_descendants: dict[subprocess.Popen, set[psutil.Process]] = {}
+_tags: dict[subprocess.Popen, str] = {}
 _requested = threading.Event()
+
+# Inherited by agent tools, including tools that start new sessions or are
+# reparented before a timeout. A fresh value is assigned to every CLI call.
+PROCESS_TAG = "CALIPER_PROCESS_TAG"
 
 
 def reset() -> None:
@@ -38,6 +46,8 @@ def reset() -> None:
     with _lock:
         _live.clear()
         _killed.clear()
+        _descendants.clear()
+        _tags.clear()
 
 
 def request() -> None:
@@ -73,7 +83,10 @@ def sleep_unless_stopped(seconds: float) -> bool:
 
 @contextmanager
 def track(
-    proc: subprocess.Popen, *, cancel_if_requested: bool = True
+    proc: subprocess.Popen,
+    *,
+    cancel_if_requested: bool = True,
+    process_tag: str | None = None,
 ) -> Iterator[subprocess.Popen]:
     """Register a spawned process so :func:`request` can reach it.
 
@@ -83,15 +96,44 @@ def track(
     so they still run after an interrupt; a new cancellation during cleanup
     still reaches the registered process.
     """
+    known: set[psutil.Process] = set()
+    stopped = threading.Event()
+
+    def watch_tree() -> None:
+        # A CLI can exit while a detached tool still holds its output pipe.
+        # Keep process identities before that child is reparented, so a later
+        # timeout can still reach it after the CLI itself has gone away.
+        while not stopped.is_set():
+            try:
+                children = psutil.Process(proc.pid).children(recursive=True)
+            except psutil.Error:
+                return
+            with _lock:
+                known.update(children)
+            if proc.poll() is not None:
+                return
+            stopped.wait(0.02)
+
     with _lock:
         _live.add(proc)
+        _descendants[proc] = known
+        if process_tag is not None:
+            _tags[proc] = process_tag
+    watcher = threading.Thread(
+        target=watch_tree, name="caliper-process-tree", daemon=True
+    )
+    watcher.start()
     try:
         if cancel_if_requested and requested():
             kill(proc)
         yield proc
     finally:
+        stopped.set()
+        watcher.join()
         with _lock:
             _live.discard(proc)
+            _descendants.pop(proc, None)
+            _tags.pop(proc, None)
 
 
 def was_killed(proc: subprocess.Popen) -> bool:
@@ -110,20 +152,67 @@ def was_killed(proc: subprocess.Popen) -> bool:
 def kill(proc: subprocess.Popen) -> None:
     """Kill an agent and everything it spawned.
 
-    The whole process group, not just the child: an agent CLI spawns tools of
-    its own, and killing only the parent orphans them holding the isolated home
-    open. Backends spawn with ``start_new_session=True`` precisely so there is a
-    group to address here. ``SIGKILL`` rather than a graceful term stops the
-    process promptly; output it already wrote to the pipes remains readable.
+    Snapshot descendants before killing the parent: tools may start their own
+    process groups, and after the parent dies they are reparented and can no
+    longer be found by walking its tree. Also kill the agent's own group to
+    catch members of its session. ``SIGKILL`` ends a cancelled or timed-out
+    attempt promptly; the caller can still retain output it already captured.
     """
-    if proc.poll() is not None:
-        return
     with _lock:
-        _killed.add(proc)
+        descendants = set(_descendants.get(proc, ()))
+        tag = _tags.get(proc)
+    try:
+        descendants.update(psutil.Process(proc.pid).children(recursive=True))
+    except psutil.Error:
+        pass
+    if tag is not None:
+        descendants.update(
+            child for child in _tagged_processes(tag) if child.pid != proc.pid
+        )
+    # The watcher remembers every child it saw, including ones that already
+    # exited. Only live ones still need killing, and only a CLI that was still
+    # running counts as killed: a finished attempt stays a real observation.
+    descendants = {child for child in descendants if child.is_running()}
+    finished = proc.poll() is not None
+    if finished and not descendants:
+        return
+    if not finished:
+        with _lock:
+            _killed.add(proc)
+    # The stored psutil.Process handles retain identity across reparenting and
+    # guard against killing an unrelated process if the OS recycles a PID.
+    for child in descendants:
+        try:
+            child.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
     try:
         if hasattr(os, "killpg"):
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            os.killpg(proc.pid, signal.SIGKILL)
         else:  # pragma: no cover - posix-only project, kept honest anyway
             proc.kill()
     except (OSError, ProcessLookupError):
         pass
+    psutil.wait_procs(list(descendants), timeout=1)
+    # A tool can fork after the first snapshot but before it receives SIGKILL.
+    # Scan again once its known parents have stopped.
+    if tag is not None:
+        for child in _tagged_processes(tag):
+            if child.pid == proc.pid:
+                continue
+            try:
+                child.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+
+
+def _tagged_processes(tag: str) -> set[psutil.Process]:
+    """Find this invocation's descendants even after their parent has exited."""
+    matches: set[psutil.Process] = set()
+    for child in psutil.process_iter():
+        try:
+            if child.environ().get(PROCESS_TAG) == tag:
+                matches.add(child)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return matches
