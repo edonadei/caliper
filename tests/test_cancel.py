@@ -516,6 +516,7 @@ def test_stopping_does_not_hang_on_an_unidentifiable_pipe_holder(
     tmp_path: Path, monkeypatch, stop: str
 ) -> None:
     """Even a tool that clears its tag cannot hold the run open forever."""
+    threads_before = set(threading.enumerate())
     monkeypatch.setattr(psutil.Process, "children", lambda self, recursive=False: [])
     monkeypatch.setattr(cancel, "_tagged_processes", lambda tag: set())
     pid_file = tmp_path / "pids"
@@ -540,6 +541,9 @@ def test_stopping_does_not_hang_on_an_unidentifiable_pipe_holder(
         assert finished.wait(4), "the inherited pipe held the attempt open"
         assert box["result"].timed_out is (stop == "timeout")
         assert box["result"].cancelled is (stop == "cancel")
+        # Only the fixture's execute thread may still be exiting. A blocked
+        # communication worker would remain here while the tool is alive.
+        assert len(set(threading.enumerate()) - threads_before) <= 1
 
 
 def test_large_prompt_reaches_agent_after_a_slow_stdin_start(tmp_path: Path) -> None:

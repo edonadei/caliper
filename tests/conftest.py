@@ -74,11 +74,10 @@ def run_context(**overrides) -> RunContext:
 class _FakePopen:
     """The bits of ``Popen`` that ``CliHarness._execute`` touches.
 
-    ``fake_run`` is deliberately not called until :meth:`communicate`: ``input``
-    and ``timeout`` arrive there rather than at construction, and a fake that
-    asserts on them has to see the same call shape ``subprocess.run`` would have
-    delivered. A ``TimeoutExpired`` raised by the fake propagates untouched —
-    that is exactly the signal ``_execute`` turns into a 124/timeout result.
+    ``fake_run`` is deliberately not called until :meth:`communicate`. For a
+    file-backed stdin, read the payload the real child would have consumed so
+    existing prompt assertions can inspect it. A ``TimeoutExpired`` raised by
+    the fake propagates untouched to the harness timeout handler.
     """
 
     def __init__(
@@ -104,6 +103,10 @@ class _FakePopen:
         return None
 
     def communicate(self, input=None, timeout=None):  # noqa: A002 - Popen's name
+        source = self._kwargs.get("stdin")
+        if input is None and hasattr(source, "read"):
+            source.seek(0)
+            input = source.read().decode("utf-8")
         kwargs = dict(self._kwargs, input=input, timeout=timeout)
         # What ``subprocess.run`` would have been given for the same spawn: the
         # two pipes it sets itself, and whatever text handling the caller asked
