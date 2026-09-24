@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from caliper.harness.base import (
     AttemptResult,
+    CliHarness,
     HarnessBackend,
     HarnessConfigurationError,
     RunContext,
@@ -16,6 +18,8 @@ from caliper.harness.mcp import preflight_stdio_servers, resolve_servers
 from caliper.judge.base import JudgeResult
 from caliper.runner import run
 from caliper.schema.spec import EvalSpec, McpServer, TaskSpec
+
+from conftest import run_context
 
 
 # --- schema validation ----------------------------------------------------
@@ -289,6 +293,73 @@ def test_preflight_uses_sandbox_extra_path_for_command(tmp_path) -> None:
     preflight_stdio_servers(
         {"echo": McpServer(command="mcp-server")}, extra_path=[str(tmp_path)]
     )
+
+
+def test_preflight_does_not_inherit_host_only_variables(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("CALIPER_HOST_ONLY_SECRET", "not-in-attempt")
+    script = tmp_path / "server.py"
+    script.write_text(
+        "import json, os, sys\n"
+        "if os.getenv('CALIPER_HOST_ONLY_SECRET'): sys.exit(2)\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        "'result': {}}), flush=True)\n"
+    )
+
+    preflight_stdio_servers(
+        {"echo": McpServer(command=sys.executable, args=[str(script)])}
+    )
+
+
+class _AttemptPreflightHarness(CliHarness):
+    supports_mcp = True
+
+    @property
+    def name(self) -> str:
+        return "attempt-preflight"
+
+    def skills_root(self, ctx: RunContext) -> Path:
+        return Path(ctx.isolated_home) / "skills"
+
+    def _command(self, ctx: RunContext):
+        return (
+            [sys.executable, "-c", "raise AssertionError('agent started')"],
+            None,
+            None,
+        )
+
+    def _environment(self, ctx: RunContext) -> dict[str, str]:
+        return self._isolated_env(ctx)
+
+    def _parse_stream(self, stdout: str):
+        return [], stdout
+
+
+def test_server_that_dies_after_initial_preflight_stops_before_agent(tmp_path) -> None:
+    marker = tmp_path / "started"
+    script = tmp_path / "server.py"
+    script.write_text(
+        "import json, pathlib, sys\n"
+        "marker = pathlib.Path(sys.argv[1])\n"
+        "if marker.exists(): sys.exit(3)\n"
+        "marker.write_text('started')\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        "'result': {}}), flush=True)\n"
+    )
+    servers = {
+        "echo": McpServer(command=sys.executable, args=[str(script), str(marker)])
+    }
+    preflight_stdio_servers(servers)
+    home = tmp_path / "home"
+    workdir = home / "work"
+    workdir.mkdir(parents=True)
+    ctx = run_context(
+        isolated_home=str(home), workdir=str(workdir), mcp_servers=servers
+    )
+
+    with pytest.raises(HarnessConfigurationError, match="MCP server 'echo'"):
+        _AttemptPreflightHarness().run(ctx)
 
 
 def test_readme_relative_mcp_arg_starts_from_any_cwd(tmp_path, monkeypatch) -> None:

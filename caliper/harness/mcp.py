@@ -25,6 +25,7 @@ import queue
 import re
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 from dataclasses import dataclass, field
@@ -65,7 +66,11 @@ def resolve_declared_paths(
 
 
 def preflight_stdio_servers(
-    declared: dict[str, McpServer], *, extra_path: list[str] | None = None
+    declared: dict[str, McpServer],
+    *,
+    extra_path: list[str] | None = None,
+    env: dict[str, str] | None = None,
+    cwd: str | None = None,
 ) -> None:
     """Initialize each local server once before a model can score without it.
 
@@ -87,7 +92,29 @@ def preflight_stdio_servers(
             },
         }
         try:
-            with tempfile.TemporaryDirectory(prefix="caliper-mcp-preflight-") as cwd:
+            with tempfile.TemporaryDirectory(
+                prefix="caliper-mcp-preflight-"
+            ) as tmp_dir:
+                # A run-level check has no attempt yet. Keep its environment as
+                # narrow as an attempt's, so a server cannot pass preflight by
+                # relying on a host variable the agent will never inherit.
+                process_env = (
+                    dict(env)
+                    if env is not None
+                    else {
+                        "HOME": tmp_dir,
+                        "PATH": os.pathsep.join(
+                            [*(extra_path or []), os.environ.get("PATH", "")]
+                        ),
+                    }
+                )
+                if (
+                    env is None
+                    and sys.platform == "win32"
+                    and "SystemRoot" in os.environ
+                ):
+                    process_env["SystemRoot"] = os.environ["SystemRoot"]
+                process_env.update(server.env)
                 process = subprocess.Popen(
                     [server.command, *server.args],
                     stdin=subprocess.PIPE,
@@ -95,15 +122,8 @@ def preflight_stdio_servers(
                     stderr=subprocess.DEVNULL,
                     text=True,
                     encoding="utf-8",
-                    cwd=cwd,
-                    env={
-                        **os.environ,
-                        "HOME": cwd,
-                        "PATH": os.pathsep.join(
-                            [*(extra_path or []), os.environ.get("PATH", "")]
-                        ),
-                        **server.env,
-                    },
+                    cwd=cwd or tmp_dir,
+                    env=process_env,
                     start_new_session=os.name == "posix",
                 )
                 try:
