@@ -245,8 +245,9 @@ commented lines.
 Each attempt runs in an isolated temporary home with no session history, in a
 fresh empty working directory. It sees only the MCP servers the spec declares:
 none of your personal servers, and none of the hosted connectors your Claude or
-ChatGPT account carries (Gmail, Drive, GitHub, and the like). Results are saved
-as JSON you can inspect and diff later.
+ChatGPT account carries (Gmail, Drive, GitHub, and the like). Pass
+`--inherit-mcp` to give a run your own setup back; the saved run records that it
+did. Results are saved as JSON you can inspect and diff later.
 
 ---
 
@@ -378,6 +379,7 @@ run Caliper, inside the git repository. See
 | `--fail-fast INT` | `0` | Stop a task after N consecutive `infra_error`/`timeout` attempts (`0` disables; counts attempts, not invocations) |
 | `--model TARGET` | `claude-code` | Skill engine: `backend`, `model`, or `backend:model` ([syntax](docs/backends.md#selecting-an-engine)) |
 | `--judge-model TARGET` | `claude-code` | Judge engine, same syntax |
+| `--inherit-mcp` | off | Give attempts the MCP servers and account connectors your CLI loads by itself, merged with the spec's `mcp:` (the spec wins a name clash). The judge stays isolated; no effect on `pi` ([details](docs/backends.md#inheriting-your-own-mcp-setup)) |
 | `--verbose` | off | Show per-attempt judge reasoning |
 | `--output PATH` | none | Also save results JSON to a specific path |
 

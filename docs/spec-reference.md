@@ -246,6 +246,10 @@ agent never sees its tool definitions.
   `--strict-mcp-config`, and `codex` with its `apps` and `plugins` features
   turned off. The judge runs with the same switches, so it can't mistake its own
   connectors for the attempt's.
+- `caliper run --inherit-mcp` gives a run your own servers and connectors back,
+  merged with the declared ones. It's a flag, not a spec field: what it brings
+  depends on the machine. `--ablate` still only names declared servers. See
+  [Inheriting your own MCP setup](backends.md#inheriting-your-own-mcp-setup).
 
 ## Judging
 

@@ -205,6 +205,19 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
         console.print(
             f"    [yellow]ablated:[/yellow] {', '.join(results.run.ablated)}{note}"
         )
+    # A score measured with the machine's own MCP setup reads exactly like an
+    # isolated one unless it says so (docs/adr/0028).
+    if results.run.inherit_mcp:
+        inherited = results.run.inherited_mcp_servers
+        listed = (
+            escape(", ".join(inherited))
+            if inherited
+            else ("none found" if inherited == [] else "not listed by this backend")
+        )
+        console.print(
+            f"    [yellow]inherited MCP:[/yellow] {listed}"
+            f"   {_SEP}   [dim]score depends on this machine's setup[/dim]"
+        )
     # A short sample is the one thing a reader must not mistake for a full one:
     # the rates below are computed over the attempts that ran, which is fewer
     # than the invocation asked for. Said once, up front, next to the ablation

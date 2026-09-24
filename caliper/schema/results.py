@@ -202,6 +202,16 @@ class RunMeta(BaseModel):
     # drift is a separate concern. See
     # docs/adr/0025-ablation-covers-mcp-servers.md.
     mcp_servers: list[str] | None = None
+    # ``--inherit-mcp``: the attempts kept the MCP servers and account
+    # connectors their CLI loads by itself, beside the declared ones. Kept apart
+    # from ``mcp_servers``, which ablation pairing reads as the spec's own set.
+    # False on a backend without MCP, where the flag had nothing to bring. See
+    # docs/adr/0028-inherit-mcp-is-an-opt-in-invocation-flag.md.
+    inherit_mcp: bool = False
+    # The inherited servers the attempts reported, declared ones excluded: every
+    # name any attempt saw. ``None`` = unknown (the flag was off, or the backend
+    # could not see them), so an empty list means "inherited, but there were none".
+    inherited_mcp_servers: list[str] | None = None
     # The judge engine that graded this run. Optional so results saved before
     # judge provenance was recorded still load (they render as an unknown judge).
     judge_backend: str | None = None
@@ -1052,6 +1062,11 @@ class RunComparison(BaseModel):
     # ``mcp_servers`` existed cannot be compared on this axis. Silent on a
     # recognised ablation pair, whose difference *is* the experiment.
     mcp_mismatch: bool = False
+    # The two runs' inherited tool environments differ: one used
+    # ``--inherit-mcp`` and the other did not, or both did and recorded
+    # different inherited servers (the same spec on two machines). A warning,
+    # like ``mcp_mismatch``; see docs/adr/0028.
+    inherit_mcp_mismatch: bool = False
     # Members installed by both runs whose *text* differs — the complement of
     # ``neighbourhood_mismatch``, which is a change in *membership*. Every
     # drifted member is recorded here; only the git-sourced ones also raise a

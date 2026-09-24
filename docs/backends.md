@@ -157,3 +157,31 @@ error, never a silent no-op.
   another backend. Running an `mcp:` spec on `pi` fails with that guidance.
 
 See [MCP servers](spec-reference.md#mcp-servers-mcp) for the spec format.
+
+## Inheriting your own MCP setup
+
+By default an attempt sees only the servers its spec declares. `caliper run
+--inherit-mcp` gives every attempt of that run the MCP servers and account
+connectors your CLI loads by itself, merged with the spec's `mcp:` block
+([ADR 0028](adr/0028-inherit-mcp-is-an-opt-in-invocation-flag.md)). Use it to
+reproduce your own setup quickly, or to evaluate a skill that relies on a hosted
+OAuth connector a spec can't declare.
+
+| Backend | What is inherited |
+|---|---|
+| `claude-code` | The `mcpServers` in your `~/.claude.json`, plus your claude.ai connectors (`--strict-mcp-config` is dropped) |
+| `codex` | The `[mcp_servers.*]` tables in your `~/.codex/config.toml`, plus ChatGPT apps and plugins (surfacing as `codex_apps`) |
+| `hermes` | The `mcp_servers` in your `~/.hermes/config.yaml` (and `inherit_mcp_toolsets`) |
+| `pi` | Nothing: no MCP by design. The run warns and records the flag as off |
+
+- **The spec wins a name clash.** A declared server replaces your server of the
+  same name, in the attempt's copy of the config. Your real config is never
+  changed.
+- **The judge stays isolated**, whatever the flag says.
+- **The run says so.** It prints a notice at the start: the score depends on
+  this machine's setup, and attempts can act on those accounts without asking.
+  The saved run records `inherit_mcp` and the inherited server names, the report
+  header lists them, and `caliper compare` warns when two runs inherited
+  differently (see [Results JSON](results.md#results-json)).
+- **`--ablate` can't remove an inherited server.** It only names what the spec
+  declares.

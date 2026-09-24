@@ -119,6 +119,15 @@ def run_cmd(
         "--judge-model",
         help="Override judge backend/model (e.g. claude-code:claude-haiku-4-5-20251001)",
     ),
+    inherit_mcp: bool = typer.Option(
+        False,
+        "--inherit-mcp",
+        help=(
+            "Give attempts the MCP servers and account connectors your CLI "
+            "loads by itself, merged with the spec's mcp: (the spec wins a name "
+            "clash). The judge stays isolated."
+        ),
+    ),
 ) -> None:
     # Retired in favour of --ablate, which runs *one* arm and saves it as an
     # ordinary run. Kept parseable for one release because caliper ships on PyPI
@@ -207,6 +216,16 @@ def run_cmd(
     harness = get_harness(backend, skill_model)
     judge = EvalJudge(judge_backend, judge_model_name)
 
+    # A notice, not a prompt: typing the flag is the consent, and an attempt's
+    # isolation was never a security boundary (docs/adr/0027, docs/adr/0028).
+    # A backend without MCP gets the runner's no-effect warning instead.
+    if inherit_mcp and harness.supports_mcp:
+        console.print(
+            "[yellow]⚠ --inherit-mcp:[/yellow] attempts get this machine's MCP "
+            "servers and account connectors. The score depends on this setup, "
+            "and attempts can act on those accounts without asking."
+        )
+
     task_names = [t.name for t in spec.tasks]
     progress, task_ids = make_progress(task_names, k)
 
@@ -286,6 +305,7 @@ def run_cmd(
                 on_warning=warn,
                 on_attempt_done=on_attempt_done,
                 on_task_done=on_task_done,
+                inherit_mcp=inherit_mcp,
             )
         except (SkillResolutionError, HarnessConfigurationError) as exc:
             fail(exc)

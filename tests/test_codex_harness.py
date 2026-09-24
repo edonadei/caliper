@@ -432,18 +432,26 @@ _AMBIENT_CONFIG = (
 )
 
 
-def _fake_codex_home(tmp_path, config_text: str | None):
+_CHATGPT_AUTH = '{"tokens": {"access_token": "t"}}'
+
+
+def _fake_codex_home(tmp_path, config_text: str | None, *, auth: str = "{}"):
     """A fake ~/.codex with auth and (optionally) a config carrying user MCP state."""
     real = tmp_path / "realhome" / ".codex"
     real.mkdir(parents=True)
-    (real / "auth.json").write_text("{}")
+    (real / "auth.json").write_text(auth)
     if config_text is not None:
         (real / "config.toml").write_text(config_text)
     return tmp_path / "realhome"
 
 
-def _run_codex_mcp(monkeypatch, tmp_path, mcp_servers, *, home=None):
-    """Seed an attempt with declared mcp_servers; return the seeded config.toml path."""
+def _run_codex_mcp(
+    monkeypatch, tmp_path, mcp_servers, *, home=None, inherit_mcp=False, captured=None
+):
+    """Seed an attempt with declared mcp_servers; return the seeded config.toml path.
+
+    ``captured``, when given, receives the attempt's ``cmd`` and ``result``.
+    """
     monkeypatch.setattr(
         "caliper.harness.mcp.preflight_stdio_servers", lambda *a, **kw: None
     )
@@ -456,6 +464,8 @@ def _run_codex_mcp(monkeypatch, tmp_path, mcp_servers, *, home=None):
             return subprocess.CompletedProcess(
                 cmd, 0, stdout="codex-cli 0.142.0\n", stderr=""
             )
+        if captured is not None:
+            captured["cmd"] = cmd
         return subprocess.CompletedProcess(cmd, 0, stdout="OK\n", stderr="")
 
     monkeypatch.setenv("HOME", str(home))
@@ -466,15 +476,18 @@ def _run_codex_mcp(monkeypatch, tmp_path, mcp_servers, *, home=None):
     )
     patch_cli_calls(monkeypatch, fake_run)
 
-    CodexHarness().run(
+    result = CodexHarness().run(
         run_context(
             prompt="Hello",
             model=None,
             timeout=30,
             isolated_home=str(iso),
             mcp_servers=mcp_servers,
+            inherit_mcp=inherit_mcp,
         )
     )
+    if captured is not None:
+        captured["result"] = result
     return iso / ".codex" / "config.toml"
 
 
@@ -549,6 +562,163 @@ def test_codex_writes_config_when_user_has_none(monkeypatch, tmp_path) -> None:
     )
     config = tomllib.loads(seeded.read_text())
     assert config["mcp_servers"] == {"echo": {"command": "python3"}}
+
+
+def test_codex_turns_account_connectors_off_by_default(monkeypatch, tmp_path) -> None:
+    captured: dict = {}
+    _run_codex_mcp(monkeypatch, tmp_path, None, captured=captured)
+    assert "features.apps=false" in captured["cmd"]
+    assert "features.plugins=false" in captured["cmd"]
+    # Nothing is recorded as inherited when the flag is off.
+    assert captured["result"].inherited_mcp_servers is None
+
+
+def test_codex_inherit_mcp_keeps_user_servers_and_connectors(
+    monkeypatch, tmp_path
+) -> None:
+    captured: dict = {}
+    seeded = _run_codex_mcp(
+        monkeypatch,
+        tmp_path,
+        {"echo": McpServer(command="python3")},
+        home=_fake_codex_home(tmp_path, _AMBIENT_CONFIG, auth=_CHATGPT_AUTH),
+        inherit_mcp=True,
+        captured=captured,
+    )
+    config = tomllib.loads(seeded.read_text())
+    # The user's server survives (with its nested env table) beside the spec's.
+    assert config["mcp_servers"] == {
+        "personal": {"command": "my-private-server", "env": {"TOKEN": "abc"}},
+        "echo": {"command": "python3"},
+    }
+    # The model pin is still stripped: --inherit-mcp is about tools only.
+    assert "model" not in config
+    # The account's hosted apps and plugins are left on.
+    assert "features.apps=false" not in captured["cmd"]
+    assert "features.plugins=false" not in captured["cmd"]
+    # Recorded: the user's server plus the hosted apps, never the declared one.
+    assert captured["result"].inherited_mcp_servers == ["codex_apps", "personal"]
+
+
+def test_codex_inherit_mcp_lets_the_spec_win_a_name_clash(
+    monkeypatch, tmp_path
+) -> None:
+    captured: dict = {}
+    seeded = _run_codex_mcp(
+        monkeypatch,
+        tmp_path,
+        {"personal": McpServer(command="spec-server")},
+        inherit_mcp=True,
+        captured=captured,
+    )
+    # Parses at all: a table defined twice would be a TOML error.
+    config = tomllib.loads(seeded.read_text())
+    assert config["mcp_servers"] == {"personal": {"command": "spec-server"}}
+    # An API-key login (no OAuth tokens) brings no hosted apps to claim.
+    assert captured["result"].inherited_mcp_servers == []
+
+
+def test_codex_inherit_mcp_still_ablates_a_server_the_user_also_has(
+    monkeypatch, tmp_path
+) -> None:
+    # `--ablate personal --inherit-mcp`: the declared `personal` was removed,
+    # and the user's own `personal` must not come back in its place.
+    monkeypatch.setattr(
+        "caliper.harness.mcp.preflight_stdio_servers", lambda *a, **kw: None
+    )
+    home = _fake_codex_home(tmp_path, _AMBIENT_CONFIG)
+    iso = tmp_path / "iso"
+    iso.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    CodexHarness()._prepare(
+        run_context(
+            isolated_home=str(iso),
+            mcp_servers={},
+            mcp_declared_names=frozenset({"personal"}),
+            inherit_mcp=True,
+        )
+    )
+    config = tomllib.loads((iso / ".codex" / "config.toml").read_text())
+    assert "mcp_servers" not in config
+
+
+def test_codex_reads_dotted_keys_and_commented_headers(monkeypatch, tmp_path) -> None:
+    home = _fake_codex_home(
+        tmp_path,
+        "features.apps = false\n"
+        "[ mcp_servers ]  # mine\n"
+        'foo.command = "u"\n'
+        'foo.args = ["a"]\n'
+        'bar = { command = "b" }\n',
+        auth=_CHATGPT_AUTH,
+    )
+    captured: dict = {}
+    seeded = _run_codex_mcp(
+        monkeypatch,
+        tmp_path,
+        {"foo": McpServer(command="spec-server")},
+        home=home,
+        inherit_mcp=True,
+        captured=captured,
+    )
+    config = tomllib.loads(seeded.read_text())
+    # The dotted `foo` is the spec's now; `bar` is the user's.
+    assert config["mcp_servers"] == {
+        "bar": {"command": "b"},
+        "foo": {"command": "spec-server"},
+    }
+    # A top-level `features.apps = false` turns the hosted apps off too.
+    assert captured["result"].inherited_mcp_servers == ["bar"]
+
+
+def test_codex_strips_a_commented_bare_table_by_default(monkeypatch, tmp_path) -> None:
+    home = _fake_codex_home(
+        tmp_path,
+        'approval_policy = "never"\n[mcp_servers]  # mine\nfoo = { command = "u" }\n',
+    )
+    seeded = _run_codex_mcp(monkeypatch, tmp_path, None, home=home)
+    config = tomllib.loads(seeded.read_text())
+    assert config == {"approval_policy": "never"}
+
+
+def test_codex_inherit_mcp_handles_a_bare_mcp_servers_table(
+    monkeypatch, tmp_path
+) -> None:
+    home = _fake_codex_home(
+        tmp_path,
+        "[mcp_servers]\n"
+        'personal = { command = "mine" }\n'
+        '"quoted" = { command = "other" }\n'
+        "\n"
+        "[features]\n"
+        "apps = false # the user turned hosted apps off\n",
+        auth=_CHATGPT_AUTH,
+    )
+    captured: dict = {}
+    seeded = _run_codex_mcp(
+        monkeypatch,
+        tmp_path,
+        {"personal": McpServer(command="spec-server")},
+        home=home,
+        inherit_mcp=True,
+        captured=captured,
+    )
+    config = tomllib.loads(seeded.read_text())
+    assert config["mcp_servers"] == {
+        "quoted": {"command": "other"},
+        "personal": {"command": "spec-server"},
+    }
+    # The user's own `apps = false` holds, so no hosted apps are claimed.
+    assert captured["result"].inherited_mcp_servers == ["quoted"]
+
+
+def test_codex_judge_keeps_connectors_off(monkeypatch) -> None:
+    monkeypatch.setattr(CodexHarness, "cli_path", lambda self: "codex")
+    call = CodexHarness()._prompt_command("grade this", None)
+    try:
+        assert "features.apps=false" in call.argv
+    finally:
+        call.cleanup()
 
 
 def test_codex_errors_on_unset_mcp_env_var(monkeypatch, tmp_path) -> None:

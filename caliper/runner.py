@@ -96,6 +96,9 @@ class _RunEnv:
     # was ablated" (an empty mapping). Both isolate the attempt to zero servers
     # (docs/adr/0026-attempts-never-see-account-connectors.md).
     mcp_declared: bool
+    # ``--inherit-mcp``, already cleared on a backend without MCP: each attempt
+    # keeps the servers and account connectors its CLI loads by itself (docs/adr/0028).
+    inherit_mcp: bool
     # The *skills* ``--ablate`` removed. Truthy drops every task's activation
     # expectation. Removing a server is deliberately not on this list: activation
     # asserts on skills, and those are still installed and observable.
@@ -109,6 +112,9 @@ class _RunEnv:
     # the GIL, so these are safe to share across the pool's worker threads.
     resolved_models: list[str]
     judge_models: list[str]
+    # Each attempt's inherited servers, where its backend could see them. The
+    # same append-only discipline as the two lists above.
+    inherited_mcp_servers: list[list[str]]
     # The first fatal misconfiguration a worker diagnosed, if any. Collected
     # rather than raised through the pool so the run can be saved before it is
     # surfaced; same append-only, GIL-safe discipline as the two lists above.
@@ -154,6 +160,9 @@ def run(
     fetcher: SkillFetcher | None = None,
     # Told when the backend reports running a different model than requested.
     on_warning: Callable[[str], None] | None = None,
+    # Keep the servers and account connectors the backend's CLI loads by itself
+    # (``--inherit-mcp``, docs/adr/0028).
+    inherit_mcp: bool = False,
 ) -> RunResults:
     # Before anything that can block: a Ctrl-C during skill fetching has to be
     # honoured by the attempts that would otherwise start right after it.
@@ -205,6 +214,18 @@ def run(
             "mcp: block from the spec."
         )
 
+    # A backend without MCP has nothing to inherit. Unlike a declared mcp: block
+    # this is not refused: the flag asks for "whatever my setup has", and on such
+    # a backend that is nothing. Recorded as off, so `compare` never warns about
+    # a tool-environment difference that did not exist (docs/adr/0028).
+    if inherit_mcp and not harness.supports_mcp:
+        inherit_mcp = False
+        if on_warning:
+            on_warning(
+                f"--inherit-mcp has no effect on the '{harness.name}' backend, "
+                "which has no MCP support; the run records it as off."
+            )
+
     # Attempts run from fresh temporary workdirs. Anchor explicit ./ and ../
     # server paths to the spec once, before any backend writes its config.
     mcp_servers = resolve_declared_paths(
@@ -237,6 +258,7 @@ def run(
         # Field presence, not truthiness: an authored `mcp: {}` parses to an
         # empty mapping but still declares the block, and must isolate.
         mcp_declared="mcp" in spec.model_fields_set,
+        inherit_mcp=inherit_mcp,
         ablated_skills=ablation.skill_names,
         timeout=timeout,
         fail_fast_unusable=fail_fast_unusable,
@@ -244,6 +266,7 @@ def run(
         on_task_done=on_task_done,
         resolved_models=[],
         judge_models=[],
+        inherited_mcp_servers=[],
         fatal=[],
         hook_failures=[],
     )
@@ -312,6 +335,8 @@ def run(
             # describes itself and `compare` can check an `mcp:` marker against
             # it rather than trusting the marker alone.
             mcp_servers=sorted(ablation.mcp_servers),
+            inherit_mcp=inherit_mcp,
+            inherited_mcp_servers=_recorded_inherited(env.inherited_mcp_servers),
             # True when attempts were left unrun: Ctrl-C, or a fatal error the
             # run stopped for. Deliberately not inferred from a short attempt
             # list, which fail-fast also produces on purpose.
@@ -413,6 +438,18 @@ def _recorded_model(
             f"{actual!r}; the run records {actual!r}."
         )
     return actual
+
+
+def _recorded_inherited(per_attempt: list[list[str]]) -> list[str] | None:
+    """The inherited servers a run records: every name any attempt reported.
+
+    A union, because the question the record answers is "what could this run's
+    attempts reach". ``None`` when no attempt could tell — the flag was off, or
+    the backend cannot see them — which reads as "unknown", not "none".
+    """
+    if not per_attempt:
+        return None
+    return sorted({name for names in per_attempt for name in names})
 
 
 def _run_task_chain(task: TaskSpec, env: _RunEnv, k: int) -> list[AttemptRecord]:
@@ -553,6 +590,10 @@ def _measure_attempt(
                 # ``mcp:`` block; an empty mapping is a declared block whose
                 # servers were all ablated, and still isolates the attempt.
                 mcp_servers=env.mcp_servers if env.mcp_declared else None,
+                inherit_mcp=env.inherit_mcp,
+                # Ablated names too, so --ablate still removes a server the
+                # user also has under that name (docs/adr/0028).
+                mcp_declared_names=frozenset(spec.mcp),
                 forbidden_files=list(spec.sandbox.forbidden_files),
             )
         )
@@ -576,6 +617,8 @@ def _measure_attempt(
     # not vote on the model the run records.
     if attempt_result.resolved_model:
         env.resolved_models.append(attempt_result.resolved_model)
+    if attempt_result.inherited_mcp_servers is not None:
+        env.inherited_mcp_servers.append(attempt_result.inherited_mcp_servers)
 
     assembled = assemble_attempt(
         attempt_result,

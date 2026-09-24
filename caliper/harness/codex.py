@@ -4,7 +4,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 
 import tomli_w
 
@@ -25,8 +25,14 @@ CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
 # The ChatGPT login in auth.json carries the account's hosted connectors
 # (mcp__codex_apps__*) and remote plugins, which stripping [mcp_servers] can't
 # reach. A -c override beats any [features] table in the seeded config.toml,
-# so neither an attempt nor the judge sees them (docs/adr/0026).
+# so neither an attempt nor the judge sees them (docs/adr/0026). An attempt run
+# with --inherit-mcp leaves them on; the judge never does (docs/adr/0028).
 NO_ACCOUNT_CONNECTORS = ("-c", "features.apps=false", "-c", "features.plugins=false")
+
+# The server name codex's hosted connectors surface under
+# (``mcp__codex_apps__<tool>``). Recorded as one inherited server: caliper cannot
+# list the connectors behind it without driving the ChatGPT account.
+CODEX_APPS_SERVER = "codex_apps"
 
 
 class CodexHarness(CliHarness):
@@ -88,7 +94,7 @@ class CodexHarness(CliHarness):
             "--dangerously-bypass-approvals-and-sandbox",
             "--color",
             "never",
-            *NO_ACCOUNT_CONNECTORS,
+            *(() if ctx.inherit_mcp else NO_ACCOUNT_CONNECTORS),
             "-",
         ]
         if ctx.model:
@@ -325,12 +331,20 @@ class CodexHarness(CliHarness):
         real config. When neither a real config nor a declared server exists,
         nothing is written (the CLI falls back to its own defaults). The file may
         now hold resolved secrets, so it is kept ``0600``.
+
+        Under ``--inherit-mcp`` the user's ``[mcp_servers*]`` tables are kept,
+        except any whose name the spec declares, ablated or not: the spec wins a
+        name clash (docs/adr/0028).
         """
         base = ""
         real_exists = real_config.exists()
-        if real_exists:
-            base = self._strip_seeded_config(real_config.read_text())
         servers = self._translate_mcp_servers(ctx)
+        if real_exists:
+            base = self._strip_seeded_config(
+                real_config.read_text(),
+                keep_servers=ctx.inherit_mcp,
+                shadowed=ctx.spec_mcp_names,
+            )
 
         if not real_exists and not servers:
             return
@@ -367,38 +381,74 @@ class CodexHarness(CliHarness):
             servers[name] = entry
         return servers
 
-    def _strip_seeded_config(self, config: str) -> str:
-        """Drop the top-level ``model =`` line and every ``[mcp_servers*]`` table.
+    def _strip_seeded_config(
+        self,
+        config: str,
+        *,
+        keep_servers: bool = False,
+        shadowed: frozenset[str] = frozenset(),
+    ) -> str:
+        """Drop the top-level ``model`` key and the user's MCP servers.
 
         The model line is stripped so the seeded config never pins a model over the
-        caliper invocation; the ``mcp_servers`` tables are stripped so the user's
-        ambient personal servers are replaced (in ``_materialize_config``) by
-        exactly the declared set. Line-based on purpose: it needs no TOML *reader*
-        (unavailable on the 3.10 floor) and mirrors codex's own table layout.
+        caliper invocation; the ``mcp_servers`` entries are stripped so the user's
+        personal servers are replaced (in ``_materialize_config``) by exactly the
+        declared set. With ``keep_servers`` (``--inherit-mcp``) they stay, minus
+        the ones named in ``shadowed`` — a declared server of the same name
+        replaces them (or, if ablated, removes them), and TOML refuses a table
+        defined twice. Line-based on purpose: it needs no TOML *reader*
+        (unavailable on the 3.10 floor); :func:`_toml_lines` does the reading.
         """
+
+        def dropped(server: str | None) -> bool:
+            return not keep_servers or server in shadowed
+
         filtered: list[str] = []
-        in_table = False
-        dropping_mcp = False
-        for line in config.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("["):
-                in_table = True
-                dropping_mcp = self._is_mcp_servers_header(stripped)
-            if dropping_mcp:
+        # Set on a header line; true for every line of a dropped table.
+        dropping_table = False
+        for line, table, kind, path in _toml_lines(config):
+            if kind == "table":
+                dropping_table = table[:1] == ["mcp_servers"] and (
+                    dropped(table[1] if len(table) > 1 else None)
+                )
+            if dropping_table:
                 continue
-            if not in_table and stripped.startswith("model ="):
-                continue
+            if kind == "key":
+                full = table + path
+                # A server written as keys: `name = {…}` in a bare
+                # [mcp_servers] table, or dotted from anywhere above it.
+                if full[0] == "mcp_servers" and len(full) > 1 and dropped(full[1]):
+                    continue
+                if full == ["model"]:
+                    continue
             filtered.append(line)
         return "\n".join(filtered) + ("\n" if config.endswith("\n") else "")
 
-    @staticmethod
-    def _is_mcp_servers_header(stripped: str) -> bool:
-        """True for a ``[mcp_servers]``/``[mcp_servers.x]``/``[[mcp_servers…]]`` header."""
-        return (
-            stripped == "[mcp_servers]"
-            or stripped.startswith("[mcp_servers.")
-            or stripped.startswith("[[mcp_servers")
-        )
+    def _inherited_mcp_servers(
+        self, proc: ProcessResult, ctx: RunContext
+    ) -> list[str] | None:
+        """The user's servers left in the attempt's config, plus the hosted apps.
+
+        Read off the ``config.toml`` this attempt actually ran with, minus the
+        spec's servers, with the same reader that stripped it. Codex's hosted
+        connectors all surface under one server, ``codex_apps``, which counts
+        only for a ChatGPT login (an API key carries no connectors) whose config
+        did not turn the ``apps`` feature off.
+        """
+        codex_home = Path(ctx.isolated_home) / ".codex"
+        config_path = codex_home / "config.toml"
+        config = config_path.read_text() if config_path.exists() else ""
+        names: set[str] = set()
+        apps_off = False
+        for line, table, kind, path in _toml_lines(config):
+            full = table + path if kind == "key" else table
+            if full[:1] == ["mcp_servers"] and len(full) > 1:
+                names.add(full[1])
+            if kind == "key" and full == ["features", "apps"]:
+                apps_off = _toml_value(line) == "false"
+        if not apps_off and _chatgpt_login(codex_home / "auth.json"):
+            names.add(CODEX_APPS_SERVER)
+        return sorted(names - ctx.spec_mcp_names)
 
     def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
         if proc.returncode == 0:
@@ -515,3 +565,101 @@ def _error_message_from_json(candidate: str) -> str | None:
         if isinstance(message, str) and message:
             return message
     return None
+
+
+def _toml_lines(
+    config: str,
+) -> Iterator[tuple[str, list[str], str | None, list[str]]]:
+    """Walk a TOML file line by line: ``(line, table, kind, path)``.
+
+    ``kind`` is ``"table"`` for a ``[header]``/``[[header]]`` (``path`` is then
+    the header's own path, and ``table`` already is it), ``"key"`` for a
+    ``key = value`` line (``path`` is the key's dotted path, relative to
+    ``table``), and ``None`` for anything else. Keys may be bare or quoted, with
+    whitespace around the dots. Enough of TOML to find tables and keys in a
+    codex config, not a parser: a line inside a multi-line string is read as if
+    it stood alone.
+    """
+    table: list[str] = []
+    for line in config.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            inner = stripped[2:] if stripped.startswith("[[") else stripped[1:]
+            close = _outside_quotes(inner, "]")
+            path = _toml_path(inner[:close]) if close >= 0 else None
+            # An unreadable header still ends the previous table.
+            table = path if path else ["<unreadable>"]
+            yield line, table, "table", table
+            continue
+        equals = _outside_quotes(stripped, "=")
+        path = _toml_path(stripped[:equals]) if equals > 0 else None
+        if path and not stripped.startswith("#"):
+            yield line, table, "key", path
+        else:
+            yield line, table, None, []
+
+
+def _toml_path(text: str) -> list[str] | None:
+    """Split a dotted TOML key (``a."b.c" . d``) into its segments, else ``None``."""
+    segments: list[str] = []
+    i, n = 0, len(text)
+    while True:
+        while i < n and text[i] in " \t":
+            i += 1
+        if i >= n:
+            return None
+        if text[i] in "\"'":
+            end = text.find(text[i], i + 1)
+            if end < 0:
+                return None
+            segments.append(text[i + 1 : end])
+            i = end + 1
+        else:
+            start = i
+            while i < n and (text[i].isalnum() or text[i] in "_-"):
+                i += 1
+            if i == start:
+                return None
+            segments.append(text[start:i])
+        while i < n and text[i] in " \t":
+            i += 1
+        if i >= n:
+            return segments
+        if text[i] != ".":
+            return None
+        i += 1
+
+
+def _outside_quotes(text: str, char: str) -> int:
+    """The index of the first ``char`` not inside a quoted string, else ``-1``."""
+    quote: str | None = None
+    for i, ch in enumerate(text):
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "\"'":
+            quote = ch
+        elif ch == char:
+            return i
+    return -1
+
+
+def _toml_value(line: str) -> str:
+    """The value of a ``key = value`` line, comment and whitespace removed."""
+    value = line[_outside_quotes(line, "=") + 1 :]
+    comment = _outside_quotes(value, "#")
+    return (value[:comment] if comment >= 0 else value).strip()
+
+
+def _chatgpt_login(auth_path: Path) -> bool:
+    """True when ``auth.json`` holds a ChatGPT login, the only kind with apps.
+
+    A ChatGPT login stores OAuth ``tokens``; an API-key login does not, and
+    brings no hosted connectors. Unreadable or absent counts as no login, so a
+    connector set caliper cannot vouch for is never recorded.
+    """
+    try:
+        auth = json.loads(auth_path.read_text())
+    except (OSError, ValueError):
+        return False
+    return isinstance(auth, dict) and bool(auth.get("tokens"))

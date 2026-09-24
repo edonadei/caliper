@@ -171,8 +171,13 @@ def _fake_home_with_user_mcp(tmp_path):
     return home
 
 
-def _run_hermes_mcp(monkeypatch, tmp_path, mcp_servers, *, home=None):
-    """Run the harness with declared mcp_servers and return the seeded config."""
+def _run_hermes_mcp(
+    monkeypatch, tmp_path, mcp_servers, *, home=None, inherit_mcp=False, captured=None
+):
+    """Run the harness with declared mcp_servers and return the seeded config.
+
+    ``captured``, when given, receives the attempt's ``result``.
+    """
     monkeypatch.setattr(
         "caliper.harness.mcp.preflight_stdio_servers", lambda *a, **kw: None
     )
@@ -186,15 +191,18 @@ def _run_hermes_mcp(monkeypatch, tmp_path, mcp_servers, *, home=None):
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     _install(monkeypatch, home, fake_run)
-    HermesHarness().run(
+    result = HermesHarness().run(
         run_context(
             prompt="Hello",
             model=None,
             timeout=30,
             isolated_home=str(iso),
             mcp_servers=mcp_servers,
+            inherit_mcp=inherit_mcp,
         )
     )
+    if captured is not None:
+        captured["result"] = result
     seeded = iso / ".hermes" / "config.yaml"
     return yaml.safe_load(seeded.read_text()), seeded
 
@@ -252,6 +260,62 @@ def test_hermes_removes_mcp_servers_when_spec_declares_none(
     # A no-MCP eval must not inherit the user's personal servers.
     assert "mcp_servers" not in config
     assert "inherit_mcp_toolsets" not in config
+
+
+def test_hermes_inherit_mcp_merges_user_servers_with_the_spec_winning(
+    monkeypatch, tmp_path
+) -> None:
+    captured: dict = {}
+    config, _ = _run_hermes_mcp(
+        monkeypatch,
+        tmp_path,
+        {
+            "echo": McpServer(command="python3"),
+            "personal": McpServer(command="spec-server"),
+        },
+        inherit_mcp=True,
+        captured=captured,
+    )
+    # The spec's `personal` replaces the user's; nothing else of theirs is lost.
+    assert config["mcp_servers"] == {
+        "personal": {"command": "spec-server"},
+        "echo": {"command": "python3"},
+    }
+    assert config["inherit_mcp_toolsets"] is True
+    # Every surviving server is a declared one, so nothing was inherited.
+    assert captured["result"].inherited_mcp_servers == []
+
+
+def test_hermes_inherit_mcp_keeps_and_records_user_servers(
+    monkeypatch, tmp_path
+) -> None:
+    captured: dict = {}
+    config, _ = _run_hermes_mcp(
+        monkeypatch, tmp_path, None, inherit_mcp=True, captured=captured
+    )
+    assert config["mcp_servers"] == {"personal": {"command": "my-private-server"}}
+    assert captured["result"].inherited_mcp_servers == ["personal"]
+
+
+def test_hermes_inherit_mcp_still_ablates_a_server_the_user_also_has(
+    monkeypatch, tmp_path
+) -> None:
+    home = _fake_home_with_user_mcp(tmp_path)
+    iso = tmp_path / "iso"
+    (iso / ".hermes").mkdir(parents=True)
+    (iso / ".hermes" / "config.yaml").write_text(
+        (home / ".hermes" / "config.yaml").read_text()
+    )
+    HermesHarness()._prepare(
+        run_context(
+            isolated_home=str(iso),
+            mcp_servers={},
+            mcp_declared_names=frozenset({"personal"}),
+            inherit_mcp=True,
+        )
+    )
+    config = yaml.safe_load((iso / ".hermes" / "config.yaml").read_text())
+    assert "mcp_servers" not in config
 
 
 def test_hermes_errors_on_unset_mcp_env_var(monkeypatch, tmp_path) -> None:

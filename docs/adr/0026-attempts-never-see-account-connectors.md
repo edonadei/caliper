@@ -1,5 +1,8 @@
 # Attempts never see the account's hosted connectors
 
+> Relaxed by [0028](0028-inherit-mcp-is-an-opt-in-invocation-flag.md): a run can
+> opt back in with `--inherit-mcp`. The default below is unchanged.
+
 An attempt sees exactly the MCP servers its spec declares, and none when it
 declares no `mcp:` block. That already held for servers in the seeded config
 files, but the login caliper seeds to authenticate the CLI also brings the

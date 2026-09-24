@@ -87,6 +87,36 @@ class ClaudeCodeHarness(CliHarness):
         if sys.platform == "darwin" and not creds_dst.exists():
             self._seed_credentials_from_keychain(creds_dst)
 
+        if ctx.inherit_mcp and ctx.spec_mcp_names:
+            self._drop_shadowed_user_servers(ctx)
+
+    def _drop_shadowed_user_servers(self, ctx: RunContext) -> None:
+        """Remove the user's servers that share a name with a declared one.
+
+        Under ``--inherit-mcp`` the attempt keeps the user-scope ``mcpServers``
+        from the seeded ``.claude.json``, and the spec wins a name clash
+        (docs/adr/0028). Rather than rely on how the CLI orders its scopes, the
+        clashing entries are taken out of the isolated copy, so the only server
+        by that name is the one ``--mcp-config`` supplies — or none, when
+        ``--ablate`` removed it. The user's real file is never touched.
+        """
+        path = Path(ctx.isolated_home) / ".claude.json"
+        if not path.exists():
+            return
+        try:
+            config = json.loads(path.read_text())
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return
+        user_servers = config.get("mcpServers") if isinstance(config, dict) else None
+        if not isinstance(user_servers, dict):
+            return
+        shadowed = [name for name in ctx.spec_mcp_names if name in user_servers]
+        if not shadowed:
+            return
+        for name in shadowed:
+            del user_servers[name]
+        path.write_text(json.dumps(config, indent=2))
+
     def _command(
         self, ctx: RunContext
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
@@ -109,7 +139,11 @@ class ClaudeCodeHarness(CliHarness):
         # never the account's claude.ai connectors, which the seeded login
         # brings along otherwise (docs/adr/0026). The config file (which may hold
         # resolved secrets) lives in the 0700 run tempdir, never argv.
-        cmd += ["--mcp-config", str(mcp_config), "--strict-mcp-config"]
+        cmd += ["--mcp-config", str(mcp_config)]
+        # --inherit-mcp drops it: the declared servers then merge with the
+        # seeded user config and the account's connectors (docs/adr/0028).
+        if not ctx.inherit_mcp:
+            cmd.append("--strict-mcp-config")
 
         if ctx.model:
             cmd += ["--model", ctx.model]
@@ -128,7 +162,8 @@ class ClaudeCodeHarness(CliHarness):
 
         No ``mcp:`` block, an authored ``mcp: {}``, and a block whose servers
         were all ablated all write an empty ``mcpServers``: the attempt sees zero
-        servers rather than whatever the seeded user config and account carry.
+        servers rather than whatever the seeded user config and account carry —
+        unless ``--inherit-mcp`` asked for those too (see ``_command``).
         """
         servers: dict[str, dict] = {}
         for name, resolved in resolve_servers(ctx.mcp_servers or {}).items():
@@ -351,6 +386,41 @@ class ClaudeCodeHarness(CliHarness):
         if out:
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_text(out)
+
+    def _inherited_mcp_servers(
+        self, proc: ProcessResult, ctx: RunContext
+    ) -> list[str] | None:
+        """The non-declared servers the CLI's ``init`` event says it loaded.
+
+        The stream opens with a ``system``/``init`` event whose ``mcp_servers``
+        lists every server the CLI configured — user config, account connectors
+        and ``--mcp-config`` alike — each with a connection status. Every name
+        counts, whatever its status: the record is what the attempt was given,
+        not what happened to connect. ``None`` when no ``init`` event arrived.
+        """
+        declared = ctx.spec_mcp_names
+        for line in proc.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            if event.get("type") != "system" or event.get("subtype") != "init":
+                continue
+            servers = event.get("mcp_servers")
+            if not isinstance(servers, list):
+                return None
+            names = {
+                server.get("name")
+                for server in servers
+                if isinstance(server, dict) and isinstance(server.get("name"), str)
+            }
+            return sorted(names - declared)
+        return None
 
     def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
         """Read the ``result`` event's ``usage``. Claude's ``input_tokens`` is

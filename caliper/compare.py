@@ -103,6 +103,30 @@ def _check_era(a: RunMeta, b: RunMeta) -> None:
     )
 
 
+def _inherit_mcp_warning(a: RunMeta, b: RunMeta) -> str | None:
+    """Why the two runs' inherited tool environments differ, or ``None``."""
+    if a.inherit_mcp != b.inherit_mcp:
+        side = "A" if a.inherit_mcp else "B"
+        return (
+            f"only {side} ran with --inherit-mcp — its attempts also had the "
+            "machine's own MCP servers and account connectors, so tool "
+            "availability can move the score for reasons unrelated to the skill"
+        )
+    a_names, b_names = a.inherited_mcp_servers, b.inherited_mcp_servers
+    if (
+        a.inherit_mcp
+        and a_names is not None
+        and b_names is not None
+        and set(a_names) != set(b_names)
+    ):
+        return (
+            f"different inherited MCP servers: {a_names or ['(none)']} vs "
+            f"{b_names or ['(none)']} — both ran with --inherit-mcp on different "
+            "setups, so tool availability can move the score"
+        )
+    return None
+
+
 def _group_by_name(tasks: list[TaskResult]) -> dict[str, list[TaskResult]]:
     """Tasks keyed by their stable identity, ``task_name``, preserving order.
 
@@ -163,8 +187,13 @@ def _ablation_labels(
     Two runs that ablated *different* subjects are deliberately **not** a pair —
     nothing but this marker could tell that case apart from a legitimate one,
     since both sides simply have a smaller-than-declared neighbourhood.
+
+    Nor are two runs that differ on ``--inherit-mcp``: the inherited servers
+    would be an unrecorded difference between the sides (docs/adr/0028).
     """
     if bool(a_run.ablated) == bool(b_run.ablated):
+        return None
+    if a_run.inherit_mcp != b_run.inherit_mcp:
         return None
     if a_run.ablated:
         cut_run, full_run = a_run, b_run
@@ -298,6 +327,15 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
             "reasons unrelated to the skill"
         )
 
+    # The inherited half of the tool environment (docs/adr/0028). Checked on
+    # every pair, ablation pairs included — an ablation pair already requires
+    # the same flag state, but two inheriting runs can still have inherited
+    # different servers. Membership is compared only when both sides recorded
+    # it, for the same reason as above.
+    inherit_warning = _inherit_mcp_warning(a_run, b_run)
+    if inherit_warning:
+        warnings.append(inherit_warning)
+
     # Drift is reported for every member but only *warned* about for a git
     # source. Warning on a path source would fire on every iteration of the core
     # loop — you edited your skill, which is what the run is measuring — and a
@@ -323,6 +361,7 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         spec_mismatch=spec_mismatch,
         neighbourhood_mismatch=neighbourhood_mismatch,
         mcp_mismatch=mcp_mismatch,
+        inherit_mcp_mismatch=inherit_warning is not None,
         skill_drift=skill_drift,
         warnings=warnings,
         # Token/wall totals over each whole run. Shown alongside pass@k but never

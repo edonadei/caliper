@@ -94,8 +94,57 @@ tasks:
     # Defaults flow through unchanged when the flag is omitted
     assert calls["timeout"] == 120
     assert calls["ablate"] == []
+    assert calls["inherit_mcp"] is False
     # A requested/reported model mismatch has somewhere to surface (#131).
     assert callable(calls["on_warning"])
+
+
+def test_run_cli_inherit_mcp_forwards_and_prints_a_notice(
+    monkeypatch, tmp_path
+) -> None:
+    spec_file = tmp_path / "sample.eval.yaml"
+    spec_file.write_text(
+        "tasks:\n  - name: One\n    prompt: Do it\n    assert: assert True\n"
+    )
+    calls = {}
+
+    def fake_run(**kwargs):
+        calls.update(kwargs)
+        return RunResults(
+            run=RunMeta(
+                spec="sample",
+                timestamp=datetime(2026, 7, 3, tzinfo=timezone.utc),
+                k=kwargs["k"],
+                backend="claude-code",
+            ),
+            skill_snapshots=[],
+            task_results=[],
+            aggregate=AggregateScore(avg_score=0.0, per_task=[]),
+        )
+
+    class _McpHarness:
+        supports_mcp = True
+
+    monkeypatch.setattr(
+        "caliper.commands.run.get_harness", lambda *args, **kwargs: _McpHarness()
+    )
+    monkeypatch.setattr(
+        "caliper.commands.run.EvalJudge", lambda *args, **kwargs: object()
+    )
+    monkeypatch.setattr(
+        "caliper.commands.run.make_progress", lambda *args, **kwargs: (_Progress(), {})
+    )
+    monkeypatch.setattr(
+        "caliper.commands.run.print_banner", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr("caliper.commands.run.run", fake_run)
+
+    result = runner.invoke(app, ["run", str(spec_file), "--inherit-mcp"])
+
+    assert result.exit_code == 0, result.output
+    assert calls["inherit_mcp"] is True
+    assert "--inherit-mcp" in result.output
+    assert "account connectors" in result.output
 
 
 def test_run_cli_resolves_backend_and_judge_model_targets(

@@ -101,6 +101,10 @@ class HermesHarness(CliHarness):
         Secrets are resolved here at the harness boundary from the host env (an
         unset var fails loudly), so literal credentials — never ``${VAR}`` — land
         in the config; the file may now hold them, so it is kept ``0600``.
+
+        Under ``--inherit-mcp`` the user's ``mcp_servers`` (and
+        ``inherit_mcp_toolsets``) stay, with the declared servers merged over
+        them — the spec wins a name clash (docs/adr/0028).
         """
         servers = self._translate_mcp_servers(ctx)
         config_path = hermes_home / "config.yaml"
@@ -108,11 +112,24 @@ class HermesHarness(CliHarness):
         if config_path.exists():
             loaded = yaml.safe_load(config_path.read_text())
             config = loaded if isinstance(loaded, dict) else {}
+            if ctx.inherit_mcp:
+                user_servers = config.get("mcp_servers")
+                merged = {
+                    name: entry
+                    for name, entry in (
+                        user_servers.items() if isinstance(user_servers, dict) else ()
+                    )
+                    # An ablated declared name stays removed (docs/adr/0028).
+                    if name not in ctx.spec_mcp_names
+                }
+                merged.update(servers)
+                servers = merged
+            else:
+                config.pop("inherit_mcp_toolsets", None)
             if servers:
                 config["mcp_servers"] = servers
             else:
                 config.pop("mcp_servers", None)
-            config.pop("inherit_mcp_toolsets", None)
             config_path.write_text(yaml.safe_dump(config, sort_keys=False))
         elif servers:
             config_path.write_text(
@@ -120,6 +137,23 @@ class HermesHarness(CliHarness):
             )
         if config_path.exists():
             config_path.chmod(0o600)
+
+    def _inherited_mcp_servers(
+        self, proc: ProcessResult, ctx: RunContext
+    ) -> list[str] | None:
+        """The user's servers left in the attempt's ``config.yaml``.
+
+        Read off the config this attempt actually ran with, minus the declared
+        servers. Hermes has no account connectors, so that is the whole set.
+        """
+        config_path = self._hermes_home(ctx) / "config.yaml"
+        if not config_path.exists():
+            return []
+        loaded = yaml.safe_load(config_path.read_text())
+        servers = loaded.get("mcp_servers") if isinstance(loaded, dict) else None
+        if not isinstance(servers, dict):
+            return []
+        return sorted(set(servers) - ctx.spec_mcp_names)
 
     def _translate_mcp_servers(self, ctx: RunContext) -> dict[str, dict]:
         """Translate the declared ``mcp:`` servers into Hermes' ``mcp_servers`` shape.

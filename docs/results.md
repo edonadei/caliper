@@ -193,6 +193,10 @@ How to read the diff:
 - **Token and wall-clock deltas are secondary** and never a regression: a drop is
   green (cheaper), a rise red (a trade-off to weigh). Only the score feeds
   `has_regression`.
+- **A different tool environment warns.** Two runs configured with different
+  `mcp:` servers, or where only one used `--inherit-mcp` (or both did on
+  different setups), get a warning in the header: tool availability can move
+  the score for reasons unrelated to the skill.
 
 `--format json` serializes the full comparison (per-task scores, deltas,
 regression flags, unmatched lists, warnings, `skill_drift`, and per-side usage)
@@ -299,6 +303,13 @@ time, and it only appears when a judge ran.
   between two runs isn't misread as an ablation of it. It's `None` on a run saved
   before the field existed (unknown, not "none"), and `compare` warns
   (`mcp_mismatch`) when two runs recorded different servers.
+- `RunMeta.inherit_mcp` records whether the run used `--inherit-mcp`, and
+  `RunMeta.inherited_mcp_servers` the inherited server names the backend could
+  see, declared ones excluded (`None` = unknown). Inherited servers never appear
+  in `mcp_servers`. `compare` warns (`inherit_mcp_mismatch`) when only one side
+  inherited, or both did with different recorded servers, and two runs form an
+  ablation pair only if they agree on the flag
+  ([ADR 0028](adr/0028-inherit-mcp-is-an-opt-in-invocation-flag.md)).
 - `TaskComparison` has `a_activation`/`b_activation`/`activation_delta`/
   `activation_regression`, and `RunComparison` has `has_activation_regression`,
   kept strictly separate from `has_regression`.
