@@ -375,6 +375,49 @@ def test_run_cli_saves_the_run_at_the_discovered_root(monkeypatch, tmp_path) -> 
     assert saved is not None, "the run was not filed at the project's results root"
 
 
+def test_run_cli_writes_output_to_a_new_directory(monkeypatch, tmp_path) -> None:
+    spec_dir = _project(tmp_path)
+    finished = _finished(datetime(2026, 7, 3, 12, 30, tzinfo=timezone.utc))
+    _stub_a_run(monkeypatch, finished)
+    monkeypatch.setattr("caliper.commands.run.print_results", print_results)
+    monkeypatch.chdir(tmp_path)
+    output = Path("some/new/dir/out.json")
+
+    result = runner.invoke(
+        app, ["run", str(spec_dir / "sample.eval.yaml"), "--output", str(output)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert RunResults.model_validate_json(output.read_text()) == finished
+    assert "Score" in result.output
+    assert "Results saved to" in result.output
+
+
+def test_run_cli_keeps_report_and_interrupt_exit_if_output_cannot_be_written(
+    monkeypatch, tmp_path
+) -> None:
+    spec_dir = _project(tmp_path)
+    finished = _finished(datetime(2026, 7, 3, 12, 30, tzinfo=timezone.utc))
+    finished.run.interrupted = True
+    _stub_a_run(monkeypatch, finished)
+    monkeypatch.setattr("caliper.commands.run.print_results", print_results)
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "existing-directory"
+    output.mkdir()
+
+    result = runner.invoke(
+        app, ["run", str(spec_dir / "sample.eval.yaml"), "--output", str(output)]
+    )
+
+    assert result.exit_code == 130, result.output
+    assert "Could not write --output" in result.output
+    assert "Score" in result.output
+    assert "Results saved to" in result.output
+    saved = RunStore(tmp_path).resolve("sample")
+    assert saved is not None
+    assert RunResults.model_validate_json(saved.read_text()).run.interrupted
+
+
 def test_a_run_is_findable_by_report_from_another_directory(
     monkeypatch, tmp_path
 ) -> None:
