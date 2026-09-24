@@ -42,6 +42,11 @@ from caliper.schema.spec import McpServer
 # ``headers`` values, a remote ``url``). Only this exact form is honored.
 ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _PREFLIGHT_TIMEOUT = 15.0
+# A server may answer ``initialize`` with any revision it supports rather than
+# the one proposed; the agent's own MCP client does the real negotiation.
+_KNOWN_PROTOCOL_VERSIONS = frozenset(
+    {"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"}
+)
 
 
 class McpPreflightInterrupted(Exception):
@@ -152,7 +157,7 @@ def preflight_stdio_servers(
                         if (
                             not isinstance(result, dict)
                             or result.get("protocolVersion")
-                            != initialize["params"]["protocolVersion"]
+                            not in _KNOWN_PROTOCOL_VERSIONS
                             or not isinstance(result.get("capabilities"), dict)
                             or not isinstance(result.get("serverInfo"), dict)
                             or not isinstance(result["serverInfo"].get("name"), str)

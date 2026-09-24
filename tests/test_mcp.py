@@ -317,6 +317,14 @@ def test_preflight_initializes_a_local_server(tmp_path) -> None:
     )
 
 
+def test_preflight_accepts_bundled_echo_server_protocol_version() -> None:
+    # echo_server.py answers 2024-11-05, not the version preflight proposes.
+    script = Path(__file__).parent / "fixtures" / "mcp" / "echo_server.py"
+    preflight_stdio_servers(
+        {"echo": McpServer(command=sys.executable, args=[str(script)])}
+    )
+
+
 def test_preflight_does_not_inspect_unrelated_process_environments(
     tmp_path, monkeypatch
 ) -> None:
