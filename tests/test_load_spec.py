@@ -233,3 +233,18 @@ def test_a_malformed_tasks_list_says_what_shape_it_needs(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         load_spec(_write(tmp_path, text))
+
+
+def test_validate_says_when_a_spec_requires_inherited_mcp(tmp_path) -> None:
+    result = CliRunner().invoke(
+        app,
+        ["validate", str(_write(tmp_path, "requires_inherited_mcp: true\n" + _TASK))],
+    )
+    assert result.exit_code == 0, result.output
+    assert "--inherit-mcp" in result.output
+
+
+def test_validate_is_silent_about_inherited_mcp_by_default(tmp_path) -> None:
+    result = CliRunner().invoke(app, ["validate", str(_write(tmp_path, _TASK))])
+    assert result.exit_code == 0, result.output
+    assert "--inherit-mcp" not in result.output

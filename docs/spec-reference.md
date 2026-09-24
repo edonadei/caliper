@@ -37,6 +37,8 @@ mcp:                            # optional: MCP servers the agent may use
     headers:
       Authorization: Bearer ${GDRIVE_TOKEN}   # ${VAR} resolves at run time
 
+requires_inherited_mcp: true    # optional: refuse to run without --inherit-mcp
+
 tasks:
   - name: Short task name
     setup: <shell command>      # optional; runs in the attempt workdir; failure skips the agent and judge
@@ -250,6 +252,25 @@ agent never sees its tool definitions.
   merged with the declared ones. It's a flag, not a spec field: what it brings
   depends on the machine. `--ablate` still only names declared servers. See
   [Inheriting your own MCP setup](backends.md#inheriting-your-own-mcp-setup).
+
+### Requiring the runner's own setup (`requires_inherited_mcp:`)
+
+Some skills rely on a connector no `mcp:` entry can express, usually a hosted
+OAuth connector such as Drive or Gmail. Run without it, every attempt fails for a
+reason unrelated to the skill, and a 0% reads as a broken skill. Mark such a spec:
+
+```yaml
+requires_inherited_mcp: true
+```
+
+- `caliper run` then refuses before any attempt (exit `2`) unless you pass
+  `--inherit-mcp`, and says why.
+- It's a requirement, not a switch. The spec can't turn inheritance on; only the
+  person running it can, so a spec you didn't write never gets your accounts
+  without you typing the flag.
+- On a backend without MCP (`pi`) it's refused even with the flag, since there's
+  nothing to inherit.
+- `caliper validate` shows the requirement in its summary.
 
 ## Judging
 

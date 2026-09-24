@@ -86,6 +86,14 @@ def validate_cmd(
         else ""
     )
 
+    # The one spec fact that changes how it must be invoked (docs/adr/0028).
+    requires = (
+        "\n  [yellow]requires[/yellow] [dim]--inherit-mcp: the runner's own MCP "
+        "servers and account connectors[/dim]"
+        if spec.requires_inherited_mcp
+        else ""
+    )
+
     console.print(
         Panel(
             f"[bold]{name}[/bold]\n"
@@ -93,7 +101,7 @@ def validate_cmd(
             f"  tasks    [cyan]{n_tasks}[/cyan] "
             f"[dim]({asserted} asserting activates:)[/dim]\n"
             "  engine   [dim]chosen at run time (--model / --judge-model)[/dim]"
-            f"{caveat}",
+            f"{requires}{caveat}",
             title=f"[bold green]{CHECK} Spec is valid[/bold green]",
             border_style="green",
         )

@@ -185,3 +185,7 @@ OAuth connector a spec can't declare.
   differently (see [Results JSON](results.md#results-json)).
 - **`--ablate` can't remove an inherited server.** It only names what the spec
   declares.
+- **A spec can require it.** `requires_inherited_mcp: true` makes `caliper run`
+  refuse without the flag (and on `pi`) instead of scoring a 0% that reads as a
+  broken skill. See
+  [the spec reference](spec-reference.md#requiring-the-runners-own-setup-requires_inherited_mcp).

@@ -168,6 +168,29 @@ def run(
     # honoured by the attempts that would otherwise start right after it.
     cancel.reset()
 
+    # Before anything paid or fetched: a spec that requires the runner's own MCP
+    # setup scores nothing meaningful without it, and a 0% would read as a
+    # broken skill rather than a missing flag. The spec states the need; only
+    # the invocation grants it (docs/adr/0028).
+    if spec.requires_inherited_mcp and not (inherit_mcp and harness.supports_mcp):
+        if inherit_mcp:
+            raise HarnessConfigurationError(
+                "This eval requires the runner's own MCP setup "
+                "(`requires_inherited_mcp: true`), but the "
+                f"'{harness.name}' backend has no MCP support, so there is "
+                "nothing to inherit.\n\n"
+                "Run it on a backend with MCP: --model claude-code (the default), "
+                "codex or hermes."
+            )
+        raise HarnessConfigurationError(
+            "This eval requires the runner's own MCP setup "
+            "(`requires_inherited_mcp: true`): its tasks rely on servers or "
+            "account connectors the spec can't declare, so without them every "
+            "attempt would fail for a reason unrelated to the skill.\n\n"
+            "Re-run with --inherit-mcp to give attempts the MCP servers and "
+            "account connectors your CLI loads by itself."
+        )
+
     # Resolve the neighbourhood once, up front: a bad entry (a lone .md, a
     # missing frontmatter name:, a duplicate) should fail before any paid
     # attempt runs, not partway through.

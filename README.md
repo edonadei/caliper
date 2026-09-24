@@ -338,6 +338,8 @@ The quick start covers the basics. A spec can also:
 - pull neighbour skills from a **git repo**, pinned to a commit
   (`skills: - {repo: owner/name, ref: …, path: …}`)
 - give the agent **MCP servers**, local or remote (`mcp:`)
+- **require your own MCP setup** for a connector no spec can declare
+  (`requires_inherited_mcp: true`; the run then needs `--inherit-mcp`)
 - run **`setup:` and `cleanup:`** shell hooks in each attempt's workdir
 - extend `PATH` or **forbid files** the agent must not read (`sandbox:`)
 - assert **silence** (`activates: []`) or a **delegation chain**

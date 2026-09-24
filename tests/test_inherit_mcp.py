@@ -11,11 +11,17 @@ from __future__ import annotations
 import io
 from datetime import datetime, timezone
 
+import pytest
 from rich.console import Console
 
 import caliper.reporter as reporter_mod
 from caliper.compare import diff_runs
-from caliper.harness.base import AttemptResult, HarnessBackend, RunContext
+from caliper.harness.base import (
+    AttemptResult,
+    HarnessBackend,
+    HarnessConfigurationError,
+    RunContext,
+)
 from caliper.judge.base import JudgeResult
 from caliper.runner import run
 from caliper.schema.results import (
@@ -25,7 +31,7 @@ from caliper.schema.results import (
     RunResults,
     SkillSnapshot,
 )
-from caliper.schema.spec import EvalSpec, McpServer, TaskSpec
+from caliper.schema.spec import EvalSpec, McpServer, TaskSpec, load_spec
 
 
 class InheritingHarness(HarnessBackend):
@@ -63,17 +69,20 @@ class PassingJudge:
         return JudgeResult(passed=True, reasoning="ok")
 
 
-def _spec(tmp_path, *, mcp=None):
+def _spec(tmp_path, *, mcp=None, requires=False):
     spec_path = tmp_path / "s.eval.yaml"
     spec_path.write_text("tasks: []\n")
-    fields = {"tasks": [TaskSpec(id="task-001", name="t", prompt="p", expect="x")]}
+    fields = {
+        "tasks": [TaskSpec(id="task-001", name="t", prompt="p", expect="x")],
+        "requires_inherited_mcp": requires,
+    }
     if mcp is not None:
         fields["mcp"] = mcp
     return EvalSpec(**fields), spec_path
 
 
-def _run(tmp_path, harness, *, k=1, mcp=None, **kwargs) -> RunResults:
-    spec, spec_path = _spec(tmp_path, mcp=mcp)
+def _run(tmp_path, harness, *, k=1, mcp=None, requires=False, **kwargs) -> RunResults:
+    spec, spec_path = _spec(tmp_path, mcp=mcp, requires=requires)
     return run(
         spec=spec,
         spec_path=spec_path,
@@ -162,6 +171,41 @@ def test_a_run_saved_before_the_flag_loads_as_off():
     )
     assert meta.inherit_mcp is False
     assert meta.inherited_mcp_servers is None
+
+
+# --- requires_inherited_mcp -----------------------------------------------
+
+
+def test_a_spec_that_requires_it_is_refused_without_the_flag(tmp_path):
+    harness = InheritingHarness()
+    with pytest.raises(HarnessConfigurationError, match="--inherit-mcp"):
+        _run(tmp_path, harness, requires=True)
+    # Refused before any attempt was paid for.
+    assert harness.contexts == []
+
+
+def test_a_spec_that_requires_it_is_refused_on_a_backend_without_mcp(tmp_path):
+    harness = InheritingHarness(supports_mcp=False)
+    with pytest.raises(HarnessConfigurationError, match="no MCP support"):
+        _run(tmp_path, harness, requires=True, inherit_mcp=True)
+    assert harness.contexts == []
+
+
+def test_a_spec_that_requires_it_runs_with_the_flag(tmp_path):
+    results = _run(tmp_path, InheritingHarness(), requires=True, inherit_mcp=True)
+    assert results.run.inherit_mcp is True
+
+
+def test_the_requirement_is_read_from_yaml_and_defaults_off(tmp_path):
+    required = tmp_path / "r.eval.yaml"
+    required.write_text(
+        "requires_inherited_mcp: true\n"
+        "tasks:\n  - name: t\n    prompt: p\n    expect: x\n"
+    )
+    plain = tmp_path / "p.eval.yaml"
+    plain.write_text("tasks:\n  - name: t\n    prompt: p\n    expect: x\n")
+    assert load_spec(required).requires_inherited_mcp is True
+    assert load_spec(plain).requires_inherited_mcp is False
 
 
 # --- compare --------------------------------------------------------------

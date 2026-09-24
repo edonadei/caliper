@@ -49,12 +49,29 @@ declared name stays the spec's even once ablated: `--ablate github --inherit-mcp
 also drops the user's own `github`, or the ablated arm would quietly get a server
 back under the name it claims to have removed.
 
+## A spec can require it, never grant it
+
+Some evals measure nothing without the runner's setup: a Drive skill run in
+isolation scores 0%, which reads as a broken skill rather than a missing flag. So
+a spec may say `requires_inherited_mcp: true`, and `caliper run` refuses without
+`--inherit-mcp`, before any attempt is paid for, the way an `mcp:` spec is
+refused on a backend that can't honor it.
+
+The field is a precondition, not a switch. A spec that could turn inheritance on
+would hand the runner's accounts to whoever wrote it (a teammate, a git source)
+without the runner typing anything, which is the consent the flag exists to
+carry. A boolean rather than a list of required connectors: which connectors an
+attempt gets is only visible once it runs (claude-code's `init` event), too late
+to refuse cheaply, and connector names differ between backends.
+
 ## Where it does nothing
 
 `pi` has no MCP by design ([0010](0010-pi-mcp-unsupported-by-design.md)). The flag
 isn't refused there, unlike a declared `mcp:` block: it asks for "whatever my
 setup has", and on pi that is nothing. The run warns and records the flag as off,
-so `compare` never reports a tool-environment difference that didn't exist.
+so `compare` never reports a tool-environment difference that didn't exist. A
+spec that *requires* inherited MCP is refused there, since the requirement can't
+be met.
 
 The judge is never affected. A judge that can see connectors mistakes them for
 the attempt's tools (0026).
