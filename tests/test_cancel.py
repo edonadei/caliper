@@ -511,6 +511,33 @@ def test_stopping_an_attempt_reaches_a_tool_after_its_agent_exits(
         )
 
 
+def test_timeout_does_not_hang_on_an_unidentifiable_pipe_holder(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Even a tool that clears its tag cannot hold the run open forever."""
+    monkeypatch.setattr(psutil.Process, "children", lambda self, recursive=False: [])
+    monkeypatch.setattr(cancel, "_tagged_processes", lambda tag: set())
+    pid_file = tmp_path / "pids"
+    agent = (
+        "import os, pathlib, subprocess, sys; "
+        "tool = subprocess.Popen([sys.executable, '-c', "
+        "'import time; time.sleep(30)'], env={}, start_new_session=True, "
+        "stdout=sys.stdout, stderr=sys.stderr); "
+        "pathlib.Path(sys.argv[1]).write_text(f'{os.getpid()} {tool.pid}'); "
+        "os._exit(0)"
+    )
+
+    with _running_attempt(
+        tmp_path,
+        [sys.executable, "-c", agent, str(pid_file)],
+        pid_file,
+        1,
+    ) as (pids, finished, box):
+        assert _pid_alive(pids[1])
+        assert finished.wait(4), "the timed-out pipe drain never returned"
+        assert box["result"].timed_out
+
+
 def _one_attempt_run(k: int = 3) -> RunResults:
     """A partial run with something in it — the shape salvage exists to keep."""
     return RunResults(

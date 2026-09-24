@@ -20,6 +20,8 @@ from caliper.schema.results import TokenUsage
 from caliper.schema.spec import McpServer
 from caliper.skills import SkillRef, install_skills
 
+_POST_KILL_DRAIN_TIMEOUT = 1
+
 
 class HarnessConfigurationError(RuntimeError):
     """Raised when a harness cannot run because local configuration is invalid."""
@@ -704,7 +706,19 @@ class CliHarness(HarnessBackend):
                         stdout, stderr = proc.communicate(input=stdin, timeout=timeout)
                     except subprocess.TimeoutExpired as exc:
                         cancel.kill(proc)
-                        stdout, stderr = proc.communicate()
+                        # A detached tool may have cleared the invocation tag
+                        # and inherited a pipe after its CLI parent exited.
+                        # No process-tree walk can then identify it. Never let
+                        # that pipe holder keep the timeout handler blocked.
+                        try:
+                            stdout, stderr = proc.communicate(
+                                timeout=_POST_KILL_DRAIN_TIMEOUT
+                            )
+                        except subprocess.TimeoutExpired as drain:
+                            stdout, stderr = drain.stdout, drain.stderr
+                            for pipe in (proc.stdout, proc.stderr):
+                                if pipe is not None:
+                                    pipe.close()
                         return ProcessResult(
                             _timeout_output(exc.stdout, stdout),
                             _timeout_output(exc.stderr, stderr),
