@@ -68,16 +68,14 @@ _Avoid_: MCP config, tool server.
 The MCP servers a backend's CLI loads by itself, outside the [[eval spec]]: the
 account's hosted connectors (claude.ai connectors, ChatGPT apps) and the servers
 in the user's own CLI config. An attempt never sees them by default (see
-[[0026-attempts-never-see-account-connectors]]). `caliper run --inherit-mcp`
-gives them to every attempt of one run, merged with the
+[[0026-attempts-never-see-account-connectors]]). A run that opts in gives them
+to every attempt, merged with the
 [[MCP server (declared)|declared servers]], and the declared server wins a name
-clash. It is a property of the *invocation*, like the [[engine as runtime axis]],
-because what gets inherited depends on the machine, not the spec. The judge never
+clash. What gets inherited depends on the machine, not the spec. The judge never
 inherits, and a backend without MCP (`pi`) has nothing to inherit. An inherited
 server is never an [[ablation]] subject, because the spec doesn't name it. A
-spec may *require* inherited MCP (`requires_inherited_mcp`) but never grant it:
-the requirement refuses a run that lacks the flag, and only the invocation turns
-it on (see [[0028-inherit-mcp-is-an-opt-in-invocation-flag]]).
+spec may turn it on by default (`inherit_mcp: true`) and the invocation
+overrides that either way (see [[0028-inherit-mcp-is-an-opt-in-invocation-flag]]).
 _Avoid_: ambient MCP, account MCP, connectors (only half of it), default MCP
 ("default" is the engine), reload.
 

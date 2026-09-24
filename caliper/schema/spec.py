@@ -270,12 +270,12 @@ class EvalSpec(BaseModel):
     skills: list[str | GitSkillSource] = []
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     mcp: dict[str, McpServer] = {}
-    # The eval only measures something with the runner's own MCP setup — a
-    # hosted OAuth connector no ``mcp:`` entry can express. A precondition, not a
-    # grant: ``caliper run`` refuses without ``--inherit-mcp`` rather than turning
-    # it on, so a spec can never hand itself the runner's accounts. See
+    # The eval's default for inherited MCP: the runner's own MCP servers and
+    # account connectors, for a skill that relies on one no ``mcp:`` entry can
+    # express (a hosted OAuth connector). ``--inherit-mcp``/``--no-inherit-mcp``
+    # override it for one run. See
     # docs/adr/0028-inherit-mcp-is-an-opt-in-invocation-flag.md.
-    requires_inherited_mcp: bool = False
+    inherit_mcp: bool = False
     tasks: list[TaskSpec]
 
     model_config = ConfigDict(extra="forbid")

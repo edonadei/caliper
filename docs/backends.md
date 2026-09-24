@@ -160,8 +160,8 @@ See [MCP servers](spec-reference.md#mcp-servers-mcp) for the spec format.
 
 ## Inheriting your own MCP setup
 
-By default an attempt sees only the servers its spec declares. `caliper run
---inherit-mcp` gives every attempt of that run the MCP servers and account
+By default an attempt sees only the servers its spec declares. A spec's
+`inherit_mcp: true`, or `caliper run --inherit-mcp`, gives every attempt of a run the MCP servers and account
 connectors your CLI loads by itself, merged with the spec's `mcp:` block
 ([ADR 0028](adr/0028-inherit-mcp-is-an-opt-in-invocation-flag.md)). Use it to
 reproduce your own setup quickly, or to evaluate a skill that relies on a hosted
@@ -185,7 +185,7 @@ OAuth connector a spec can't declare.
   differently (see [Results JSON](results.md#results-json)).
 - **`--ablate` can't remove an inherited server.** It only names what the spec
   declares.
-- **A spec can require it.** `requires_inherited_mcp: true` makes `caliper run`
-  refuse without the flag (and on `pi`) instead of scoring a 0% that reads as a
-  broken skill. See
-  [the spec reference](spec-reference.md#requiring-the-runners-own-setup-requires_inherited_mcp).
+- **A spec can turn it on by default** with `inherit_mcp: true`, for a skill
+  that can't be measured without your setup. `--no-inherit-mcp` overrides it for
+  one run. See
+  [the spec reference](spec-reference.md#using-the-runners-own-setup-inherit_mcp).

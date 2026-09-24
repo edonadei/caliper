@@ -19,7 +19,6 @@ from caliper.compare import diff_runs
 from caliper.harness.base import (
     AttemptResult,
     HarnessBackend,
-    HarnessConfigurationError,
     RunContext,
 )
 from caliper.judge.base import JudgeResult
@@ -69,20 +68,22 @@ class PassingJudge:
         return JudgeResult(passed=True, reasoning="ok")
 
 
-def _spec(tmp_path, *, mcp=None, requires=False):
+def _spec(tmp_path, *, mcp=None, spec_inherit=False):
     spec_path = tmp_path / "s.eval.yaml"
     spec_path.write_text("tasks: []\n")
     fields = {
         "tasks": [TaskSpec(id="task-001", name="t", prompt="p", expect="x")],
-        "requires_inherited_mcp": requires,
+        "inherit_mcp": spec_inherit,
     }
     if mcp is not None:
         fields["mcp"] = mcp
     return EvalSpec(**fields), spec_path
 
 
-def _run(tmp_path, harness, *, k=1, mcp=None, requires=False, **kwargs) -> RunResults:
-    spec, spec_path = _spec(tmp_path, mcp=mcp, requires=requires)
+def _run(
+    tmp_path, harness, *, k=1, mcp=None, spec_inherit=False, **kwargs
+) -> RunResults:
+    spec, spec_path = _spec(tmp_path, mcp=mcp, spec_inherit=spec_inherit)
     return run(
         spec=spec,
         spec_path=spec_path,
@@ -173,39 +174,43 @@ def test_a_run_saved_before_the_flag_loads_as_off():
     assert meta.inherited_mcp_servers is None
 
 
-# --- requires_inherited_mcp -----------------------------------------------
+# --- the spec's default -----------------------------------------------------
 
 
-def test_a_spec_that_requires_it_is_refused_without_the_flag(tmp_path):
+def test_a_spec_can_turn_it_on_by_default(tmp_path):
     harness = InheritingHarness()
-    with pytest.raises(HarnessConfigurationError, match="--inherit-mcp"):
-        _run(tmp_path, harness, requires=True)
-    # Refused before any attempt was paid for.
-    assert harness.contexts == []
-
-
-def test_a_spec_that_requires_it_is_refused_on_a_backend_without_mcp(tmp_path):
-    harness = InheritingHarness(supports_mcp=False)
-    with pytest.raises(HarnessConfigurationError, match="no MCP support"):
-        _run(tmp_path, harness, requires=True, inherit_mcp=True)
-    assert harness.contexts == []
-
-
-def test_a_spec_that_requires_it_runs_with_the_flag(tmp_path):
-    results = _run(tmp_path, InheritingHarness(), requires=True, inherit_mcp=True)
+    results = _run(tmp_path, harness, spec_inherit=True)
+    assert [ctx.inherit_mcp for ctx in harness.contexts] == [True]
     assert results.run.inherit_mcp is True
+    assert results.run.inherited_mcp_servers == ["gmail"]
 
 
-def test_the_requirement_is_read_from_yaml_and_defaults_off(tmp_path):
-    required = tmp_path / "r.eval.yaml"
-    required.write_text(
-        "requires_inherited_mcp: true\n"
-        "tasks:\n  - name: t\n    prompt: p\n    expect: x\n"
+def test_the_invocation_overrides_the_spec_either_way(tmp_path):
+    off = _run(tmp_path, InheritingHarness(), spec_inherit=True, inherit_mcp=False)
+    on = _run(tmp_path, InheritingHarness(), spec_inherit=False, inherit_mcp=True)
+    assert off.run.inherit_mcp is False
+    assert off.run.inherited_mcp_servers is None
+    assert on.run.inherit_mcp is True
+
+
+def test_a_spec_default_on_a_backend_without_mcp_warns_and_runs(tmp_path):
+    harness = InheritingHarness(supports_mcp=False)
+    warnings: list[str] = []
+    results = _run(tmp_path, harness, spec_inherit=True, on_warning=warnings.append)
+    assert [ctx.inherit_mcp for ctx in harness.contexts] == [False]
+    assert results.run.inherit_mcp is False
+    assert len(warnings) == 1 and "no effect" in warnings[0]
+
+
+def test_the_spec_field_is_read_from_yaml_and_defaults_off(tmp_path):
+    inheriting = tmp_path / "r.eval.yaml"
+    inheriting.write_text(
+        "inherit_mcp: true\ntasks:\n  - name: t\n    prompt: p\n    expect: x\n"
     )
     plain = tmp_path / "p.eval.yaml"
     plain.write_text("tasks:\n  - name: t\n    prompt: p\n    expect: x\n")
-    assert load_spec(required).requires_inherited_mcp is True
-    assert load_spec(plain).requires_inherited_mcp is False
+    assert load_spec(inheriting).inherit_mcp is True
+    assert load_spec(plain).inherit_mcp is False
 
 
 # --- compare --------------------------------------------------------------

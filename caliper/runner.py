@@ -161,35 +161,17 @@ def run(
     # Told when the backend reports running a different model than requested.
     on_warning: Callable[[str], None] | None = None,
     # Keep the servers and account connectors the backend's CLI loads by itself
-    # (``--inherit-mcp``, docs/adr/0028).
-    inherit_mcp: bool = False,
+    # (``--inherit-mcp``/``--no-inherit-mcp``, docs/adr/0028). ``None`` follows
+    # the spec's ``inherit_mcp``.
+    inherit_mcp: bool | None = None,
 ) -> RunResults:
     # Before anything that can block: a Ctrl-C during skill fetching has to be
     # honoured by the attempts that would otherwise start right after it.
     cancel.reset()
 
-    # Before anything paid or fetched: a spec that requires the runner's own MCP
-    # setup scores nothing meaningful without it, and a 0% would read as a
-    # broken skill rather than a missing flag. The spec states the need; only
-    # the invocation grants it (docs/adr/0028).
-    if spec.requires_inherited_mcp and not (inherit_mcp and harness.supports_mcp):
-        if inherit_mcp:
-            raise HarnessConfigurationError(
-                "This eval requires the runner's own MCP setup "
-                "(`requires_inherited_mcp: true`), but the "
-                f"'{harness.name}' backend has no MCP support, so there is "
-                "nothing to inherit.\n\n"
-                "Run it on a backend with MCP: --model claude-code (the default), "
-                "codex or hermes."
-            )
-        raise HarnessConfigurationError(
-            "This eval requires the runner's own MCP setup "
-            "(`requires_inherited_mcp: true`): its tasks rely on servers or "
-            "account connectors the spec can't declare, so without them every "
-            "attempt would fail for a reason unrelated to the skill.\n\n"
-            "Re-run with --inherit-mcp to give attempts the MCP servers and "
-            "account connectors your CLI loads by itself."
-        )
+    # The spec sets the default; the invocation overrides it either way
+    # (docs/adr/0028). Resolved once, here, so RunMeta records what applied.
+    inherit_mcp = spec.inherit_mcp if inherit_mcp is None else inherit_mcp
 
     # Resolve the neighbourhood once, up front: a bad entry (a lone .md, a
     # missing frontmatter name:, a duplicate) should fail before any paid
@@ -238,14 +220,14 @@ def run(
         )
 
     # A backend without MCP has nothing to inherit. Unlike a declared mcp: block
-    # this is not refused: the flag asks for "whatever my setup has", and on such
-    # a backend that is nothing. Recorded as off, so `compare` never warns about
+    # this is not refused: inheriting asks for "whatever my setup has", and on
+    # such a backend that is nothing. Recorded as off, so `compare` never warns about
     # a tool-environment difference that did not exist (docs/adr/0028).
     if inherit_mcp and not harness.supports_mcp:
         inherit_mcp = False
         if on_warning:
             on_warning(
-                f"--inherit-mcp has no effect on the '{harness.name}' backend, "
+                f"Inherited MCP has no effect on the '{harness.name}' backend, "
                 "which has no MCP support; the run records it as off."
             )
 

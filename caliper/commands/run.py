@@ -119,13 +119,15 @@ def run_cmd(
         "--judge-model",
         help="Override judge backend/model (e.g. claude-code:claude-haiku-4-5-20251001)",
     ),
-    inherit_mcp: bool = typer.Option(
-        False,
-        "--inherit-mcp",
+    inherit_mcp: Optional[bool] = typer.Option(
+        None,
+        "--inherit-mcp/--no-inherit-mcp",
+        show_default=False,
         help=(
             "Give attempts the MCP servers and account connectors your CLI "
             "loads by itself, merged with the spec's mcp: (the spec wins a name "
-            "clash). The judge stays isolated."
+            "clash), or not. Omitted: the spec's inherit_mcp, else off. The "
+            "judge stays isolated."
         ),
     ),
 ) -> None:
@@ -216,14 +218,23 @@ def run_cmd(
     harness = get_harness(backend, skill_model)
     judge = EvalJudge(judge_backend, judge_model_name)
 
-    # A notice, not a prompt: typing the flag is the consent, and an attempt's
-    # isolation was never a security boundary (docs/adr/0027, docs/adr/0028).
-    # A backend without MCP gets the runner's no-effect warning instead.
-    if inherit_mcp and harness.supports_mcp:
+    # A notice, not a prompt: an attempt's isolation was never a security
+    # boundary (docs/adr/0027, docs/adr/0028), and a run must stay usable
+    # non-interactively. Named by where it came from, so a spec that turned it
+    # on is never a surprise. A backend without MCP gets the runner's no-effect
+    # warning instead.
+    inheriting = spec.inherit_mcp if inherit_mcp is None else inherit_mcp
+    if inheriting and harness.supports_mcp:
+        source = "--inherit-mcp" if inherit_mcp else "inherit_mcp: true (spec)"
         console.print(
-            "[yellow]⚠ --inherit-mcp:[/yellow] attempts get this machine's MCP "
+            f"[yellow]⚠ {source}:[/yellow] attempts get this machine's MCP "
             "servers and account connectors. The score depends on this setup, "
             "and attempts can act on those accounts without asking."
+            + (
+                "\n[dim]  --no-inherit-mcp runs it isolated.[/dim]"
+                if inherit_mcp is None
+                else ""
+            )
         )
 
     task_names = [t.name for t in spec.tasks]

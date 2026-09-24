@@ -86,11 +86,13 @@ def validate_cmd(
         else ""
     )
 
-    # The one spec fact that changes how it must be invoked (docs/adr/0028).
+    # The one spec default that reaches past the attempt's isolation
+    # (docs/adr/0028).
     requires = (
-        "\n  [yellow]requires[/yellow] [dim]--inherit-mcp: the runner's own MCP "
-        "servers and account connectors[/dim]"
-        if spec.requires_inherited_mcp
+        "\n  [yellow]mcp[/yellow]      [dim]inherits the runner's own MCP servers "
+        "and account connectors\n           (inherit_mcp: true; "
+        "--no-inherit-mcp runs it isolated)[/dim]"
+        if spec.inherit_mcp
         else ""
     )
 

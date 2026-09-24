@@ -37,7 +37,7 @@ mcp:                            # optional: MCP servers the agent may use
     headers:
       Authorization: Bearer ${GDRIVE_TOKEN}   # ${VAR} resolves at run time
 
-requires_inherited_mcp: true    # optional: refuse to run without --inherit-mcp
+inherit_mcp: true               # optional: use the runner's own MCP setup by default
 
 tasks:
   - name: Short task name
@@ -248,29 +248,29 @@ agent never sees its tool definitions.
   `--strict-mcp-config`, and `codex` with its `apps` and `plugins` features
   turned off. The judge runs with the same switches, so it can't mistake its own
   connectors for the attempt's.
-- `caliper run --inherit-mcp` gives a run your own servers and connectors back,
-  merged with the declared ones. It's a flag, not a spec field: what it brings
-  depends on the machine. `--ablate` still only names declared servers. See
+- `inherit_mcp: true` (below) or `caliper run --inherit-mcp` gives a run your
+  own servers and connectors back, merged with the declared ones. `--ablate`
+  still only names declared servers. See
   [Inheriting your own MCP setup](backends.md#inheriting-your-own-mcp-setup).
 
-### Requiring the runner's own setup (`requires_inherited_mcp:`)
+### Using the runner's own setup (`inherit_mcp:`)
 
 Some skills rely on a connector no `mcp:` entry can express, usually a hosted
-OAuth connector such as Drive or Gmail. Run without it, every attempt fails for a
-reason unrelated to the skill, and a 0% reads as a broken skill. Mark such a spec:
+OAuth connector such as Drive or Gmail. Run in isolation, every attempt fails for
+a reason unrelated to the skill, and a 0% reads as a broken skill. Such a spec
+turns inheritance on by default:
 
 ```yaml
-requires_inherited_mcp: true
+inherit_mcp: true
 ```
 
-- `caliper run` then refuses before any attempt (exit `2`) unless you pass
-  `--inherit-mcp`, and says why.
-- It's a requirement, not a switch. The spec can't turn inheritance on; only the
-  person running it can, so a spec you didn't write never gets your accounts
-  without you typing the flag.
-- On a backend without MCP (`pi`) it's refused even with the flag, since there's
-  nothing to inherit.
-- `caliper validate` shows the requirement in its summary.
+- Every run of the spec then gets your own MCP servers and account connectors,
+  merged with `mcp:`, without a flag. The run prints a notice naming the spec as
+  the source.
+- `--no-inherit-mcp` runs it isolated for one run; `--inherit-mcp` turns it on
+  for a spec that leaves it off.
+- A backend without MCP (`pi`) warns and runs isolated.
+- `caliper validate` shows the setting in its summary.
 
 ## Judging
 

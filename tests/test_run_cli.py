@@ -94,7 +94,8 @@ tasks:
     # Defaults flow through unchanged when the flag is omitted
     assert calls["timeout"] == 120
     assert calls["ablate"] == []
-    assert calls["inherit_mcp"] is False
+    # Omitted: None, so the runner follows the spec's own default.
+    assert calls["inherit_mcp"] is None
     # A requested/reported model mismatch has somewhere to surface (#131).
     assert callable(calls["on_warning"])
 
@@ -145,6 +146,19 @@ def test_run_cli_inherit_mcp_forwards_and_prints_a_notice(
     assert calls["inherit_mcp"] is True
     assert "--inherit-mcp" in result.output
     assert "account connectors" in result.output
+
+    result = runner.invoke(app, ["run", str(spec_file), "--no-inherit-mcp"])
+    assert result.exit_code == 0, result.output
+    assert calls["inherit_mcp"] is False
+    assert "account connectors" not in result.output
+
+    # A spec that turns it on gets the notice without the flag, naming itself.
+    spec_file.write_text("inherit_mcp: true\n" + spec_file.read_text())
+    result = runner.invoke(app, ["run", str(spec_file)])
+    assert result.exit_code == 0, result.output
+    assert calls["inherit_mcp"] is None
+    assert "inherit_mcp: true (spec)" in result.output
+    assert "--no-inherit-mcp" in result.output
 
 
 def test_run_cli_resolves_backend_and_judge_model_targets(

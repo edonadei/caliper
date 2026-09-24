@@ -245,9 +245,9 @@ commented lines.
 Each attempt runs in an isolated temporary home with no session history, in a
 fresh empty working directory. It sees only the MCP servers the spec declares:
 none of your personal servers, and none of the hosted connectors your Claude or
-ChatGPT account carries (Gmail, Drive, GitHub, and the like). Pass
-`--inherit-mcp` to give a run your own setup back; the saved run records that it
-did. Results are saved as JSON you can inspect and diff later.
+ChatGPT account carries (Gmail, Drive, GitHub, and the like). A spec's
+`inherit_mcp: true` or the `--inherit-mcp` flag gives a run your own setup back;
+the saved run records that it did. Results are saved as JSON you can inspect and diff later.
 
 ---
 
@@ -338,8 +338,8 @@ The quick start covers the basics. A spec can also:
 - pull neighbour skills from a **git repo**, pinned to a commit
   (`skills: - {repo: owner/name, ref: …, path: …}`)
 - give the agent **MCP servers**, local or remote (`mcp:`)
-- **require your own MCP setup** for a connector no spec can declare
-  (`requires_inherited_mcp: true`; the run then needs `--inherit-mcp`)
+- **use your own MCP setup** by default, for a connector no spec can declare
+  (`inherit_mcp: true`; `--no-inherit-mcp` runs it isolated)
 - run **`setup:` and `cleanup:`** shell hooks in each attempt's workdir
 - extend `PATH` or **forbid files** the agent must not read (`sandbox:`)
 - assert **silence** (`activates: []`) or a **delegation chain**
@@ -381,7 +381,7 @@ run Caliper, inside the git repository. See
 | `--fail-fast INT` | `0` | Stop a task after N consecutive `infra_error`/`timeout` attempts (`0` disables; counts attempts, not invocations) |
 | `--model TARGET` | `claude-code` | Skill engine: `backend`, `model`, or `backend:model` ([syntax](docs/backends.md#selecting-an-engine)) |
 | `--judge-model TARGET` | `claude-code` | Judge engine, same syntax |
-| `--inherit-mcp` | off | Give attempts the MCP servers and account connectors your CLI loads by itself, merged with the spec's `mcp:` (the spec wins a name clash). The judge stays isolated; no effect on `pi` ([details](docs/backends.md#inheriting-your-own-mcp-setup)) |
+| `--inherit-mcp` / `--no-inherit-mcp` | the spec's `inherit_mcp`, else off | Give attempts the MCP servers and account connectors your CLI loads by itself, merged with the spec's `mcp:` (the spec wins a name clash), or not. The judge stays isolated; no effect on `pi` ([details](docs/backends.md#inheriting-your-own-mcp-setup)) |
 | `--verbose` | off | Show per-attempt judge reasoning |
 | `--output PATH` | none | Also save results JSON to a specific path |
 

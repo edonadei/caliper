@@ -1,4 +1,4 @@
-# `--inherit-mcp` is an opt-in invocation flag
+# Inherited MCP is opt-in, set by the spec or the invocation
 
 [0026](0026-attempts-never-see-account-connectors.md) cut every attempt off from
 the user's own MCP setup, and that stays the default. It left two gaps (#175). A
@@ -15,13 +15,12 @@ own CLI config (`~/.claude.json`, `~/.codex/config.toml`, `~/.hermes/config.yaml
 Both halves, because "reproduce my setup" means both, and a flag for one half
 would bring the same question back for the other.
 
-It is an invocation flag, not a spec field, for the same reason the engine is
-([0004](0004-engine-is-a-runtime-axis-not-a-spec-field.md)): what gets inherited
-depends on the machine running the eval, not on the spec. It is not a security
-gate either. An attempt's isolation keeps a measurement clean and was never a
-boundary ([0027](0027-an-attempt-is-not-a-security-boundary.md)), so the run
-prints a notice rather than asking for confirmation. Typing the flag is the
-consent, and `caliper run` stays usable non-interactively.
+A spec can turn it on by default (`inherit_mcp: true`), and the invocation
+overrides that either way (`--inherit-mcp` / `--no-inherit-mcp`); see below. It
+is not a security gate. An attempt's isolation keeps a measurement clean and was
+never a boundary ([0027](0027-an-attempt-is-not-a-security-boundary.md)), so the
+run prints a notice rather than asking for confirmation, and `caliper run` stays
+usable non-interactively.
 
 ## Merged with `mcp:`, the spec winning a name clash
 
@@ -50,29 +49,39 @@ declared name stays the spec's even once ablated: `--ablate github --inherit-mcp
 also drops the user's own `github`, or the ablated arm would quietly get a server
 back under the name it claims to have removed.
 
-## A spec can require it, never grant it
+## The spec sets the default, the invocation overrides it
 
 Some evals measure nothing without the runner's setup: a Drive skill run in
-isolation scores 0%, which reads as a broken skill rather than a missing flag. So
-a spec may say `requires_inherited_mcp: true`, and `caliper run` refuses without
-`--inherit-mcp`, before any attempt is paid for, the way an `mcp:` spec is
-refused on a backend that can't honor it.
+isolation scores 0%, which reads as a broken skill rather than a missing flag.
+Making every run of such a spec remember a flag is the same trap, so the spec
+says `inherit_mcp: true` and that is the default for every run of it.
+`--no-inherit-mcp` turns it off for one run (an isolated comparison, say) and
+`--inherit-mcp` turns it on for a spec that doesn't ask for it.
 
-The field is a precondition, not a switch. A spec that could turn inheritance on
-would hand the runner's accounts to whoever wrote it (a teammate, a git source)
-without the runner typing anything, which is the consent the flag exists to
-carry. A boolean rather than a list of required connectors: which connectors an
-attempt gets is only visible once it runs (claude-code's `init` event), too late
-to refuse cheaply, and connector names differ between backends.
+What gets inherited still depends on the machine, which is why the engine stays
+off the spec ([0004](0004-engine-is-a-runtime-axis-not-a-spec-field.md)). The
+difference is that "this eval needs the runner's connectors" is a fact about the
+eval, while "run it on codex" is not. The machine-dependence is handled where it
+always is: the saved run records what was inherited and `compare` warns when two
+runs differ.
+
+A spec turning it on hands the runner's accounts to whatever skills it installs,
+without the runner typing anything. That is the trust 0027 already says running
+an eval takes: a skill runs as the user, with the user's filesystem. The notice
+at the start of the run names the spec as the source and says how to turn it
+off, so it is never silent.
+
+It was first drafted (#176) as `requires_inherited_mcp`, a precondition that refused a
+run without the flag and could never turn inheritance on. It was replaced before
+release: it made the author's intent something every runner had to repeat.
 
 ## Where it does nothing
 
 `pi` has no MCP by design ([0010](0010-pi-mcp-unsupported-by-design.md)). The flag
 isn't refused there, unlike a declared `mcp:` block: it asks for "whatever my
 setup has", and on pi that is nothing. The run warns and records the flag as off,
-so `compare` never reports a tool-environment difference that didn't exist. A
-spec that *requires* inherited MCP is refused there, since the requirement can't
-be met.
+so `compare` never reports a tool-environment difference that didn't exist. The
+same holds when the spec turned it on.
 
 The judge is never affected. A judge that can see connectors mistakes them for
 the attempt's tools (0026).
