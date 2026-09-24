@@ -91,13 +91,15 @@ def preflight_stdio_servers(
     A successful process spawn is insufficient: a dead script can exit at once,
     or a process can stay alive without speaking MCP. Bound the MCP exchange so
     neither failure becomes a scored attempt or a hanging agent. ``timeout``
-    bounds each exchange; an attempt passes its ``--timeout`` so a server that
-    starts slowly gets the same budget the agent would.
+    bounds the whole check across every server; an attempt passes its
+    ``--timeout`` so a server that starts slowly gets the same budget the agent
+    would.
     """
     if os.name == "nt":
         from caliper.harness import windows_job
     else:
         windows_job = None
+    deadline = time.monotonic() + timeout
     for name, server in resolve_servers(declared).items():
         if cancel.requested():
             raise McpPreflightInterrupted
@@ -155,7 +157,9 @@ def preflight_stdio_servers(
                     if windows_job is not None:
                         job = windows_job.assign_and_resume(process)
                     with cancel.track(process):
-                        response = _exchange(process, initialize, name, timeout)
+                        response = _exchange(
+                            process, initialize, name, deadline, timeout
+                        )
                         result = response.get("result")
                         if (
                             not isinstance(result, dict)
@@ -177,7 +181,7 @@ def preflight_stdio_servers(
                                     "method": "notifications/initialized",
                                 },
                             ),
-                            time.monotonic() + timeout,
+                            deadline,
                             f"MCP server '{name}' did not accept "
                             f"notifications/initialized within {timeout:g} seconds",
                         )
@@ -187,6 +191,7 @@ def preflight_stdio_servers(
                                 process,
                                 {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
                                 name,
+                                deadline,
                                 timeout,
                             )
                             tools_result = response.get("result")
@@ -285,7 +290,11 @@ def _bounded(work, deadline: float, timeout_message: str):
 
 
 def _exchange(
-    process: subprocess.Popen, request: dict, name: str, timeout: float
+    process: subprocess.Popen,
+    request: dict,
+    name: str,
+    deadline: float,
+    timeout: float,
 ) -> dict:
     """Read the matching MCP response, ignoring intervening notifications."""
 
@@ -336,7 +345,7 @@ def _exchange(
 
     return _bounded(
         work,
-        time.monotonic() + timeout,
+        deadline,
         f"MCP server '{name}' did not answer {request['method']} within "
         f"{timeout:g} seconds",
     )

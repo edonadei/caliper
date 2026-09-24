@@ -727,6 +727,24 @@ def test_preflight_waits_for_a_slow_server_within_its_timeout(tmp_path) -> None:
     preflight_stdio_servers(server, timeout=5)
 
 
+def test_preflight_shares_one_deadline_across_servers(tmp_path) -> None:
+    script = tmp_path / "slow.py"
+    script.write_text(
+        "import json, sys, time\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "time.sleep(0.6)\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        f"'result': {_EMPTY_INITIALIZATION}}}), flush=True)\n"
+        "sys.stdin.readline()\n"
+        "sys.stdin.readline()\n"
+    )
+    server = McpServer(command=sys.executable, args=[str(script)])
+
+    # Each server fits in 1s alone; together they exceed it.
+    with pytest.raises(HarnessConfigurationError, match="MCP server 'second'"):
+        preflight_stdio_servers({"first": server, "second": server}, timeout=1)
+
+
 def test_preflight_times_out_when_server_stops_reading_stdin(tmp_path) -> None:
     # Floods ping requests without reading replies, so preflight's writes fill
     # the stdin pipe and block.
