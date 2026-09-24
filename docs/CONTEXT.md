@@ -562,7 +562,9 @@ evidence behind a `cheat` [[outcome]], so the offending paths are reported and
 not merely counted.
 
 A sandbox is not a claim that the agent was *contained* — nothing stops the
-read; the run observes it and grades accordingly.
+read; the run observes it and grades accordingly. No part of an attempt is a
+security boundary against the skill under test; see
+[[0027-an-attempt-is-not-a-security-boundary]].
 
 ## Attempt workdir
 
