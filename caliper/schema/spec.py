@@ -285,6 +285,24 @@ class EvalSpec(BaseModel):
                 )
         return value
 
+    @field_validator("tasks")
+    @classmethod
+    def validate_tasks(cls, value: list[TaskSpec]) -> list[TaskSpec]:
+        # A spec with no tasks measures nothing, and two tasks sharing a name
+        # can't be told apart by `compare`, which matches on the name
+        # (docs/CONTEXT.md → Task identity).
+        if not value:
+            raise ValueError("a spec needs at least one task")
+        seen: set[str] = set()
+        for task in value:
+            if task.name in seen:
+                raise ValueError(
+                    f"two tasks are named {task.name!r}: task names must be "
+                    "unique, because `compare` matches tasks across runs by name"
+                )
+            seen.add(task.name)
+        return value
+
 
 # Keys removed in ADR 0004, mapped to the runtime flag that replaced them. Caught
 # before generic validation so the error explains *where the engine went*, not

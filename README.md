@@ -385,7 +385,7 @@ tasks:
     activates: []                 # nothing should fire
 ```
 
-Each task needs at least one of `expect`, `assert` or `activates`. Task IDs are assigned automatically as `task-001`, `task-002`, and so on.
+Each task needs at least one of `expect`, `assert` or `activates`. A spec needs at least one task, and task names must be unique: `caliper compare` matches tasks across runs by name. Task IDs are assigned automatically as `task-001`, `task-002`, and so on.
 
 `caliper validate` (and `caliper run`, before its first attempt) also rejects an unknown task or `sandbox:` key such as `asert:`, a `forbidden_files` entry that is not a valid regex, and an `assert:` script file that does not exist beside the spec.
 

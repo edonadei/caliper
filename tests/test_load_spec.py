@@ -224,3 +224,18 @@ def test_a_spec_that_is_not_a_mapping_says_so(tmp_path, text, message) -> None:
 def test_a_malformed_tasks_list_is_a_schema_error(tmp_path, text) -> None:
     with pytest.raises(ValidationError):
         load_spec(_write(tmp_path, text))
+
+
+def test_a_spec_needs_at_least_one_task(tmp_path) -> None:
+    with pytest.raises(ValidationError, match="at least one task"):
+        load_spec(_write(tmp_path, "tasks: []\n"))
+
+
+def test_task_names_must_be_unique(tmp_path) -> None:
+    text = (
+        "tasks:\n"
+        "  - {name: a, prompt: x, assert: assert True}\n"
+        "  - {name: a, prompt: y, assert: assert True}\n"
+    )
+    with pytest.raises(ValidationError, match="two tasks are named 'a'"):
+        load_spec(_write(tmp_path, text))
