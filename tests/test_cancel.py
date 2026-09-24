@@ -348,6 +348,22 @@ def test_cancel_kills_an_agent_in_flight(tmp_path) -> None:
     assert box["result"].returncode != 0
 
 
+def test_cancelling_a_finished_agent_with_exited_tools_keeps_its_attempt() -> None:
+    """Children the watcher saw earlier must not make a finished CLI look killed."""
+    cancel.reset()
+    agent = (
+        "import subprocess, sys; "
+        "subprocess.run([sys.executable, '-c', 'import time; time.sleep(0.3)'])"
+    )
+    with subprocess.Popen([sys.executable, "-c", agent]) as proc:
+        with cancel.track(proc):
+            proc.wait(timeout=5)
+            assert cancel._descendants[proc], "the watcher never saw the tool"
+            cancel.kill(proc)
+            assert not cancel.was_killed(proc)
+    cancel.reset()
+
+
 def test_killed_process_does_not_match_reused_pid() -> None:
     cancel.reset()
     proc = subprocess.Popen(

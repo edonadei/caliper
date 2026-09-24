@@ -169,10 +169,16 @@ def kill(proc: subprocess.Popen) -> None:
         descendants.update(
             child for child in _tagged_processes(tag) if child.pid != proc.pid
         )
-    if proc.poll() is not None and not descendants:
+    # The watcher remembers every child it saw, including ones that already
+    # exited. Only live ones still need killing, and only a CLI that was still
+    # running counts as killed: a finished attempt stays a real observation.
+    descendants = {child for child in descendants if child.is_running()}
+    finished = proc.poll() is not None
+    if finished and not descendants:
         return
-    with _lock:
-        _killed.add(proc)
+    if not finished:
+        with _lock:
+            _killed.add(proc)
     # The stored psutil.Process handles retain identity across reparenting and
     # guard against killing an unrelated process if the OS recycles a PID.
     for child in descendants:
