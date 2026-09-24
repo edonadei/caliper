@@ -712,6 +712,62 @@ def test_codex_inherit_mcp_handles_a_bare_mcp_servers_table(
     assert captured["result"].inherited_mcp_servers == ["quoted"]
 
 
+def test_codex_handles_an_inline_mcp_servers_table(monkeypatch, tmp_path) -> None:
+    home = _fake_codex_home(
+        tmp_path,
+        'mcp_servers = { personal = { command = "mine" }, echo = { command = "u" } }\n',
+    )
+    captured: dict = {}
+    seeded = _run_codex_mcp(
+        monkeypatch,
+        tmp_path,
+        {"echo": McpServer(command="python3")},
+        home=home,
+        inherit_mcp=True,
+        captured=captured,
+    )
+    config = tomllib.loads(seeded.read_text())
+    assert config["mcp_servers"] == {
+        "personal": {"command": "mine"},
+        "echo": {"command": "python3"},
+    }
+    assert captured["result"].inherited_mcp_servers == ["personal"]
+
+
+def test_codex_strips_an_inline_mcp_servers_table_by_default(
+    monkeypatch, tmp_path
+) -> None:
+    home = _fake_codex_home(
+        tmp_path, 'mcp_servers = { personal = { command = "m" } }\n'
+    )
+    seeded = _run_codex_mcp(monkeypatch, tmp_path, None, home=home)
+    assert "mcp_servers" not in tomllib.loads(seeded.read_text())
+
+
+def test_codex_is_not_fooled_by_a_header_inside_a_multiline_value(
+    monkeypatch, tmp_path
+) -> None:
+    home = _fake_codex_home(
+        tmp_path,
+        "[mcp_servers.personal]\n"
+        'command = "mine"\n'
+        "env.MESSAGE = '''\n"
+        "[history]\n"
+        "'''\n"
+        "\n"
+        "[history]\n"
+        'persistence = "none"\n',
+    )
+    seeded = _run_codex_mcp(monkeypatch, tmp_path, None, home=home)
+    assert tomllib.loads(seeded.read_text()) == {"history": {"persistence": "none"}}
+
+
+def test_codex_refuses_an_invalid_user_config(monkeypatch, tmp_path) -> None:
+    home = _fake_codex_home(tmp_path, "this is = = not toml\n")
+    with pytest.raises(HarnessConfigurationError, match="not valid TOML"):
+        _run_codex_mcp(monkeypatch, tmp_path, None, home=home)
+
+
 def test_codex_judge_keeps_connectors_off(monkeypatch) -> None:
     monkeypatch.setattr(CodexHarness, "cli_path", lambda self: "codex")
     call = CodexHarness()._prompt_command("grade this", None)

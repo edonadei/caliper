@@ -285,6 +285,20 @@ def test_an_ablation_pair_under_the_flag_is_still_labelled():
     assert comp.warnings == []
 
 
+@pytest.mark.parametrize("inherited", [["gmail"], None])
+def test_an_all_ablated_run_that_inherited_tools_is_not_a_bare_agent(inherited):
+    full = _saved(inherit=True, inherited=inherited, skills=("subject",))
+    cut = _saved(inherit=True, inherited=inherited, skills=(), ablated=("subject",))
+    comp = diff_runs(full, cut)
+    assert comp.b_label == "without subject"
+
+
+def test_an_all_ablated_run_that_inherited_nothing_is_a_bare_agent():
+    full = _saved(inherit=True, inherited=[], skills=("subject",))
+    cut = _saved(inherit=True, inherited=[], skills=(), ablated=("subject",))
+    assert diff_runs(full, cut).b_label == "bare agent"
+
+
 # --- report ---------------------------------------------------------------
 
 

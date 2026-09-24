@@ -216,8 +216,13 @@ def _ablation_labels(
     # "Bare agent" means nothing was configured, tools included: a run that
     # ablated every skill but kept a server is not a bare agent. The server side
     # must be a *recorded* empty set — an unrecorded membership is unknown, and
-    # "without ..." is the honest label for it.
-    bare = not cut_nb and cut_mcp == []
+    # "without ..." is the honest label for it. That goes for inherited servers
+    # too: a run that inherited any, or can't say, isn't bare (docs/adr/0028).
+    bare = (
+        not cut_nb
+        and cut_mcp == []
+        and (not cut_run.inherit_mcp or cut_run.inherited_mcp_servers == [])
+    )
     cut_label = (
         "bare agent" if bare else f"without {', '.join(sorted(cut_run.ablated))}"
     )

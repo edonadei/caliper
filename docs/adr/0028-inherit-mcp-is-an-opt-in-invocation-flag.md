@@ -105,6 +105,12 @@ setup otherwise reads exactly like an isolated one.
   start is part of the setup the run was asked to reproduce.
 - `codex_apps` is recorded only for a ChatGPT login whose config leaves the
   `apps` feature on; an API-key login carries no hosted connectors.
+- Keeping *some* of the user's codex servers means editing their config rather
+  than dropping whole tables, so codex's `config.toml` is now read with a TOML
+  parser (`tomllib`, or `tomli` on Python 3.10) and written back whole. That
+  handles every way TOML can spell a server, and an invalid user config stops
+  the run with a clear error instead of reaching codex as broken input. The
+  copy loses the user's comments and layout, which nothing reads.
 - This supersedes 0026's "a skill that relies on an account connector can't be
   evaluated through it", for runs that opt in. The default is unchanged, and the
   #129 probe tasks in the smoke evals still guard it.
