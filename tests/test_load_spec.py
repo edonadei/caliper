@@ -206,3 +206,21 @@ def test_run_rejects_the_spec_before_its_first_attempt(
     )
     assert result.exit_code != 0
     assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
+@pytest.mark.parametrize(
+    "text, message",
+    [
+        ("", "the spec is empty"),
+        ("- a\n", "must be a mapping with a `tasks:` list"),
+    ],
+)
+def test_a_spec_that_is_not_a_mapping_says_so(tmp_path, text, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        load_spec(_write(tmp_path, text))
+
+
+@pytest.mark.parametrize("text", ["tasks:\n", "tasks: [foo]\n"])
+def test_a_malformed_tasks_list_is_a_schema_error(tmp_path, text) -> None:
+    with pytest.raises(ValidationError):
+        load_spec(_write(tmp_path, text))

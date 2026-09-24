@@ -344,13 +344,25 @@ def load_spec(path: Path) -> EvalSpec:
     import yaml
 
     raw = yaml.safe_load(path.read_text())
-    if isinstance(raw, dict):
-        # Engine keys first: a spec carrying both `skill.model` and `skill:`
-        # should hear about the engine move, which is the older migration.
-        _reject_removed_keys(raw)
-        _reject_singular_skill(raw)
-    for i, task in enumerate(raw.get("tasks", []), 1):
-        task["id"] = f"task-{i:03d}"
+    if raw is None:
+        raise ValueError("the spec is empty: it needs at least a `tasks:` list")
+    if not isinstance(raw, dict):
+        raise ValueError(
+            "the spec must be a mapping with a `tasks:` list at the top level, "
+            f"not a {type(raw).__name__}"
+        )
+    # Engine keys first: a spec carrying both `skill.model` and `skill:`
+    # should hear about the engine move, which is the older migration.
+    _reject_removed_keys(raw)
+    _reject_singular_skill(raw)
+    # Ids only where the shape allows it: `tasks: null` or `tasks: [foo]` is
+    # left for the schema to reject by field rather than failing here on a
+    # Python type error.
+    tasks = raw.get("tasks")
+    if isinstance(tasks, list):
+        for i, task in enumerate(tasks, 1):
+            if isinstance(task, dict):
+                task["id"] = f"task-{i:03d}"
     return EvalSpec.model_validate(raw, context={"spec_dir": path.parent})
 
 

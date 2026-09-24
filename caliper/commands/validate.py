@@ -41,7 +41,7 @@ def validate_cmd(
         # would get.
         fail(BadInput(_format_validation_errors(exc), title="Validation failed"))
     except Exception as exc:
-        fail(BadInput(f"Error parsing YAML: {exc}"))
+        fail(BadInput(f"Invalid spec: {exc}"))
 
     # Resolve the neighbourhood here too: a lone slash-command .md, a missing
     # frontmatter name:, or two skills claiming one name are all things
