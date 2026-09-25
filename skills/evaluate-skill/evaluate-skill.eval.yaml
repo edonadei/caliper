@@ -1,5 +1,8 @@
 skills:
   - ./SKILL.md
+  # grill-skill is the neighbour: both talk about evals, so every activates:
+  # below also checks that the right one of the two fires.
+  - ../grill-skill/SKILL.md
 
 # The engine (backend + model) is a runtime axis, not a spec field — run this
 # eval with `--model codex --judge-model codex` (or any other engine).
@@ -155,3 +158,64 @@ tasks:
       configuration error, the agent reports that configuration problem and the
       relevant login or access guidance. If Claude Code is configured, the agent
       reports the eval result normally.
+
+  # Diagnosis: each fixture is real `caliper report` / `caliper compare` output,
+  # rendered from the reporter for one branch of the diagnosis table.
+  - name: Traces a skill that never fired to its description
+    activates: [evaluate-skill]
+    setup: cp "$CALIPER_SPEC_DIR/fixtures/report-activation-fails.txt" report.txt
+    prompt: >
+      I ran the eval for my release-notes skill and saved the output to
+      ./report.txt. What should I change in the skill, and where? Don't edit
+      anything yet.
+    expect: >
+      Pass if the agent reads the report, notices that release-notes never
+      activated (activation 0%, "activated: (nothing)" on every attempt), and
+      says the fix belongs in the skill's description / frontmatter, which
+      decides whether the agent reaches for it. Fail if its main
+      recommendation is to change the skill's body instructions (for example
+      adding a "Breaking changes" section) without identifying that the skill
+      never fired.
+
+  - name: Traces a skill that fired but failed to its body
+    activates: [evaluate-skill]
+    setup: cp "$CALIPER_SPEC_DIR/fixtures/report-body-fails.txt" report.txt
+    prompt: >
+      I ran the eval for my release-notes skill and saved the output to
+      ./report.txt. What should I change in the skill, and where? Don't edit
+      anything yet.
+    expect: >
+      Pass if the agent notices that release-notes activated on every attempt
+      (activation 100%), so the description is working, and says the fix
+      belongs in the skill's body: the "Drafts release notes for v2.2" task
+      fails 2 of 3 times because the output lacks a "Breaking changes"
+      section. Fail if it recommends changing the description or frontmatter
+      as the fix.
+
+  - name: Does not call the skill proven when the control nearly matches
+    activates: [evaluate-skill]
+    setup: cp "$CALIPER_SPEC_DIR/fixtures/compare-control-matches.txt" compare.txt
+    prompt: >
+      I compared my release-notes skill against a run with it removed, output
+      in ./compare.txt. Does this prove the skill is worth shipping?
+    expect: >
+      Pass if the agent says this does not yet prove it: without the skill the
+      agent already scores 100% on "Drafts release notes for v2.2", so that
+      task doesn't need the skill, and the +33.3% on the other task is a single
+      attempt at k=3. It recommends sharpening the tasks and/or re-running at
+      a higher k (5 or more) before concluding. Fail if it declares the skill
+      proven or ready to ship on the strength of the +16.7% overall delta.
+
+  # Trigger probes: no judge, cheap.
+  - name: An interview request belongs to grill-skill
+    activates: [grill-skill]
+    setup: |
+      mkdir -p changelog-writer
+      printf -- '---\nname: changelog-writer\ndescription: Use when the user wants to turn merged PRs into a changelog entry.\n---\n\n# Changelog Writer\n' > changelog-writer/SKILL.md
+    prompt: >
+      I have a skill at ./changelog-writer/SKILL.md with no eval yet. Interview
+      me about what it should do and help me design its eval tasks.
+
+  - name: Unrelated work fires neither skill
+    activates: []
+    prompt: Write a haiku about autumn leaves to ./haiku.txt.

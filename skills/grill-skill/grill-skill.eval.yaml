@@ -1,5 +1,8 @@
 skills:
   - ./SKILL.md
+  # evaluate-skill is the neighbour: both talk about evals, so every
+  # activates: below also checks that the right one of the two fires.
+  - ../evaluate-skill/SKILL.md
 
 # The engine (backend + model) is a runtime axis, not a spec field — this eval
 # runs on whatever `--model` / `--judge-model` select (default claude-code).
@@ -163,3 +166,131 @@ tasks:
           assert "prompt" in task, "Each task needs a prompt"
           assert "expect" in task or "assert" in task, \
               f"Task '{task.get('name')}' needs expect or assert"
+
+  # Task 4 — The interview reaches triggering. Questions 1-3 are answered up
+  # front, so the next question the skill should ask is about neighbours or
+  # trigger probes. Assert: it still hasn't written a spec.
+  - name: Asks about triggering once the execution tasks are answered
+    activates: [grill-skill]
+    setup: |
+      mkdir -p changelog-writer
+      cat > changelog-writer/SKILL.md << 'EOF'
+      ---
+      name: changelog-writer
+      description: Use when the user wants to turn merged PRs into a changelog entry.
+      allowed-tools: Bash, Read, Write
+      ---
+
+      # Changelog Writer
+
+      Read the merged PRs since the last tag and write a grouped changelog
+      entry (Features / Fixes / Chore) to CHANGELOG.md.
+      EOF
+    prompt: >
+      I want an eval for my skill at ./changelog-writer/SKILL.md. Your reading
+      is right: it turns merged PRs since the last tag into a grouped
+      changelog entry in CHANGELOG.md. Happy path: three merged PRs (a feature,
+      a fix, a chore) become one entry with Features / Fixes / Chore headings.
+      Edge case: a PR labelled both feature and fix. Adversarial: asked to
+      rewrite old released entries, it should refuse. Ask me whatever else you
+      need before you write the spec.
+    expect: >
+      Pass if, before writing anything, the agent asks about whether the skill
+      fires at the right time: which other skills could be confused with this
+      one (neighbours), or it proposes trigger probes such as a silence probe
+      (unrelated work where no skill should fire) or a neighbour probe. Fail if
+      it writes the spec, or asks only about the execution tasks already
+      answered without touching on when the skill should or shouldn't fire.
+    assert: |
+      import glob
+      specs = glob.glob("changelog-writer/*.eval.yaml")
+      assert not specs, f"Agent wrote a spec before finishing the interview: {specs}"
+
+  # Task 5 — Generated tasks carry activates: and never name the skill. The
+  # user answers everything and asks for the file, without mentioning either
+  # rule, so both have to come from the skill.
+  - name: Generated tasks assert activates and never name the skill
+    activates: [grill-skill]
+    setup: |
+      mkdir -p hello-file
+      cat > hello-file/SKILL.md << 'EOF'
+      ---
+      name: hello-file
+      description: Use when the user wants to write a greeting file.
+      allowed-tools: Bash
+      ---
+
+      # Hello File
+
+      Write the text "hello world" to ./hello.txt when the user asks.
+      EOF
+    prompt: >
+      Write the eval spec for my skill at ./hello-file/SKILL.md now, to
+      ./hello-file/hello-file.eval.yaml, without asking me anything more; I have
+      answered everything. Happy path: I ask for a greeting file and
+      ./hello.txt contains "hello world". Edge case: I ask for the greeting
+      "hi there" instead. Adversarial: I ask it to overwrite /etc/hosts, and it
+      must refuse. Don't run it.
+    expect: >
+      A valid .eval.yaml is written at ./hello-file/hello-file.eval.yaml
+      covering the happy path, edge case and adversarial case.
+    assert: |
+      import yaml
+
+      with open("hello-file/hello-file.eval.yaml") as f:
+          spec = yaml.safe_load(f)
+      tasks = spec.get("tasks") or []
+      execution = [t for t in tasks if "expect" in t or "assert" in t]
+      assert execution, "no execution tasks"
+      for t in execution:
+          assert "hello-file" in (t.get("activates") or []), \
+              f"task {t.get('name')!r} does not assert activates: [hello-file]"
+      for t in tasks:
+          prompt = str(t.get("prompt", "")).lower()
+          assert "hello-file" not in prompt and "skill" not in prompt, \
+              f"task {t.get('name')!r} names the skill in its prompt: {prompt!r}"
+
+  # Task 6 — Phase 4: the control comes before any skill edit.
+  - name: Runs the control before iterating on the skill
+    activates: [grill-skill]
+    setup: |
+      mkdir -p changelog-writer
+      cat > changelog-writer/SKILL.md << 'EOF'
+      ---
+      name: changelog-writer
+      description: Use when the user wants to turn merged PRs into a changelog entry.
+      allowed-tools: Bash, Read, Write
+      ---
+
+      # Changelog Writer
+
+      Read the merged PRs since the last tag and write a grouped changelog
+      entry (Features / Fixes / Chore) to CHANGELOG.md.
+      EOF
+      cat > changelog-writer/changelog-writer.eval.yaml << 'EOF'
+      skills:
+        - ./SKILL.md
+      tasks:
+        - name: Groups three merged PRs by type
+          prompt: Write the changelog entry for the PRs merged since v1.0.
+          expect: CHANGELOG.md gains one entry with Features, Fixes and Chore headings.
+          activates: [changelog-writer]
+      EOF
+    prompt: >
+      My eval at ./changelog-writer/changelog-writer.eval.yaml validated and its
+      k=1 run was clean, no harness errors. Before I start editing SKILL.md,
+      what run should come next, and why? Just tell me; don't run anything.
+    expect: >
+      Pass if the agent recommends running the control next, i.e. the same
+      tasks with the skill removed (`--ablate changelog-writer`), alongside a
+      full run and a `caliper compare`, to check that the tasks actually need
+      the skill before iterating on it. Fail if it recommends going straight to
+      editing the skill or to repeated full runs without that control.
+
+  # Trigger probe: a plain validation request belongs to evaluate-skill.
+  - name: A validation request belongs to evaluate-skill
+    activates: [evaluate-skill]
+    setup: |
+      printf -- '---\nname: arithmetic\ndescription: Use when asked to do arithmetic.\n---\n\n# Arithmetic\n' > SKILL.md
+      printf 'skills:\n  - ./SKILL.md\ntasks:\n  - name: Adds\n    prompt: What is 2 + 2?\n    expect: The answer is 4.\n' > valid.eval.yaml
+    prompt: Is the caliper spec at ./valid.eval.yaml valid?

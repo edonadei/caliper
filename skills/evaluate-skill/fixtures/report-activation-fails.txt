@@ -1,0 +1,58 @@
+
+─────── CALIPER  —  release-notes  (claude-code)  ·  judge claude-code  —  2026-09-20 10:00 ────────
+
+ Score       0.0%  ░░░░░░░░░░░░░░░░░░░░  (2 tasks scored)
+
+╭───────────────────────────────┬───────┬─────────┬─────┬────────┬──────┬────────╮
+│ Task                          │ k (3) │ success │ act │ Tokens │ Wall │        │
+├───────────────────────────────┼───────┼─────────┼─────┼────────┼──────┼────────┤
+│ Drafts release notes for v2.2 │  0/3  │    0.0% │  ✗  │    73K │  27s │ ✗ FAIL │
+│ Groups changes by type        │  0/3  │    0.0% │  ✗  │    73K │  24s │ ✗ FAIL │
+╰───────────────────────────────┴───────┴─────────┴─────┴────────┴──────┴────────╯
+
+ Activation  0.0%  ░░░░░░░░░░░░░░░░░░░░  (2 asserted tasks)
+
+╭───────────────┬────────┬───────────────────┬───────────────────────╮
+│ Skill         │ wanted │ fires when wanted │ fires when not wanted │
+├───────────────┼────────┼───────────────────┼───────────────────────┤
+│ release-notes │ 6 of 6 │       0/6    0.0% │                     — │
+╰───────────────┴────────┴───────────────────┴───────────────────────╯
+ 1 more declared skill was never wanted and never fired: commit-writer
+
+ Tokens   144K in / 2K out     
+ Wall     51s  8.5s per attempt
+
+
+╭───────────────────────────────── Drafts release notes for v2.2 ──────────────────────────────────╮
+│   expected to activate: release-notes                                                            │
+│   Attempt 1  ✗  (9.0s · 24K tok)                                                                 │
+│     activated: (nothing)                                                                         │
+│     output: ## v2.2                                                                              │
+│ - Misc fixes and improvements                                                                    │
+│     assert: AssertionError: no 'Breaking changes' section                                        │
+│   Attempt 2  ✗  (9.0s · 24K tok)                                                                 │
+│     activated: (nothing)                                                                         │
+│     output: ## v2.2                                                                              │
+│ - Misc fixes and improvements                                                                    │
+│     assert: AssertionError: no 'Breaking changes' section                                        │
+│   Attempt 3  ✗  (9.0s · 24K tok)                                                                 │
+│     activated: (nothing)                                                                         │
+│     output: ## v2.2                                                                              │
+│ - Misc fixes and improvements                                                                    │
+│     assert: AssertionError: no 'Breaking changes' section                                        │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭───────────────────────────────────── Groups changes by type ─────────────────────────────────────╮
+│   expected to activate: release-notes                                                            │
+│   Attempt 1  ✗  (8.0s · 24K tok)                                                                 │
+│     activated: (nothing)                                                                         │
+│     output: Here are the changes since v2.1: ...                                                 │
+│     assert: AssertionError: no Features/Fixes headings                                           │
+│   Attempt 2  ✗  (8.0s · 24K tok)                                                                 │
+│     activated: (nothing)                                                                         │
+│     output: Here are the changes since v2.1: ...                                                 │
+│     assert: AssertionError: no Features/Fixes headings                                           │
+│   Attempt 3  ✗  (8.0s · 24K tok)                                                                 │
+│     activated: (nothing)                                                                         │
+│     output: Here are the changes since v2.1: ...                                                 │
+│     assert: AssertionError: no Features/Fixes headings                                           │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
