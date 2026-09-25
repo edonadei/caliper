@@ -303,12 +303,18 @@ class ClaudeCodeHarness(CliHarness):
 
     config_signals = (
         ConfigSignal(
-            ("not logged in", "please run /login"),
+            (
+                "not logged in",
+                "please run /login",
+                "failed to authenticate",
+                "oauth session expired",
+                "invalid api key",
+            ),
             "Claude Code is not logged in for the evaluation harness.\n\n"
             "caliper runs Claude Code in an isolated HOME so each attempt has no "
             "session history. The Claude CLI returned:\n"
             "  {text}\n\n"
-            "Run Claude Code login for this machine, then retry the eval. If "
+            "Run `claude`, then `/login`, and retry the eval. If "
             "`claude -p 'Reply OK'` works in your normal shell but caliper still "
             "fails, the harness is not finding or copying the credential store "
             "that your Claude Code install uses.",
