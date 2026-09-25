@@ -10,7 +10,7 @@ to design tasks.
 caliper validate spec.eval.yaml                   # offline check; exit 1 if invalid
 caliper run spec.eval.yaml --k 3                  # attempts per task (default 3)
 caliper run spec.eval.yaml --k 3 --ablate my-skill   # the control: that skill removed
-caliper run spec.eval.yaml --ablate a --ablate b --no-user-customizations  # every skill named, isolated: the bare agent
+caliper run spec.eval.yaml --ablate a --ablate mcp:srv --no-user-customizations  # every skill and server, isolated: the bare agent
 caliper run spec.eval.yaml --no-user-customizations  # isolated: only the spec's mcp: servers
 caliper run spec.eval.yaml --verbose              # per-attempt judge reasoning, pass@k, pass^k
 
@@ -310,8 +310,8 @@ Avoid:
 - only testing happy paths
 - relying only on final text when environment state matters
 - using an LLM judge for facts a script can check
-- writing tasks so easy the bare agent passes consistently (the control catches
-  this, and it is a finding about the *task*, not the skill)
+- writing tasks so easy the agent passes them without the skill (the control
+  catches this, and it is a finding about the *task*, not the skill)
 - writing tasks so broad that failures are impossible to diagnose
 - changing regression tasks every time the skill changes
 

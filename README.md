@@ -222,7 +222,7 @@ commented lines.
    output).
 4. Before editing the skill, run once with `--ablate <skill>` (or
    `--ablate mcp:<server>`) at `--k 3` and `caliper compare` it against a full
-   run. A task the bare agent already passes doesn't need the skill: sharpen it
+   run. A task that passes without the skill doesn't need it: sharpen it
    first. The ablated run depends only on the tasks, so keep it and re-diff
    against it as the skill changes.
 5. Iterate on the skill at `--k 3`, and confirm a win or a regression at
@@ -402,7 +402,7 @@ run Caliper, inside the git repository. See
 | Flag | Default | Description |
 |---|---|---|
 | `--k INT` | `3` | Attempts per task |
-| `--ablate NAME` | none | Run without this declared skill or `mcp:` server (repeatable; name every skill, with `--no-user-customizations`, for the bare agent). Qualify as `skill:`/`mcp:` when both declare the name |
+| `--ablate NAME` | none | Run without this declared skill or `mcp:` server (repeatable; name every skill and `mcp:` server, with `--no-user-customizations`, for the bare agent). Qualify as `skill:`/`mcp:` when both declare the name |
 | `--workers INT` | `4` | Attempts to run in parallel, across all tasks |
 | `--timeout INT` | `120` | Seconds per attempt |
 | `--fail-fast INT` | `0` | Stop a task after N consecutive `infra_error`/`timeout` attempts (`0` disables; counts attempts, not invocations) |

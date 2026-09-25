@@ -26,7 +26,7 @@ A skill eval answers four separate questions. Each has its own measurement and i
 |---|---|---|
 | **Fires**: does the agent reach for the skill when it should, and only then? | `activates:` on tasks, and trigger probes | the skill's `description` frontmatter |
 | **Works**: once it fires, does it get the job done? | `expect:` / `assert:`, scored as the success rate | the skill's body |
-| **Earns**: does it beat the agent without it? | the control (`--ablate <skill-name>`: the declared neighbourhood minus this skill) and `caliper compare`. For a truly bare agent, ablate every declared skill and isolate the run | the tasks: if the control passes too, the task is too easy |
+| **Earns**: does it beat the agent without it? | the control (`--ablate <skill-name>`: the declared neighbourhood minus this skill) and `caliper compare`. For a truly bare agent, ablate every declared skill and every declared `mcp:` server, and isolate the run | the tasks: if the control passes too, the task is too easy |
 | **Holds**: does it stay good across edits and over time? | `caliper compare` of each full run against the previous one, skill drift | the edit that moved it |
 
 ## Spec shape
