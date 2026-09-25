@@ -133,7 +133,8 @@ class ClaudeCodeHarness(CliHarness):
         return names
 
     def _plugin_skill_paths(self, ctx: RunContext) -> dict[str, str]:
-        registry = Path(ctx.isolated_home) / ".claude/plugins/installed_plugins.json"
+        claude_dir = Path(ctx.isolated_home) / ".claude"
+        registry = claude_dir / "plugins/installed_plugins.json"
         if not ctx.user_customizations or not registry.exists():
             return {}
         paths = {}
@@ -162,7 +163,13 @@ class ClaudeCodeHarness(CliHarness):
                             if name.startswith(f"{namespace}:")
                             else f"{namespace}:{name}"
                         )
-                        paths[command_name] = str(skill)
+                        # Recorded as a suffix under ~/.claude so the
+                        # detector matches absolute and relative reads alike.
+                        paths[command_name] = (
+                            skill.relative_to(claude_dir).as_posix()
+                            if skill.is_relative_to(claude_dir)
+                            else str(skill)
+                        )
         return paths
 
     def _prepare(self, ctx: RunContext) -> None:

@@ -65,8 +65,12 @@ class ActivationDetector:
             detector = ActivationDetector(
                 sorted(set(self._names) | set(additional_names)), self._tool_names
             )
+            # Plugin paths are suffixes too: a relative read of a plugin skill
+            # must not fall through to a declared skill's basename.
             for name, path in (additional_paths or {}).items():
-                detector._path_patterns[name] = re.compile(re.escape(path) + r"\b")
+                detector._path_patterns[name] = re.compile(
+                    rf"(?:^|[/\s\"']){re.escape(path.lstrip('/'))}\b"
+                )
             return detector.detect(transcript)
         if not self._names:
             return None

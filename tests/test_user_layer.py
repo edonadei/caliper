@@ -222,6 +222,9 @@ def test_claude_plugins_use_private_installations(
             f"skill:{command_name}",
         ]
         assert command_name in result.user_skill_names
+        suffix = result.user_skill_paths[command_name]
+        assert not Path(suffix).is_absolute()
+        assert (iso / ".claude" / suffix).is_file()
 
 
 @pytest.mark.parametrize(

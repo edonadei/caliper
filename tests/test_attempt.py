@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from caliper.activation import ActivationDetector
 from caliper.attempt import assemble_attempt
 from caliper.harness.base import AttemptResult, ConversationTurn
@@ -414,3 +416,23 @@ def test_plugin_read_does_not_credit_a_declared_skill_with_the_same_basename():
     )
     assert assembled.record.activated == ["plugin:review"]
     assert assembled.record.activation_passed is False
+
+
+@pytest.mark.parametrize("declared", [[], ["review"]])
+def test_relative_plugin_reads_are_observed_under_the_namespaced_name(declared):
+    assembled = _assemble(
+        _result(
+            transcript=[
+                _read_turn(
+                    "../iso/.claude/plugins/cache/0/review/skills/review/SKILL.md"
+                )
+            ],
+            user_skill_names=["review:review"],
+            user_skill_paths={
+                "review:review": "plugins/cache/0/review/skills/review/SKILL.md"
+            },
+        ),
+        activation=ActivationDetector(declared, frozenset({"Skill"})),
+        expected_activation=[],
+    )
+    assert assembled.record.activated == ["review:review"]
