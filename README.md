@@ -171,7 +171,8 @@ tasks:
 There are three kinds of check, and a task needs at least one:
 
 - `expect:` is graded by an LLM judge.
-- `assert:` runs locally as Python.
+- `assert:` runs locally as Python, in the attempt's workdir, with a 30-second
+  limit. One that runs longer has no verdict, rather than failing the task.
 - `activates:` asserts which skills the agent chose to load.
 
 The third task is the one you can't write any other way. Both skills read git
@@ -357,7 +358,8 @@ The quick start covers the basics. A spec can also:
 - **pin whether your own customizations load**: `user_customizations: false`
   for a portable score from anyone, or `true` for a skill that needs your own
   connectors
-- run **`setup:` and `cleanup:`** shell hooks in each attempt's workdir
+- run **`setup:` and `cleanup:`** shell hooks in each attempt's workdir (each
+  killed after 600 seconds)
 - extend `PATH` or **forbid files** the agent must not read (`sandbox:`)
 - assert **silence** (`activates: []`) or a **delegation chain**
   (`activates: [mine, helper]`)

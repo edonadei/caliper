@@ -534,13 +534,14 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord | 
         try:
             setup = _run_hook(workdir, task, attempt, "setup")
             if setup is not None:
-                failures.append(setup)
+                failure, reason = setup
+                failures.append(failure)
                 record = AttemptRecord(
                     attempt=attempt,
                     output="",
                     duration_seconds=0.0,
                     outcome=Outcome.INFRA_ERROR,
-                    assert_evidence=f"setup exited {setup.exit_code}",
+                    assert_evidence=reason,
                 )
             elif not cancel.requested():
                 record = _measure_attempt(task, attempt, env, workdir)
@@ -552,7 +553,7 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord | 
                 # tidies up after is still evidence.
                 cleanup = None
             if cleanup is not None:
-                failures.append(cleanup)
+                failures.append(cleanup[0])
             env.hook_failures.extend(failures)
     if record is not None:
         record.hook_failures.extend(failures)
@@ -561,21 +562,28 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord | 
 
 def _run_hook(
     workdir: AttemptWorkdir, task: TaskSpec, attempt: int, phase: HookPhase
-) -> HookFailure | None:
-    """Run the task's ``setup:`` or ``cleanup:``; a failure if it did not succeed."""
+) -> tuple[HookFailure, str] | None:
+    """Run the task's ``setup:`` or ``cleanup:``; its failure and why, if it failed.
+
+    A hook that ran past its limit fails like one that exited nonzero: the
+    attempt is an ``infra_error`` either way (docs/adr/0029).
+    """
     cmd = task.setup if phase == "setup" else task.cleanup
     if not cmd:
         return None
     step = workdir.run_shell(phase, cmd)
     if step.ok:
         return None
-    return HookFailure(
+    failure = HookFailure(
         task_id=task.id,
         attempt=attempt,
         phase=phase,
         exit_code=step.exit_code,
         output=step.output[-4000:],
     )
+    if step.timed_out_after is not None:
+        return failure, f"{phase} timed out after {step.timed_out_after}s"
+    return failure, f"{phase} exited {step.exit_code}"
 
 
 def _measure_attempt(

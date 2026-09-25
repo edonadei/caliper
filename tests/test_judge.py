@@ -17,6 +17,7 @@ from caliper.harness.hermes import HermesHarness
 from caliper.harness.pi import PiHarness
 from caliper.judge.script_assert import EvalJudge
 from caliper.schema.spec import TaskSpec
+from caliper.workdir import _STEP_TIMEOUTS
 
 from conftest import patch_cli_calls
 
@@ -555,3 +556,18 @@ def test_autorater_runs_in_the_attempt_workdir_not_the_spec_dir(
 
     _cmd, kwargs = calls[0]
     assert kwargs["cwd"] == attempt_workdir.path
+
+
+def test_an_assertion_that_hangs_has_no_verdict(attempt_workdir, monkeypatch) -> None:
+    # A check that hung did not show the agent failed (docs/adr/0029).
+    monkeypatch.setitem(_STEP_TIMEOUTS, "assert", 1)
+    result = EvalJudge().evaluate(
+        task=_task(expect="", assert_script="import time\ntime.sleep(30)"),
+        transcript=[],
+        final_output="",
+        workdir=attempt_workdir,
+    )
+
+    assert result.errored is True
+    assert result.assert_passed is None
+    assert result.assert_evidence == "assert timed out after 1s"

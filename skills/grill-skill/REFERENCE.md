@@ -73,7 +73,7 @@ and `assert_evidence` — no extra command needed. Each attempt is tagged with a
 `outcome`: a real `task_fail` reads as `✗`, while *unusable* attempts
 (`infra_error` from a rate limit that outlasted its retries or an attempt with
 no model call observed, `timeout`, or
-`judge_error`)
+`judge_error`, including an `assert:` that timed out)
 read as `⊘` and are excluded from the score denominator, with a separate
 "N unusable" count in the summary — so a throttled or judge-flaked run is not
 mistaken for a skill regression. A run where *every* attempt was unusable
@@ -165,7 +165,11 @@ assertions get `CALIPER_WORKDIR` and `CALIPER_SPEC_DIR`; `assert: ./check.py`
 still resolves against the spec's directory.
 
 Lifecycle hooks run for each attempt. A failed `setup:` skips the agent and judge
-and records an `infra_error`; `cleanup:` is still attempted. A failed cleanup
+and records an `infra_error`; `cleanup:` is still attempted. `setup:` and
+`cleanup:` are killed after 600 seconds, which counts as a failure. `assert:` is
+killed after 30 seconds and then has no verdict: the attempt is a `judge_error`
+unless `expect:` produced one. Assertion evidence is the tail of the script's
+output, where a traceback names the failed assertion. A failed cleanup
 does not change a completed attempt's outcome, but the command exits `2`.
 `AttemptRecord.hook_failures` and `RunMeta.hook_failures` save the task ID,
 attempt number, phase, exit code, and output. The run-level list includes

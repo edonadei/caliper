@@ -18,6 +18,8 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -30,6 +32,16 @@ WORKDIR_ENV = "CALIPER_WORKDIR"
 SPEC_DIR_ENV = "CALIPER_SPEC_DIR"
 
 StepPhase = Literal["setup", "assert", "check", "cleanup"]
+
+# How long a step may run before it is killed, by phase. A hook may clone or
+# install; an assertion only checks what the agent left. Fixed rather than
+# configurable until a spec needs otherwise (docs/adr/0029).
+_STEP_TIMEOUTS: dict[StepPhase, int] = {
+    "setup": 600,
+    "cleanup": 600,
+    "assert": 30,
+    "check": 30,
+}
 
 # Enough of a step's output to diagnose it, bounded so a noisy step cannot hold
 # its whole output in memory. Each reader cuts it to the size it records.
@@ -47,13 +59,14 @@ class StepCancelled(Exception):
 @dataclass(frozen=True)
 class StepResult:
     exit_code: int
-    # The tail of what the step printed, stripped.
+    # The tail of what the step printed, stdout and stderr merged, stripped.
     output: str
-    timed_out: bool = False
+    # The limit it was killed at, when it ran past its phase's timeout.
+    timed_out_after: int | None = None
 
     @property
     def ok(self) -> bool:
-        return self.exit_code == 0 and not self.timed_out
+        return self.exit_code == 0 and self.timed_out_after is None
 
 
 class AttemptWorkdir:
@@ -61,6 +74,10 @@ class AttemptWorkdir:
 
     Use as a context manager: entering creates the temp dir with an empty
     ``work/`` in it; leaving removes both, and the isolated home with them.
+
+    Every step follows the same rules (docs/adr/0029): a timeout per phase,
+    killed with its descendants when the run is cancelled, and the tail of its
+    merged output kept as evidence.
     """
 
     def __init__(self, spec_dir: str | Path) -> None:
@@ -93,15 +110,6 @@ class AttemptWorkdir:
             raise RuntimeError("AttemptWorkdir used outside its `with` block")
         return self._root
 
-    def _env(self) -> dict[str, str]:
-        """The environment a step runs with: the caller's, plus both dirs.
-
-        Deliberately the caller's own environment rather than the agent's
-        isolated one: steps are the spec author's code, not the agent under
-        test, and have always run with the developer's ``HOME`` and ``PATH``.
-        """
-        return {**os.environ, WORKDIR_ENV: self.path, SPEC_DIR_ENV: self.spec_dir}
-
     def run_shell(self, phase: StepPhase, cmd: str) -> StepResult:
         """Run a shell command in the workdir.
 
@@ -109,10 +117,42 @@ class AttemptWorkdir:
         ``cleanup`` is not killed by a cancellation already requested, so it
         still tidies up after an interrupt.
         """
-        # Drain while the shell runs so verbose output cannot fill a pipe. Stop
-        # when *that shell* exits: background children may keep its pipe open
-        # or write forever, and must not delay the next attempt or retain disk
-        # space.
+        return self._run(phase, cmd, shell=True)
+
+    def run_python(self, phase: StepPhase, code: str) -> StepResult:
+        """Run Python source in the workdir with this interpreter.
+
+        The source is staged in the attempt's temp dir, beside the workdir
+        rather than in it, so the step sees only what the agent left.
+        """
+        with tempfile.NamedTemporaryFile(
+            suffix=".py", mode="w", dir=self._require_root(), delete=False
+        ) as f:
+            f.write(code)
+            script = f.name
+        try:
+            return self._run(phase, [sys.executable, script], shell=False)
+        finally:
+            Path(script).unlink(missing_ok=True)
+
+    def _run(self, phase: StepPhase, args: str | list[str], shell: bool) -> StepResult:
+        limit = _STEP_TIMEOUTS[phase]
+        # Tagged like an agent CLI, so a kill reaches descendants that left
+        # its process group or outlived it.
+        process_tag = uuid.uuid4().hex
+        # Deliberately the caller's own environment rather than the agent's
+        # isolated one: steps are the spec author's code, not the agent under
+        # test, and have always run with the developer's ``HOME`` and ``PATH``.
+        env = {
+            **os.environ,
+            WORKDIR_ENV: self.path,
+            SPEC_DIR_ENV: self.spec_dir,
+            cancel.PROCESS_TAG: process_tag,
+        }
+        # Drain while the step runs so verbose output cannot fill a pipe. Stop
+        # when *that process* exits: background children may keep its pipe
+        # open or write forever, and must not delay the next attempt or retain
+        # disk space.
         tail = bytearray()
 
         def keep(chunk: bytes) -> None:
@@ -122,61 +162,59 @@ class AttemptWorkdir:
 
         with (
             subprocess.Popen(
-                cmd,
-                shell=True,
+                args,
+                shell=shell,
                 cwd=self.path,
-                env=self._env(),
+                env=env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
             ) as process,
-            cancel.track(process, cancel_if_requested=phase != "cleanup"),
+            cancel.track(
+                process,
+                cancel_if_requested=phase != "cleanup",
+                process_tag=process_tag,
+            ),
         ):
             assert process.stdout is not None
             fd = process.stdout.fileno()
+            deadline = time.monotonic() + limit
             if os.name == "nt":
-                _drain_windows(process, fd, keep)
+                finished = _drain_windows(process, fd, keep, deadline)
             else:
-                _drain_posix(process, fd, keep)
+                finished = _drain_posix(process, fd, keep, deadline)
+            if not finished:
+                cancel.kill(process)
+                process.wait()
             exit_code = process.returncode
-            was_killed = cancel.was_killed(process)
+            # A timeout kill marks the process killed too, but it is the step's
+            # own result, not the run's cancellation.
+            was_killed = finished and cancel.was_killed(process)
         if was_killed:
             raise StepCancelled(phase)
         output = tail.decode("utf-8", errors="replace").strip()
+        if not finished:
+            marker = f"[caliper: {phase} timed out after {limit}s]"
+            output = f"{output}\n{marker}" if output else marker
+            return StepResult(exit_code=exit_code, output=output, timed_out_after=limit)
         return StepResult(exit_code=exit_code, output=output)
 
-    def run_python(self, phase: StepPhase, code: str) -> StepResult:
-        """Run Python source in the workdir with this interpreter."""
-        with tempfile.NamedTemporaryFile(
-            suffix=".py", mode="w", dir=self._require_root(), delete=False
-        ) as f:
-            f.write(code)
-            script = f.name
-        try:
-            result = subprocess.run(
-                [sys.executable, script],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                cwd=self.path,
-                env=self._env(),
-            )
-        except subprocess.TimeoutExpired:
-            return StepResult(exit_code=-1, output="", timed_out=True)
-        finally:
-            Path(script).unlink(missing_ok=True)
-        output = (result.stderr or result.stdout).strip()
-        return StepResult(exit_code=result.returncode, output=output)
 
-
-def _drain_posix(process: subprocess.Popen, fd: int, keep) -> None:
+def _drain_posix(process: subprocess.Popen, fd: int, keep, deadline: float) -> bool:
+    """Drain until the process exits; ``False`` if the deadline came first."""
     while process.poll() is None:
+        if time.monotonic() > deadline:
+            return False
         if select.select([fd], [], [], 0.1)[0]:
             chunk = os.read(fd, 8192)
             if chunk:
                 keep(chunk)
             else:
-                process.wait()
+                # Its output is closed, but it may still be running.
+                try:
+                    process.wait(timeout=max(0.0, deadline - time.monotonic()))
+                except subprocess.TimeoutExpired:
+                    return False
                 break
     # Drain bytes already available, with a limit so a continuously writing
     # descendant cannot keep us here indefinitely.
@@ -187,9 +225,11 @@ def _drain_posix(process: subprocess.Popen, fd: int, keep) -> None:
         if not chunk:
             break
         keep(chunk)
+    return True
 
 
-def _drain_windows(process: subprocess.Popen, fd: int, keep) -> None:
+def _drain_windows(process: subprocess.Popen, fd: int, keep, deadline: float) -> bool:
+    """Drain until the process exits; ``False`` if the deadline came first."""
     # Windows select() cannot watch pipes. A reader thread drains until the
     # step exits; it never holds a disk-backed output file open.
     stopped = threading.Event()
@@ -206,10 +246,17 @@ def _drain_windows(process: subprocess.Popen, fd: int, keep) -> None:
 
     reader = threading.Thread(target=drain, name="caliper-hook-output", daemon=True)
     reader.start()
-    process.wait()
+    try:
+        process.wait(timeout=max(0.0, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired:
+        cancel.kill(process)
+        process.wait()
+        finished = False
+    else:
+        finished = True
     reader.join(timeout=0.1)
     if not reader.is_alive():
-        return
+        return finished
     stopped.set()
     # Closing a pipe does not reliably interrupt another thread's synchronous
     # ReadFile on Windows. Cancel that read explicitly before closing the
@@ -235,3 +282,4 @@ def _drain_windows(process: subprocess.Popen, fd: int, keep) -> None:
     reader.join(timeout=1)
     if reader.is_alive():
         raise RuntimeError("Could not stop lifecycle hook output reader")
+    return finished

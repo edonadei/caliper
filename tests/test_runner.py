@@ -19,6 +19,7 @@ from caliper.judge import EvalJudge
 from caliper.judge.base import JudgeResult
 from caliper.reporter import print_results
 from caliper.runner import run
+from caliper.workdir import _STEP_TIMEOUTS
 from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, TaskSpec
 
@@ -861,3 +862,32 @@ def test_spec_dir_env_is_absolute_for_a_relative_spec_path(
     record = results.task_results[0].attempts[0]
     assert record.hook_failures == []
     assert record.outcome is Outcome.PASS, record.assert_evidence
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shell syntax")
+def test_a_hanging_setup_is_an_infra_error_not_a_stuck_worker(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setitem(_STEP_TIMEOUTS, "setup", 1)
+    task = TaskSpec(
+        id="task-001",
+        name="Hanging setup",
+        prompt="Do it",
+        assert_script="assert True",
+        setup="sleep 30",
+    )
+    harness = PassingHarness()
+    results = run(
+        EvalSpec(tasks=[task]),
+        tmp_path / "hang.eval.yaml",
+        harness,
+        EvalJudge(),
+        k=1,
+        workers=1,
+    )
+
+    record = results.task_results[0].attempts[0]
+    assert harness.calls == 0
+    assert record.outcome is Outcome.INFRA_ERROR
+    assert record.assert_evidence == "setup timed out after 1s"
+    assert record.hook_failures[0].output == "[caliper: setup timed out after 1s]"

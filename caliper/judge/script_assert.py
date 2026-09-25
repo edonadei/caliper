@@ -74,14 +74,19 @@ def _format_transcript(turns: list[ConversationTurn]) -> str:
 
 def _run_inline_script(
     code: str, workdir: AttemptWorkdir, phase: StepPhase
-) -> tuple[bool, str]:
-    """Run an assertion in the attempt workdir, where the agent left its files."""
+) -> tuple[bool | None, str]:
+    """Run an assertion in the attempt workdir, where the agent left its files.
+
+    ``(None, evidence)`` when it timed out: a check that hung has no verdict,
+    so it cannot count against the skill (docs/adr/0029).
+    """
     step = workdir.run_python(phase, code)
-    if step.timed_out:
-        return False, "assertion script timed out"
+    if step.timed_out_after is not None:
+        return None, f"{phase} timed out after {step.timed_out_after}s"
     if step.ok:
         return True, ""
-    return False, step.output[:500]
+    # The tail, where a traceback names the assertion that failed.
+    return False, step.output[-500:]
 
 
 def _parse_rich_response(raw: str, workdir: AttemptWorkdir) -> tuple[bool, str, bool]:
@@ -105,6 +110,8 @@ def _parse_rich_response(raw: str, workdir: AttemptWorkdir) -> tuple[bool, str, 
             return False, "Judge returned empty script", True
         passed, evidence = _run_inline_script(code, workdir, "check")
         detail = f"{reasoning} | script: {'ok' if passed else evidence}"
+        if passed is None:
+            return False, detail, True
         return passed, detail, False
 
     return bool(verdict.get("passed", False)), reasoning, False
@@ -112,7 +119,7 @@ def _parse_rich_response(raw: str, workdir: AttemptWorkdir) -> tuple[bool, str, 
 
 def _run_assert_from_task(
     task: TaskSpec, workdir: AttemptWorkdir
-) -> tuple[bool, str] | None:
+) -> tuple[bool | None, str] | None:
     """Run the static assert field from the task spec, if present."""
     if not task.assert_script:
         return None

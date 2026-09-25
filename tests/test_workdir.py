@@ -17,7 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from caliper.workdir import AttemptWorkdir
+from caliper import cancel
+from caliper.workdir import _STEP_TIMEOUTS, AttemptWorkdir, StepCancelled
 
 
 def test_entering_makes_an_empty_workdir_beside_the_home_and_leaving_removes_both(
@@ -117,3 +118,52 @@ def test_noisy_hook_keeps_only_diagnostic_tail(tmp_path) -> None:
     assert step.exit_code == 7
     assert step.output.endswith("last line")
     assert len(step.output) <= 16000
+
+
+def test_a_failed_assertion_keeps_the_traceback_tail(tmp_path) -> None:
+    code = "print('noise ' * 2000)\nassert 1 == 2, 'the real reason'\n"
+    with AttemptWorkdir(tmp_path) as workdir:
+        step = workdir.run_python("assert", code)
+
+    assert not step.ok
+    assert step.output.endswith("AssertionError: the real reason")
+
+
+def test_a_step_past_its_limit_is_killed_and_says_so(tmp_path, monkeypatch) -> None:
+    monkeypatch.setitem(_STEP_TIMEOUTS, "assert", 1)
+    started = time.monotonic()
+    with AttemptWorkdir(tmp_path) as workdir:
+        step = workdir.run_python("assert", "import time\ntime.sleep(30)\n")
+
+    assert time.monotonic() - started < 10
+    assert step.timed_out_after == 1
+    assert not step.ok
+    assert step.output.endswith("[caliper: assert timed out after 1s]")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shell syntax")
+def test_a_hanging_hook_is_killed_at_its_limit(tmp_path, monkeypatch) -> None:
+    monkeypatch.setitem(_STEP_TIMEOUTS, "setup", 1)
+    started = time.monotonic()
+    with AttemptWorkdir(tmp_path) as workdir:
+        step = workdir.run_shell("setup", "echo preparing; sleep 30")
+
+    assert time.monotonic() - started < 10
+    assert step.timed_out_after == 1
+    assert step.output.startswith("preparing")
+
+
+def test_a_cancelled_run_cancels_its_assertions(tmp_path) -> None:
+    cancel.request()
+    with AttemptWorkdir(tmp_path) as workdir:
+        with pytest.raises(StepCancelled):
+            workdir.run_python("assert", "import time\ntime.sleep(30)\n")
+
+
+def test_cleanup_still_runs_after_the_run_was_cancelled(tmp_path) -> None:
+    cancel.request()
+    with AttemptWorkdir(tmp_path) as workdir:
+        step = workdir.run_python("cleanup", "print('tidied')\n")
+
+    assert step.ok
+    assert step.output == "tidied"
