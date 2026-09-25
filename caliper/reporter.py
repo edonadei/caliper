@@ -21,7 +21,7 @@ from rich.text import Text
 from caliper.schema.results import (
     ObservedActivation,
     Outcome,
-    OutcomeTally,
+    OutcomeCounts,
     RunComparison,
     RunResults,
     TaskComparison,
@@ -169,29 +169,29 @@ def update_progress(
     task_ids: dict[str, TaskID],
     task_name: str,
     k: int,
-    tally: OutcomeTally,
+    counts: OutcomeCounts,
     finished: bool = False,
 ) -> None:
     tid = task_ids.get(task_name)
     if tid is None:
         return
-    # A snapshot: worker threads keep adding to the live tally, and every count
+    # A snapshot: worker threads keep adding to the live counts, and every count
     # below must come from the same outcomes.
-    tally = OutcomeTally(list(tally.outcomes))
-    completed = tally.completed
+    counts = OutcomeCounts(list(counts.outcomes))
+    completed = counts.completed
     terminal = completed == k or finished
-    if tally.cheated:
+    if counts.cheated:
         status = f"[bold yellow]{_WARN} cheat[/bold yellow]"
-    elif terminal and tally.successes == k:
+    elif terminal and counts.successes == k:
         status = f"[bold green]{_CHECK}[/bold green]"
-    elif terminal and completed and tally.unchecked == completed:
+    elif terminal and completed and counts.unchecked == completed:
         # A trigger probe asked no execution question; its activation verdict
         # is the report's to give, so the live view stays neutral.
         status = f"[dim]{_RULE}[/dim]"
     else:
         # The tally, not the count again: the bar and `n/k` beside it already
         # say how far along the task is, not how it is going.
-        status = _tally(tally.successes, tally.failed, tally.unusable)
+        status = _tally(counts.successes, counts.failed, counts.unusable)
     rendered_completed = k if finished and completed < k else completed
     progress.update(tid, total=k, completed=rendered_completed, status=status)
 
@@ -914,8 +914,8 @@ def _alt_metric_cell(
     """
 
     def val(outcomes: list[Outcome]) -> float | None:
-        tally = OutcomeTally(outcomes)
-        return formula(tally.successes, tally.usable)
+        counts = OutcomeCounts(outcomes)
+        return formula(counts.successes, counts.usable)
 
     return _score_pair(
         _fmt_score(val(tc.a_outcomes)), _fmt_score(val(tc.b_outcomes)), "", ""

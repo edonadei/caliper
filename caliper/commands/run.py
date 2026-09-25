@@ -28,7 +28,7 @@ from caliper.reporter import (
 from caliper.runstore import RunStore
 from caliper.environment import choose_user_customizations
 from caliper.runner import run, AttemptEvent, RunAborted
-from caliper.schema.results import OutcomeTally, RunResults, TaskResult
+from caliper.schema.results import OutcomeCounts, RunResults, TaskResult
 from caliper.schema.spec import (
     DEFAULT_BACKEND,
     VALID_BACKENDS,
@@ -268,17 +268,17 @@ def run_cmd(
 
     fetcher = SkillFetcher(on_warning=warn)
 
-    # One tally per task, keyed by id, that the live view renders. A task that
-    # stops short of k gets its final row from its result instead.
+    # Each task's outcome counts, keyed by id, that the live view renders. A
+    # task that stops short of k gets its final row from its result instead.
     names = {t.id: t.name for t in spec.tasks}
-    tallies = {t.id: OutcomeTally() for t in spec.tasks}
+    task_counts = {t.id: OutcomeCounts() for t in spec.tasks}
 
     def on_attempt_done(event: AttemptEvent) -> None:
         name = names.get(event.task_id)
         if name is None:
             return
-        tally = tallies[event.task_id]
-        tally.add(event.outcome)
+        counts = task_counts[event.task_id]
+        counts.add(event.outcome)
         # `is_execution_noise`, not `not is_usable`: a NOT_CHECKED trigger probe
         # is a healthy attempt, and flagging it live as yellow ⊘ told a watching
         # agent to stop for a run in which nothing had gone wrong.
@@ -288,7 +288,7 @@ def run_cmd(
                 f"[yellow]{UNUSABLE_GLYPH}[/yellow] {name} {SEP_GLYPH} attempt {event.attempt}: "
                 f"[yellow]{event.outcome.value}[/yellow]"
             )
-        update_progress(progress, task_ids, name, k, tally=tally)
+        update_progress(progress, task_ids, name, k, counts=counts)
 
     def on_task_done(result: TaskResult) -> None:
         if len(result.attempts) >= k:
@@ -298,7 +298,7 @@ def run_cmd(
             task_ids,
             result.task_name,
             k,
-            tally=result.tally,
+            counts=result.counts,
             finished=True,
         )
 

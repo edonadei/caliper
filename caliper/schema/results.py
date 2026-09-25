@@ -393,7 +393,7 @@ def mean_rate(rates: list[float]) -> float:
 
 
 @dataclass
-class OutcomeTally:
+class OutcomeCounts:
     """A task's attempt outcomes, counted.
 
     The one place a count over outcomes is taken: :class:`TaskResult` derives
@@ -459,15 +459,15 @@ class TaskResult(BaseModel):
     activation_expected: list[str] | None = None
 
     @property
-    def tally(self) -> OutcomeTally:
+    def counts(self) -> OutcomeCounts:
         """The attempts' outcomes, counted; every count below reads it."""
-        return OutcomeTally([a.outcome for a in self.attempts])
+        return OutcomeCounts([a.outcome for a in self.attempts])
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def successes(self) -> int:
         """Attempts that passed."""
-        return self.tally.successes
+        return self.counts.successes
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -478,7 +478,7 @@ class TaskResult(BaseModel):
         noise, so it leaves the denominator without being reported as an error —
         a correct ``activates:``-only spec must never read as one.
         """
-        return self.tally.unusable
+        return self.counts.unusable
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -489,7 +489,7 @@ class TaskResult(BaseModel):
         ``NOT_CHECKED`` is neither usable nor noise, that subtraction would
         silently over-count.
         """
-        return self.tally.usable
+        return self.counts.usable
 
     @computed_field  # type: ignore[prop-decorator]
     @property
