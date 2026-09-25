@@ -62,7 +62,7 @@ jobs:
             # caliper/harness/windows_job.py, which only runs on Windows.
             test-path: >-
               tests/test_cli_harness.py
-              tests/test_runner.py::test_windows_silent_background_hook_does_not_leak_reader
+              tests/test_workdir.py
               tests/test_mcp.py::test_preflight_initializes_a_local_server
               tests/test_mcp.py::test_preflight_accepts_bundled_echo_server_protocol_version
               tests/test_mcp.py::test_preflight_kills_server_child_after_launcher_exits

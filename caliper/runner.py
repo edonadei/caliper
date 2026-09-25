@@ -1,11 +1,5 @@
 from __future__ import annotations
 
-import os
-import select
-import shutil
-import subprocess
-import tempfile
-import threading
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -51,7 +45,7 @@ from caliper.skills import (
     validate_activates,
 )
 from caliper.skillsnapshot import snapshot_skill
-from caliper.workdir import step_env
+from caliper.workdir import AttemptWorkdir, StepCancelled
 
 _FAIL_FAST_OUTCOMES = {Outcome.INFRA_ERROR, Outcome.TIMEOUT}
 
@@ -395,7 +389,7 @@ def _attempt_or_none(
             return None
         _announce(record, task, env.on_attempt_done)
         return record
-    except McpPreflightInterrupted:
+    except (McpPreflightInterrupted, StepCancelled):
         return None
     except (HarnessConfigurationError, SpendingCapReached) as exc:
         # Two different diagnoses, one response: a misconfiguration found
@@ -526,48 +520,74 @@ def _finish_task(
 def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord | None:
     """Run one attempt end to end: its lifecycle here, its verdict next door.
 
-    This function owns what an attempt *costs* — a fresh isolated home and
-    workdir, the task's setup/cleanup shell, one harness invocation — and hands
-    the finished result to :func:`caliper.attempt.assemble_attempt`, which owns
-    what it *means*.
+    This function owns what an attempt *costs* — the task's setup/cleanup
+    hooks around one harness invocation, in a fresh :class:`AttemptWorkdir` —
+    and hands the finished result to :func:`caliper.attempt.assemble_attempt`,
+    which owns what it *means*.
 
-    The workdir sits inside the temp dir, beside the agent's config rather than
-    in it, and every step of the attempt runs there (docs/adr/0026).
+    Raises :class:`StepCancelled` when the run's cancellation killed a step;
+    the job above turns that into no record at all.
     """
-    tmp_dir = tempfile.mkdtemp(prefix="caliper-")
-    workdir = os.path.join(tmp_dir, "work")
-    os.mkdir(workdir)
-    hook_env = step_env(workdir, str(env.spec_path.parent))
     failures: list[HookFailure] = []
     record: AttemptRecord | None = None
-    try:
-        setup = _run_shell(task.setup, task.id, attempt, "setup", workdir, hook_env)
-        if setup is not None:
-            failures.append(setup)
-            record = AttemptRecord(
-                attempt=attempt,
-                output="",
-                duration_seconds=0.0,
-                outcome=Outcome.INFRA_ERROR,
-                assert_evidence=f"setup exited {setup.exit_code}",
-            )
-        elif not cancel.requested():
-            record = _measure_attempt(task, attempt, env, tmp_dir, workdir)
-    finally:
-        cleanup = _run_shell(
-            task.cleanup, task.id, attempt, "cleanup", workdir, hook_env
-        )
-        if cleanup is not None:
-            failures.append(cleanup)
-        env.hook_failures.extend(failures)
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+    with AttemptWorkdir(env.spec_path.parent) as workdir:
+        try:
+            setup = _run_hook(workdir, task, attempt, "setup")
+            if setup is not None:
+                failure, reason = setup
+                failures.append(failure)
+                record = AttemptRecord(
+                    attempt=attempt,
+                    output="",
+                    duration_seconds=0.0,
+                    outcome=Outcome.INFRA_ERROR,
+                    assert_evidence=reason,
+                )
+            elif not cancel.requested():
+                record = _measure_attempt(task, attempt, env, workdir)
+        finally:
+            try:
+                cleanup = _run_hook(workdir, task, attempt, "cleanup")
+            except StepCancelled:
+                # A cancellation that arrived during cleanup: the attempt it
+                # tidies up after is still evidence.
+                cleanup = None
+            if cleanup is not None:
+                failures.append(cleanup[0])
+            env.hook_failures.extend(failures)
     if record is not None:
         record.hook_failures.extend(failures)
     return record
 
 
+def _run_hook(
+    workdir: AttemptWorkdir, task: TaskSpec, attempt: int, phase: HookPhase
+) -> tuple[HookFailure, str] | None:
+    """Run the task's ``setup:`` or ``cleanup:``; its failure and why, if it failed.
+
+    A hook that ran past its limit fails like one that exited nonzero: the
+    attempt is an ``infra_error`` either way (docs/adr/0029).
+    """
+    cmd = task.setup if phase == "setup" else task.cleanup
+    if not cmd:
+        return None
+    step = workdir.run_shell(phase, cmd)
+    if step.ok:
+        return None
+    failure = HookFailure(
+        task_id=task.id,
+        attempt=attempt,
+        phase=phase,
+        exit_code=step.exit_code,
+        output=step.output[-4000:],
+    )
+    if step.timed_out_after is not None:
+        return failure, f"{phase} timed out after {step.timed_out_after}s"
+    return failure, f"{phase} exited {step.exit_code}"
+
+
 def _measure_attempt(
-    task: TaskSpec, attempt: int, env: _RunEnv, tmp_dir: str, workdir: str
+    task: TaskSpec, attempt: int, env: _RunEnv, workdir: AttemptWorkdir
 ) -> AttemptRecord | None:
     spec, spec_path = env.spec, env.spec_path
 
@@ -592,8 +612,8 @@ def _measure_attempt(
                 # not per spec.
                 model=None,
                 timeout=env.timeout,
-                isolated_home=tmp_dir,
-                workdir=workdir,
+                isolated_home=workdir.home,
+                workdir=workdir.path,
                 extra_path=resolved_extra_path,
                 # Declared MCP servers are the agent's tool environment for
                 # the eval; the backend materializes them. Already reduced by
@@ -637,7 +657,6 @@ def _measure_attempt(
         attempt_result,
         attempt=attempt,
         task=task,
-        spec_dir=str(spec_path.parent),
         workdir=workdir,
         expected_activation=env.expected_activation(task),
         activation=env.activation,
@@ -668,121 +687,3 @@ def _announce(
                 task_id=task.id, attempt=record.attempt, outcome=record.outcome
             )
         )
-
-
-def _run_shell(
-    cmd: str | None,
-    task_id: str,
-    attempt: int,
-    phase: HookPhase,
-    cwd: str,
-    env: dict[str, str],
-) -> HookFailure | None:
-    if not cmd:
-        return None
-    # Drain while the shell runs so verbose output cannot fill a pipe. Stop
-    # when *that shell* exits: background children may keep its pipe open or
-    # write forever, and must not delay the next attempt or retain disk space.
-    tail = bytearray()
-
-    def keep(chunk: bytes) -> None:
-        tail.extend(chunk)
-        if len(tail) > 16000:
-            del tail[:-16000]
-
-    with (
-        subprocess.Popen(
-            cmd,
-            shell=True,
-            cwd=cwd,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        ) as process,
-        cancel.track(process, cancel_if_requested=phase != "cleanup"),
-    ):
-        assert process.stdout is not None
-        fd = process.stdout.fileno()
-        if os.name == "nt":
-            # Windows select() cannot watch pipes. A reader thread drains until
-            # the shell exits; it never holds a disk-backed output file open.
-            stopped = threading.Event()
-
-            def drain() -> None:
-                while not stopped.is_set():
-                    try:
-                        chunk = os.read(fd, 8192)
-                    except OSError:
-                        break
-                    if not chunk:
-                        break
-                    keep(chunk)
-
-            reader = threading.Thread(
-                target=drain, name="caliper-hook-output", daemon=True
-            )
-            reader.start()
-            process.wait()
-            reader.join(timeout=0.1)
-            if reader.is_alive():
-                stopped.set()
-                # Closing a pipe does not reliably interrupt another thread's
-                # synchronous ReadFile on Windows. Cancel that read explicitly
-                # before closing the stream, then wait for the thread to exit.
-                import ctypes
-                from ctypes import wintypes
-
-                kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-                kernel32.OpenThread.argtypes = (
-                    wintypes.DWORD,
-                    wintypes.BOOL,
-                    wintypes.DWORD,
-                )
-                kernel32.OpenThread.restype = wintypes.HANDLE
-                kernel32.CancelSynchronousIo.argtypes = (wintypes.HANDLE,)
-                kernel32.CancelSynchronousIo.restype = wintypes.BOOL
-                kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
-                kernel32.CloseHandle.restype = wintypes.BOOL
-                thread_handle = kernel32.OpenThread(0x0001, False, reader.native_id)
-                if thread_handle:
-                    try:
-                        kernel32.CancelSynchronousIo(thread_handle)
-                    finally:
-                        kernel32.CloseHandle(thread_handle)
-                process.stdout.close()
-                reader.join(timeout=1)
-                if reader.is_alive():
-                    raise RuntimeError("Could not stop lifecycle hook output reader")
-        else:
-            while process.poll() is None:
-                if select.select([fd], [], [], 0.1)[0]:
-                    chunk = os.read(fd, 8192)
-                    if chunk:
-                        keep(chunk)
-                    else:
-                        process.wait()
-                        break
-            # Drain bytes already available, with a limit so a continuously
-            # writing descendant cannot keep us here indefinitely.
-            for _ in range(128):
-                if not select.select([fd], [], [], 0)[0]:
-                    break
-                chunk = os.read(fd, 8192)
-                if not chunk:
-                    break
-                keep(chunk)
-        exit_code = process.returncode
-        was_killed = cancel.was_killed(process)
-    if was_killed:
-        return None
-    if exit_code == 0:
-        return None
-    output = tail.decode("utf-8", errors="replace").strip()
-    return HookFailure(
-        task_id=task_id,
-        attempt=attempt,
-        phase=phase,
-        exit_code=exit_code,
-        output=output[-4000:],
-    )

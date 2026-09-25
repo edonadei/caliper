@@ -8,6 +8,7 @@ from caliper.harness.base import AttemptResult, ConversationTurn
 from caliper.judge.base import JudgeResult
 from caliper.schema.results import Outcome, TokenUsage
 from caliper.schema.spec import TaskSpec
+from caliper.workdir import AttemptWorkdir
 
 
 # --- doubles ---------------------------------------------------------------
@@ -28,8 +29,7 @@ class RecordingJudge:
         task: TaskSpec,
         transcript: list[ConversationTurn],
         final_output: str,
-        spec_dir: str,
-        workdir: str,
+        workdir: AttemptWorkdir,
     ) -> JudgeResult:
         self.calls += 1
         return self.result
@@ -75,8 +75,8 @@ def _assemble(result: AttemptResult, **overrides):
     kwargs = dict(
         attempt=1,
         task=_task(),
-        spec_dir="/tmp",
-        workdir="/tmp",
+        # Never entered: the recording judge does not run anything in it.
+        workdir=AttemptWorkdir("/tmp"),
         expected_activation=None,
         activation=ActivationDetector([], frozenset()),
         sandbox=StubSandbox(),

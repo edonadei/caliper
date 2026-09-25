@@ -95,9 +95,7 @@ class CountingJudge:
     def __init__(self) -> None:
         self.calls = 0
 
-    def evaluate(
-        self, task, transcript, final_output, spec_dir, workdir
-    ) -> JudgeResult:
+    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
         self.calls += 1
         return JudgeResult(passed=True, reasoning="ok")
 

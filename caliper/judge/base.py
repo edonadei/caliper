@@ -5,6 +5,7 @@ from typing import Protocol
 
 from caliper.harness.base import ConversationTurn
 from caliper.schema.spec import TaskSpec
+from caliper.workdir import AttemptWorkdir
 
 
 @dataclass
@@ -36,8 +37,9 @@ class Judge(Protocol):
     ``RunMeta`` records, asked of the judge rather than passed in beside it.
     ``model`` is ``None`` when the judge lets its CLI pick.
 
-    ``spec_dir`` is where an ``assert: ./check.py`` path resolves from;
-    ``workdir`` is the attempt workdir, where every assertion *runs*
+    ``workdir`` is the attempt workdir, where every assertion *runs*. An
+    ``assert: ./check.py`` path still resolves from the spec's directory, which
+    the workdir carries as ``workdir.spec_dir``
     (docs/adr/0026-an-attempt-runs-in-one-fresh-workdir.md).
     """
 
@@ -49,6 +51,5 @@ class Judge(Protocol):
         task: TaskSpec,
         transcript: list[ConversationTurn],
         final_output: str,
-        spec_dir: str,
-        workdir: str,
+        workdir: AttemptWorkdir,
     ) -> JudgeResult: ...

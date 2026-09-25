@@ -515,14 +515,14 @@ of six values, classified once at the seam where an attempt is assembled:
 - `pass` — the attempt satisfied the task's judge(s).
 - `task_fail` — the skill genuinely failed the task.
 - `judge_error` — the judge could not produce a verdict at all (unparseable
-  autorater response, or the judge call threw — including the judge's *own*
-  rate-limit). An unavailable judge *model* is not a
+  autorater response, an assertion that ran past its time limit, or the judge
+  call threw — including the judge's *own* rate-limit). An unavailable judge *model* is not a
   `judge_error`: it would fail every attempt alike, so it stops the run.
-- `infra_error` — the skill-under-test's harness failed the attempt: nonzero
-  exit (non-timeout), a detected transient throttle/overload signal
-  (spending cap, rate limit) even on a zero exit, or a zero exit where no
-  model call was observed (nothing parsed from its stream and no tokens
-  reported).
+- `infra_error` — the attempt could not be run fairly: a `setup:` that failed or
+  ran past its time limit, or the skill-under-test's harness failed it with a
+  nonzero exit (non-timeout), a detected transient throttle/overload signal
+  (spending cap, rate limit) even on a zero exit, or a zero exit where no model
+  call was observed (nothing parsed from its stream and no tokens reported).
 - `timeout` — the attempt exceeded its time budget with no usable result.
 - `cheat` — a forbidden-file read was detected.
 - `not_checked` — the attempt ran cleanly and the task authored **no execution
@@ -589,6 +589,15 @@ The one directory every step of an attempt runs in: `setup:`, the agent,
 separate from the agent's isolated home, so a relative path means the same file
 to every step. It is not the spec's own directory.
 _Avoid_: sandbox (that is what the agent may not touch), spec dir.
+
+## Step
+
+The spec author's code that runs in the [[attempt workdir]]: `setup:`,
+`assert:`, the autorater's script check, and `cleanup:`. Distinct from the agent
+under test and from the autorater's model call. Every step runs under the same
+rules: a time limit per phase, stopped by a Ctrl-C, and the tail of its output
+kept as evidence.
+_Avoid_: hook (only `setup:` and `cleanup:` are hooks), script.
 
 ## Trigger probe
 

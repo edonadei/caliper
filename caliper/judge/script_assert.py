@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
-import tempfile
 from pathlib import Path
 
 from caliper.harness import get_harness
@@ -16,7 +13,7 @@ from caliper.schema.spec import (
     assert_script_path,
     resolve_judge_model,
 )
-from caliper.workdir import step_env
+from caliper.workdir import AttemptWorkdir, StepPhase
 
 _SYSTEM = """\
 You are an evaluation judge for an AI assistant. You will be shown a conversation \
@@ -75,37 +72,24 @@ def _format_transcript(turns: list[ConversationTurn]) -> str:
     return "\n".join(lines) or "(empty transcript)"
 
 
-def _run_inline_script(code: str, spec_dir: str, workdir: str) -> tuple[bool, str]:
+def _run_inline_script(
+    code: str, workdir: AttemptWorkdir, phase: StepPhase
+) -> tuple[bool | None, str]:
     """Run an assertion in the attempt workdir, where the agent left its files.
 
-    ``spec_dir`` travels as ``CALIPER_SPEC_DIR`` so a script can still reach the
-    author's fixtures (docs/adr/0026).
+    ``(None, evidence)`` when it timed out: a check that hung has no verdict,
+    so it cannot count against the skill (docs/adr/0029).
     """
-    with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
-        f.write(code)
-        tmp_path = f.name
-    try:
-        result = subprocess.run(
-            [sys.executable, tmp_path],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            cwd=workdir,
-            env=step_env(workdir, spec_dir),
-        )
-        if result.returncode == 0:
-            return True, ""
-        evidence = (result.stderr or result.stdout).strip()
-        return False, evidence[:500]
-    except subprocess.TimeoutExpired:
-        return False, "assertion script timed out"
-    finally:
-        Path(tmp_path).unlink(missing_ok=True)
+    step = workdir.run_python(phase, code)
+    if step.timed_out_after is not None:
+        return None, f"{phase} timed out after {step.timed_out_after}s"
+    if step.ok:
+        return True, ""
+    # The tail, where a traceback names the assertion that failed.
+    return False, step.output[-500:]
 
 
-def _parse_rich_response(
-    raw: str, spec_dir: str, workdir: str
-) -> tuple[bool, str, bool]:
+def _parse_rich_response(raw: str, workdir: AttemptWorkdir) -> tuple[bool, str, bool]:
     """Parse an autorater response into (passed, reasoning, errored).
 
     ``errored`` is True when the autorater failed to yield a usable verdict at
@@ -124,21 +108,23 @@ def _parse_rich_response(
         code = verdict.get("code", "")
         if not code:
             return False, "Judge returned empty script", True
-        passed, evidence = _run_inline_script(code, spec_dir, workdir)
+        passed, evidence = _run_inline_script(code, workdir, "check")
         detail = f"{reasoning} | script: {'ok' if passed else evidence}"
+        if passed is None:
+            return False, detail, True
         return passed, detail, False
 
     return bool(verdict.get("passed", False)), reasoning, False
 
 
 def _run_assert_from_task(
-    task: TaskSpec, spec_dir: str, workdir: str
-) -> tuple[bool, str] | None:
+    task: TaskSpec, workdir: AttemptWorkdir
+) -> tuple[bool | None, str] | None:
     """Run the static assert field from the task spec, if present."""
     if not task.assert_script:
         return None
 
-    script_path = assert_script_path(task.assert_script, Path(spec_dir))
+    script_path = assert_script_path(task.assert_script, Path(workdir.spec_dir))
     if script_path is None:
         code = task.assert_script.strip()
     else:
@@ -146,7 +132,7 @@ def _run_assert_from_task(
             return False, f"assert script not found: {script_path}"
         code = script_path.read_text()
 
-    return _run_inline_script(code, spec_dir, workdir)
+    return _run_inline_script(code, workdir, "assert")
 
 
 class EvalJudge(Judge):
@@ -168,8 +154,7 @@ class EvalJudge(Judge):
         task: TaskSpec,
         transcript: list[ConversationTurn],
         final_output: str,
-        spec_dir: str,
-        workdir: str,
+        workdir: AttemptWorkdir,
     ) -> JudgeResult:
         assert_passed: bool | None = None
         assert_evidence: str | None = None
@@ -177,7 +162,7 @@ class EvalJudge(Judge):
         autorater_reasoning: str | None = None
         autorater_errored = False
 
-        static_result = _run_assert_from_task(task, spec_dir, workdir)
+        static_result = _run_assert_from_task(task, workdir)
         if static_result is not None:
             assert_passed, assert_evidence = static_result
 
@@ -188,7 +173,7 @@ class EvalJudge(Judge):
                 llm_reasoning,
                 autorater_errored,
                 autorater_model,
-            ) = self._llm_evaluate(task, transcript, spec_dir, workdir)
+            ) = self._llm_evaluate(task, transcript, workdir)
             autorater_reasoning = llm_reasoning
             # An errored autorater yields no verdict: leave autorater_passed None
             # so it is dropped from the checks rather than counted as a failure.
@@ -222,8 +207,7 @@ class EvalJudge(Judge):
         self,
         task: TaskSpec,
         transcript: list[ConversationTurn],
-        spec_dir: str,
-        workdir: str,
+        workdir: AttemptWorkdir,
     ) -> tuple[bool, str, bool, str | None]:
         # An autorater is one bare prompt through a CLI agent — the same
         # backend adapters that run attempts also answer the judge, via the
@@ -244,7 +228,7 @@ class EvalJudge(Judge):
         # In the workdir, not the spec dir: the judge grades what the agent left
         # there, and must not sit beside the answer key or write into the
         # author's repo (docs/adr/0026).
-        result = harness.run_prompt(prompt, cwd=workdir, timeout=60)
+        result = harness.run_prompt(prompt, cwd=workdir.path, timeout=60)
         if result.failure is not None:
             # Switch on the typed kind here, in the judge — provider status codes
             # never leak past the harness boundary (issue #75, ADR-0001).
@@ -258,6 +242,6 @@ class EvalJudge(Judge):
         if result.error:
             return False, result.error, True, result.resolved_model
         passed, reasoning, errored = _parse_rich_response(
-            _strip_markdown_fence(result.text), spec_dir, workdir
+            _strip_markdown_fence(result.text), workdir
         )
         return passed, reasoning, errored, result.resolved_model
