@@ -70,3 +70,10 @@ about API billing and names no env var, while pi's and hermes' name an install
 command and a `*_CLI_PATH`. A template would flatten user-facing prose that
 exists to be read at the moment a run fails, which is the wrong thing to
 economize. Two near-matches out of three is not a shared implementation.
+
+**Amended: the readiness check is performed too.** Each backend used to
+write the same `_ensure_ready` / `_cli_available` pair, differing only in the
+message and the `--version` timeout. A backend now declares
+`cli_unavailable_message` and `cli_version_timeout`, and the base does the
+probe. The message is still written out whole by each backend, as decided
+above; only the probe is shared.

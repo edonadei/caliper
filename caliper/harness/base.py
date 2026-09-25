@@ -11,7 +11,7 @@ import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import IO, Callable, Iterable
+from typing import IO, Callable, Iterable, Iterator
 
 from caliper import cancel
 from caliper.harness.prompt_failure import (
@@ -493,9 +493,6 @@ class CliHarness(HarnessBackend):
 
     # --- hooks a backend implements ---------------------------------------
 
-    def _ensure_ready(self, ctx: RunContext) -> None:
-        """Raise ``HarnessConfigurationError`` if the CLI can't run. Default: skip."""
-
     def seed_files(self, ctx: RunContext) -> list[tuple[Path, Path]]:
         """The ``(real, isolated)`` config files to copy verbatim into the home.
 
@@ -823,6 +820,15 @@ class CliHarness(HarnessBackend):
     #: through to discovery rather than failing the run with a confusing message.
     cli_path_env_var: str | None = None
 
+    #: What a run shows when the CLI cannot be found or run: whose CLI, and how
+    #: to install and authenticate it. Written out whole by each backend rather
+    #: than templated (docs/adr/0020). ``None`` skips the readiness check:
+    #: claude-code declares no :attr:`cli_name` to probe.
+    cli_unavailable_message: str | None = None
+
+    #: Seconds ``<cli> --version`` may take before the CLI counts as unrunnable.
+    cli_version_timeout: int = 10
+
     def cli_candidates(self) -> tuple[Path, ...]:
         """Well-known install locations to try before ``PATH``. Default: none.
 
@@ -847,6 +853,19 @@ class CliHarness(HarnessBackend):
             if candidate.exists():
                 return str(candidate)
         return shutil.which(self.cli_name) if self.cli_name else None
+
+    def _ensure_ready(self, ctx: RunContext) -> None:
+        """Raise ``HarnessConfigurationError`` unless the CLI is found and runs.
+
+        Performed here for every backend that declares a
+        :attr:`cli_unavailable_message`: the probe is the same for all of them,
+        only the message differs (docs/adr/0020).
+        """
+        if self.cli_unavailable_message is None:
+            return
+        cli = self.cli_path()
+        if cli is None or not self._version_ok(cli, timeout=self.cli_version_timeout):
+            raise HarnessConfigurationError(self.cli_unavailable_message)
 
     #: Vars forwarded from the parent environment into an isolated run. Locale
     #: and terminal shape are not state the agent carries between attempts, and
@@ -1005,6 +1024,22 @@ class CliHarness(HarnessBackend):
             if key in os.environ:
                 env[key] = os.environ[key]
         return env
+
+
+def stream_events(stdout: str) -> Iterator[dict]:
+    """Each event in an agent's JSON-lines stream, in order.
+
+    An event is a JSON object on a line of its own. Anything else on a line is
+    skipped: plain text a CLI mixed in, a blank line, or a JSON value that is
+    not an object (a tool printing a bare ``42``).
+    """
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict):
+            yield event
 
 
 def _is_json(line: str) -> bool:

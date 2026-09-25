@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Callable, Iterator
 
@@ -11,6 +10,7 @@ from caliper.harness.base import (
     ProcessResult,
     PromptCall,
     RunContext,
+    stream_events,
 )
 from caliper.harness.refusal import AUTH_MARKERS, ConfigSignal
 from caliper.schema.results import TokenUsage
@@ -58,19 +58,16 @@ class PiHarness(CliHarness):
 
     cli_name = "pi"
     cli_path_env_var = "PI_CLI_PATH"
+    cli_unavailable_message = (
+        "pi CLI is not available for the `pi` backend.\n\n"
+        "Install the pi coding agent (`npm install -g "
+        "@earendil-works/pi-coding-agent`) and authenticate it, or set "
+        "`PI_CLI_PATH` to the pi binary, then rerun caliper."
+    )
 
     @property
     def name(self) -> str:
         return "pi"
-
-    def _ensure_ready(self, ctx: RunContext) -> None:
-        if not self._cli_available():
-            raise HarnessConfigurationError(
-                "pi CLI is not available for the `pi` backend.\n\n"
-                "Install the pi coding agent (`npm install -g "
-                "@earendil-works/pi-coding-agent`) and authenticate it, or set "
-                "`PI_CLI_PATH` to the pi binary, then rerun caliper."
-            )
 
     def seed_files(self, ctx: RunContext) -> list[tuple[Path, Path]]:
         # pi reads auth/settings from its config dir. The real config is copied
@@ -128,10 +125,6 @@ class PiHarness(CliHarness):
             ctx, extra={"PI_CODING_AGENT_DIR": str(self._agent_dir(ctx))}
         )
 
-    def _cli_available(self) -> bool:
-        pi = self.cli_path()
-        return pi is not None and self._version_ok(pi, timeout=10)
-
     def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
         """Sum per-assistant-message usage across the stream.
 
@@ -164,14 +157,7 @@ class PiHarness(CliHarness):
         transcript: list[ConversationTurn] = []
         final_output = ""
 
-        for line in stdout.splitlines():
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(event, dict):
-                continue
-
+        for event in stream_events(stdout):
             etype = event.get("type")
 
             if etype == "tool_execution_start":
@@ -290,12 +276,8 @@ class PiHarness(CliHarness):
     @staticmethod
     def _assistant_messages(stdout: str) -> Iterator[dict]:
         """Each finished assistant message in pi's JSON event stream."""
-        for line in stdout.splitlines():
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(event, dict) or event.get("type") != "message_end":
+        for event in stream_events(stdout):
+            if event.get("type") != "message_end":
                 continue
             message = event.get("message")
             if isinstance(message, dict) and message.get("role") == "assistant":

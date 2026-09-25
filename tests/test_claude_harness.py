@@ -763,3 +763,40 @@ def test_claude_harness_agent_discussing_expired_login_is_not_configuration_erro
     result = ClaudeCodeHarness().run(run_context(isolated_home=str(tmp_path / "home")))
     assert result.final_output == message
     assert result.refusal is None
+
+
+def test_claude_harness_skips_a_stream_line_that_is_json_but_not_an_event(
+    monkeypatch, tmp_path
+) -> None:
+    """A stray scalar in the stream (a tool's bare ``42``) is not an event."""
+
+    def fake_run(cmd, **kwargs):
+        stdout = "\n".join(
+            [
+                "42",
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {"content": [{"type": "text", "text": "done"}]},
+                    }
+                ),
+                '"text"',
+                json.dumps(
+                    {
+                        "type": "result",
+                        "result": "done",
+                        "usage": {"input_tokens": 3, "output_tokens": 4},
+                    }
+                ),
+            ]
+        )
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+    patch_cli_calls(monkeypatch, fake_run)
+
+    result = ClaudeCodeHarness(model="claude-test").run(
+        run_context(prompt="Go", timeout=30, isolated_home=str(tmp_path / "home"))
+    )
+
+    assert result.final_output == "done"
+    assert result.usage.total_tokens == 7
