@@ -13,6 +13,7 @@ would need writing again the day the shared implementation grew an exception.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -21,11 +22,12 @@ from pathlib import Path
 
 import pytest
 
-from caliper.harness.base import CliHarness, ConversationTurn
+from caliper.harness.base import CliHarness, ConversationTurn, ProcessResult
 from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.harness.codex import CodexHarness
 from caliper.harness.hermes import HermesHarness
 from caliper.harness.pi import PiHarness
+from caliper.harness.refusal import RefusalKind
 from caliper.runner import run
 from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, TaskSpec
@@ -389,3 +391,168 @@ def test_timeout_keeps_each_output_stream_once_with_universal_newlines(
     assert result.timed_out is True
     assert result.stdout == "stdout one\nstdout two"
     assert result.stderr == "stderr one\nstderr two"
+
+
+# --- CLI refusals -------------------------------------------------------------
+
+# An agent answering a task about auth and API errors, in every word a CLI
+# would use to refuse (docs/adr/0030).
+_ANSWER = (
+    "Done. When the user is not logged in the API returns 401 Unauthorized, "
+    "so I added a login prompt, and the client now backs off on a 429 rate "
+    "limit and stops when the quota is exceeded."
+)
+
+
+def _answer_stream(backend: type[CliHarness]) -> str:
+    """The agent's answer in the backend's own stream format."""
+    if backend is ClaudeCodeHarness:
+        events = [
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": _ANSWER}]},
+            },
+            {"type": "result", "is_error": False, "result": _ANSWER},
+        ]
+    elif backend is CodexHarness:
+        events = [
+            {
+                "type": "item.completed",
+                "item": {"type": "agent_message", "text": _ANSWER},
+            }
+        ]
+    elif backend is PiHarness:
+        events = [
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": _ANSWER}],
+                    "stopReason": "stop",
+                },
+            }
+        ]
+    else:
+        return json.dumps(
+            {
+                "messages": [
+                    {"role": "user", "content": "Add auth handling."},
+                    {"role": "assistant", "content": _ANSWER},
+                ]
+            }
+        )
+    return "\n".join(json.dumps(event) for event in events)
+
+
+@pytest.mark.parametrize("backend", ALL_BACKENDS)
+@pytest.mark.parametrize("returncode", [0, 1])
+def test_an_answer_about_auth_and_limits_is_not_a_refusal(backend, returncode) -> None:
+    # hermes also prints its reply on stderr after a clean exit.
+    stderr = _ANSWER if backend is HermesHarness and returncode == 0 else ""
+    proc = ProcessResult(
+        stdout=_answer_stream(backend),
+        stderr=stderr,
+        returncode=returncode,
+        timed_out=False,
+    )
+    harness = backend()
+    transcript, final_output = harness._parse_stream_with_tail(proc.stdout)
+
+    assert final_output == _ANSWER
+    assert harness._refusal(proc, transcript) is None
+
+
+@pytest.mark.parametrize("backend", ALL_BACKENDS)
+def test_a_failing_cli_that_says_not_logged_in_is_a_config_refusal(backend) -> None:
+    proc = ProcessResult(
+        stdout="", stderr="Error: not logged in", returncode=1, timed_out=False
+    )
+    harness = backend()
+    transcript, _ = harness._parse_stream_with_tail(proc.stdout)
+
+    refusal = harness._refusal(proc, transcript)
+
+    assert refusal is not None
+    assert refusal.kind is RefusalKind.CONFIG
+    assert "Error: not logged in" in refusal.message
+
+
+@pytest.mark.parametrize("backend", ALL_BACKENDS)
+def test_a_quota_is_a_spending_cap_on_every_backend(backend) -> None:
+    proc = ProcessResult(
+        stdout="",
+        stderr="Error: quota exceeded for this key",
+        returncode=1,
+        timed_out=False,
+    )
+    harness = backend()
+    transcript, _ = harness._parse_stream_with_tail(proc.stdout)
+
+    refusal = harness._refusal(proc, transcript)
+
+    assert refusal is not None
+    assert refusal.kind is RefusalKind.SPENDING_CAP
+
+
+def test_pi_reads_its_error_event_not_the_prompt_it_echoes() -> None:
+    # A stream that never produced an answer still echoes the prompt; a task
+    # about usage limits must not turn a lapsed login into a spending cap.
+    prompt = {
+        "type": "message_end",
+        "message": {"role": "user", "content": "Handle the usage limit error."},
+    }
+    failed = {
+        "type": "message_end",
+        "message": {
+            "role": "assistant",
+            "content": [],
+            "stopReason": "error",
+            "errorMessage": "401 Unauthorized: please run /login",
+        },
+    }
+    proc = ProcessResult(
+        stdout="\n".join(json.dumps(event) for event in (prompt, failed)),
+        stderr="",
+        returncode=0,
+        timed_out=False,
+    )
+    harness = PiHarness()
+    transcript, _ = harness._parse_stream_with_tail(proc.stdout)
+
+    refusal = harness._refusal(proc, transcript)
+
+    assert refusal is not None
+    assert refusal.kind is RefusalKind.CONFIG
+
+
+def test_claude_reads_a_throttle_from_its_status_alone() -> None:
+    event = {
+        "type": "result",
+        "is_error": True,
+        "api_error_status": 429,
+        "result": "Request failed, try again later",
+    }
+    proc = ProcessResult(
+        stdout=json.dumps(event), stderr="", returncode=1, timed_out=False
+    )
+    harness = ClaudeCodeHarness()
+    transcript, _ = harness._parse_stream_with_tail(proc.stdout)
+
+    refusal = harness._refusal(proc, transcript)
+
+    assert refusal is not None
+    assert refusal.kind is RefusalKind.THROTTLE
+
+
+def test_hermes_answer_on_stderr_is_not_a_refusal_after_a_failed_exit() -> None:
+    # hermes prints its reply on stderr and keeps the oneshot's exit code.
+    proc = ProcessResult(
+        stdout=_answer_stream(HermesHarness),
+        stderr=_ANSWER,
+        returncode=1,
+        timed_out=False,
+    )
+    harness = HermesHarness()
+    transcript, _ = harness._parse_stream_with_tail(proc.stdout)
+
+    assert harness._refusal(proc, transcript) is None

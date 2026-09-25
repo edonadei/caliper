@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -16,6 +17,12 @@ from caliper import cancel
 from caliper.harness.prompt_failure import (
     PromptFailure,
     PromptFailureKind,
+)
+from caliper.harness.refusal import (
+    CliRefusal,
+    ConfigSignal,
+    RefusalKind,
+    classify,
 )
 from caliper.schema.results import TokenUsage
 from caliper.schema.spec import McpServer
@@ -70,10 +77,12 @@ class AttemptResult:
     cancelled: bool = False
     # True when nothing parsed out of the agent's stream and the raw stdout had
     # to be salvaged as a single turn. The agent did not converse: whatever is in
-    # ``final_output`` is the CLI talking, not the agent answering — which is how
-    # a provider signal is told apart from an agent *writing about* one
-    # (docs/adr/0019).
+    # ``final_output`` is the CLI talking, not the agent answering.
     salvaged: bool = False
+    # A throttle or spending cap the CLI itself reported, read from what the CLI
+    # wrote and never from the agent's answer (docs/adr/0030). A misconfiguration
+    # never lands here: it raises ``HarnessConfigurationError`` instead.
+    refusal: CliRefusal | None = None
     # Kind-prefixed user customizations, declared skills and servers excluded. ``None`` when isolated or when the backend can't tell (docs/adr/0028).
     loaded_user_customizations: list[str] | None = None
     # Facts for activation even when connector provenance is unknown.
@@ -355,7 +364,14 @@ class CliHarness(HarnessBackend):
     varies and this class performs it: ``seed_files``, ``cli_name`` and friends,
     ``env_passthrough``. See
     docs/adr/0020-a-backend-declares-its-chores-rather-than-performing-them.md.
+
+    A CLI refusal follows the same rule: a backend declares its
+    ``config_signals`` and says which text its CLI wrote (``_cli_text``), and
+    this class classifies it (docs/adr/0030).
     """
+
+    # The misconfigurations this backend's CLI reports, checked in order.
+    config_signals: tuple[ConfigSignal, ...] = ()
 
     def run(self, ctx: RunContext) -> AttemptResult:
         # The one fact the backend contributes to its own context: a request
@@ -402,12 +418,10 @@ class CliHarness(HarnessBackend):
 
         transcript, final_output = self._parse_stream_with_tail(proc.stdout)
 
-        # A timeout is the process outcome even if its partial conversation
-        # mentions a configuration error. Backend diagnostics inspect incomplete
-        # stdout and can mistake the agent's own words for a CLI failure.
-        diagnostic = None if proc.timed_out else self._diagnose(proc, final_output)
-        if diagnostic:
-            raise HarnessConfigurationError(diagnostic)
+        # A timeout is the process outcome, whatever the CLI said before it hung.
+        refusal = None if proc.timed_out else self._refusal(proc, transcript)
+        if refusal is not None and refusal.kind is RefusalKind.CONFIG:
+            raise HarnessConfigurationError(refusal.message)
 
         # Whether the agent actually conversed, captured before the salvage below
         # can paper over the difference.
@@ -425,6 +439,7 @@ class CliHarness(HarnessBackend):
             usage=self._safe_usage(proc, ctx),
             cancelled=proc.cancelled,
             salvaged=not parsed,
+            refusal=refusal,
             loaded_user_customizations=self._recorded_customizations(
                 proc, ctx, user_files + [f"skill:{name}" for name in user_skills]
             ),
@@ -642,9 +657,46 @@ class CliHarness(HarnessBackend):
                 return turn.content
         return ""
 
-    def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
-        """Return a human-readable misconfiguration message, or ``None``."""
+    def _refusal(
+        self, proc: ProcessResult, transcript: list[ConversationTurn]
+    ) -> CliRefusal | None:
+        """The CLI refusal this invocation hit, if any (docs/adr/0030)."""
+        cli_text = self._cli_text(proc, transcript)
+        return classify(
+            cli_text,
+            self.config_signals,
+            diagnose=lambda text: self._diagnose(proc, text),
+        )
+
+    def _diagnose(self, proc: ProcessResult, cli_text: str) -> str | None:
+        """A misconfiguration a marker list cannot express, or ``None``.
+
+        For the CLI's *structure*: an error envelope's status code, a crash's
+        stack trace, a condition on the exit code. Runs after the cap and
+        throttle checks, over the same CLI-written text; anything matched by
+        words alone belongs in ``config_signals``.
+        """
         return None
+
+    def _cli_text(self, proc: ProcessResult, transcript: list[ConversationTurn]) -> str:
+        """What the CLI itself wrote, as opposed to what the agent said.
+
+        Default: the plain-text lines of stdout when nothing in it parsed as the
+        agent's stream, and stderr unless the run succeeded with the agent
+        speaking — a CLI that exits 0 after a real answer may still warn on
+        stderr. Never a JSON event: a stream echoes the prompt and the system
+        prompt, so a backend whose CLI reports errors inside its stream picks
+        those events out itself, whatever the exit code (docs/adr/0030).
+        """
+        spoke = any(turn.role == "assistant" and turn.content for turn in transcript)
+        parts = []
+        if proc.returncode != 0 or not spoke:
+            parts.append(proc.stderr)
+        if not transcript:
+            parts.extend(
+                line for line in proc.stdout.splitlines() if not _is_json(line)
+            )
+        return "\n".join(part.strip() for part in parts if part and part.strip())
 
     def _fallback(
         self,
@@ -953,3 +1005,12 @@ class CliHarness(HarnessBackend):
             if key in os.environ:
                 env[key] = os.environ[key]
         return env
+
+
+def _is_json(line: str) -> bool:
+    """Whether ``line`` is a JSON value: an event in an agent's stream."""
+    try:
+        json.loads(line)
+    except ValueError:
+        return False
+    return True
