@@ -149,7 +149,28 @@ tasks:
 
   - name: Surfaces Claude Code configuration errors clearly
     activates: [evaluate-skill]
-    setup: cp -R "$CALIPER_SPEC_DIR/references/evals/claude-code-smoke" .
+    setup: |
+      mkdir claude-code-smoke
+      cat > claude-code-smoke/SKILL.md << 'EOF'
+      ---
+      name: claude-code-smoke
+      description: Use when asked to run the Claude Code smoke evaluation.
+      ---
+
+      When asked to run the smoke evaluation, write exactly
+      `claude-code-smoke-ok` to the requested output file.
+      EOF
+      cat > claude-code-smoke/claude-code-smoke.eval.yaml << 'EOF'
+      skills:
+        - ./SKILL.md
+      tasks:
+        - name: Writes the smoke output file
+          prompt: Run the Claude Code smoke evaluation and write the result to ./smoke.txt.
+          activates: [claude-code-smoke]
+          assert: |
+            from pathlib import Path
+            assert Path("smoke.txt").read_text().strip() == "claude-code-smoke-ok"
+      EOF
     prompt: >
       Run the Claude Code smoke eval at
       ./claude-code-smoke/claude-code-smoke.eval.yaml with k=1, one worker and

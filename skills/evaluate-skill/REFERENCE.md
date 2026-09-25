@@ -342,6 +342,38 @@ costs far less than an execution task, and reports as *trigger only*.
 - **Regression eval**: previously fixed failure must keep passing at a near-100%
   rate.
 
+### Worked example
+
+A repo-workflow eval for a `commit` skill. `setup:` builds the fixture in the
+attempt workdir, `assert:` checks git state there, `expect:` covers what only
+the transcript shows, and a trigger probe checks the skill stays quiet:
+
+```yaml
+skills:
+  - ./SKILL.md
+
+tasks:
+  - name: Commits staged work with a Conventional Commit message
+    setup: |
+      git init -q && git config user.email eval@test.com && git config user.name Eval
+      echo "# App" > README.md && git add README.md && git commit -qm init
+      printf 'def login(user, pwd):\n    return True\n' > auth.py && git add auth.py
+    prompt: I've staged auth.py. Commit it, no need to confirm.
+    activates: [commit]
+    expect: >
+      The agent inspects the staged diff before committing. Fail if it commits
+      without looking at what is staged.
+    assert: |
+      import re, subprocess
+      log = subprocess.run(["git", "log", "-1", "--format=%s"],
+                           capture_output=True, text=True, check=True).stdout
+      assert re.match(r"^feat(\(.+\))?: ", log), f"not a feat: commit: {log!r}"
+
+  - name: Stays quiet on an unrelated request
+    prompt: What does the `git stash` command do?
+    activates: []
+```
+
 ### Writing expect: rubrics
 
 Write expectations as pass/fail criteria. Include required evidence, disallowed
