@@ -282,3 +282,18 @@ def test_no_repo_eval_hook_relies_on_pwd() -> None:
         for task in load_spec(path).tasks:
             for hook in (task.setup, task.cleanup):
                 assert "$PWD" not in (hook or ""), f"{path.name}: {task.name}"
+
+
+def test_a_spec_needs_at_least_one_task(tmp_path) -> None:
+    with pytest.raises(ValidationError, match="at least one task"):
+        load_spec(_write(tmp_path, "tasks: []\n"))
+
+
+def test_task_names_must_be_unique(tmp_path) -> None:
+    text = (
+        "tasks:\n"
+        "  - {name: a, prompt: x, assert: assert True}\n"
+        "  - {name: a, prompt: y, assert: assert True}\n"
+    )
+    with pytest.raises(ValidationError, match="two tasks are named 'a'"):
+        load_spec(_write(tmp_path, text))
