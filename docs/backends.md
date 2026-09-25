@@ -134,6 +134,11 @@ binary. Hermes updates itself (`hermes update`), so it isn't part of
 caliper update-cli --check
 ```
 
+This lists each npm-distributed CLI (`codex`, `claude-code`, `pi`), the binary
+Caliper would run, and the latest npm version. Updating through
+`caliper update-cli <backend>` still works but is deprecated and will be
+removed; update with `npm install -g <package>` instead.
+
 ## MCP support by backend
 
 | Backend | Local (stdio) | Remote (`http`/`sse`) |

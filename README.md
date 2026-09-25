@@ -391,7 +391,7 @@ The full format, with every field, is in
 | `caliper list [spec]` | List specs and saved runs. Per spec, each row shows its **Run** ID and what that run **ablated**, which is how you find the run to diff against |
 | `caliper report <spec-or-result>` | Re-render saved results |
 | `caliper compare <A> <B>` | Diff two saved runs of the same eval, task by task. Each side is a spec name (that spec's **latest** run) or a results-JSON path; they must be two distinct runs |
-| `caliper update-cli [backend]` | Check or update installed agent CLI versions |
+| `caliper update-cli --check [backend]` | Check installed agent CLI versions against npm. Updating through `caliper update-cli <backend>` is deprecated; run `npm install -g` yourself |
 
 Results are saved under the nearest `.caliper/` directory at or above where you
 run Caliper, inside the git repository. See

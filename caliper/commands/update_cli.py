@@ -77,6 +77,16 @@ def update_cli_cmd(
         )
         raise typer.Exit(1)
 
+    # Deprecated: installing an agent CLI is npm's job, not an eval harness's.
+    # `--check` stays, because the installed versions are what a bug report
+    # needs; the update path goes in a later release.
+    packages = " ".join(cli.npm_package for cli in targets)
+    console.print(
+        "[bold yellow]Deprecated:[/bold yellow] updating CLIs through caliper "
+        "will be removed in a future release. Update with npm directly: "
+        f"[bold]npm install -g {packages}[/bold]. "
+        "[bold]caliper update-cli --check[/bold] stays."
+    )
     for cli in targets:
         _update(cli, yes=yes)
 
@@ -224,7 +234,7 @@ def _update_hint(cli: CliTarget, command: str | None) -> str:
         and not os.environ.get("CODEX_CLI_PATH")
     ):
         return "update desktop app or set CODEX_CLI_PATH"
-    return f"caliper update-cli {cli.name}"
+    return f"npm install -g {cli.npm_package}"
 
 
 def _app_bundle_for(cli: CliTarget) -> Path | None:

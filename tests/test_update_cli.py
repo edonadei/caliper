@@ -88,6 +88,49 @@ def test_update_cli_updates_with_npm_when_confirmed(monkeypatch, tmp_path) -> No
     assert "Updated codex" in result.output
 
 
+def test_updating_through_caliper_is_deprecated_but_still_works(
+    monkeypatch, tmp_path
+) -> None:
+    claude = tmp_path / "claude"
+    claude.write_text("")
+
+    def fake_which(name: str) -> str | None:
+        return {"npm": "npm", "claude": str(claude)}.get(name)
+
+    def fake_run(cmd, **kwargs):
+        if cmd[:3] == ["npm", "install", "-g"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="2.1.281\n", stderr="")
+
+    monkeypatch.setattr("caliper.commands.update_cli.shutil.which", fake_which)
+    monkeypatch.setattr("caliper.commands.update_cli.subprocess.run", fake_run)
+
+    result = runner.invoke(app, ["update-cli", "claude-code", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert "Deprecated" in result.output
+    assert "npm install -g @anthropic-ai/claude-code" in result.output
+
+
+def test_check_is_not_deprecated_and_hints_at_npm(monkeypatch, tmp_path) -> None:
+    def fake_which(name: str) -> str | None:
+        return {"npm": "npm", "claude": "claude"}.get(name)
+
+    def fake_run(cmd, **kwargs):
+        if cmd[-1] == "--version":
+            return subprocess.CompletedProcess(cmd, 0, stdout="2.1.0\n", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="2.1.281\n", stderr="")
+
+    monkeypatch.setattr("caliper.commands.update_cli.shutil.which", fake_which)
+    monkeypatch.setattr("caliper.commands.update_cli.subprocess.run", fake_run)
+
+    result = runner.invoke(app, ["update-cli", "claude-code", "--check"])
+
+    assert result.exit_code == 0, result.output
+    assert "Deprecated" not in result.output
+    assert "npm install -g" in result.output
+
+
 def test_update_cli_refuses_codex_app_bundle(monkeypatch, tmp_path) -> None:
     app_codex = tmp_path / "Codex.app" / "Contents" / "Resources" / "codex"
     app_codex.parent.mkdir(parents=True)

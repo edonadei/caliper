@@ -21,9 +21,10 @@ app.command("compare", help="Diff two saved runs of the same eval (A vs B)")(
 )
 app.command("list", help="List evaluation specs and past runs")(list_cmd_fn)
 app.command("validate", help="Validate an evaluation spec file")(validate_cmd)
-app.command("update-cli", help="Check or update Codex and Claude Code CLIs")(
-    update_cli_cmd
-)
+app.command(
+    "update-cli",
+    help="Check installed agent CLI versions (updating is deprecated; use npm)",
+)(update_cli_cmd)
 
 
 def main() -> None:
