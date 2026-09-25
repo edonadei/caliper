@@ -24,6 +24,10 @@ class JudgeResult:
     # claude-code echoes it in its JSON output). ``None`` when no LLM autorater
     # ran (assert-only task) or the backend does not surface the model.
     resolved_model: str | None = None
+    # Wall-clock seconds the LLM autorater took. ``None`` when none ran, which
+    # is the difference between "the judge was fast" and "no judge ran"
+    # (docs/CONTEXT.md → Judge time).
+    autorater_seconds: float | None = None
 
 
 class Judge(Protocol):

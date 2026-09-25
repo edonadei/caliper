@@ -18,7 +18,6 @@ harness and a thread pool.
 
 from __future__ import annotations
 
-import time
 from dataclasses import asdict, dataclass
 
 from caliper.activation import ActivationDetector, check_activation
@@ -176,25 +175,20 @@ def assemble_attempt(
     if not (task.expect or task.assert_script):
         return with_outcome(Outcome.NOT_CHECKED)
 
-    judge_started = time.monotonic()
     judge_result = judge.evaluate(
         task=task,
         transcript=result.transcript,
         final_output=result.final_output,
         workdir=workdir,
     )
-    # Timed here rather than inside the judge: this is the only place that knows
-    # an attempt reached one at all, and every earlier exit above leaves
-    # ``judge_seconds`` None — which is the difference between "the judge was
-    # fast" and "no judge ran".
-    # Only an LLM autorater counts as judge time (docs/CONTEXT.md → Judge time).
-    # An assert-only task runs a local script through the same call, and a
-    # recorded 0.0 would print a Judge line for a run where no judge ran.
-    judge_seconds = time.monotonic() - judge_started if task.expect else None
     return with_outcome(
         _judge_outcome(judge_result),
         judge_model=judge_result.resolved_model,
-        judge_seconds=judge_seconds,
+        # The judge times its own autorater: only a model call is judge time
+        # (docs/CONTEXT.md → Judge time), and every earlier exit above leaves
+        # it None, which is the difference between "the judge was fast" and
+        # "no judge ran".
+        judge_seconds=judge_result.autorater_seconds,
         assert_passed=judge_result.assert_passed,
         assert_evidence=judge_result.assert_evidence,
         autorater_passed=judge_result.autorater_passed,

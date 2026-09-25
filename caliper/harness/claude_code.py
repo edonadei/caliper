@@ -684,7 +684,7 @@ def _classify_claude_prompt_failure(
     if failure is None:
         return None
     # Carry the structural failure; the judge switches on ``failure.kind`` to
-    # build the user-facing message (see caliper/judge/script_assert.py).
+    # build the user-facing message (see caliper/judge/eval_judge.py).
     return PromptResult(
         text="",
         resolved_model=model,

@@ -11,11 +11,19 @@ import json
 import subprocess
 from pathlib import Path
 
-from caliper.harness.base import ProcessResult, ConversationTurn
+import pytest
+
+from caliper.harness.base import (
+    ConversationTurn,
+    HarnessConfigurationError,
+    ProcessResult,
+    PromptResult,
+)
+from caliper.harness.prompt_failure import PromptFailure, PromptFailureKind
 from caliper.harness.codex import _extract_codex_error, CodexHarness
 from caliper.harness.hermes import HermesHarness
 from caliper.harness.pi import PiHarness
-from caliper.judge.script_assert import EvalJudge
+from caliper.judge.eval_judge import EvalJudge
 from caliper.schema.spec import TaskSpec
 from caliper.workdir import _STEP_TIMEOUTS
 
@@ -42,6 +50,27 @@ def _spawn(monkeypatch, stdout: str = "", returncode: int = 0, stderr: str = "")
     return calls
 
 
+class ScriptedPrompt:
+    """Answers the autorater's one prompt, and remembers being asked."""
+
+    def __init__(self, result: PromptResult) -> None:
+        self.result = result
+        self.calls = 0
+
+    def run_prompt(self, prompt, *, model=None, cwd, timeout=60) -> PromptResult:
+        self.calls += 1
+        return self.result
+
+
+def _verdict(passed: bool, model: str | None = None) -> ScriptedPrompt:
+    text = json.dumps({"mode": "verdict", "passed": passed, "reasoning": "LLM says so"})
+    return ScriptedPrompt(PromptResult(text=text, resolved_model=model))
+
+
+def _flaky() -> ScriptedPrompt:
+    return ScriptedPrompt(PromptResult(text="", error="judge flaked"))
+
+
 # --- EvalJudge check-combination rules (backend-agnostic) -------------------
 
 
@@ -51,20 +80,10 @@ def test_eval_judge_always_returns_eval_judge_instance() -> None:
         assert isinstance(judge, EvalJudge)
 
 
-def test_eval_judge_expect_only_calls_llm(
-    monkeypatch, tmp_path, attempt_workdir
-) -> None:
-    monkeypatch.setattr(
-        "caliper.judge.script_assert.EvalJudge._llm_evaluate",
-        lambda self, task, transcript, workdir: (
-            True,
-            "Codex accepted the transcript.",
-            False,
-            self.model,
-        ),
+def test_eval_judge_expect_only_calls_llm(attempt_workdir) -> None:
+    judge = EvalJudge(
+        backend="codex", model="test-model", harness=_verdict(True, "test-model")
     )
-
-    judge = EvalJudge(backend="codex", model="test-model")
     result = judge.evaluate(
         task=_task(expect="should say hello"),
         transcript=[ConversationTurn(role="assistant", content="hello")],
@@ -75,6 +94,7 @@ def test_eval_judge_expect_only_calls_llm(
     assert result.passed is True
     assert result.assert_passed is None
     assert result.autorater_passed is True
+    assert result.resolved_model == "test-model"
 
 
 def test_eval_judge_assert_only_runs_script_no_llm(tmp_path, attempt_workdir) -> None:
@@ -106,20 +126,8 @@ def test_eval_judge_assert_failure_makes_overall_fail(
     assert result.assert_passed is False
 
 
-def test_eval_judge_both_checks_must_pass(
-    monkeypatch, tmp_path, attempt_workdir
-) -> None:
-    monkeypatch.setattr(
-        "caliper.judge.script_assert.EvalJudge._llm_evaluate",
-        lambda self, task, transcript, workdir: (
-            True,
-            "LLM says yes",
-            False,
-            None,
-        ),
-    )
-
-    judge = EvalJudge(backend="codex")
+def test_eval_judge_both_checks_must_pass(attempt_workdir) -> None:
+    judge = EvalJudge(backend="codex", harness=_verdict(True))
     result = judge.evaluate(
         task=_task(expect="pass", assert_script="assert False, 'script fails'"),
         transcript=[],
@@ -132,18 +140,9 @@ def test_eval_judge_both_checks_must_pass(
     assert result.assert_passed is False
 
 
-def _errored_llm(self, task, transcript, workdir):
-    return False, "judge flaked", True, None
-
-
-def test_errored_autorater_dropped_when_assert_passes(
-    monkeypatch, tmp_path, attempt_workdir
-) -> None:
+def test_errored_autorater_dropped_when_assert_passes(attempt_workdir) -> None:
     # Rule B: a surviving assert verdict stands; the errored autorater is dropped.
-    monkeypatch.setattr(
-        "caliper.judge.script_assert.EvalJudge._llm_evaluate", _errored_llm
-    )
-    judge = EvalJudge(backend="codex")
+    judge = EvalJudge(backend="codex", harness=_flaky())
     result = judge.evaluate(
         task=_task(expect="x", assert_script="assert True"),
         transcript=[],
@@ -155,13 +154,8 @@ def test_errored_autorater_dropped_when_assert_passes(
     assert result.autorater_passed is None
 
 
-def test_errored_autorater_does_not_override_failing_assert(
-    monkeypatch, tmp_path, attempt_workdir
-) -> None:
-    monkeypatch.setattr(
-        "caliper.judge.script_assert.EvalJudge._llm_evaluate", _errored_llm
-    )
-    judge = EvalJudge(backend="codex")
+def test_errored_autorater_does_not_override_failing_assert(attempt_workdir) -> None:
+    judge = EvalJudge(backend="codex", harness=_flaky())
     result = judge.evaluate(
         task=_task(expect="x", assert_script="assert False"),
         transcript=[],
@@ -172,14 +166,9 @@ def test_errored_autorater_does_not_override_failing_assert(
     assert result.passed is False
 
 
-def test_judge_error_when_only_check_errors(
-    monkeypatch, tmp_path, attempt_workdir
-) -> None:
+def test_judge_error_when_only_check_errors(attempt_workdir) -> None:
     # expect-only task whose autorater flakes: no verdict survives -> errored.
-    monkeypatch.setattr(
-        "caliper.judge.script_assert.EvalJudge._llm_evaluate", _errored_llm
-    )
-    judge = EvalJudge(backend="codex")
+    judge = EvalJudge(backend="codex", harness=_flaky())
     result = judge.evaluate(
         task=_task(expect="x"),
         transcript=[],
@@ -571,3 +560,52 @@ def test_an_assertion_that_hangs_has_no_verdict(attempt_workdir, monkeypatch) ->
     assert result.errored is True
     assert result.assert_passed is None
     assert result.assert_evidence == "assert timed out after 1s"
+
+
+# --- the autorater's time ----------------------------------------------------
+
+
+def test_the_autorater_times_its_own_call(attempt_workdir) -> None:
+    result = EvalJudge(backend="codex", harness=_verdict(True)).evaluate(
+        task=_task(expect="x", assert_script="assert True"),
+        transcript=[],
+        final_output="",
+        workdir=attempt_workdir,
+    )
+
+    assert result.autorater_seconds is not None
+    assert result.autorater_seconds >= 0
+
+
+def test_an_assert_only_task_records_no_autorater_time(attempt_workdir) -> None:
+    harness = _verdict(True)
+    result = EvalJudge(backend="codex", harness=harness).evaluate(
+        task=_task(expect="", assert_script="assert True"),
+        transcript=[],
+        final_output="",
+        workdir=attempt_workdir,
+    )
+
+    assert result.autorater_seconds is None
+    assert harness.calls == 0
+
+
+def test_an_unavailable_judge_model_stops_the_run(attempt_workdir) -> None:
+    harness = ScriptedPrompt(
+        PromptResult(
+            text="",
+            resolved_model="bad-model",
+            error="unavailable",
+            failure=PromptFailure(
+                kind=PromptFailureKind.MODEL_UNAVAILABLE, message="no such model"
+            ),
+        )
+    )
+
+    with pytest.raises(HarnessConfigurationError):
+        EvalJudge(backend="codex", harness=harness).evaluate(
+            task=_task(expect="x"),
+            transcript=[],
+            final_output="",
+            workdir=attempt_workdir,
+        )

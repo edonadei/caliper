@@ -16,7 +16,7 @@ from caliper.harness.prompt_failure import (
     classify_claude_api_error_status,
     format_judge_failure,
 )
-from caliper.judge.script_assert import EvalJudge
+from caliper.judge.eval_judge import EvalJudge
 from caliper.schema.spec import DEFAULT_JUDGE_MODEL, TaskSpec
 
 from conftest import patch_cli_calls

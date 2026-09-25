@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 from caliper.harness import get_harness
-from caliper.harness.base import ConversationTurn, HarnessConfigurationError
+from caliper.harness.base import (
+    ConversationTurn,
+    HarnessBackend,
+    HarnessConfigurationError,
+)
 from caliper.harness.prompt_failure import PromptFailureKind, format_judge_failure
 from caliper.judge.base import Judge, JudgeResult
 from caliper.schema.spec import (
@@ -139,7 +144,11 @@ class EvalJudge(Judge):
     """Universal judge: runs the static assert script and/or calls an LLM to evaluate."""
 
     def __init__(
-        self, backend: str = DEFAULT_BACKEND, model: str | None = None
+        self,
+        backend: str = DEFAULT_BACKEND,
+        model: str | None = None,
+        *,
+        harness: HarnessBackend | None = None,
     ) -> None:
         # The judge engine is a runtime axis, resolved from --judge-model (ADR
         # 0004). ``model`` stays as *requested*: ``None`` means the pinned
@@ -148,6 +157,11 @@ class EvalJudge(Judge):
         # never ran.
         self.backend = backend
         self.model = model
+        # The backend that answers the autorater's prompt, through the
+        # ``run_prompt`` half of the backend seam. Built from ``backend`` on
+        # first use, once per judge rather than per attempt; passed in by a
+        # caller (a test) that answers the prompt itself.
+        self._harness = harness
 
     def evaluate(
         self,
@@ -167,13 +181,18 @@ class EvalJudge(Judge):
             assert_passed, assert_evidence = static_result
 
         autorater_model: str | None = None
+        autorater_seconds: float | None = None
         if task.expect:
+            # Timed around the model call alone: an assert script is not judge
+            # time (docs/CONTEXT.md → Judge time).
+            started = time.monotonic()
             (
                 llm_passed,
                 llm_reasoning,
                 autorater_errored,
                 autorater_model,
             ) = self._llm_evaluate(task, transcript, workdir)
+            autorater_seconds = time.monotonic() - started
             autorater_reasoning = llm_reasoning
             # An errored autorater yields no verdict: leave autorater_passed None
             # so it is dropped from the checks rather than counted as a failure.
@@ -201,6 +220,7 @@ class EvalJudge(Judge):
             autorater_reasoning=autorater_reasoning,
             errored=errored,
             resolved_model=autorater_model,
+            autorater_seconds=autorater_seconds,
         )
 
     def _llm_evaluate(
@@ -212,12 +232,14 @@ class EvalJudge(Judge):
         # An autorater is one bare prompt through a CLI agent — the same
         # backend adapters that run attempts also answer the judge, via the
         # ``run_prompt`` half of the backend seam.
-        try:
-            harness = get_harness(
-                self.backend, resolve_judge_model(self.backend, self.model)
-            )
-        except ValueError:
-            return False, f"Unknown judge backend: {self.backend!r}", True, None
+        if self._harness is None:
+            try:
+                self._harness = get_harness(
+                    self.backend, resolve_judge_model(self.backend, self.model)
+                )
+            except ValueError:
+                return False, f"Unknown judge backend: {self.backend!r}", True, None
+        harness = self._harness
 
         user_msg = _USER_TMPL.format(
             expect=task.expect,
