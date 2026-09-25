@@ -13,6 +13,7 @@ from caliper.harness.base import (
     ProcessResult,
     PromptCall,
     RunContext,
+    stream_events,
 )
 from caliper.harness.mcp import merge_user_servers, resolve_servers
 from caliper.harness.refusal import AUTH_MARKERS, ConfigSignal
@@ -50,6 +51,14 @@ class HermesHarness(CliHarness):
     user_settings_file = "config.yaml"
     cli_name = "hermes"
     cli_path_env_var = "HERMES_CLI_PATH"
+    cli_unavailable_message = (
+        "hermes CLI is not available for the `hermes` backend.\n\n"
+        "Install the Hermes Agent (`curl -fsSL "
+        "https://hermes-agent.nousresearch.com/install.sh | bash`) and "
+        "authenticate it (`hermes login`), or set `HERMES_CLI_PATH` to "
+        "the hermes binary, then rerun caliper."
+    )
+    cli_version_timeout = 15
     # Hermes advertises installed skills to the model as name + truncated
     # description and exposes the model's choice as a named skill_view call —
     # the shape that makes a description measurable.
@@ -61,16 +70,6 @@ class HermesHarness(CliHarness):
     @property
     def name(self) -> str:
         return "hermes"
-
-    def _ensure_ready(self, ctx: RunContext) -> None:
-        if not self._cli_available():
-            raise HarnessConfigurationError(
-                "hermes CLI is not available for the `hermes` backend.\n\n"
-                "Install the Hermes Agent (`curl -fsSL "
-                "https://hermes-agent.nousresearch.com/install.sh | bash`) and "
-                "authenticate it (`hermes login`), or set `HERMES_CLI_PATH` to "
-                "the hermes binary, then rerun caliper."
-            )
 
     def seed_files(self, ctx: RunContext) -> list[tuple[Path, Path]]:
         # Isolate Hermes' whole home per attempt (parallel-safe; never mutates
@@ -221,12 +220,6 @@ class HermesHarness(CliHarness):
             extra["CALIPER_MODEL"] = ctx.model
         return self._isolated_env(ctx, extra=extra)
 
-    def _cli_available(self) -> bool:
-        hermes = self.cli_path()
-        return hermes is not None and self._version_ok(
-            hermes, timeout=15, args=("--version",)
-        )
-
     # --- bare prompt call (the judge's half of the seam) -------------------
 
     def _prompt_command(self, prompt: str, model: str | None) -> PromptCall:
@@ -318,15 +311,8 @@ class HermesHarness(CliHarness):
             return obj if isinstance(obj, dict) else None
         except json.JSONDecodeError:
             pass
-        for line in stripped.splitlines():
-            line = line.strip()
-            if not line.startswith("{"):
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(obj, dict) and "messages" in obj:
+        for obj in stream_events(stripped):
+            if "messages" in obj:
                 return obj
         return None
 

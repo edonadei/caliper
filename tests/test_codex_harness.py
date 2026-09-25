@@ -386,6 +386,8 @@ def test_codex_fails_clearly_when_cli_requires_newer_version(
     ("stderr", "expected_message"),
     [
         ("ERROR: boom", "codex judge failed: boom"),
+        # JSON, but not an object: the text itself is the message.
+        ("ERROR: 42", "codex judge failed: 42"),
         ("synthetic error without a marker", "codex judge exited 7"),
     ],
 )

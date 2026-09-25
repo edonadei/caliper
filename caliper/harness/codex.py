@@ -23,6 +23,7 @@ from caliper.harness.base import (
     PromptCall,
     PromptResult,
     RunContext,
+    stream_events,
 )
 from caliper.harness.mcp import merge_user_servers, resolve_servers
 from caliper.harness.refusal import AUTH_MARKERS, ConfigSignal
@@ -52,6 +53,14 @@ class CodexHarness(CliHarness):
     user_settings_file = "config.toml"
     cli_name = "codex"
     cli_path_env_var = "CODEX_CLI_PATH"
+    cli_unavailable_message = (
+        "Codex CLI is not available for the `codex` backend.\n\n"
+        "Caliper runs skills only through CLI agents. Install and "
+        "authenticate the Codex CLI to run with `--model codex`. For API "
+        "billing, configure the Codex CLI with an API key rather than "
+        "selecting a separate backend."
+    )
+    cli_version_timeout = 5
 
     @property
     def name(self) -> str:
@@ -59,16 +68,6 @@ class CodexHarness(CliHarness):
 
     def cli_candidates(self) -> tuple[Path, ...]:
         return (CODEX_APP_CLI,)
-
-    def _ensure_ready(self, ctx: RunContext) -> None:
-        if not self._cli_available():
-            raise HarnessConfigurationError(
-                "Codex CLI is not available for the `codex` backend.\n\n"
-                "Caliper runs skills only through CLI agents. Install and "
-                "authenticate the Codex CLI to run with `--model codex`. For API "
-                "billing, configure the Codex CLI with an API key rather than "
-                "selecting a separate backend."
-            )
 
     def skills_root(self, ctx: RunContext) -> Path:
         return Path(ctx.isolated_home) / ".codex" / "skills"
@@ -159,10 +158,6 @@ class CodexHarness(CliHarness):
     def _environment(self, ctx: RunContext) -> dict[str, str]:
         return self._isolated_env(ctx)
 
-    def _cli_available(self) -> bool:
-        codex = self.cli_path()
-        return codex is not None and self._version_ok(codex, timeout=5)
-
     def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
         """Read the last ``turn.completed`` event's ``usage``.
 
@@ -173,12 +168,8 @@ class CodexHarness(CliHarness):
         ``output_tokens``.
         """
         latest: dict | None = None
-        for line in proc.stdout.splitlines():
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(event, dict) or event.get("type") != "turn.completed":
+        for event in stream_events(proc.stdout):
+            if event.get("type") != "turn.completed":
                 continue
             usage = event.get("usage")
             if isinstance(usage, dict):
@@ -201,15 +192,7 @@ class CodexHarness(CliHarness):
         transcript: list[ConversationTurn] = []
         final_output = ""
 
-        for line in stdout.splitlines():
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-
-            if not isinstance(event, dict):
-                continue
-
+        for event in stream_events(stdout):
             item = event.get("item")
             if not isinstance(item, dict):
                 continue
@@ -555,13 +538,7 @@ class CodexHarness(CliHarness):
 def _stream_errors(stdout: str) -> list[str]:
     """The message of each failure event codex wrote into its JSON stream."""
     errors = []
-    for line in stdout.splitlines():
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(event, dict):
-            continue
+    for event in stream_events(stdout):
         if event.get("type") not in ("error", "turn.failed") and not isinstance(
             event.get("error"), dict
         ):
@@ -595,6 +572,8 @@ def _error_message_from_json(candidate: str) -> str | None:
     try:
         payload = json.loads(candidate)
     except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
         return None
 
     error = payload.get("error")

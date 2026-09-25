@@ -22,7 +22,12 @@ from pathlib import Path
 
 import pytest
 
-from caliper.harness.base import CliHarness, ConversationTurn, ProcessResult
+from caliper.harness.base import (
+    CliHarness,
+    ConversationTurn,
+    HarnessConfigurationError,
+    ProcessResult,
+)
 from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.harness.codex import CodexHarness
 from caliper.harness.hermes import HermesHarness
@@ -556,3 +561,85 @@ def test_hermes_answer_on_stderr_is_not_a_refusal_after_a_failed_exit() -> None:
     transcript, _ = harness._parse_stream_with_tail(proc.stdout)
 
     assert harness._refusal(proc, transcript) is None
+
+
+# --- readiness: declared by the backend, checked by the base -----------------
+
+
+class _ReadyHarness(CliHarness):
+    """Declares a CLI and its unavailable message; stops right after readiness."""
+
+    name = "stub"
+    cli_name = "stub-cli"
+    cli_path_env_var = "STUB_CLI_PATH"
+    cli_unavailable_message = "stub-cli is missing. Install it, then rerun caliper."
+
+    def _seed_home(self, ctx):
+        raise _PastReadiness
+
+    def skills_root(self, ctx):  # pragma: no cover - unused here
+        raise NotImplementedError
+
+    def _command(self, ctx):  # pragma: no cover - unused here
+        raise NotImplementedError
+
+    def _environment(self, ctx):  # pragma: no cover - unused here
+        raise NotImplementedError
+
+    def _parse_stream(self, stdout):  # pragma: no cover - unused here
+        raise NotImplementedError
+
+
+class _PastReadiness(Exception):
+    pass
+
+
+def _probe_exits(monkeypatch, code: int) -> list[list[str]]:
+    probes: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        probes.append(cmd)
+        return subprocess.CompletedProcess(cmd, code, stdout="", stderr="")
+
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    return probes
+
+
+def test_a_missing_cli_stops_the_run_with_the_backends_message(monkeypatch, tmp_path):
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: None)
+    monkeypatch.delenv("STUB_CLI_PATH", raising=False)
+
+    with pytest.raises(HarnessConfigurationError) as raised:
+        _ReadyHarness().run(run_context(isolated_home=str(tmp_path)))
+
+    assert str(raised.value) == "stub-cli is missing. Install it, then rerun caliper."
+
+
+def test_a_cli_whose_version_probe_fails_is_not_ready(monkeypatch, tmp_path):
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "/bin/stub")
+    probes = _probe_exits(monkeypatch, 1)
+
+    with pytest.raises(HarnessConfigurationError, match="stub-cli is missing"):
+        _ReadyHarness().run(run_context(isolated_home=str(tmp_path)))
+
+    assert probes == [["/bin/stub", "--version"]]
+
+
+def test_a_runnable_cli_is_ready(monkeypatch, tmp_path):
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "/bin/stub")
+    _probe_exits(monkeypatch, 0)
+
+    with pytest.raises(_PastReadiness):
+        _ReadyHarness().run(run_context(isolated_home=str(tmp_path)))
+
+
+def test_a_backend_with_no_unavailable_message_skips_the_readiness_check(
+    monkeypatch, tmp_path
+):
+    class Undeclared(_ReadyHarness):
+        cli_unavailable_message = None
+
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: None)
+
+    with pytest.raises(_PastReadiness):
+        Undeclared().run(run_context(isolated_home=str(tmp_path)))

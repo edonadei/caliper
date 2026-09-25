@@ -17,6 +17,7 @@ from caliper.harness.base import (
     PromptCall,
     PromptResult,
     RunContext,
+    stream_events,
 )
 from caliper.harness.prompt_failure import (
     PromptFailure,
@@ -534,12 +535,8 @@ class ClaudeCodeHarness(CliHarness):
         The record is what the attempt was given, not what happened to connect.
         ``None`` when no ``init`` event arrived.
         """
-        for line in proc.stdout.splitlines():
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(event, dict) and (
+        for event in stream_events(proc.stdout):
+            if (
                 event.get("type"),
                 event.get("subtype"),
             ) == (
@@ -559,14 +556,7 @@ class ClaudeCodeHarness(CliHarness):
     def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
         """Read the ``result`` event's ``usage``. Claude's ``input_tokens`` is
         already non-cached, so the mapping is direct."""
-        for line in proc.stdout.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+        for event in stream_events(proc.stdout):
             if event.get("type") != "result":
                 continue
             usage = event.get("usage")
@@ -584,15 +574,7 @@ class ClaudeCodeHarness(CliHarness):
         transcript: list[ConversationTurn] = []
         final_output = ""
 
-        for line in stdout.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-
+        for event in stream_events(stdout):
             etype = event.get("type", "")
 
             if etype == "assistant":
@@ -669,16 +651,8 @@ def _error_results(stdout: str) -> list[str]:
     whatever words the message uses.
     """
     errors = []
-    for line in stdout.splitlines():
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if (
-            isinstance(event, dict)
-            and event.get("type") == "result"
-            and event.get("is_error")
-        ):
+    for event in stream_events(stdout):
+        if event.get("type") == "result" and event.get("is_error"):
             result = event.get("result")
             text = result.strip() if isinstance(result, str) else ""
             status = event.get("api_error_status")
@@ -691,12 +665,8 @@ def _error_results(stdout: str) -> list[str]:
 
 def _closing_envelope_failure(stdout: str) -> PromptFailure | None:
     """The classified failure the CLI's closing ``result`` event reports, if any."""
-    for line in reversed(stdout.splitlines()):
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(event, dict) or event.get("type") != "result":
+    for event in reversed(list(stream_events(stdout))):
+        if event.get("type") != "result":
             continue
         return _envelope_failure(event)
     return None
