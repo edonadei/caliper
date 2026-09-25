@@ -183,7 +183,7 @@ def run_cmd(
         # reaches, rather than a second opinion in a different shape.
         fail(exc)
     except Exception as exc:
-        # A YAML syntax error, or a retired key (ADR 0004). Not a schema
+        # A YAML syntax error, or the retired `skill:` key. Not a schema
         # verdict, so it stays a one-line statement of what is wrong.
         fail(BadInput(f"Invalid spec: {exc}"))
 

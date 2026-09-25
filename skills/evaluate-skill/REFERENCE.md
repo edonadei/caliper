@@ -90,8 +90,8 @@ checks before its first attempt):
 - **No unknown keys.** A typo like `asert:` in a task or `sandbox:` is rejected,
   as are `forbidden_files` entries that aren't valid regexes and `assert:`
   script files missing from beside the spec.
-- **No engine in the spec.** A spec with `skill.backend`, `skill.model` or a
-  `judge:` block fails validation and points at `--model` / `--judge-model`.
+- **No engine in the spec.** A spec with a `judge:` block fails validation as
+  an unknown key; pick the engine with `--model` / `--judge-model` instead.
   The old singular `skill: path:` key is rejected too; use `skills:`.
 - **Identity is the frontmatter `name:`**, not the filename or directory.
   `activates:` names must match it.

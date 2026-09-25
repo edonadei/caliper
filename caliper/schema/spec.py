@@ -311,16 +311,6 @@ class EvalSpec(BaseModel):
         return value
 
 
-# Keys removed in ADR 0004, mapped to the runtime flag that replaced them. Caught
-# before generic validation so the error explains *where the engine went*, not
-# just that an unknown key is present.
-_REMOVED_KEYS: dict[str, str] = {
-    "skill.backend": "--model",
-    "skill.model": "--model",
-    "judge": "--judge-model",
-}
-
-
 def _reject_singular_skill(raw: dict) -> None:
     """Point ``skill: path:`` at the ``skills:`` neighbourhood that replaced it.
 
@@ -343,28 +333,6 @@ def _reject_singular_skill(raw: dict) -> None:
     )
 
 
-def _reject_removed_keys(raw: dict) -> None:
-    offenders: list[str] = []
-    skill = raw.get("skill")
-    if isinstance(skill, dict):
-        offenders += [f"skill.{k}" for k in ("backend", "model") if k in skill]
-    if "judge" in raw:
-        offenders.append("judge")
-    if not offenders:
-        return
-    lines = [
-        f"  - {key} (engine now comes from {_REMOVED_KEYS[key]})" for key in offenders
-    ]
-    raise ValueError(
-        "backend/model are no longer spec fields — the engine is chosen at "
-        "runtime (default: "
-        f"{DEFAULT_BACKEND}). Delete these key(s) from the spec:\n"
-        + "\n".join(lines)
-        + "\nPass the engine when you run: "
-        "caliper run <spec> --model codex:gpt-5-codex --judge-model claude-code"
-    )
-
-
 def load_spec(path: Path) -> EvalSpec:
     import yaml
 
@@ -376,9 +344,6 @@ def load_spec(path: Path) -> EvalSpec:
             "the spec must be a mapping with a `tasks:` list at the top level, "
             f"not a {type(raw).__name__}"
         )
-    # Engine keys first: a spec carrying both `skill.model` and `skill:`
-    # should hear about the engine move, which is the older migration.
-    _reject_removed_keys(raw)
     _reject_singular_skill(raw)
     # Shape errors are named here in the spec's own terms; the schema would
     # word them as "instance of TaskSpec".

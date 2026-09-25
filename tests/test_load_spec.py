@@ -41,21 +41,20 @@ def test_load_spec_rejects_the_old_singular_skill_key(tmp_path) -> None:
     assert "- ./SKILL.md" in msg
 
 
-@pytest.mark.parametrize(
-    "removed, needle",
-    [
-        ("skill:\n  path: ./SKILL.md\n  backend: codex\n", "skill.backend"),
-        ("skill:\n  path: ./SKILL.md\n  model: claude-sonnet-4-6\n", "skill.model"),
-        ("skills:\n  - ./SKILL.md\njudge:\n  backend: codex\n", "judge"),
-    ],
-)
-def test_load_spec_rejects_removed_engine_keys(tmp_path, removed, needle) -> None:
+def test_load_spec_rejects_an_engine_block_as_an_unknown_key(tmp_path) -> None:
+    # The engine is a runtime axis (docs/adr/0004); the dedicated migration
+    # message for it has been retired, and `extra="forbid"` still refuses it.
+    with pytest.raises(ValidationError) as exc:
+        load_spec(_write(tmp_path, "judge:\n  backend: codex\n" + _TASK))
+    assert "judge" in str(exc.value)
+
+
+def test_an_engine_under_the_old_skill_key_is_still_refused(tmp_path) -> None:
     with pytest.raises(ValueError) as exc:
-        load_spec(_write(tmp_path, removed + _TASK))
-    msg = str(exc.value)
-    assert needle in msg
-    # The error must point users at the runtime flags, not just say "unknown key".
-    assert "--model" in msg or "--judge-model" in msg
+        load_spec(
+            _write(tmp_path, "skill:\n  path: ./SKILL.md\n  backend: codex\n" + _TASK)
+        )
+    assert "skills:" in str(exc.value)
 
 
 # --- activates: as a third check type -------------------------------------
