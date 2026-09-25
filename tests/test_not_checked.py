@@ -7,12 +7,8 @@ from typer.testing import CliRunner
 from caliper.commands.list_cmd import _score_cell
 from caliper.reporter import RULE_GLYPH, UNUSABLE_GLYPH
 from caliper.harness.base import (
-    AttemptResult,
     ConversationTurn,
-    HarnessBackend,
-    RunContext,
 )
-from caliper.judge.base import JudgeResult
 from caliper.reporter import _status_cell
 from caliper.main import app
 from caliper.runner import run
@@ -26,7 +22,13 @@ from caliper.schema.results import (
 )
 from caliper.schema.spec import EvalSpec, TaskSpec
 
-from conftest import task_result
+from conftest import (
+    ScriptedHarness,
+    ScriptedJudge,
+    agent_result,
+    failed_result,
+    task_result,
+)
 
 
 # --- scoring --------------------------------------------------------------
@@ -74,36 +76,10 @@ def test_usable_is_derived_not_subtracted():
 # --- the runner skips the judge -------------------------------------------
 
 
-class CleanHarness(HarnessBackend):
-    @property
-    def name(self) -> str:
-        return "clean"
-
-    def run(self, ctx: RunContext) -> AttemptResult:
-        return AttemptResult(
-            transcript=[ConversationTurn(role="assistant", content="Paris.")],
-            final_output="Paris.",
-            exit_code=0,
-            duration_seconds=0.1,
-        )
-
-
-class CountingJudge:
-    backend = "test"
-    model = None
-
-    def __init__(self) -> None:
-        self.calls = 0
-
-    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
-        self.calls += 1
-        return JudgeResult(passed=True, reasoning="ok")
-
-
 def test_runner_skips_the_paid_judge_for_an_activates_only_task(tmp_path):
     spec_path = tmp_path / "s.eval.yaml"
     spec_path.write_text("tasks: []\n")
-    judge = CountingJudge()
+    judge = ScriptedJudge()
 
     results = run(
         spec=EvalSpec(
@@ -118,7 +94,12 @@ def test_runner_skips_the_paid_judge_for_an_activates_only_task(tmp_path):
             ],
         ),
         spec_path=spec_path,
-        harness=CleanHarness(),
+        harness=ScriptedHarness(
+            agent_result(
+                transcript=[ConversationTurn(role="assistant", content="Paris.")],
+                final_output="Paris.",
+            )
+        ),
         judge=judge,
         k=2,
         workers=1,
@@ -228,21 +209,6 @@ def test_a_task_with_a_real_verdict_is_not_trigger_only():
     assert tr.trigger_only is False
 
 
-class TimingOutHarness(HarnessBackend):
-    @property
-    def name(self) -> str:
-        return "timeout"
-
-    def run(self, ctx: RunContext) -> AttemptResult:
-        return AttemptResult(
-            transcript=[],
-            final_output="",
-            exit_code=124,
-            duration_seconds=0.1,
-            timed_out=True,
-        )
-
-
 def test_a_timeout_records_activation_as_unobserved_not_as_empty(tmp_path):
     # A truncated transcript yields no evidence either way. Recording `[]` would
     # put a fabricated "the description never fired" into the saved JSON.
@@ -258,8 +224,10 @@ def test_a_timeout_records_activation_as_unobserved_not_as_empty(tmp_path):
             tasks=[TaskSpec(id="task-001", name="t", prompt="p", activates=["mine"])],
         ),
         spec_path=spec_path,
-        harness=TimingOutHarness(),
-        judge=CountingJudge(),
+        harness=ScriptedHarness(
+            failed_result(error=None, exit_code=124, timed_out=True)
+        ),
+        judge=ScriptedJudge(),
         k=1,
         workers=1,
         timeout=30,
