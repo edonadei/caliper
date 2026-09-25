@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from enum import Enum
 
-# Mid-run harness signals that mean the skill was never fairly run. Matched over
-# the attempt's output + error even on a zero exit, because these typically let
-# the CLI exit 0 with the message as its only "output". Startup auth / login
-# misconfiguration is deliberately NOT here: that raises
-# HarnessConfigurationError and aborts the whole run instead.
+# Provider signals that mean the skill was never fairly run. Matched even on a
+# zero exit, because these typically let the CLI exit 0 with the message as its
+# only "output" — but only over what the CLI wrote (see ``classify``).
 #
 # Split in two because the right response differs, not because the labels do —
 # both still earn INFRA_ERROR when they reach the end of the line. The question
@@ -80,12 +81,83 @@ def _strings(value: object) -> list[str]:
     return []
 
 
-def looks_like_infra_failure(text: str) -> bool:
-    """True when free text carries a transient throttle/overload signal.
+class RefusalKind(Enum):
+    """Why the CLI refused, which decides what the run does about it.
 
-    The single source of truth for infra detection, used by ``classify_pre_judge``
-    to label the attempt. The union of both halves above: how an attempt is
-    *labelled* is unchanged by the split, which only decides what the retry seam
-    does before the label is reached.
+    ``SPENDING_CAP`` stops the run: no attempt left would behave differently.
+    ``THROTTLE`` is retried: the next invocation might (docs/adr/0019).
+    ``CONFIG`` stops the run before another attempt is spent on it.
     """
-    return looks_like_throttle(text) or looks_like_spending_cap(text)
+
+    SPENDING_CAP = "spending_cap"
+    THROTTLE = "throttle"
+    CONFIG = "config"
+
+
+@dataclass(frozen=True)
+class CliRefusal:
+    kind: RefusalKind
+    # What to tell the user: the line that names a cap, the throttle text, or
+    # the full diagnosis of a misconfiguration.
+    message: str
+
+
+@dataclass(frozen=True)
+class ConfigSignal:
+    """A misconfiguration a backend's CLI reports, and what to do about it.
+
+    ``diagnosis`` is shown when any marker appears in what the CLI wrote;
+    ``{text}`` in it is replaced by that text.
+    """
+
+    markers: tuple[str, ...]
+    diagnosis: str
+
+
+# The words every CLI uses for a login that is missing or has lapsed.
+AUTH_MARKERS = (
+    "401",
+    "unauthorized",
+    "not logged in",
+    "please login",
+    "please run /login",
+    "authentication",
+    "invalid api key",
+    "subscription",
+)
+
+# Enough of what the CLI wrote to act on, without dumping a whole stream.
+_QUOTED = 1000
+
+
+def classify(
+    cli_text: str,
+    config_signals: Sequence[ConfigSignal],
+    diagnose: Callable[[str], str | None] | None = None,
+) -> CliRefusal | None:
+    """The refusal in what the CLI wrote, or ``None`` if it wrote none.
+
+    ``cli_text`` must be only what the CLI itself said — its stderr, its own
+    error events, output nothing parsed as the agent's — never the agent's
+    answer: an agent can write "not logged in" or "rate limit" about the task it
+    was given (docs/adr/0030). Checked in one order — cap, throttle, the
+    backend's own ``diagnose`` of the text's structure, then its
+    ``config_signals`` — so a cap is never diagnosed as a bad login because it
+    also mentions the subscription.
+    """
+    text = cli_text.strip()
+    if not text:
+        return None
+    if looks_like_spending_cap(text):
+        return CliRefusal(RefusalKind.SPENDING_CAP, spending_cap_line(text))
+    if looks_like_throttle(text):
+        return CliRefusal(RefusalKind.THROTTLE, text[:_QUOTED])
+    diagnosis = diagnose(text) if diagnose is not None else None
+    if diagnosis:
+        return CliRefusal(RefusalKind.CONFIG, diagnosis)
+    lowered = text.lower()
+    for signal in config_signals:
+        if any(marker in lowered for marker in signal.markers):
+            diagnosis = signal.diagnosis.replace("{text}", text[:_QUOTED])
+            return CliRefusal(RefusalKind.CONFIG, diagnosis)
+    return None

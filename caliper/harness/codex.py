@@ -24,6 +24,7 @@ from caliper.harness.base import (
     RunContext,
 )
 from caliper.harness.mcp import merge_user_servers, resolve_servers
+from caliper.harness.refusal import AUTH_MARKERS, ConfigSignal
 from caliper.schema.results import TokenUsage
 
 CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
@@ -442,13 +443,29 @@ class CodexHarness(CliHarness):
                 names.add(CODEX_APPS_SERVER)
         return names
 
-    def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
-        if proc.returncode == 0:
-            return None
+    config_signals = (
+        ConfigSignal(
+            (*AUTH_MARKERS, "401 unauthorized", "api key", "chatgpt account"),
+            "Codex CLI cannot run with the current subscription/authentication "
+            "configuration.\n\n"
+            "Caliper uses `codex exec` for `--model codex` and does not fall "
+            "back to the OpenAI API. The Codex CLI returned:\n"
+            "  {text}\n\n"
+            "Run `codex login` and verify `codex exec` works in your normal "
+            "shell, then retry the eval. For API billing, configure the "
+            "Codex CLI with an API key rather than selecting a separate "
+            "backend.",
+        ),
+    )
 
-        text = "\n".join(part for part in (proc.stdout, proc.stderr) if part).strip()
-        lowered = text.lower()
+    def _cli_text(self, proc: ProcessResult, transcript: list[ConversationTurn]) -> str:
+        # `codex exec --json` reports its own failures as events beside the
+        # agent's items (`error`, `turn.failed`); only those are the CLI talking.
+        errors = _stream_errors(proc.stdout)
+        return "\n".join([*errors, super()._cli_text(proc, transcript)]).strip()
 
+    def _diagnose(self, proc: ProcessResult, cli_text: str) -> str | None:
+        lowered = cli_text.lower()
         model_markers = (
             "requires a newer version of codex",
             "please upgrade to the latest app or cli",
@@ -456,7 +473,7 @@ class CodexHarness(CliHarness):
             "model is not available",
         )
         if any(marker in lowered for marker in model_markers):
-            summary = self._summarize_cli_configuration_error(text)
+            summary = self._summarize_cli_configuration_error(cli_text)
             return (
                 "Codex CLI cannot run the requested model with this account or "
                 "installed version.\n\n"
@@ -469,35 +486,15 @@ class CodexHarness(CliHarness):
                 "and account, then retry the eval."
             )
 
-        auth_markers = (
-            "401 unauthorized",
-            "not logged in",
-            "please login",
-            "please run /login",
-            "authentication",
-            "invalid api key",
-            "api key",
-            "subscription",
-            "chatgpt account",
-        )
-        if any(marker in lowered for marker in auth_markers):
-            return (
-                "Codex CLI cannot run with the current subscription/authentication "
-                "configuration.\n\n"
-                "Caliper uses `codex exec` for `--model codex` and does not fall "
-                "back to the OpenAI API. The Codex CLI returned:\n"
-                f"  {text}\n\n"
-                "Run `codex login` and verify `codex exec` works in your normal "
-                "shell, then retry the eval. For API billing, configure the "
-                "Codex CLI with an API key rather than selecting a separate "
-                "backend."
-            )
-
-        if sys.platform == "darwin" and "operation not permitted" in lowered:
+        if (
+            sys.platform == "darwin"
+            and proc.returncode != 0
+            and "operation not permitted" in lowered
+        ):
             return (
                 "Codex CLI was blocked by the operating system while running under "
                 "Caliper.\n\n"
-                f"The Codex CLI returned:\n  {text}"
+                f"The Codex CLI returned:\n  {cli_text}"
             )
 
         return None
@@ -527,6 +524,28 @@ class CodexHarness(CliHarness):
         if useful:
             return "\n  ".join(useful[:5])
         return text[:500]
+
+
+def _stream_errors(stdout: str) -> list[str]:
+    """The message of each failure event codex wrote into its JSON stream."""
+    errors = []
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict) or event.get("type") not in (
+            "error",
+            "turn.failed",
+        ):
+            continue
+        message = event.get("message")
+        error = event.get("error")
+        if not isinstance(message, str) and isinstance(error, dict):
+            message = error.get("message")
+        if isinstance(message, str) and message.strip():
+            errors.append(message.strip())
+    return errors
 
 
 def _extract_codex_error(output: str) -> str | None:

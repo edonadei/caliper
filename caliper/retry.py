@@ -25,12 +25,7 @@ from typing import Callable
 
 from caliper import cancel
 from caliper.harness.base import AttemptResult
-from caliper.harness.refusal import (
-    looks_like_spending_cap,
-    looks_like_throttle,
-    spending_cap_line,
-)
-from caliper.outcome import answered, signal_text
+from caliper.harness.refusal import RefusalKind
 from caliper.schema.results import TokenUsage
 
 
@@ -137,8 +132,8 @@ def invoke_with_retry(
     Only a *throttle* is retried. A timeout is not (nothing says the next spawn
     would be faster), and neither is a bare non-zero exit with no signal in it —
     that is a crash, and retrying one hides a defect that reproduces. Nor is an
-    invocation that *answered*: a passing attempt whose output discusses rate
-    limits has already proved the provider served us.
+    agent that *wrote about* rate limits: the harness reads a refusal only from
+    what the CLI said (docs/adr/0030).
     """
     policy = policy or RetryPolicy()
     invocations: list[AttemptResult] = []
@@ -155,22 +150,15 @@ def invoke_with_retry(
         if result.timed_out:
             break
 
-        # An invocation that answered has already proved the provider served us,
-        # whatever its prose says. Without this, an attempt that passes while
-        # writing about rate limits gets respawned, and one that mentions a usage
-        # limit kills the whole run. See ``answered``.
-        if answered(result):
-            break
-
-        text = signal_text(result)
-        if looks_like_spending_cap(text):
+        refusal = result.refusal
+        if refusal is not None and refusal.kind is RefusalKind.SPENDING_CAP:
             raise SpendingCapReached(
                 "The provider reports a spending cap or usage limit reached:\n\n"
-                f"  {spending_cap_line(text)[:300]}\n\n"
+                f"  {refusal.message[:300]}\n\n"
                 "Every remaining attempt would meet the same wall, so the run "
                 "stopped here rather than spending them to find that out."
             )
-        if not looks_like_throttle(text):
+        if refusal is None or refusal.kind is not RefusalKind.THROTTLE:
             break
         if retry_index == policy.max_retries:
             break

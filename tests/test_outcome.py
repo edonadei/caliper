@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from caliper.harness.base import AttemptResult, ConversationTurn
+from caliper.harness.refusal import CliRefusal, RefusalKind
 from caliper.judge.base import JudgeResult
 from caliper.outcome import classify_pre_judge, judge_outcome
 from caliper.schema.results import Outcome, TokenUsage
@@ -15,6 +16,7 @@ def _harness(
     transcript: list[ConversationTurn] | None = None,
     salvaged: bool = False,
     usage: TokenUsage | None = None,
+    refusal: CliRefusal | None = None,
 ) -> AttemptResult:
     return AttemptResult(
         transcript=(
@@ -29,6 +31,7 @@ def _harness(
         timed_out=timed_out,
         salvaged=salvaged,
         usage=usage,
+        refusal=refusal,
     )
 
 
@@ -70,14 +73,24 @@ def test_pre_judge_infra_on_nonzero_exit() -> None:
     assert classify_pre_judge(_harness(exit_code=1)).outcome is Outcome.INFRA_ERROR
 
 
-def test_pre_judge_infra_on_signal_despite_zero_exit() -> None:
+def test_pre_judge_infra_on_a_refusal_despite_zero_exit() -> None:
     h = _harness(
         exit_code=0,
         final_output="Spending cap reached resets 4:30am",
         salvaged=True,
         usage=TokenUsage(input_tokens=12),
+        refusal=CliRefusal(RefusalKind.THROTTLE, "429 rate limit"),
     )
-    assert classify_pre_judge(h).outcome is Outcome.INFRA_ERROR
+    exit = classify_pre_judge(h)
+    assert exit.outcome is Outcome.INFRA_ERROR
+    assert exit.evidence == "429 rate limit"
+
+
+def test_pre_judge_ignores_an_answer_that_mentions_a_limit() -> None:
+    # The harness found no refusal in what the CLI wrote, so the words are the
+    # agent's own (docs/adr/0030).
+    h = _harness(final_output="I added handling for the 429 rate limit.")
+    assert classify_pre_judge(h) is None
 
 
 def test_pre_judge_infra_when_no_model_call_was_observed() -> None:

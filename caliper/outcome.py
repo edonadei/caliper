@@ -3,32 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from caliper.harness.base import AttemptResult
-from caliper.harness.refusal import looks_like_infra_failure
 from caliper.judge.base import JudgeResult
 from caliper.schema.results import Outcome
-
-
-def answered(result: AttemptResult) -> bool:
-    """Whether the agent actually produced an answer, rather than the CLI talking.
-
-    The discriminator a bare regex over the output cannot supply. Signals are
-    matched even on a zero exit, because a capped CLI exits 0 with the cap
-    message as its only output — but an agent *answering* a task about API error
-    handling writes "rate limit" and "quota exceeded" too, and treating that as a
-    provider signal mislabels a passing attempt (and, at the retry seam, would
-    respawn it or abort the run).
-
-    The tell is whether the backend's stream parser produced anything: a real run
-    is a conversation, while a CLI that bailed parses to nothing and survives only
-    via the raw-stdout salvage. Length is deliberately not the test — "Done,
-    added 429 handling." is a short genuine answer.
-    """
-    return (
-        result.exit_code == 0
-        and not result.timed_out
-        and bool(result.transcript)
-        and not result.salvaged
-    )
 
 
 def no_model_call_observed(result: AttemptResult) -> bool:
@@ -53,15 +29,6 @@ def no_model_call_observed(result: AttemptResult) -> bool:
     )
     tokens = result.usage.total_tokens if result.usage is not None else None
     return not parsed and not tokens
-
-
-def signal_text(result: AttemptResult) -> str:
-    """The text a provider signal could be hiding in: the output plus the error.
-
-    One definition, used by the label (``classify_pre_judge``) and by the retry
-    seam, so the two can never disagree about *where* they looked.
-    """
-    return "\n".join(part for part in (result.final_output, result.error) if part)
 
 
 @dataclass(frozen=True)
@@ -107,11 +74,11 @@ def classify_pre_judge(harness: AttemptResult) -> PreJudgeExit | None:
             "and no tokens reported",
         )
 
-    # Zero exit: a provider signal here is only real if the agent never answered.
-    # Otherwise this is an attempt that *passed* while writing about rate limits
-    # — which, for a tool that evaluates skills, is an ordinary task.
-    if not answered(harness) and looks_like_infra_failure(signal_text(harness)):
-        return ends(Outcome.INFRA_ERROR, exited)
+    # Zero exit, but the CLI said the provider refused: a throttle that
+    # outlasted its retries. Read from what the CLI wrote, so an attempt that
+    # passed while writing about rate limits is not one (docs/adr/0030).
+    if harness.refusal is not None:
+        return ends(Outcome.INFRA_ERROR, harness.refusal.message)
 
     return None
 

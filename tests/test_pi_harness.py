@@ -8,8 +8,7 @@ import pytest
 
 from caliper.harness.base import HarnessConfigurationError
 from caliper.harness.pi import PiHarness
-from caliper.harness.refusal import looks_like_infra_failure
-from caliper.outcome import signal_text
+from caliper.harness.refusal import RefusalKind
 from caliper.skills import resolve_skills
 
 from conftest import patch_cli_calls, run_context
@@ -358,6 +357,8 @@ def test_pi_stream_error_that_is_not_auth_is_left_to_the_outcome(
         monkeypatch, tmp_path, _errored_stream("529 overloaded_error: Overloaded")
     )
     assert result.exit_code == 0
+    assert result.refusal is not None
+    assert result.refusal.kind is RefusalKind.THROTTLE
 
 
 @pytest.mark.parametrize(
@@ -371,10 +372,11 @@ def test_pi_cap_or_throttle_that_mentions_auth_is_not_a_login_failure(
     monkeypatch, tmp_path, message
 ) -> None:
     # A cap or throttle whose wording brushes an auth marker belongs to the
-    # cap/retry handling, which reads the salvaged stream — not to /login.
+    # cap/retry handling — not to /login.
     result = _run_with_stream(monkeypatch, tmp_path, _errored_stream(message))
     assert result.exit_code == 0
-    assert looks_like_infra_failure(signal_text(result))
+    assert result.refusal is not None
+    assert result.refusal.kind in (RefusalKind.SPENDING_CAP, RefusalKind.THROTTLE)
 
 
 def test_pi_answer_mentioning_auth_on_a_zero_exit_is_not_a_misconfiguration(

@@ -15,6 +15,7 @@ from caliper.harness.base import (
     RunContext,
 )
 from caliper.harness.mcp import merge_user_servers, resolve_servers
+from caliper.harness.refusal import AUTH_MARKERS, ConfigSignal
 from caliper.schema.results import TokenUsage
 
 # Config files copied verbatim into the isolated HERMES_HOME so the agent can
@@ -368,106 +369,79 @@ class HermesHarness(CliHarness):
             return proc.stderr or None
         return None
 
-    def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
-        # First and whatever the exit code: hermes reports a rejected model as
-        # success on v0.18 and as exit 2 on v0.21.
-        unknown_model = self._diagnose_unknown_model(proc, final_output)
-        if unknown_model or proc.returncode == 0:
-            return unknown_model
-
-        text = "\n".join(part for part in (proc.stdout, proc.stderr) if part).strip()
-        if not text:
-            return None
-        lowered = text.lower()
-
+    config_signals = (
         # No model/provider is selected or its login has lapsed — distinct from a
-        # bad/absent API key below: the remedy is to pick and authenticate a model
-        # with `hermes model` (e.g. Nous Portal), not to export a key. Checked
-        # first so the actionable `hermes model` guidance wins for these signals.
-        model_selection_markers = (
-            "no access token found",
-            "nous portal login",
-            "relogin",
-            "no active model",
-            "no model selected",
-            "no default model",
-            "no anthropic credentials found",
-        )
-        if any(marker in lowered for marker in model_selection_markers):
-            return (
-                "hermes has no usable model/provider configured for the eval.\n\n"
-                "Caliper copies your `~/.hermes` auth and config into an isolated "
-                "home and runs `hermes -z`. The hermes CLI returned:\n"
-                f"  {text[:500]}\n\n"
-                "Select and authenticate a model provider with `hermes model` "
-                "(pick your model and complete its login), verify `hermes -z "
-                "'Reply OK'` works in your normal shell, then rerun caliper. Pass "
-                "`--model hermes:<model>` to override the default for one run."
-            )
+        # bad/absent API key below: the remedy is to pick and authenticate a
+        # model with `hermes model` (e.g. Nous Portal), not to export a key.
+        # First, so the actionable `hermes model` guidance wins for these.
+        ConfigSignal(
+            (
+                "no access token found",
+                "nous portal login",
+                "relogin",
+                "no active model",
+                "no model selected",
+                "no default model",
+                "no anthropic credentials found",
+            ),
+            "hermes has no usable model/provider configured for the eval.\n\n"
+            "Caliper copies your `~/.hermes` auth and config into an isolated "
+            "home and runs `hermes -z`. The hermes CLI returned:\n"
+            "  {text}\n\n"
+            "Select and authenticate a model provider with `hermes model` "
+            "(pick your model and complete its login), verify `hermes -z "
+            "'Reply OK'` works in your normal shell, then rerun caliper. Pass "
+            "`--model hermes:<model>` to override the default for one run.",
+        ),
+        # A bare "quota" is not here: an exhausted quota is a spending cap, and
+        # stops the run with the cap's own message (docs/adr/0030).
+        ConfigSignal(
+            (
+                "no api key",
+                "missing api key",
+                "no credentials",
+                "auth is missing",
+                "access_token",
+                "out of extra usage",
+                "insufficient credits",
+                "no credits",
+            ),
+            "hermes cannot run with the current provider/credential "
+            "configuration.\n\n"
+            "Caliper copies your `~/.hermes` auth and config into an isolated "
+            "home and runs `hermes -z`. The hermes CLI returned:\n"
+            "  {text}\n\n"
+            "Make sure `~/.hermes/config.yaml`'s default model/provider points "
+            "at a provider you have credits for (an earlier default may have "
+            "gone stale), verify `hermes -z 'Reply OK'` works in your normal "
+            "shell, then rerun caliper.",
+        ),
+        ConfigSignal(
+            AUTH_MARKERS,
+            "hermes cannot run with the current authentication "
+            "configuration.\n\n"
+            "Caliper drives the local hermes CLI and reuses its `~/.hermes` "
+            "credentials. The hermes CLI returned:\n"
+            "  {text}\n\n"
+            "Authenticate hermes (`hermes login`), verify `hermes -z 'Reply "
+            "OK'` works in your normal shell, then rerun caliper.",
+        ),
+    )
 
-        provider_markers = (
-            "no api key",
-            "missing api key",
-            "no credentials",
-            "auth is missing",
-            "access_token",
-            "out of extra usage",
-            "insufficient credits",
-            "no credits",
-            "quota",
-        )
-        if any(marker in lowered for marker in provider_markers):
-            return (
-                "hermes cannot run with the current provider/credential "
-                "configuration.\n\n"
-                "Caliper copies your `~/.hermes` auth and config into an isolated "
-                "home and runs `hermes -z`. The hermes CLI returned:\n"
-                f"  {text[:500]}\n\n"
-                "Make sure `~/.hermes/config.yaml`'s default model/provider points "
-                "at a provider you have credits for (an earlier default may have "
-                "gone stale), verify `hermes -z 'Reply OK'` works in your normal "
-                "shell, then rerun caliper."
-            )
+    def _diagnose(self, proc: ProcessResult, cli_text: str) -> str | None:
+        return self._diagnose_unknown_model(cli_text)
 
-        auth_markers = (
-            "401",
-            "unauthorized",
-            "not logged in",
-            "please login",
-            "please run /login",
-            "authentication",
-            "invalid api key",
-            "subscription",
-        )
-        if any(marker in lowered for marker in auth_markers):
-            return (
-                "hermes cannot run with the current authentication "
-                "configuration.\n\n"
-                "Caliper drives the local hermes CLI and reuses its `~/.hermes` "
-                "credentials. The hermes CLI returned:\n"
-                f"  {text[:500]}\n\n"
-                "Authenticate hermes (`hermes login`), verify `hermes -z 'Reply "
-                "OK'` works in your normal shell, then rerun caliper."
-            )
-
-        return None
-
-    def _diagnose_unknown_model(
-        self, proc: ProcessResult, final_output: str
-    ) -> str | None:
+    def _diagnose_unknown_model(self, cli_text: str) -> str | None:
         """Catch a model the provider rejected, so the run stops on it (#131).
 
         hermes v0.18 exits 0 on an unknown ``--model``, with the provider's 404
         on stderr and only the user turn in the export — left alone, every
         attempt would be graded on an empty answer. v0.21 exits 2 instead, which
-        would still spend every attempt as an infra error, and exports a
-        synthetic "not processed" assistant turn. On exit 0 an empty
-        ``final_output`` is the guard — the agent's reply is on stderr too, and
-        may quote anything.
+        would still spend every attempt as an infra error. ``cli_text`` holds
+        stderr only when hermes failed or the agent never spoke: its reply goes
+        to stderr too, and may quote anything.
         """
-        if proc.returncode == 0 and final_output.strip():
-            return None
-        lowered = proc.stderr.lower()
+        lowered = cli_text.lower()
         rejection_markers = (
             "404",
             "not found",
@@ -482,7 +456,7 @@ class HermesHarness(CliHarness):
         return (
             "hermes could not run the requested model.\n\n"
             "The hermes CLI returned:\n"
-            f"  {proc.stderr.strip()[:500]}\n\n"
+            f"  {cli_text.strip()[:500]}\n\n"
             "Check the model id in `--model hermes:<provider>/<model>` (verify "
             "`hermes -z 'Reply OK' --model <model>` works in your normal shell), "
             "then rerun caliper."

@@ -23,6 +23,7 @@ from caliper.harness.prompt_failure import (
     classify_claude_api_error_status,
 )
 from caliper.harness.mcp import merge_user_servers, resolve_servers
+from caliper.harness.refusal import ConfigSignal
 from caliper.schema.results import TokenUsage
 from caliper.skills import frontmatter_name
 
@@ -300,7 +301,43 @@ class ClaudeCodeHarness(CliHarness):
             )
         return prefixes
 
-    def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
+    config_signals = (
+        ConfigSignal(
+            ("not logged in", "please run /login"),
+            "Claude Code is not logged in for the evaluation harness.\n\n"
+            "caliper runs Claude Code in an isolated HOME so each attempt has no "
+            "session history. The Claude CLI returned:\n"
+            "  {text}\n\n"
+            "Run Claude Code login for this machine, then retry the eval. If "
+            "`claude -p 'Reply OK'` works in your normal shell but caliper still "
+            "fails, the harness is not finding or copying the credential store "
+            "that your Claude Code install uses.",
+        ),
+        ConfigSignal(
+            (
+                "does not have access to claude code",
+                "disabled claude subscription access",
+                "use an anthropic api key instead",
+            ),
+            "Claude Code cannot run with the current account or organization "
+            "configuration.\n\n"
+            "The Claude CLI returned:\n"
+            "  {text}\n\n"
+            "Your organization may have disabled Claude subscription access for "
+            "Claude Code, or this account may not have Claude Code access. Use an "
+            "Anthropic API key for eval runs, or ask your admin to enable Claude "
+            "Code access for the account, then rerun caliper.",
+        ),
+    )
+
+    def _cli_text(self, proc: ProcessResult, transcript: list[ConversationTurn]) -> str:
+        # The CLI reports its own failures — a lapsed login, a usage limit — as
+        # a ``result`` event flagged ``is_error``, in the same stream as the
+        # agent's turns. Those events are the CLI talking; the rest is not.
+        errors = _error_results(proc.stdout)
+        return "\n".join([*errors, super()._cli_text(proc, transcript)]).strip()
+
+    def _diagnose(self, proc: ProcessResult, cli_text: str) -> str | None:
         # Read off the CLI's own result envelope, not the text: an agent can
         # write about a 404 without being one. Same classification the judge's
         # prompt path uses (issue #75, docs/adr/0001).
@@ -316,14 +353,11 @@ class ClaudeCodeHarness(CliHarness):
                 "retry the eval."
             )
 
-        text = "\n".join(part for part in (final_output, proc.stderr) if part).strip()
-        if not text:
+        if proc.returncode == 0:
             return None
-
-        returncode = proc.returncode
-        lowered = text.lower()
-        if returncode != 0 and self._looks_like_cli_startup_crash(text, lowered):
-            summary = self._summarize_cli_crash(text)
+        lowered = cli_text.lower()
+        if self._looks_like_cli_startup_crash(cli_text, lowered):
+            summary = self._summarize_cli_crash(cli_text)
             return (
                 "Claude Code exited before the eval attempt could run because the "
                 "Claude CLI crashed during startup.\n\n"
@@ -334,41 +368,12 @@ class ClaudeCodeHarness(CliHarness):
                 "`claude --version` or `claude -p 'Reply OK'`."
             )
 
-        if "not logged in" in lowered or "please run /login" in lowered:
-            return (
-                "Claude Code is not logged in for the evaluation harness.\n\n"
-                "caliper runs Claude Code in an isolated HOME so each attempt has no "
-                "session history. The Claude CLI returned:\n"
-                f"  {text}\n\n"
-                "Run Claude Code login for this machine, then retry the eval. If "
-                "`claude -p 'Reply OK'` works in your normal shell but caliper still "
-                "fails, the harness is not finding or copying the credential store "
-                "that your Claude Code install uses."
-            )
-
-        subscription_markers = (
-            "does not have access to claude code",
-            "disabled claude subscription access",
-            "use an anthropic api key instead",
-        )
-        if any(marker in lowered for marker in subscription_markers):
-            return (
-                "Claude Code cannot run with the current account or organization "
-                "configuration.\n\n"
-                "The Claude CLI returned:\n"
-                f"  {text}\n\n"
-                "Your organization may have disabled Claude subscription access for "
-                "Claude Code, or this account may not have Claude Code access. Use an "
-                "Anthropic API key for eval runs, or ask your admin to enable Claude "
-                "Code access for the account, then rerun caliper."
-            )
-
-        if returncode != 0 and "api key" in lowered and "anthropic" in lowered:
+        if "api key" in lowered and "anthropic" in lowered:
             return (
                 "Claude Code exited before the eval attempt could run because it could "
                 "not resolve Anthropic authentication.\n\n"
                 "The Claude CLI returned:\n"
-                f"  {text}\n\n"
+                f"  {cli_text}\n\n"
                 "Set `ANTHROPIC_API_KEY` or complete Claude Code login, then rerun "
                 "caliper."
             )
@@ -610,6 +615,24 @@ def _envelope_failure(envelope: object) -> PromptFailure | None:
 
     message = str(envelope.get("result", "")).strip() or f"API error {status}"
     return PromptFailure(kind=kind, message=message, status=status)
+
+
+def _error_results(stdout: str) -> list[str]:
+    """The text of each ``result`` event the CLI flagged ``is_error``."""
+    errors = []
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if (
+            isinstance(event, dict)
+            and event.get("type") == "result"
+            and event.get("is_error")
+            and isinstance(result := event.get("result"), str)
+        ):
+            errors.append(result.strip())
+    return errors
 
 
 def _unavailable_model_message(stdout: str) -> str | None:
