@@ -2,9 +2,6 @@ from __future__ import annotations
 
 import os
 import shlex
-import signal
-import subprocess
-import sys
 import threading
 import time
 from pathlib import Path
@@ -21,7 +18,7 @@ from caliper.harness.base import (
 from caliper.judge import EvalJudge
 from caliper.judge.base import JudgeResult
 from caliper.reporter import print_results
-from caliper.runner import _run_shell, run
+from caliper.runner import run
 from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, TaskSpec
 
@@ -83,9 +80,7 @@ class RecordingJudge:
     def __init__(self) -> None:
         self.calls = 0
 
-    def evaluate(
-        self, task, transcript, final_output, spec_dir, workdir
-    ) -> JudgeResult:
+    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
         self.calls += 1
         return JudgeResult(passed=True, reasoning="should not run")
 
@@ -106,97 +101,6 @@ class PassingHarness(HarnessBackend):
             exit_code=0,
             duration_seconds=0.1,
         )
-
-
-@pytest.mark.skipif(os.name == "nt", reason="POSIX background shell syntax")
-def test_hook_with_background_child_returns_after_its_shell_exits(tmp_path) -> None:
-    pid_file = tmp_path / "background.pid"
-    started = time.monotonic()
-    try:
-        failure = _run_shell(
-            f"sleep 5 & echo $! > {shlex.quote(str(pid_file))}; "
-            "echo setup broke >&2; exit 7",
-            "task-001",
-            1,
-            "setup",
-            str(tmp_path),
-            dict(os.environ),
-        )
-        assert time.monotonic() - started < 3
-        assert failure is not None
-        assert failure.exit_code == 7
-        assert failure.output == "setup broke"
-    finally:
-        if pid_file.exists():
-            try:
-                os.kill(int(pid_file.read_text().strip()), signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-
-
-@pytest.mark.skipif(os.name == "nt", reason="POSIX background shell syntax")
-def test_successful_hook_with_continuous_background_writer_returns(tmp_path) -> None:
-    pid_file = tmp_path / "writer.pid"
-    started = time.monotonic()
-    try:
-        failure = _run_shell(
-            f"yes heartbeat & echo $! > {shlex.quote(str(pid_file))}",
-            "task-001",
-            1,
-            "setup",
-            str(tmp_path),
-            dict(os.environ),
-        )
-        assert failure is None
-        assert time.monotonic() - started < 3
-    finally:
-        if pid_file.exists():
-            try:
-                os.kill(int(pid_file.read_text().strip()), signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-
-
-@pytest.mark.skipif(os.name != "nt", reason="Windows background shell syntax")
-def test_windows_silent_background_hook_does_not_leak_reader(tmp_path) -> None:
-    before = sum(t.name == "caliper-hook-output" for t in threading.enumerate())
-    child = subprocess.list2cmdline(
-        [sys.executable, "-c", "import time; time.sleep(3)"]
-    )
-    started = time.monotonic()
-
-    failure = _run_shell(
-        f'start /B "" {child}', "task-001", 1, "setup", str(tmp_path), dict(os.environ)
-    )
-
-    assert failure is None
-    assert time.monotonic() - started < 2
-    assert sum(t.name == "caliper-hook-output" for t in threading.enumerate()) == before
-
-
-def test_noisy_hook_keeps_only_diagnostic_tail(tmp_path) -> None:
-    script = (
-        'import sys; print("x" * 1000000); '
-        'print("last line", file=sys.stderr); sys.exit(7)'
-    )
-    command = (
-        subprocess.list2cmdline([sys.executable, "-c", script])
-        if os.name == "nt"
-        else f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
-    )
-    failure = _run_shell(
-        command,
-        "task-001",
-        1,
-        "setup",
-        str(tmp_path),
-        dict(os.environ),
-    )
-
-    assert failure is not None
-    assert failure.exit_code == 7
-    assert failure.output.endswith("last line")
-    assert len(failure.output) <= 4000
 
 
 def test_failed_setup_cannot_pass_from_stale_artifact_and_still_cleans_up(
@@ -402,9 +306,7 @@ class JudgeErrorThenPass:
     def __init__(self) -> None:
         self.calls = 0
 
-    def evaluate(
-        self, task, transcript, final_output, spec_dir, workdir
-    ) -> JudgeResult:
+    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
         self.calls += 1
         if self.calls == 1:
             return JudgeResult(passed=False, reasoning="judge flaked", errored=True)
@@ -581,9 +483,7 @@ class ModelReportingJudge:
         self.backend = backend
         self.model = model
 
-    def evaluate(
-        self, task, transcript, final_output, spec_dir, workdir
-    ) -> JudgeResult:
+    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
         return JudgeResult(passed=True, reasoning="ok", resolved_model=self._resolved)
 
 

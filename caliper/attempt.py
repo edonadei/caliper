@@ -25,6 +25,7 @@ from caliper.outcome import classify_pre_judge, judge_outcome
 from caliper.sandbox import Sandbox
 from caliper.schema.results import AttemptRecord, Outcome, TranscriptTurn
 from caliper.schema.spec import TaskSpec
+from caliper.workdir import AttemptWorkdir
 
 
 @dataclass(frozen=True)
@@ -47,8 +48,7 @@ def assemble_attempt(
     *,
     attempt: int,
     task: TaskSpec,
-    spec_dir: str,
-    workdir: str,
+    workdir: AttemptWorkdir,
     expected_activation: list[str] | None,
     activation: ActivationDetector,
     sandbox: Sandbox,
@@ -139,7 +139,6 @@ def assemble_attempt(
         task=task,
         transcript=result.transcript,
         final_output=result.final_output,
-        spec_dir=spec_dir,
         workdir=workdir,
     )
     # Timed here rather than inside the judge: this is the only place that knows

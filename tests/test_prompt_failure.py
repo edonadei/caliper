@@ -117,7 +117,7 @@ def _task(**overrides) -> TaskSpec:
 
 
 def test_eval_judge_stops_the_run_on_an_unavailable_model(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, attempt_workdir
 ) -> None:
     """An unavailable judge model fails every attempt alike, so it is fatal.
 
@@ -136,8 +136,7 @@ def test_eval_judge_stops_the_run_on_an_unavailable_model(
             task=_task(expect="x"),
             transcript=[ConversationTurn(role="assistant", content="hello")],
             final_output="hello",
-            spec_dir=str(tmp_path),
-            workdir=str(tmp_path),
+            workdir=attempt_workdir,
         )
 
     message = str(exc.value)
@@ -146,7 +145,9 @@ def test_eval_judge_stops_the_run_on_an_unavailable_model(
     assert "unparseable" not in message.lower()
 
 
-def test_eval_judge_keeps_a_rate_limit_per_attempt(monkeypatch, tmp_path) -> None:
+def test_eval_judge_keeps_a_rate_limit_per_attempt(
+    monkeypatch, tmp_path, attempt_workdir
+) -> None:
     """A throttle can clear before the next attempt, so it stays a judge_error."""
     envelope = {**RETIRED_MODEL_ENVELOPE, "api_error_status": 429, "result": "slow"}
 
@@ -161,8 +162,7 @@ def test_eval_judge_keeps_a_rate_limit_per_attempt(monkeypatch, tmp_path) -> Non
         task=_task(expect="x"),
         transcript=[ConversationTurn(role="assistant", content="hello")],
         final_output="hello",
-        spec_dir=str(tmp_path),
-        workdir=str(tmp_path),
+        workdir=attempt_workdir,
     )
 
     assert result.errored is True
