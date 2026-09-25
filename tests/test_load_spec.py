@@ -266,3 +266,19 @@ def test_every_smoke_eval_pins_isolation() -> None:
     assert smoke
     for path in smoke:
         assert load_spec(path).user_customizations is False, path.name
+
+
+def test_no_repo_eval_hook_relies_on_pwd() -> None:
+    # Hooks run in the attempt workdir, so $PWD is never the repo or spec dir;
+    # $CALIPER_SPEC_DIR is (docs/spec-reference.md).
+    from pathlib import Path
+
+    root = Path(__file__).parent.parent
+    specs = [
+        p for p in root.rglob("*.eval.yaml") if not {".venv", ".caliper"} & set(p.parts)
+    ]
+    assert specs
+    for path in specs:
+        for task in load_spec(path).tasks:
+            for hook in (task.setup, task.cleanup):
+                assert "$PWD" not in (hook or ""), f"{path.name}: {task.name}"
