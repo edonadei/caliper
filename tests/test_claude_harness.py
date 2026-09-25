@@ -679,3 +679,87 @@ def test_claude_harness_credentials_source(
 
     creds = harness._credentials_file(ctx)
     assert (creds.read_text() if creds.exists() else None) == expected
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Failed to authenticate: OAuth session expired and could not be refreshed",
+        "Failed to authenticate",
+        "OAuth session expired",
+        "Please run /login",
+        "Invalid API key",
+    ],
+)
+@pytest.mark.parametrize("channel", ["result", "stdout", "stderr"])
+def test_claude_harness_expired_login_is_configuration_error(
+    monkeypatch, tmp_path, message, channel
+):
+
+    def fake_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            1,
+            stdout=(
+                json.dumps({"type": "result", "is_error": True, "result": message})
+                if channel == "result"
+                else message
+                if channel == "stdout"
+                else ""
+            ),
+            stderr=message if channel == "stderr" else "",
+        )
+
+    patch_cli_calls(monkeypatch, fake_run)
+    with pytest.raises(HarnessConfigurationError) as exc:
+        ClaudeCodeHarness().run(run_context(isolated_home=str(tmp_path / "home")))
+
+    assert message in str(exc.value)
+    assert "Run `claude`, then `/login`" in str(exc.value)
+    assert "retry" in str(exc.value)
+
+
+def test_claude_harness_bare_401_is_configuration_error(monkeypatch, tmp_path):
+    def fake_run(cmd, **kwargs):
+        envelope = {
+            "type": "result",
+            "is_error": True,
+            "api_error_status": 401,
+            "result": "Request failed",
+        }
+        return subprocess.CompletedProcess(
+            cmd, 1, stdout=json.dumps(envelope), stderr=""
+        )
+
+    patch_cli_calls(monkeypatch, fake_run)
+    with pytest.raises(HarnessConfigurationError) as exc:
+        ClaudeCodeHarness().run(run_context(isolated_home=str(tmp_path / "home")))
+
+    assert "API error 401: Request failed" in str(exc.value)
+    assert "Run `claude`, then `/login`" in str(exc.value)
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_claude_harness_agent_discussing_expired_login_is_not_configuration_error(
+    monkeypatch, tmp_path, exit_code
+):
+    message = "Failed to authenticate: OAuth session expired. Please run /login. Invalid API key."
+
+    def fake_run(cmd, **kwargs):
+        stdout = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {"content": [{"type": "text", "text": message}]},
+                    }
+                ),
+                json.dumps({"type": "result", "is_error": False, "result": message}),
+            ]
+        )
+        return subprocess.CompletedProcess(cmd, exit_code, stdout=stdout, stderr="")
+
+    patch_cli_calls(monkeypatch, fake_run)
+    result = ClaudeCodeHarness().run(run_context(isolated_home=str(tmp_path / "home")))
+    assert result.final_output == message
+    assert result.refusal is None

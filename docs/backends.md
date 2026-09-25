@@ -65,6 +65,10 @@ existing Claude Code auth, with no extra configuration. On macOS the Keychain
 entry wins over `~/.claude/.credentials.json`, as it does for the CLI itself, so
 a stale file left next to a valid Keychain login doesn't break attempts.
 
+An expired OAuth session or invalid API key stops the run as a configuration
+error. Run `claude`, then `/login`, and retry the eval. Caliper reads these
+failures from the CLI's error output, not from an agent discussing authentication.
+
 ## Codex
 
 ```bash
