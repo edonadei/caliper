@@ -1,6 +1,6 @@
 ---
 name: evaluate-skill
-description: Run, read, and diagnose a skill's Caliper eval — its success rate over k attempts, whether it fires, and whether it beats the bare agent. Use when the user wants to run, validate, interpret, or compare a skill's eval, or write an .eval.yaml spec whose tasks they have already decided.
+description: Run, read, and diagnose a skill's Caliper eval — its success rate over k attempts, whether it fires, and whether it beats the agent without it. Use when the user wants to run, validate, interpret, or compare a skill's eval, or write an .eval.yaml spec whose tasks they have already decided.
 allowed-tools: Bash
 ---
 

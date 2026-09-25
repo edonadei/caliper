@@ -1,7 +1,0 @@
-schema_version: "1.1"
-name: reports-invalid-spec-without-fixing
-description: >-
-  Ported from evaluate-skill.eval.yaml task "Identifies errors in an invalid
-  spec without fixing it". Needs --scaffold.
-context:
-  scaffold_script: scaffold.sh
