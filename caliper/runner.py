@@ -9,15 +9,16 @@ from typing import Callable
 
 from caliper import cancel
 from caliper.activation import ActivationDetector
-from caliper.attempt import assemble_attempt
+from caliper.attempt import SetupFailed, assemble_attempt
 from caliper.harness.base import (
+    AttemptResult,
     HarnessBackend,
     HarnessConfigurationError,
     RunContext,
 )
 from caliper.harness.mcp import McpPreflightInterrupted, resolve_declared_paths
 from caliper.judge.base import Judge
-from caliper.retry import SpendingCapReached, invoke_with_retry
+from caliper.retry import RetriedInvocation, SpendingCapReached, invoke_with_retry
 from caliper.sandbox import SpecSandbox
 from caliper.schema.results import (
     ERA_INSTALL_AND_DISCOVER,
@@ -522,8 +523,8 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord | 
 
     This function owns what an attempt *costs* — the task's setup/cleanup
     hooks around one harness invocation, in a fresh :class:`AttemptWorkdir` —
-    and hands the finished result to :func:`caliper.attempt.assemble_attempt`,
-    which owns what it *means*.
+    and hands how it ended to :func:`caliper.attempt.assemble_attempt`, which
+    owns what it *means*, including whether it is a record at all.
 
     Raises :class:`StepCancelled` when the run's cancellation killed a step;
     the job above turns that into no record at all.
@@ -536,15 +537,12 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord | 
             if setup is not None:
                 failure, reason = setup
                 failures.append(failure)
-                record = AttemptRecord(
-                    attempt=attempt,
-                    output="",
-                    duration_seconds=0.0,
-                    outcome=Outcome.INFRA_ERROR,
-                    assert_evidence=reason,
-                )
+                record = _assemble(SetupFailed(reason), task, attempt, env, workdir)
             elif not cancel.requested():
-                record = _measure_attempt(task, attempt, env, workdir)
+                invoked = _invoke_agent(task, attempt, env, workdir)
+                record = _assemble(
+                    invoked.result, task, attempt, env, workdir, invoked.retries
+                )
         finally:
             try:
                 cleanup = _run_hook(workdir, task, attempt, "cleanup")
@@ -586,9 +584,9 @@ def _run_hook(
     return failure, f"{phase} exited {step.exit_code}"
 
 
-def _measure_attempt(
+def _invoke_agent(
     task: TaskSpec, attempt: int, env: _RunEnv, workdir: AttemptWorkdir
-) -> AttemptRecord | None:
+) -> RetriedInvocation:
     spec, spec_path = env.spec, env.spec_path
 
     resolved_extra_path = [
@@ -637,24 +635,20 @@ def _measure_attempt(
     # no other work to give the slot, since every peer is meeting the same
     # 429. Raises SpendingCapReached, which the job above turns into a run
     # abort.
-    invoked = invoke_with_retry(invoke)
-    attempt_result = invoked.result
-    # Killed by the cancellation, not by anything about the skill. Returned
-    # as nothing at all rather than assembled into an infra_error — the one
-    # place that can tell the two apart, because only the spawn knows who
-    # killed it.
-    if attempt_result.cancelled:
-        return None
+    return invoke_with_retry(invoke)
 
-    # After the cancellation check: a discarded attempt's fallback model must
-    # not vote on the model the run records.
-    if attempt_result.resolved_model:
-        env.resolved_models.append(attempt_result.resolved_model)
-    if attempt_result.loaded_user_customizations is not None:
-        env.loaded_user_customizations.append(attempt_result.loaded_user_customizations)
 
+def _assemble(
+    ended: AttemptResult | SetupFailed,
+    task: TaskSpec,
+    attempt: int,
+    env: _RunEnv,
+    workdir: AttemptWorkdir,
+    retries: int = 0,
+) -> AttemptRecord | None:
+    """Grade how the attempt ended, and collect the run-level facts it reported."""
     assembled = assemble_attempt(
-        attempt_result,
+        ended,
         attempt=attempt,
         task=task,
         workdir=workdir,
@@ -662,11 +656,16 @@ def _measure_attempt(
         activation=env.activation,
         sandbox=env.sandbox,
         judge=env.judge,
-        retries=invoked.retries,
+        retries=retries,
     )
+    if assembled is None:
+        return None
+    if assembled.resolved_model:
+        env.resolved_models.append(assembled.resolved_model)
+    if assembled.loaded_user_customizations is not None:
+        env.loaded_user_customizations.append(assembled.loaded_user_customizations)
     if assembled.judge_model:
         env.judge_models.append(assembled.judge_model)
-
     return assembled.record
 
 
