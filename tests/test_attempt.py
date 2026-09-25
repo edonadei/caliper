@@ -3,8 +3,9 @@ from __future__ import annotations
 import pytest
 
 from caliper.activation import ActivationDetector
-from caliper.attempt import assemble_attempt
+from caliper.attempt import SetupFailed, assemble_attempt
 from caliper.harness.base import AttemptResult, ConversationTurn
+from caliper.harness.refusal import CliRefusal, RefusalKind
 from caliper.judge.base import JudgeResult
 from caliper.schema.results import Outcome, TokenUsage
 from caliper.schema.spec import TaskSpec
@@ -464,3 +465,130 @@ def test_windows_reads_of_a_declared_skill_are_observed():
         expected_activation=["review"],
     )
     assert assembled.record.activated == ["review"]
+
+
+# --- endings that never reach the grading rules ----------------------------
+
+
+def test_a_failed_setup_hook_is_infra_error_with_its_reason_as_evidence():
+    judge = RecordingJudge()
+
+    assembled = _assemble(SetupFailed("setup exited 7"), judge=judge)
+
+    assert assembled.record.outcome is Outcome.INFRA_ERROR
+    assert assembled.record.assert_evidence == "setup exited 7"
+    assert assembled.record.output == ""
+    assert assembled.record.activated is None
+    assert assembled.record.activation_passed is None
+    assert judge.calls == 0
+
+
+def test_a_failed_setup_hook_reports_no_run_level_facts():
+    assembled = _assemble(SetupFailed("setup exited 7"))
+
+    assert assembled.resolved_model is None
+    assert assembled.loaded_user_customizations is None
+    assert assembled.judge_model is None
+
+
+def test_an_attempt_the_cancellation_killed_is_not_evidence():
+    judge = RecordingJudge()
+
+    assembled = _assemble(
+        _result(cancelled=True, exit_code=-9, resolved_model="m"), judge=judge
+    )
+
+    assert assembled is None
+    assert judge.calls == 0
+
+
+def test_a_measured_attempt_reports_the_model_and_customizations_it_saw():
+    assembled = _assemble(
+        _result(resolved_model="model-x", loaded_user_customizations=["a", "b"])
+    )
+
+    assert assembled.resolved_model == "model-x"
+    assert assembled.loaded_user_customizations == ["a", "b"]
+
+
+# --- the pre-judge exits ----------------------------------------------------
+#
+# Each reaches the judge (``judge.calls == 1``) or ends the attempt before it.
+
+
+def _reaches_the_judge(result: AttemptResult) -> bool:
+    judge = RecordingJudge()
+    _assemble(result, judge=judge)
+    return judge.calls == 1
+
+
+def test_a_refusal_despite_a_zero_exit_is_infra_error_with_its_message():
+    result = _result(
+        final_output="Spending cap reached resets 4:30am",
+        salvaged=True,
+        usage=TokenUsage(input_tokens=12),
+        refusal=CliRefusal(RefusalKind.THROTTLE, "429 rate limit"),
+    )
+
+    record = _assemble(result).record
+
+    assert record.outcome is Outcome.INFRA_ERROR
+    assert record.assert_evidence == "429 rate limit"
+    assert not _reaches_the_judge(result)
+
+
+def test_a_refusal_is_the_evidence_even_when_no_model_call_was_seen():
+    result = _result(
+        transcript=[],
+        final_output="",
+        refusal=CliRefusal(RefusalKind.THROTTLE, "429 rate limit; retry at 5pm"),
+    )
+
+    assert _assemble(result).record.assert_evidence == "429 rate limit; retry at 5pm"
+
+
+def test_an_answer_that_mentions_a_limit_is_still_judged():
+    # The harness found no refusal in what the CLI wrote, so the words are the
+    # agent's own (docs/adr/0030).
+    assert _reaches_the_judge(
+        _result(final_output="I added handling for the 429 rate limit.")
+    )
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        _result(transcript=[], final_output=""),
+        _result(
+            transcript=[],
+            final_output="",
+            usage=TokenUsage(input_tokens=0, output_tokens=0),
+        ),
+        _result(salvaged=True, final_output='{"type":"agent_end"}'),
+        # A session export can carry the prompt it was given and nothing the
+        # model said: the input alone is no evidence of a call.
+        _result(
+            transcript=[ConversationTurn(role="user", content="Do it")],
+            final_output="",
+        ),
+    ],
+)
+def test_no_observed_model_call_in_any_form_is_infra_error(result):
+    # Zero exit, nothing parsed, no tokens: the CLI bailed before any model
+    # call (an expired login reported inside its own stream). Nothing to judge.
+    assert _assemble(result).record.outcome is Outcome.INFRA_ERROR
+    assert not _reaches_the_judge(result)
+
+
+def test_an_unparsed_attempt_that_spent_tokens_is_still_judged():
+    # The model was called; only the parser missed the stream. The salvaged
+    # stdout is still the agent's answer, so it goes to the judge.
+    assert _reaches_the_judge(
+        _result(salvaged=True, usage=TokenUsage(input_tokens=10, output_tokens=5))
+    )
+
+
+def test_an_answer_with_no_transcript_or_usage_is_still_judged():
+    # A backend may hand back only its parsed answer. Unlike salvaged stdout,
+    # that is the agent speaking, so it goes to the judge.
+    assert _reaches_the_judge(_result(transcript=[]))
