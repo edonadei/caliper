@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from caliper.harness.base import UNLISTED_MCP
 from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.harness.codex import CodexHarness
 from caliper.harness.hermes import HermesHarness
@@ -256,3 +257,79 @@ def test_claude_user_skills_keep_the_directory_command_name(
     )
     assert (iso / ".claude/skills/native/SKILL.md").is_file()
     assert result.loaded_user_customizations == ["skill:native"]
+
+
+@pytest.mark.parametrize(
+    "backend,folder",
+    [
+        (ClaudeCodeHarness, ".claude"),
+        (CodexHarness, ".codex"),
+        (HermesHarness, ".hermes"),
+    ],
+)
+def test_cli_shipped_skills_are_not_user_skills(monkeypatch, tmp_path, backend, folder):
+    home = tmp_path / "real"
+    skills = home / folder / "skills"
+    for location, name in [
+        (".system/imagegen", "imagegen"),
+        ("apple/apple-notes", "apple-notes"),
+        ("notes/personal", "personal"),
+        ("other/personal", "personal"),
+    ]:
+        (skills / location).mkdir(parents=True)
+        (skills / location / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: test\n---\n{location}"
+        )
+    (skills / ".bundled_manifest").write_text("apple-notes:abc123\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda n: n)
+    monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing")
+    monkeypatch.setattr(
+        ClaudeCodeHarness, "_seed_credentials_from_keychain", lambda *a: None
+    )
+    patch_cli_calls(
+        monkeypatch,
+        lambda cmd, **kwargs: subprocess.CompletedProcess(
+            cmd,
+            0,
+            stdout=json.dumps({"type": "system", "subtype": "init", "mcp_servers": []}),
+            stderr="",
+        ),
+    )
+    iso = tmp_path / "iso"
+    result = backend().run(
+        run_context(isolated_home=str(iso), user_customizations=True)
+    )
+    skill_names = {
+        n for n in result.loaded_user_customizations if n.startswith("skill:")
+    }
+    # Only hermes ships a manifest of bundled skills; hidden roots are skipped
+    # everywhere, and the first of two same-named skills wins.
+    expected = {"skill:personal"}
+    if backend is not HermesHarness:
+        expected.add("skill:apple-notes")
+    assert skill_names == expected
+    assert (
+        (iso / folder / "skills/personal/SKILL.md")
+        .read_text()
+        .endswith("notes/personal")
+    )
+
+
+def test_skills_are_recorded_when_the_mcp_inventory_is_unknown(monkeypatch, tmp_path):
+    home = tmp_path / "real"
+    skill = home / ".claude/skills/personal"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: personal\ndescription: test\n---\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(
+        ClaudeCodeHarness, "_seed_credentials_from_keychain", lambda *a: None
+    )
+    patch_cli_calls(
+        monkeypatch,
+        lambda cmd, **kwargs: subprocess.CompletedProcess(cmd, 0, stdout="", stderr=""),
+    )
+    result = ClaudeCodeHarness().run(
+        run_context(isolated_home=str(tmp_path / "iso"), user_customizations=True)
+    )
+    assert result.loaded_user_customizations == [UNLISTED_MCP, "skill:personal"]

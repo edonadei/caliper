@@ -89,6 +89,17 @@ class HermesHarness(CliHarness):
     def skills_root(self, ctx: RunContext) -> Path:
         return self._hermes_home(ctx) / "skills"
 
+    def _bundled_skill_names(self, source: Path) -> set[str]:
+        # Hermes lists the skills it ships as `name:hash` lines.
+        manifest = source / ".bundled_manifest"
+        if not manifest.is_file():
+            return set()
+        return {
+            line.split(":", 1)[0].strip()
+            for line in manifest.read_text().splitlines()
+            if line.strip()
+        }
+
     def _configure_mcp(self, ctx: RunContext, hermes_home: Path) -> None:
         """Normalize the seeded config's ``mcp_servers`` to exactly the declared set.
 

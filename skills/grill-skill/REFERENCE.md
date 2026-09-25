@@ -287,7 +287,9 @@ without a separate preflight. Isolation retains authentication/provider settings
 There are no per-kind switches.
 
 The report header and `RunMeta.loaded_user_customizations` use kind-prefixed
-names (`mcp:`, `skill:`, `plugin:`, `rules:`, `settings:`). `null` is unknown,
-not a partial inventory. `compare` checks name sets, not contents or versions;
+names (`mcp:`, `skill:`, `plugin:`, `rules:`, `settings:`). When the backend
+can't list its MCP servers, `mcp:(not listed)` marks the inventory as partial.
+Skills the CLI ships (codex's hidden `.system`, hermes' bundled skills) are not
+user skills. `compare` checks name sets, not contents or versions;
 legacy unprefixed records conservatively differ. See ADR 0028 and
 `docs/backends.md` for connection-setting exceptions.

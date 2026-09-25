@@ -184,8 +184,8 @@ hosted OAuth connector a spec can't declare. `--no-user-customizations`, or
   changed.
 - **The judge's connector isolation is unchanged**, whatever the setting.
 - **The run says so**: a notice at the start (attempts can act on those accounts
-  without asking), and the saved run records what was loaded, or "unknown" when
-  a source such as codex plugins can't be listed. See
+  without asking), and the saved run records what was loaded, marking MCP as
+  `mcp:(not listed)` when a source such as codex plugins can't be listed. See
   [Results JSON](results.md#results-json) for how `compare` uses it.
 - **`--ablate` names only declared skills and servers.** It only names what the spec
   declares. A spec can pin the setting; see
@@ -194,7 +194,10 @@ hosted OAuth connector a spec can't declare. `--no-user-customizations`, or
 User skills and Claude plugin installations are copied, not linked back to the
 original. Plugin registry paths point at the private copies. Skills stay
 available through discovery, and unexpected user-skill activations count against
-`activates:`. Claude plugin skills keep their `plugin:skill` identity.
+`activates:`. Claude plugin skills keep their `plugin:skill` identity. Skills
+the CLI ships itself are skipped: hidden folders such as codex's `.system`, and
+the skills in hermes' `.bundled_manifest`. Of two user skills with the same
+name, the first in sorted path order is used.
 
 Hermes continues to pass `--ignore-rules` and copies no `SOUL.md` or memory files
 (ADR 0005). Each attempt starts independently; its writes stay in its temporary

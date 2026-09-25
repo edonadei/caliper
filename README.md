@@ -250,7 +250,8 @@ User skills compete with declared skills and count in activation checks.
 Hermes keeps its neutral memory/persona policy; see [backend details](docs/backends.md#loading-your-user-customizations).
 Hooks run as part of the attempt, subject to its timeout.
 Results are saved as JSON you can inspect and diff later, including which user
-customizations each run loaded.
+customizations each run loaded (`mcp:(not listed)` when the backend can't list
+its MCP servers).
 
 ### Portable scores
 

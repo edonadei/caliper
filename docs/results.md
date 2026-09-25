@@ -311,8 +311,10 @@ time, and it only appears when a judge ran.
   `RunMeta.loaded_user_customizations` the names the backend could identify,
   with kind prefixes: `mcp:gmail`, `skill:personal`, `plugin:review@market`,
   `rules:CLAUDE.md`, `settings:config.toml`. Declared names are excluded.
-  `None` means unknown, including when Codex's hosted plugins prevent a complete
-  inventory; a partial inventory is not presented as complete. Loaded user
+  When the backend cannot list its MCP servers (for example Codex's hosted
+  plugins), the other names are still recorded beside an `mcp:(not listed)`
+  marker, so a partial inventory is not presented as complete. `None` means
+  isolated, or a run saved before the field existed. Loaded user
   servers never appear in `mcp_servers`. `compare` warns (`user_customizations_mismatch`) when only one side
   loaded, or both did with different recorded customization names, and
   (`cross_backend_user_customizations`) when two backends are compared with user customizations.

@@ -23,6 +23,10 @@ from caliper.skills import SkillRef, frontmatter_name, install_skills
 
 _POST_KILL_DRAIN_TIMEOUT = 1
 
+# Recorded beside the staged user files when the backend cannot list its MCP
+# servers: the inventory is partial, and says so (docs/adr/0028).
+UNLISTED_MCP = "mcp:(not listed)"
+
 
 class HarnessConfigurationError(RuntimeError):
     """Raised when a harness cannot run because local configuration is invalid."""
@@ -544,6 +548,10 @@ class CliHarness(HarnessBackend):
     def _user_skill_name(self, path: Path) -> str | None:
         return frontmatter_name(path.read_text())
 
+    def _bundled_skill_names(self, source: Path) -> set[str]:
+        """Skills the CLI ships in the user's skills root; not the user's own."""
+        return set()
+
     def _install_user_skills(self, ctx: RunContext) -> list[str]:
         if not ctx.user_customizations or not self.supports_mcp:
             return []
@@ -552,24 +560,29 @@ class CliHarness(HarnessBackend):
         refs = []
         # Follow user-installed directory symlinks, but install independent copies.
         visited: set[Path] = set()
+        bundled = self._bundled_skill_names(source)
         for directory, directories, files in os.walk(source, followlinks=True):
             resolved = Path(directory).resolve()
             if resolved in visited:
                 directories.clear()
                 continue
             visited.add(resolved)
-            directories.sort()
+            # Hidden directories hold the CLI's own state and system skills
+            # (codex's `.system`), which it installs for itself.
+            directories[:] = sorted(d for d in directories if not d.startswith("."))
             if "SKILL.md" not in files:
                 continue
             directories.clear()
             path = Path(directory) / "SKILL.md"
             name = self._user_skill_name(path)
-            if not name or name in ctx.spec_skill_names:
+            if not name or name in ctx.spec_skill_names or name in bundled:
                 continue
             if name in {".", ".."} or "/" in name or "\\" in name:
                 raise HarnessConfigurationError(f"Invalid user skill name: {name!r}")
+            # Installed flat, so two same-named skills (e.g. in different hermes
+            # categories) cannot both land; the first in walk order wins.
             if any(ref.name == name for ref in refs):
-                raise HarnessConfigurationError(f"Duplicate user skill name: {name!r}")
+                continue
             refs.append(SkillRef(name, path))
         install_skills(refs, root, ctx.forbidden_files)
         return sorted(ref.name for ref in refs)
@@ -684,22 +697,22 @@ class CliHarness(HarnessBackend):
     ) -> list[str] | None:
         """What ``AttemptResult.loaded_user_customizations`` records.
 
-        ``None`` when isolated or unknown, and when reading fails: like
-        :meth:`_safe_usage`, a provenance record must not sink the attempt.
+        ``None`` when isolated. When the MCP inventory is unknown, or reading
+        it fails (like :meth:`_safe_usage`, a provenance record must not sink
+        the attempt), the staged files are still recorded, marked with
+        :data:`UNLISTED_MCP` so the partial list never reads as complete.
         """
         if not ctx.user_customizations:
             return None
         try:
             names = self._loaded_user_customizations(proc, ctx)
         except Exception:
-            return None
-        return (
-            None
-            if names is None
-            else sorted(
-                {f"mcp:{name}" for name in set(names) - ctx.spec_mcp_names}
-                | set(user_files)
-            )
+            names = None
+        if names is None:
+            return sorted({UNLISTED_MCP, *user_files})
+        return sorted(
+            {f"mcp:{name}" for name in set(names) - ctx.spec_mcp_names}
+            | set(user_files)
         )
 
     def _safe_usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:

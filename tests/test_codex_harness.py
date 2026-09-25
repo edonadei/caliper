@@ -10,7 +10,12 @@ except ModuleNotFoundError:  # Python 3.10, where tomllib is not yet stdlib
 
 import pytest
 
-from caliper.harness.base import HarnessConfigurationError, ProcessResult, RunContext
+from caliper.harness.base import (
+    UNLISTED_MCP,
+    HarnessConfigurationError,
+    ProcessResult,
+    RunContext,
+)
 from caliper.harness.codex import NO_ACCOUNT_CONNECTORS, CodexHarness
 from caliper.harness.prompt_failure import PromptFailureKind
 from caliper.schema.spec import McpServer
@@ -729,8 +734,9 @@ def test_codex_refuses_an_invalid_user_config(monkeypatch, tmp_path) -> None:
 def test_codex_records_unknown_when_a_chatgpt_login_keeps_plugins(
     monkeypatch, tmp_path
 ) -> None:
-    # Plugins can bring tools caliper cannot list, so "[]" or a partial list
-    # would claim an environment the attempt did not have.
+    # Plugins can bring tools caliper cannot list, so "[]" or a bare partial
+    # list would claim an environment the attempt did not have; the staged
+    # files are still recorded, beside the unlisted-MCP marker.
     captured: dict = {}
     _run_codex_mcp(
         monkeypatch,
@@ -740,7 +746,10 @@ def test_codex_records_unknown_when_a_chatgpt_login_keeps_plugins(
         user_customizations=True,
         captured=captured,
     )
-    assert captured["result"].loaded_user_customizations is None
+    assert captured["result"].loaded_user_customizations == [
+        UNLISTED_MCP,
+        "settings:config.toml",
+    ]
 
 
 def test_codex_errors_on_unset_mcp_env_var(monkeypatch, tmp_path) -> None:

@@ -85,6 +85,10 @@ closed-neighbourhood premise of 0014 now applies only to isolated runs. A
 name declared by the spec is reserved even when ablated, so a user installation
 cannot silently restore it. Claude plugin skills retain their namespace and can
 be observed through named tool calls or reads of their staged skill files.
+Skills the CLI ships in the user's skills root (hidden folders such as Codex's
+`.system`, Hermes' `.bundled_manifest`) are not the user's and are not copied.
+Skills install flat, so of two same-named user skills the first in sorted path
+order wins rather than aborting the run.
 
 **Hermes stays neutral.** We retain 0005's persona/memory exclusion and
 `--ignore-rules`. Loading mutable memory is deferred: a realistic starting memory
@@ -102,8 +106,10 @@ isolation is not a security boundary.
 
 **Record names, with kinds.** `loaded_user_customizations` uses `mcp:`, `skill:`,
 `plugin:`, `rules:` and `settings:` prefixes. Config file names represent the
-settings source, not individual values or secrets. Unknown inventories remain
-`null`, including unlistable hosted Codex plugins. `report` displays these names;
+settings source, not individual values or secrets. When the backend cannot
+list its MCP servers, including unlistable hosted Codex plugins, the staged
+skill, rules, settings and plugin names are still recorded beside an
+`mcp:(not listed)` marker, so a partial inventory never reads as complete. `report` displays these names;
 `compare` checks sets and warns on differences, without fingerprinting content,
 versions or hook effects. Old unprefixed names still deserialize and
 conservatively differ from new inventories. The six public reference locations
