@@ -204,6 +204,46 @@ tasks:
           assert "hello-file" not in prompt and "skill" not in prompt, \
               f"task {t.get('name')!r} names the skill in its prompt: {prompt!r}"
 
+  # A user who has decided the tasks still gets trigger probes proposed:
+  # graded on the proposal, not written to disk.
+  - name: Proposes trigger probes for tasks the user has decided
+    activates: [evaluate-skill]
+    setup: |
+      mkdir -p changelog-writer
+      cat > changelog-writer/SKILL.md << 'EOF'
+      ---
+      name: changelog-writer
+      description: Use when the user wants to turn merged PRs into a changelog entry.
+      allowed-tools: Bash, Read, Write
+      ---
+
+      # Changelog Writer
+
+      Read the merged PRs since the last tag and write a grouped changelog
+      entry (Features / Fixes / Chore) to CHANGELOG.md.
+      EOF
+    prompt: >
+      I want an eval for my skill at ./changelog-writer/SKILL.md. Your reading
+      is right: it runs `gh pr list --state merged` for PRs since the last git
+      tag and writes a grouped entry to CHANGELOG.md; a test can fake `gh` and
+      tag the repo in setup. Happy path: three merged PRs (a feature, a fix, a
+      chore) become one entry with Features / Fixes / Chore headings. Edge
+      case: a PR labelled both feature and fix goes under Features only.
+      Adversarial: asked to rewrite old released entries, it should refuse. I
+      don't know of any other skills it could be confused with. Before you
+      write anything, show me the tasks you'd put in the spec.
+    expect: >
+      Pass if the agent shows a proposed set of tasks, without writing the spec
+      file, and the proposal includes at least one trigger probe: a silence
+      probe (unrelated work with `activates: []`) or a neighbour probe. Its
+      execution tasks (happy path, edge case, adversarial) assert
+      `activates: [changelog-writer]`. Fail if it writes the spec file, or its
+      proposal has no trigger probe.
+    assert: |
+      import glob
+      specs = glob.glob("changelog-writer/*.eval.yaml")
+      assert not specs, f"Agent wrote the spec before showing the proposal: {specs}"
+
   # Advising the next run is operating an eval: the control comes first.
   - name: Runs the control before iterating on the skill
     activates: [evaluate-skill]

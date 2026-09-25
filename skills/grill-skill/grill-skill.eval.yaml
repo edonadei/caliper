@@ -99,44 +99,11 @@ tasks:
       assert len(tasks) == 1, f"Existing spec was modified in this turn: {len(tasks)} tasks"
       assert tasks[0]["name"] == "Summarizes a short text file", "Original task was altered"
 
-  # Task 3 — The interview reaches triggering. Questions 1-3 are answered up
-  # front, so the next question the skill should ask is about neighbours or
-  # trigger probes. Assert: it still hasn't written a spec.
-  - name: Asks about triggering once the execution tasks are answered
-    activates: [grill-skill]
-    setup: |
-      mkdir -p changelog-writer
-      cat > changelog-writer/SKILL.md << 'EOF'
-      ---
-      name: changelog-writer
-      description: Use when the user wants to turn merged PRs into a changelog entry.
-      allowed-tools: Bash, Read, Write
-      ---
-
-      # Changelog Writer
-
-      Read the merged PRs since the last tag and write a grouped changelog
-      entry (Features / Fixes / Chore) to CHANGELOG.md.
-      EOF
-    prompt: >
-      I want an eval for my skill at ./changelog-writer/SKILL.md. Your reading
-      is right: it turns merged PRs since the last tag into a grouped
-      changelog entry in CHANGELOG.md. Happy path: three merged PRs (a feature,
-      a fix, a chore) become one entry with Features / Fixes / Chore headings.
-      Edge case: a PR labelled both feature and fix. Adversarial: asked to
-      rewrite old released entries, it should refuse. Ask me whatever else you
-      need before you write the spec.
-    expect: >
-      Pass if, before writing anything, the agent asks about whether the skill
-      fires at the right time: which other skills could be confused with this
-      one (neighbours), or it proposes trigger probes such as a silence probe
-      (unrelated work where no skill should fire) or a neighbour probe. Fail if
-      it writes the spec, or asks only about the execution tasks already
-      answered without touching on when the skill should or shouldn't fire.
-    assert: |
-      import glob
-      specs = glob.glob("changelog-writer/*.eval.yaml")
-      assert not specs, f"Agent wrote a spec before finishing the interview: {specs}"
+  # Not tested here: the interview reaching triggering (question 4). The
+  # harness is single-shot, so a prompt can only get there by answering
+  # questions 1-3 up front, and a user who has decided the tasks is
+  # evaluate-skill's job. That proposal is tested in evaluate-skill.eval.yaml
+  # ("Proposes trigger probes for tasks the user has decided").
 
   # Trigger probe: a plain validation request belongs to evaluate-skill.
   - name: A validation request belongs to evaluate-skill
