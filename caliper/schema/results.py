@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Literal
@@ -392,6 +392,54 @@ def mean_rate(rates: list[float]) -> float:
     return sum(rates) / len(rates) if rates else 0.0
 
 
+@dataclass
+class OutcomeCounts:
+    """A task's attempt outcomes, counted.
+
+    The one place a count over outcomes is taken: :class:`TaskResult` derives
+    its numbers from it, and the live progress view feeds it each outcome as
+    it lands, so the live row, the final row and the saved result cannot
+    disagree. The categories are the outcomes' own (docs/adr/0001).
+    """
+
+    outcomes: list[Outcome] = field(default_factory=list)
+
+    def add(self, outcome: Outcome) -> None:
+        self.outcomes.append(outcome)
+
+    @property
+    def completed(self) -> int:
+        return len(self.outcomes)
+
+    @property
+    def successes(self) -> int:
+        return self.outcomes.count(Outcome.PASS)
+
+    @property
+    def usable(self) -> int:
+        """Fairly measured: the success-rate denominator (docs/adr/0007)."""
+        return sum(1 for o in self.outcomes if o.is_usable)
+
+    @property
+    def unusable(self) -> int:
+        """Execution noise. Not ``completed - usable``: a trigger probe is neither."""
+        return sum(1 for o in self.outcomes if o.is_execution_noise)
+
+    @property
+    def unchecked(self) -> int:
+        """Trigger probes: nothing was asked, so neither usable nor noise."""
+        return self.outcomes.count(Outcome.NOT_CHECKED)
+
+    @property
+    def failed(self) -> int:
+        """Usable attempts that did not pass: task failures and cheats."""
+        return self.usable - self.successes
+
+    @property
+    def cheated(self) -> bool:
+        return Outcome.CHEAT in self.outcomes
+
+
 class TaskResult(BaseModel):
     """One task's attempts, and every number that follows from them.
 
@@ -410,11 +458,16 @@ class TaskResult(BaseModel):
     # fails. ``None`` = the task asserted nothing.
     activation_expected: list[str] | None = None
 
+    @property
+    def counts(self) -> OutcomeCounts:
+        """The attempts' outcomes, counted; every count below reads it."""
+        return OutcomeCounts([a.outcome for a in self.attempts])
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def successes(self) -> int:
         """Attempts that passed."""
-        return sum(1 for a in self.attempts if a.outcome == Outcome.PASS)
+        return self.counts.successes
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -425,7 +478,7 @@ class TaskResult(BaseModel):
         noise, so it leaves the denominator without being reported as an error —
         a correct ``activates:``-only spec must never read as one.
         """
-        return sum(1 for a in self.attempts if a.outcome.is_execution_noise)
+        return self.counts.unusable
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -436,7 +489,7 @@ class TaskResult(BaseModel):
         ``NOT_CHECKED`` is neither usable nor noise, that subtraction would
         silently over-count.
         """
-        return sum(1 for a in self.attempts if a.outcome.is_usable)
+        return self.counts.usable
 
     @computed_field  # type: ignore[prop-decorator]
     @property

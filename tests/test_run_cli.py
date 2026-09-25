@@ -628,7 +628,7 @@ def test_a_cheat_stays_flagged_in_live_progress_after_later_attempts(
     )
     monkeypatch.setattr(
         "caliper.commands.run.update_progress",
-        lambda *a, **k: updates.append(k["cheated"]),
+        lambda *a, **k: updates.append(k["counts"].cheated),
     )
     monkeypatch.setattr("caliper.commands.run.print_banner", lambda *a, **k: None)
     monkeypatch.setattr("caliper.commands.run.print_results", lambda *a, **k: None)

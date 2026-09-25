@@ -18,6 +18,7 @@ from caliper.schema.results import (
     AttemptRecord,
     HookFailure,
     Outcome,
+    OutcomeCounts,
     RunMeta,
     RunResults,
     SkillSnapshot,
@@ -41,9 +42,7 @@ def test_update_progress_marks_early_stopped_task_finished() -> None:
         task_ids,
         "Task one",
         k=3,
-        completed=1,
-        passed=0,
-        unusable=1,
+        counts=OutcomeCounts([Outcome.INFRA_ERROR]),
         finished=True,
     )
 
@@ -403,14 +402,15 @@ def test_autorater_reasoning_shown_for_failed_task() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Live progress tally and failure-panel rendering
+# Live progress counts and failure-panel rendering
 # ---------------------------------------------------------------------------
 
 
 def test_update_progress_shows_a_running_tally_rather_than_the_count() -> None:
     progress, task_ids = make_progress(["Task one"], k=5)
 
-    update_progress(progress, task_ids, "Task one", k=5, completed=3, passed=2)
+    counts = OutcomeCounts([Outcome.PASS, Outcome.TASK_FAIL, Outcome.PASS])
+    update_progress(progress, task_ids, "Task one", k=5, counts=counts)
 
     status = progress.tasks[task_ids["Task one"]].fields["status"]
     assert status == "[green]✓2[/green] [red]✗1[/red]"
@@ -420,7 +420,11 @@ def test_update_progress_keeps_a_finished_trigger_probe_neutral() -> None:
     progress, task_ids = make_progress(["Probe"], k=3)
 
     update_progress(
-        progress, task_ids, "Probe", k=3, completed=3, passed=0, unchecked=3
+        progress,
+        task_ids,
+        "Probe",
+        k=3,
+        counts=OutcomeCounts([Outcome.NOT_CHECKED] * 3),
     )
 
     # Not a red ✗: a trigger probe asked no execution question.
@@ -501,3 +505,38 @@ def test_empty_output_marker_is_visible_when_markup_is_rendered() -> None:
     results = _make_results([_make_task("task-001", passed=False, output="")])
 
     assert "[no output]" in _render_markup(results)
+
+
+def test_each_outcome_is_counted_once():
+    counts = OutcomeCounts()
+    for outcome in (
+        Outcome.PASS,
+        Outcome.TASK_FAIL,
+        Outcome.CHEAT,
+        Outcome.TIMEOUT,
+        Outcome.NOT_CHECKED,
+    ):
+        counts.add(outcome)
+
+    assert (counts.completed, counts.successes, counts.failed) == (5, 1, 2)
+    assert (counts.unusable, counts.unchecked, counts.usable) == (1, 1, 3)
+
+
+def test_a_cheat_stays_counted_after_clean_attempts():
+    counts = OutcomeCounts([Outcome.CHEAT, Outcome.PASS, Outcome.PASS])
+
+    assert counts.cheated
+
+
+def test_a_finished_task_counts_like_its_attempts_did_live():
+    outcomes = [Outcome.PASS, Outcome.JUDGE_ERROR, Outcome.NOT_CHECKED]
+    result = TaskResult(
+        task_id="task-001",
+        task_name="t",
+        attempts=[
+            AttemptRecord(attempt=n, output="", duration_seconds=0.1, outcome=o)
+            for n, o in enumerate(outcomes, 1)
+        ],
+    )
+
+    assert result.counts == OutcomeCounts(outcomes)
