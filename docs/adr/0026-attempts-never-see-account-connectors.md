@@ -1,5 +1,10 @@
 # Attempts never see the account's hosted connectors
 
+> Superseded as the default by
+> [0028](0028-runs-load-user-customizations-by-default.md): runs now load
+> the user's customizations unless isolated with `--no-user-customizations` or
+> `user_customizations: false`. What follows is what isolation still does.
+
 An attempt sees exactly the MCP servers its spec declares, and none when it
 declares no `mcp:` block. That already held for servers in the seeded config
 files, but the login caliper seeds to authenticate the CLI also brings the

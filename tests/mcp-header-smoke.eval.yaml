@@ -20,6 +20,9 @@
 #   caliper run tests/mcp-header-smoke.eval.yaml --k 1                 # claude-code
 #   caliper run tests/mcp-header-smoke.eval.yaml --k 1 --model hermes  # hermes
 
+# Pinned isolated: see test_every_smoke_eval_pins_isolation.
+user_customizations: false
+
 mcp:
   echo:
     type: http
@@ -31,7 +34,7 @@ tasks:
   - name: Uses the header-authed echo remote MCP server
     setup: >
       ECHO_MCP_TOKEN="$MCP_ECHO_TOKEN"
-      python3 "$PWD/tests/fixtures/mcp/echo_http_server.py" 8765
+      python3 "$CALIPER_SPEC_DIR/fixtures/mcp/echo_http_server.py" 8765
       >/tmp/caliper-echo-http.log 2>&1 &
       echo $! > /tmp/caliper-echo-http.pid; sleep 1
     cleanup: kill "$(cat /tmp/caliper-echo-http.pid)" 2>/dev/null; rm -f /tmp/caliper-echo-http.pid

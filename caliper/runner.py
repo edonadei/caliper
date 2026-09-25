@@ -36,7 +36,13 @@ from caliper.schema.results import (
     RunResults,
     TaskResult,
 )
-from caliper.schema.spec import EvalSpec, McpServer, TaskSpec, spec_name
+from caliper.schema.spec import (
+    EvalSpec,
+    McpServer,
+    TaskSpec,
+    resolve_user_customizations,
+    spec_name,
+)
 from caliper.skillfetch import SkillFetcher
 from caliper.skills import (
     SkillRef,
@@ -96,6 +102,8 @@ class _RunEnv:
     # was ablated" (an empty mapping). Both isolate the attempt to zero servers
     # (docs/adr/0026-attempts-never-see-account-connectors.md).
     mcp_declared: bool
+    # Load the user's customizations; already cleared on a backend without MCP.
+    user_customizations: bool
     # The *skills* ``--ablate`` removed. Truthy drops every task's activation
     # expectation. Removing a server is deliberately not on this list: activation
     # asserts on skills, and those are still installed and observable.
@@ -109,6 +117,8 @@ class _RunEnv:
     # the GIL, so these are safe to share across the pool's worker threads.
     resolved_models: list[str]
     judge_models: list[str]
+    # Each attempt's loaded customizations, where visible; same discipline.
+    loaded_user_customizations: list[list[str]]
     # The first fatal misconfiguration a worker diagnosed, if any. Collected
     # rather than raised through the pool so the run can be saved before it is
     # surfaced; same append-only, GIL-safe discipline as the two lists above.
@@ -154,10 +164,19 @@ def run(
     fetcher: SkillFetcher | None = None,
     # Told when the backend reports running a different model than requested.
     on_warning: Callable[[str], None] | None = None,
+    # ``--user-customizations``/``--no-user-customizations``; ``None`` follows the
+    # spec, else the default (docs/adr/0028).
+    user_customizations: bool | None = None,
 ) -> RunResults:
     # Before anything that can block: a Ctrl-C during skill fetching has to be
     # honoured by the attempts that would otherwise start right after it.
     cancel.reset()
+
+    # The invocation wins, then the spec, then the default (docs/adr/0028).
+    # Resolved once, here, so RunMeta records what applied.
+    user_customizations, explicit = resolve_user_customizations(
+        user_customizations, spec
+    )
 
     # Resolve the neighbourhood once, up front: a bad entry (a lone .md, a
     # missing frontmatter name:, a duplicate) should fail before any paid
@@ -205,6 +224,17 @@ def run(
             "mcp: block from the spec."
         )
 
+    # A backend without MCP has nothing to load. Not refused, unlike a declared
+    # mcp: block: recorded as off, and said only when someone asked for it, or
+    # it would fire on every pi run (docs/adr/0028).
+    if user_customizations and not harness.supports_mcp:
+        user_customizations = False
+        if on_warning and explicit:
+            on_warning(
+                f"User customizations have no effect on the '{harness.name}' backend, "
+                "which has no MCP support; the run records it as off."
+            )
+
     # Attempts run from fresh temporary workdirs. Anchor explicit ./ and ../
     # server paths to the spec once, before any backend writes its config.
     mcp_servers = resolve_declared_paths(
@@ -237,6 +267,7 @@ def run(
         # Field presence, not truthiness: an authored `mcp: {}` parses to an
         # empty mapping but still declares the block, and must isolate.
         mcp_declared="mcp" in spec.model_fields_set,
+        user_customizations=user_customizations,
         ablated_skills=ablation.skill_names,
         timeout=timeout,
         fail_fast_unusable=fail_fast_unusable,
@@ -244,6 +275,7 @@ def run(
         on_task_done=on_task_done,
         resolved_models=[],
         judge_models=[],
+        loaded_user_customizations=[],
         fatal=[],
         hook_failures=[],
     )
@@ -312,6 +344,10 @@ def run(
             # describes itself and `compare` can check an `mcp:` marker against
             # it rather than trusting the marker alone.
             mcp_servers=sorted(ablation.mcp_servers),
+            user_customizations=user_customizations,
+            loaded_user_customizations=_recorded_customizations(
+                env.loaded_user_customizations
+            ),
             # True when attempts were left unrun: Ctrl-C, or a fatal error the
             # run stopped for. Deliberately not inferred from a short attempt
             # list, which fail-fast also produces on purpose.
@@ -413,6 +449,18 @@ def _recorded_model(
             f"{actual!r}; the run records {actual!r}."
         )
     return actual
+
+
+def _recorded_customizations(per_attempt: list[list[str]]) -> list[str] | None:
+    """The customizations a run records: every name any attempt reported.
+
+    A union, because the question the record answers is "what could this run's
+    attempts reach". ``None`` when no attempt could tell — the flag was off, or
+    the backend cannot see them — which reads as "unknown", not "none".
+    """
+    if not per_attempt:
+        return None
+    return sorted({name for names in per_attempt for name in names})
 
 
 def _run_task_chain(task: TaskSpec, env: _RunEnv, k: int) -> list[AttemptRecord]:
@@ -553,6 +601,10 @@ def _measure_attempt(
                 # ``mcp:`` block; an empty mapping is a declared block whose
                 # servers were all ablated, and still isolates the attempt.
                 mcp_servers=env.mcp_servers if env.mcp_declared else None,
+                user_customizations=env.user_customizations,
+                # Ablated names too, so --ablate still removes a server the
+                # user also has under that name (docs/adr/0028).
+                spec_mcp_names=frozenset(spec.mcp),
                 forbidden_files=list(spec.sandbox.forbidden_files),
             )
         )
@@ -576,6 +628,8 @@ def _measure_attempt(
     # not vote on the model the run records.
     if attempt_result.resolved_model:
         env.resolved_models.append(attempt_result.resolved_model)
+    if attempt_result.loaded_user_customizations is not None:
+        env.loaded_user_customizations.append(attempt_result.loaded_user_customizations)
 
     assembled = assemble_attempt(
         attempt_result,

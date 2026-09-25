@@ -104,14 +104,25 @@ def spending_cap_line(text: str) -> str:
     """
     lines = text.strip().splitlines()
     line = next((line for line in lines if _CAP_SIGNALS.search(line)), lines[0])
-    # A JSON event line (codex's `{"type":"error","message":…}`) is quoted by
-    # its message, so the reset time survives the length cap.
+    # A JSON event line is quoted by the string inside it that says so — codex's
+    # top-level `message`, pi's `message.errorMessage` — so the reset time
+    # survives the length cap instead of a dump of the event.
     try:
         event = json.loads(line)
     except ValueError:
         return line
-    message = event.get("message") if isinstance(event, dict) else None
-    return message if isinstance(message, str) and message else line
+    return next((text for text in _strings(event) if _CAP_SIGNALS.search(text)), line)
+
+
+def _strings(value: object) -> list[str]:
+    """Every string in a parsed JSON value, depth first."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        value = list(value.values())
+    if isinstance(value, list):
+        return [text for item in value for text in _strings(item)]
+    return []
 
 
 def looks_like_infra_failure(text: str) -> bool:

@@ -11,7 +11,7 @@ except ModuleNotFoundError:  # Python 3.10, where tomllib is not yet stdlib
 import pytest
 
 from caliper.harness.base import HarnessConfigurationError, ProcessResult, RunContext
-from caliper.harness.codex import CodexHarness
+from caliper.harness.codex import NO_ACCOUNT_CONNECTORS, CodexHarness
 from caliper.harness.prompt_failure import PromptFailureKind
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
@@ -432,18 +432,34 @@ _AMBIENT_CONFIG = (
 )
 
 
-def _fake_codex_home(tmp_path, config_text: str | None):
+_CHATGPT_AUTH = '{"tokens": {"access_token": "t"}}'
+# A ChatGPT login's plugins are unlistable; turned off, the rest is recordable.
+_NO_PLUGINS = "[features]\nplugins = false\n"
+
+
+def _fake_codex_home(tmp_path, config_text: str | None, *, auth: str = "{}"):
     """A fake ~/.codex with auth and (optionally) a config carrying user MCP state."""
     real = tmp_path / "realhome" / ".codex"
     real.mkdir(parents=True)
-    (real / "auth.json").write_text("{}")
+    (real / "auth.json").write_text(auth)
     if config_text is not None:
         (real / "config.toml").write_text(config_text)
     return tmp_path / "realhome"
 
 
-def _run_codex_mcp(monkeypatch, tmp_path, mcp_servers, *, home=None):
-    """Seed an attempt with declared mcp_servers; return the seeded config.toml path."""
+def _run_codex_mcp(
+    monkeypatch,
+    tmp_path,
+    mcp_servers,
+    *,
+    home=None,
+    user_customizations=False,
+    captured=None,
+):
+    """Seed an attempt with declared mcp_servers; return the seeded config.toml path.
+
+    ``captured``, when given, receives the attempt's ``cmd`` and ``result``.
+    """
     monkeypatch.setattr(
         "caliper.harness.mcp.preflight_stdio_servers", lambda *a, **kw: None
     )
@@ -456,6 +472,8 @@ def _run_codex_mcp(monkeypatch, tmp_path, mcp_servers, *, home=None):
             return subprocess.CompletedProcess(
                 cmd, 0, stdout="codex-cli 0.142.0\n", stderr=""
             )
+        if captured is not None:
+            captured["cmd"] = cmd
         return subprocess.CompletedProcess(cmd, 0, stdout="OK\n", stderr="")
 
     monkeypatch.setenv("HOME", str(home))
@@ -466,15 +484,18 @@ def _run_codex_mcp(monkeypatch, tmp_path, mcp_servers, *, home=None):
     )
     patch_cli_calls(monkeypatch, fake_run)
 
-    CodexHarness().run(
+    result = CodexHarness().run(
         run_context(
             prompt="Hello",
             model=None,
             timeout=30,
             isolated_home=str(iso),
             mcp_servers=mcp_servers,
+            user_customizations=user_customizations,
         )
     )
+    if captured is not None:
+        captured["result"] = result
     return iso / ".codex" / "config.toml"
 
 
@@ -549,6 +570,170 @@ def test_codex_writes_config_when_user_has_none(monkeypatch, tmp_path) -> None:
     )
     config = tomllib.loads(seeded.read_text())
     assert config["mcp_servers"] == {"echo": {"command": "python3"}}
+
+
+def test_codex_user_customizations_keeps_user_servers_and_connectors(
+    monkeypatch, tmp_path
+) -> None:
+    captured: dict = {}
+    seeded = _run_codex_mcp(
+        monkeypatch,
+        tmp_path,
+        {"echo": McpServer(command="python3")},
+        home=_fake_codex_home(
+            tmp_path, _AMBIENT_CONFIG + _NO_PLUGINS, auth=_CHATGPT_AUTH
+        ),
+        user_customizations=True,
+        captured=captured,
+    )
+    config = tomllib.loads(seeded.read_text())
+    # The user's server survives (with its nested env table) beside the spec's.
+    assert config["mcp_servers"] == {
+        "personal": {"command": "my-private-server", "env": {"TOKEN": "abc"}},
+        "echo": {"command": "python3"},
+    }
+    # The model pin is still stripped: --user-customizations is about tools only.
+    assert "model" not in config
+    # The account's hosted apps and plugins are left on.
+    assert "features.apps=false" not in captured["cmd"]
+    assert "features.plugins=false" not in captured["cmd"]
+    # Recorded: the user's server plus the hosted apps, never the declared one.
+    assert captured["result"].loaded_user_customizations == ["codex_apps", "personal"]
+
+
+@pytest.mark.parametrize("loads", [True, False])
+def test_codex_copies_installed_plugins_only_when_loading(
+    monkeypatch, tmp_path, loads
+) -> None:
+    # Plugins, and the MCP servers they bring, live outside config.toml.
+    home = _fake_codex_home(tmp_path, _AMBIENT_CONFIG)
+    plugin = home / ".codex" / "plugins" / "cache" / "market" / "cua" / "server.json"
+    plugin.parent.mkdir(parents=True)
+    plugin.write_text("{}")
+    seeded = _run_codex_mcp(
+        monkeypatch, tmp_path, None, home=home, user_customizations=loads
+    )
+    copied = seeded.parent / "plugins" / "cache" / "market" / "cua" / "server.json"
+    assert copied.exists() is loads
+    assert plugin.exists()
+
+
+def test_codex_user_customizations_lets_the_spec_win_a_name_clash(
+    monkeypatch, tmp_path
+) -> None:
+    captured: dict = {}
+    seeded = _run_codex_mcp(
+        monkeypatch,
+        tmp_path,
+        {"personal": McpServer(command="spec-server")},
+        user_customizations=True,
+        captured=captured,
+    )
+    # Parses at all: a table defined twice would be a TOML error.
+    config = tomllib.loads(seeded.read_text())
+    assert config["mcp_servers"] == {"personal": {"command": "spec-server"}}
+    # An API-key login (no OAuth tokens) brings no hosted apps to claim.
+    assert captured["result"].loaded_user_customizations == []
+
+
+def test_codex_user_customizations_still_ablates_a_server_the_user_also_has(
+    monkeypatch, tmp_path
+) -> None:
+    # `--ablate personal --user-customizations`: the declared `personal` was removed,
+    # and the user's own `personal` must not come back in its place.
+    monkeypatch.setattr(
+        "caliper.harness.mcp.preflight_stdio_servers", lambda *a, **kw: None
+    )
+    home = _fake_codex_home(tmp_path, _AMBIENT_CONFIG)
+    iso = tmp_path / "iso"
+    iso.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    CodexHarness()._prepare(
+        run_context(
+            isolated_home=str(iso),
+            mcp_servers={},
+            spec_mcp_names=frozenset({"personal"}),
+            user_customizations=True,
+        )
+    )
+    config = tomllib.loads((iso / ".codex" / "config.toml").read_text())
+    assert "mcp_servers" not in config
+
+
+def test_codex_records_no_hosted_apps_when_the_user_turned_them_off(
+    monkeypatch, tmp_path
+) -> None:
+    home = _fake_codex_home(
+        tmp_path,
+        _AMBIENT_CONFIG + "\n[features]\napps = false\nplugins = false\n",
+        auth=_CHATGPT_AUTH,
+    )
+    captured: dict = {}
+    _run_codex_mcp(
+        monkeypatch,
+        tmp_path,
+        None,
+        home=home,
+        user_customizations=True,
+        captured=captured,
+    )
+    assert captured["result"].loaded_user_customizations == ["personal"]
+
+
+@pytest.mark.parametrize(
+    "customizations, declared, expected",
+    [
+        (False, frozenset(), NO_ACCOUNT_CONNECTORS),
+        (True, frozenset({"echo"}), ()),
+        # The hosted apps surface as `codex_apps`, so a spec server of that
+        # name, declared or ablated, keeps them off (the spec wins the clash).
+        (True, frozenset({"codex_apps"}), ("-c", "features.apps=false")),
+    ],
+)
+def test_codex_connector_overrides(customizations, declared, expected) -> None:
+    ctx = run_context(user_customizations=customizations, spec_mcp_names=declared)
+    assert CodexHarness._connector_overrides(ctx) == expected
+
+
+def test_codex_is_not_fooled_by_a_header_inside_a_multiline_value(
+    monkeypatch, tmp_path
+) -> None:
+    home = _fake_codex_home(
+        tmp_path,
+        "[mcp_servers.personal]\n"
+        'command = "mine"\n'
+        "env.MESSAGE = '''\n"
+        "[history]\n"
+        "'''\n"
+        "\n"
+        "[history]\n"
+        'persistence = "none"\n',
+    )
+    seeded = _run_codex_mcp(monkeypatch, tmp_path, None, home=home)
+    assert tomllib.loads(seeded.read_text()) == {"history": {"persistence": "none"}}
+
+
+def test_codex_refuses_an_invalid_user_config(monkeypatch, tmp_path) -> None:
+    home = _fake_codex_home(tmp_path, "this is = = not toml\n")
+    with pytest.raises(HarnessConfigurationError, match="not valid TOML"):
+        _run_codex_mcp(monkeypatch, tmp_path, None, home=home)
+
+
+def test_codex_records_unknown_when_a_chatgpt_login_keeps_plugins(
+    monkeypatch, tmp_path
+) -> None:
+    # Plugins can bring tools caliper cannot list, so "[]" or a partial list
+    # would claim an environment the attempt did not have.
+    captured: dict = {}
+    _run_codex_mcp(
+        monkeypatch,
+        tmp_path,
+        None,
+        home=_fake_codex_home(tmp_path, _AMBIENT_CONFIG, auth=_CHATGPT_AUTH),
+        user_customizations=True,
+        captured=captured,
+    )
+    assert captured["result"].loaded_user_customizations is None
 
 
 def test_codex_errors_on_unset_mcp_env_var(monkeypatch, tmp_path) -> None:

@@ -19,6 +19,8 @@ from caliper.schema.results import (
     TaskResult,
 )
 
+from conftest import StubHarness
+
 
 runner = CliRunner()
 
@@ -62,7 +64,7 @@ tasks:
         )
 
     monkeypatch.setattr(
-        "caliper.commands.run.get_harness", lambda *args, **kwargs: object()
+        "caliper.commands.run.get_harness", lambda *args, **kwargs: StubHarness()
     )
     monkeypatch.setattr(
         "caliper.commands.run.EvalJudge", lambda *args, **kwargs: object()
@@ -94,6 +96,8 @@ tasks:
     # Defaults flow through unchanged when the flag is omitted
     assert calls["timeout"] == 120
     assert calls["ablate"] == []
+    # Omitted: None, so the runner follows the spec's own default.
+    assert calls["user_customizations"] is None
     # A requested/reported model mismatch has somewhere to surface (#131).
     assert callable(calls["on_warning"])
 
@@ -127,7 +131,7 @@ def test_run_cli_resolves_backend_and_judge_model_targets(
 
     def fake_get_harness(backend, model):
         harness_args["backend"], harness_args["model"] = backend, model
-        return object()
+        return StubHarness()
 
     def fake_eval_judge(backend, model):
         judge_args["backend"], judge_args["model"] = backend, model
@@ -183,7 +187,9 @@ def test_run_cli_collects_repeated_ablate_flags(monkeypatch, tmp_path) -> None:
             aggregate=AggregateScore(avg_score=0.0, per_task=[]),
         )
 
-    monkeypatch.setattr("caliper.commands.run.get_harness", lambda *a, **k: object())
+    monkeypatch.setattr(
+        "caliper.commands.run.get_harness", lambda *a, **k: StubHarness()
+    )
     monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **k: object())
     monkeypatch.setattr(
         "caliper.commands.run.make_progress", lambda *a, **k: (_Progress(), {})
@@ -230,7 +236,9 @@ def _finished(timestamp: datetime) -> RunResults:
 
 
 def _stub_a_run(monkeypatch, finished: RunResults) -> None:
-    monkeypatch.setattr("caliper.commands.run.get_harness", lambda *a, **k: object())
+    monkeypatch.setattr(
+        "caliper.commands.run.get_harness", lambda *a, **k: StubHarness()
+    )
     monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **k: object())
     monkeypatch.setattr(
         "caliper.commands.run.make_progress", lambda *a, **k: (_Progress(), {})
@@ -239,6 +247,47 @@ def _stub_a_run(monkeypatch, finished: RunResults) -> None:
     monkeypatch.setattr("caliper.commands.run.print_banner", lambda *a, **k: None)
     monkeypatch.setattr("caliper.commands.run.print_results", lambda *a, **k: None)
     monkeypatch.setattr("caliper.commands.run.run", lambda **kwargs: finished)
+
+
+@pytest.mark.parametrize(
+    "argv, spec_prefix, forwarded, shown, hidden",
+    [
+        # The default: one quiet line saying how to isolate, no warning.
+        ([], "", None, "without asking", "⚠"),
+        (["--user-customizations"], "", True, "⚠ --user-customizations", None),
+        (["--no-user-customizations"], "", False, None, "account connectors"),
+        # A spec that turns it on gets the full warning, naming itself.
+        ([], "user_customizations: true\n", None, "(spec)", None),
+    ],
+)
+def test_run_cli_user_customizations_notice(
+    monkeypatch, tmp_path, argv, spec_prefix, forwarded, shown, hidden
+) -> None:
+    spec_file = tmp_path / "sample.eval.yaml"
+    spec_file.write_text(
+        spec_prefix
+        + "tasks:\n  - name: One\n    prompt: Do it\n    assert: assert True\n"
+    )
+    calls = {}
+    finished = _finished(datetime(2026, 7, 3, tzinfo=timezone.utc))
+    _stub_a_run(monkeypatch, finished)
+    monkeypatch.setattr(
+        "caliper.commands.run.get_harness",
+        lambda *a, **k: StubHarness(supports_mcp=True),
+    )
+    monkeypatch.setattr(
+        "caliper.commands.run.run", lambda **kw: calls.update(kw) or finished
+    )
+    monkeypatch.setattr("caliper.commands.run._save_and_report", lambda *a, **k: None)
+
+    result = runner.invoke(app, ["run", str(spec_file), *argv])
+
+    assert result.exit_code == 0, result.output
+    assert calls["user_customizations"] is forwarded
+    if shown:
+        assert shown in result.output
+    if hidden:
+        assert hidden not in result.output
 
 
 def test_run_cli_exits_two_after_cleanup_failure(monkeypatch, tmp_path) -> None:

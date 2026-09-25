@@ -266,3 +266,20 @@ def test_discover_accepts_an_explicit_start(tmp_path) -> None:
     deep.mkdir(parents=True)
 
     assert RunStore.discover(deep).root == tmp_path.resolve()
+
+
+def test_a_spec_path_resolves_like_its_spec_name(tmp_path) -> None:
+    store = RunStore(tmp_path)
+    saved = store.save(_results("my-skill"))
+
+    assert store.resolve("evals/my-skill.eval.yaml") == saved
+
+
+def test_a_file_that_is_not_a_results_file_says_so(tmp_path) -> None:
+    other = tmp_path / "hosts"
+    other.write_text("127.0.0.1 localhost\n")
+    store = RunStore(tmp_path)
+    store.save(_results())
+
+    assert store.resolve(str(other)) is None
+    assert "is not a results file" in store.no_results(str(other))

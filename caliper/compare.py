@@ -103,6 +103,68 @@ def _check_era(a: RunMeta, b: RunMeta) -> None:
     )
 
 
+def _user_customizations_warning(a: RunMeta, b: RunMeta) -> str | None:
+    """Why the two runs' user customizations differ, or ``None``.
+
+    Each message says how to make the pair comparable, because since runs load
+    them by default (docs/adr/0028) the first diff against an older, isolated
+    run lands here.
+    """
+    if a.user_customizations != b.user_customizations:
+        # Only the isolating direction is offered: it always works, where
+        # re-running the other side with them does nothing on a backend
+        # without MCP.
+        side, other = ("A", "B") if a.user_customizations else ("B", "A")
+        return (
+            f"only {side} loaded this machine's user customizations (MCP "
+            f"servers, account connectors), so tool availability can move the "
+            f"score for reasons unrelated to the skill — re-run {side} with "
+            f"--no-user-customizations to match {other}"
+        )
+    a_names, b_names = a.loaded_user_customizations, b.loaded_user_customizations
+    if (
+        a.user_customizations
+        and a_names is not None
+        and b_names is not None
+        and set(a_names) != set(b_names)
+    ):
+        return (
+            f"different user customizations: {a_names or ['(none)']} vs "
+            f"{b_names or ['(none)']} — the runs loaded different setups, so "
+            "tool availability can move the score; re-run both with "
+            "--no-user-customizations for a portable comparison"
+        )
+    return None
+
+
+def _may_have_loaded_customizations(run: RunMeta) -> bool:
+    """Whether a run may have had user customizations: it loaded them, and did
+    not record an empty set (unknown counts as maybe)."""
+    return run.user_customizations and run.loaded_user_customizations != []
+
+
+def _cross_backend_user_customizations_warning(a: RunMeta, b: RunMeta) -> str | None:
+    """The harness comparison a user's setup confounds, or ``None``.
+
+    Two backends never load the same customizations — claude.ai connectors on one,
+    ChatGPT apps on the other — so a delta between them is partly the two
+    setups, even when their recorded names happen to match. Warned, not
+    refused: "my setup on claude-code vs my setup on codex" is a legitimate
+    question (docs/adr/0028).
+    """
+    if a.backend == b.backend or not (
+        _may_have_loaded_customizations(a) or _may_have_loaded_customizations(b)
+    ):
+        return None
+    return (
+        f"different backends ({a.backend} vs {b.backend}) with user "
+        "customizations — "
+        "each CLI brings its own servers and account connectors, so part of the "
+        "delta is the two setups; re-run both with --no-user-customizations for a "
+        "harness comparison"
+    )
+
+
 def _group_by_name(tasks: list[TaskResult]) -> dict[str, list[TaskResult]]:
     """Tasks keyed by their stable identity, ``task_name``, preserving order.
 
@@ -187,8 +249,9 @@ def _ablation_labels(
     # "Bare agent" means nothing was configured, tools included: a run that
     # ablated every skill but kept a server is not a bare agent. The server side
     # must be a *recorded* empty set — an unrecorded membership is unknown, and
-    # "without ..." is the honest label for it.
-    bare = not cut_nb and cut_mcp == []
+    # "without ..." is the honest label for it. So does a run that may have
+    # loaded user customizations (docs/adr/0028).
+    bare = not cut_nb and cut_mcp == [] and not _may_have_loaded_customizations(cut_run)
     cut_label = (
         "bare agent" if bare else f"without {', '.join(sorted(cut_run.ablated))}"
     )
@@ -270,8 +333,15 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         )
     # On a recognised ablation pair the differing neighbourhood *is* the
     # experiment, so the generic warning would be describing the design as a
-    # mistake — and the sides get titled from the marker instead.
-    labels = _ablation_labels(a_run, a_neighbourhood, b_run, b_neighbourhood)
+    # mistake — and the sides get titled from the marker instead. Runs whose
+    # user customizations differ are no pair: the difference would not only be
+    # what the marker names (docs/adr/0028).
+    customizations_warning = _user_customizations_warning(a_run, b_run)
+    labels = (
+        None
+        if customizations_warning
+        else _ablation_labels(a_run, a_neighbourhood, b_run, b_neighbourhood)
+    )
     a_label, b_label = labels if labels else (None, None)
     neighbourhood_mismatch = labels is None and a_neighbourhood != b_neighbourhood
     if neighbourhood_mismatch:
@@ -298,6 +368,14 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
             "reasons unrelated to the skill"
         )
 
+    cross_backend_warning = _cross_backend_user_customizations_warning(a_run, b_run)
+    # One message per cause: across backends, isolating both runs is the only
+    # fix, and the generic mismatch advice would contradict it.
+    if cross_backend_warning:
+        warnings.append(cross_backend_warning)
+    elif customizations_warning:
+        warnings.append(customizations_warning)
+
     # Drift is reported for every member but only *warned* about for a git
     # source. Warning on a path source would fire on every iteration of the core
     # loop — you edited your skill, which is what the run is measuring — and a
@@ -323,6 +401,8 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         spec_mismatch=spec_mismatch,
         neighbourhood_mismatch=neighbourhood_mismatch,
         mcp_mismatch=mcp_mismatch,
+        user_customizations_mismatch=customizations_warning is not None,
+        cross_backend_user_customizations=cross_backend_warning is not None,
         skill_drift=skill_drift,
         warnings=warnings,
         # Token/wall totals over each whole run. Shown alongside pass@k but never

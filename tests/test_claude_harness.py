@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from caliper.harness.base import HarnessConfigurationError
+from caliper.harness.base import ProcessResult
 from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
@@ -372,6 +373,98 @@ def test_claude_harness_keeps_strict_mcp_when_every_server_is_ablated(
     assert not captured["path"].exists()
 
 
+def _init_stream(cmd: list[str], servers: list[str]) -> subprocess.CompletedProcess:
+    """An ok stream that opens with the CLI's ``init`` event naming ``servers``."""
+    init = json.dumps(
+        {
+            "type": "system",
+            "subtype": "init",
+            "mcp_servers": [{"name": n, "status": "connected"} for n in servers],
+        }
+    )
+    ok = _ok_stream(cmd)
+    ok.stdout = init + "\n" + ok.stdout
+    return ok
+
+
+def test_claude_harness_user_customizations_merge_with_the_spec_winning(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setattr(
+        "caliper.harness.mcp.preflight_stdio_servers", lambda *a, **kw: None
+    )
+    real_home = tmp_path / "real"
+    real_home.mkdir()
+    user_config = {
+        "mcpServers": {
+            "echo": {"command": "user-echo"},
+            "personal": {"command": "mine"},
+        },
+        "theme": "dark",
+    }
+    (real_home / ".claude.json").write_text(json.dumps(user_config))
+    monkeypatch.setattr("caliper.harness.claude_code.Path.home", lambda: real_home)
+    home = tmp_path / "home"
+    home.mkdir()
+    captured: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        if cmd[0] != "claude":
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        captured["cmd"] = cmd
+        captured["config"] = json.loads(
+            Path(cmd[cmd.index("--mcp-config") + 1]).read_text()
+        )
+        captured["seeded"] = json.loads((home / ".claude.json").read_text())
+        return _init_stream(cmd, ["claude.ai Gmail", "echo", "personal"])
+
+    patch_cli_calls(monkeypatch, fake_run)
+    result = ClaudeCodeHarness().run(
+        run_context(
+            prompt="p",
+            isolated_home=str(home),
+            mcp_servers={"echo": McpServer(command="python3")},
+            user_customizations=True,
+        )
+    )
+
+    # Merged rather than exclusive; the spec's `echo` comes via --mcp-config
+    # and the user's is gone from the isolated copy, never from the real file.
+    assert "--strict-mcp-config" not in captured["cmd"]
+    assert captured["config"] == {"mcpServers": {"echo": {"command": "python3"}}}
+    assert captured["seeded"]["mcpServers"] == {"personal": {"command": "mine"}}
+    assert json.loads((real_home / ".claude.json").read_text()) == user_config
+    # Recorded off the init event, the declared server excluded.
+    assert result.loaded_user_customizations == ["claude.ai Gmail", "personal"]
+
+
+def test_claude_harness_records_unknown_without_an_init_event() -> None:
+    proc = ProcessResult(
+        stdout='{"type": "result"}', stderr="", returncode=0, timed_out=False
+    )
+    ctx = run_context(user_customizations=True)
+    assert ClaudeCodeHarness()._loaded_user_customizations(proc, ctx) is None
+
+
+def test_claude_harness_user_customizations_still_ablates_a_server_the_user_also_has(
+    tmp_path,
+) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".claude.json").write_text(
+        json.dumps({"mcpServers": {"github": {"command": "mine"}}})
+    )
+    ClaudeCodeHarness()._drop_shadowed_user_servers(
+        run_context(
+            isolated_home=str(home),
+            mcp_servers={},
+            spec_mcp_names=frozenset({"github"}),
+            user_customizations=True,
+        )
+    )
+    assert json.loads((home / ".claude.json").read_text()) == {"mcpServers": {}}
+
+
 def test_claude_harness_errors_on_unset_mcp_env_var(monkeypatch, tmp_path) -> None:
     monkeypatch.delenv("MCP_API_TOKEN", raising=False)
 
@@ -554,3 +647,35 @@ def test_claude_harness_leaves_an_agent_writing_about_a_404_alone(
     )
 
     assert result.final_output == "The API returned 404."
+
+
+@pytest.mark.parametrize(
+    "platform, keychain, seeded, expected",
+    [
+        # macOS: a Keychain entry wins over a possibly stale file (#180).
+        ("darwin", "keychain", "stale-file", "keychain"),
+        ("darwin", None, "file", "file"),
+        ("darwin", "keychain", None, "keychain"),
+        ("darwin", None, None, None),
+        # Elsewhere the file is the only source.
+        ("linux", "keychain", "file", "file"),
+    ],
+)
+def test_claude_harness_credentials_source(
+    monkeypatch, tmp_path, platform, keychain, seeded, expected
+) -> None:
+    real = tmp_path / "real"
+    (real / ".claude").mkdir(parents=True)
+    if seeded is not None:
+        (real / ".claude" / ".credentials.json").write_text(seeded)
+    monkeypatch.setattr(Path, "home", lambda: real)
+    monkeypatch.setattr("caliper.harness.claude_code.sys.platform", platform)
+    harness = ClaudeCodeHarness()
+    monkeypatch.setattr(harness, "_capture_output", lambda cmd, timeout: keychain)
+    ctx = run_context(isolated_home=str(tmp_path / "iso"))
+
+    harness._seed_home(ctx)
+    harness._prepare(ctx)
+
+    creds = harness._credentials_file(ctx)
+    assert (creds.read_text() if creds.exists() else None) == expected

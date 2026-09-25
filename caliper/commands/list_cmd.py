@@ -83,7 +83,7 @@ def list_cmd_fn(
     store = RunStore.discover()
 
     if spec:
-        _list_runs(store, spec)
+        _list_runs(store, store.spec_ref(spec))
     else:
         _list_specs(store)
 

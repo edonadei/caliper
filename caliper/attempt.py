@@ -146,7 +146,10 @@ def assemble_attempt(
     # an attempt reached one at all, and every earlier exit above leaves
     # ``judge_seconds`` None — which is the difference between "the judge was
     # fast" and "no judge ran".
-    judge_seconds = time.monotonic() - judge_started
+    # Only an LLM autorater counts as judge time (docs/CONTEXT.md → Judge time).
+    # An assert-only task runs a local script through the same call, and a
+    # recorded 0.0 would print a Judge line for a run where no judge ran.
+    judge_seconds = time.monotonic() - judge_started if task.expect else None
     return with_outcome(
         judge_outcome(judge_result),
         judge_model=judge_result.resolved_model,

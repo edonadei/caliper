@@ -75,26 +75,32 @@ def _tc(name, a_score, b_score, a_outcomes, b_outcomes):
 
 
 def _ablation_example() -> RunComparison:
-    """An ablation pair on `commit-commands`, k=3: the skill removed vs present.
+    """An ablation pair on `commit-writer`, k=3: the skill removed vs present.
 
     Two ordinary saved runs; the sides are titled from ``RunMeta.ablated``.
     """
     ablated_run = RunMeta(
-        spec="commit-commands",
+        spec="commit-writer",
         timestamp=datetime(2026, 7, 12, 9, 0, 0),
         k=3,
         backend="claude-code",
-        ablated=["commit-commands"],
+        ablated=["commit-writer"],
     )
     full_run = RunMeta(
-        spec="commit-commands",
+        spec="commit-writer",
         timestamp=datetime(2026, 7, 12, 9, 30, 0),
         k=3,
         backend="claude-code",
     )
     matched = [
-        _tc("Commits a new feature", 1 / 3, 1.0, [P, F, F], [P, P, P]),
-        _tc("Commits a bug fix", 1 / 3, 1.0, [F, P, F], [P, P, P]),
+        _tc("Writes a conventional commit message", 1 / 3, 1.0, [P, F, F], [P, P, P]),
+        _tc(
+            "Keeps the subject line under 72 characters",
+            1 / 3,
+            1.0,
+            [F, P, F],
+            [P, P, P],
+        ),
     ]
     a_avg = sum(tc.a_score for tc in matched) / len(matched)
     b_avg = sum(tc.b_score for tc in matched) / len(matched)
@@ -105,7 +111,7 @@ def _ablation_example() -> RunComparison:
     return RunComparison(
         a=ablated_run,
         b=full_run,
-        a_label="without commit-commands",
+        a_label="without commit-writer",
         b_label="full neighbourhood",
         matched=matched,
         unmatched_a=[],

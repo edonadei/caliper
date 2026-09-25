@@ -51,8 +51,9 @@ codex's `mcp__<server>__<tool>` naming — the *same doubled-underscore form* as
 claude-code, unlike hermes' single-underscore spelling. Because codex seeds each
 attempt from the user's real `~/.codex/config.toml`, its `[mcp_servers.*]` tables
 are normalized to *exactly* the declared set (an empty set when no `mcp:` block),
-so an attempt never inherits the user's ambient personal MCP servers — the same
-tool-environment neutralization hermes performs, needed here despite codex being
+so an isolated attempt never loads the user's personal MCP servers (a run
+loads them by default: [[user customizations]]) — the same tool-environment
+neutralization hermes performs, needed here despite codex being
 stateless because the leak comes from seeding the real config, not from agent
 state. `pi` will *never* honor `mcp:`
 natively — its agent has no MCP by design (see [[pi-mcp-unsupported-by-design]]),
@@ -61,6 +62,19 @@ CLI tool the skill drives, or as a pi extension. `pi` is now the only backend
 that refuses `mcp:`, and its refusal is permanent by design — not the
 "not-yet-implemented" placeholder codex used before it gained support.
 _Avoid_: MCP config, tool server.
+
+## User customizations
+
+What a backend's CLI loads from the user's own setup rather than from the
+[[eval spec]]: today the MCP servers in the user's CLI config and the account's
+hosted connectors; later also user skills, plugins, rules and settings. A run
+loads them by default, beside the [[MCP server (declared)|declared servers]].
+What gets loaded depends on the machine, not the spec, and a user's server is
+never an [[ablation]] subject. The opposite is an *isolated* run, which sees
+only the declared servers: what a portable score needs (see
+[[0028-runs-load-user-customizations-by-default]]).
+_Avoid_: inherited MCP, ambient MCP, account MCP, connectors (only part of it),
+default MCP ("default" is the engine), extensions (misses rules and settings).
 
 ## Engine as runtime axis
 
@@ -106,8 +120,9 @@ the [[eval spec]]'s declared [[skill neighbourhood]] — the closure that makes
 [[activation]] measurable. Normalization also extends to the tool
 environment: hermes' `mcp_servers` is set to *exactly* the spec's declared
 [[MCP server (declared)|servers]] — an empty set when the spec declares no
-`mcp:` — so an attempt never inherits the user's ambient personal MCP servers
-from the seeded config. Normalized, it is a [[flat backend]] like any
+`mcp:` — so an isolated attempt never loads the user's personal MCP servers
+from the seeded config (a run loads them by default:
+[[user customizations]]). Normalized, it is a [[flat backend]] like any
 other. The contrast is with `claude-code`/`codex`/`pi`, which are stateless by
 default and need no normalization.
 

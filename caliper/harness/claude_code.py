@@ -20,7 +20,7 @@ from caliper.harness.prompt_failure import (
     PromptFailureKind,
     classify_claude_api_error_status,
 )
-from caliper.harness.mcp import resolve_servers
+from caliper.harness.mcp import merge_user_servers, resolve_servers
 from caliper.schema.results import TokenUsage
 
 
@@ -80,12 +80,35 @@ class ClaudeCodeHarness(CliHarness):
     def _prepare(self, ctx: RunContext) -> None:
         (Path(ctx.isolated_home) / ".claude").mkdir(parents=True, exist_ok=True)
 
-        # On macOS, OAuth credentials may live in the Keychain rather than in
-        # .credentials.json. Seed the isolated home so the subprocess can auth
-        # without a browser login flow.
-        creds_dst = self._credentials_file(ctx)
-        if sys.platform == "darwin" and not creds_dst.exists():
-            self._seed_credentials_from_keychain(creds_dst)
+        # On macOS the CLI reads its OAuth credentials from the Keychain first,
+        # so a Keychain entry replaces the seeded .credentials.json, which may
+        # be a stale leftover (#180). Without an entry the seeded file stays.
+        if sys.platform == "darwin":
+            self._seed_credentials_from_keychain(self._credentials_file(ctx))
+
+        if ctx.user_customizations and ctx.spec_mcp_names:
+            self._drop_shadowed_user_servers(ctx)
+
+    def _drop_shadowed_user_servers(self, ctx: RunContext) -> None:
+        """Take the spec's names out of the isolated ``.claude.json``'s servers.
+
+        So the only server by a declared name is the one ``--mcp-config``
+        supplies (or none, if ablated), whatever order the CLI merges its scopes
+        in (docs/adr/0028). The user's real file is never touched.
+        """
+        path = Path(ctx.isolated_home) / ".claude.json"
+        try:
+            config = json.loads(path.read_text())
+        except (OSError, ValueError):
+            return
+        if not isinstance(config, dict) or not isinstance(
+            config.get("mcpServers"), dict
+        ):
+            return
+        kept = merge_user_servers(config["mcpServers"], {}, ctx)
+        if kept != config["mcpServers"]:
+            config["mcpServers"] = kept
+            path.write_text(json.dumps(config, indent=2))
 
     def _command(
         self, ctx: RunContext
@@ -109,7 +132,11 @@ class ClaudeCodeHarness(CliHarness):
         # never the account's claude.ai connectors, which the seeded login
         # brings along otherwise (docs/adr/0026). The config file (which may hold
         # resolved secrets) lives in the 0700 run tempdir, never argv.
-        cmd += ["--mcp-config", str(mcp_config), "--strict-mcp-config"]
+        cmd += ["--mcp-config", str(mcp_config)]
+        # Loading user customizations drops it, so the declared servers merge
+        # with the user's own and the account's connectors (docs/adr/0028).
+        if not ctx.user_customizations:
+            cmd.append("--strict-mcp-config")
 
         if ctx.model:
             cmd += ["--model", ctx.model]
@@ -128,7 +155,8 @@ class ClaudeCodeHarness(CliHarness):
 
         No ``mcp:`` block, an authored ``mcp: {}``, and a block whose servers
         were all ablated all write an empty ``mcpServers``: the attempt sees zero
-        servers rather than whatever the seeded user config and account carry.
+        servers of the spec's; the user's own are added only when loading user
+        customizations (see ``_command``).
         """
         servers: dict[str, dict] = {}
         for name, resolved in resolve_servers(ctx.mcp_servers or {}).items():
@@ -351,6 +379,37 @@ class ClaudeCodeHarness(CliHarness):
         if out:
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_text(out)
+            dst.chmod(0o600)
+
+    def _loaded_user_customizations(
+        self, proc: ProcessResult, ctx: RunContext
+    ) -> list[str] | None:
+        """Every server the CLI's ``init`` event lists, whatever its status.
+
+        The record is what the attempt was given, not what happened to connect.
+        ``None`` when no ``init`` event arrived.
+        """
+        for line in proc.stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(event, dict) and (
+                event.get("type"),
+                event.get("subtype"),
+            ) == (
+                "system",
+                "init",
+            ):
+                servers = event.get("mcp_servers")
+                if not isinstance(servers, list):
+                    return None
+                return [
+                    s["name"]
+                    for s in servers
+                    if isinstance(s, dict) and isinstance(s.get("name"), str)
+                ]
+        return None
 
     def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
         """Read the ``result`` event's ``usage``. Claude's ``input_tokens`` is

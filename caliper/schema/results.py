@@ -202,6 +202,14 @@ class RunMeta(BaseModel):
     # drift is a separate concern. See
     # docs/adr/0025-ablation-covers-mcp-servers.md.
     mcp_servers: list[str] | None = None
+    # Whether the attempts loaded the user's customizations; ``False`` when
+    # isolated, on a backend without MCP, and on runs saved before the field.
+    # Kept apart from ``mcp_servers``, which ablation pairing reads as the
+    # spec's own set (docs/adr/0028).
+    user_customizations: bool = False
+    # Every name any attempt loaded, declared servers excluded. ``None`` =
+    # unknown, so ``[]`` means "loaded, and there were none".
+    loaded_user_customizations: list[str] | None = None
     # The judge engine that graded this run. Optional so results saved before
     # judge provenance was recorded still load (they render as an unknown judge).
     judge_backend: str | None = None
@@ -1052,6 +1060,12 @@ class RunComparison(BaseModel):
     # ``mcp_servers`` existed cannot be compared on this axis. Silent on a
     # recognised ablation pair, whose difference *is* the experiment.
     mcp_mismatch: bool = False
+    # One run loaded user customizations and the other didn't, or both did
+    # and recorded different ones. A warning, like ``mcp_mismatch``.
+    user_customizations_mismatch: bool = False
+    # Different backends with user customizations: part of the delta is each
+    # CLI's own setup. An isolated pair is the harness comparison.
+    cross_backend_user_customizations: bool = False
     # Members installed by both runs whose *text* differs — the complement of
     # ``neighbourhood_mismatch``, which is a change in *membership*. Every
     # drifted member is recorded here; only the git-sourced ones also raise a

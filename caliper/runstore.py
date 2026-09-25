@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from caliper.schema.results import RunResults
+from caliper.schema.spec import spec_name
 
 #: Caliper's own directory, and the marker that says "a results root is here".
 CALIPER_DIR = ".caliper"
@@ -127,6 +128,12 @@ class RunStore:
         searched, because a *discovered* root is the one thing the caller cannot
         see (docs/CONTEXT.md → Results root).
         """
+        path = Path(ref)
+        if path.is_file() and path.suffix != ".json" and not ref.endswith(".eval.yaml"):
+            return (
+                f"{ref} is not a results file.\n\n"
+                "Pass a spec name, its .eval.yaml path, or a results .json."
+            )
         if not self.has_any_results():
             return (
                 f"No evaluation results under {self.root}.\n\n"
@@ -193,6 +200,15 @@ class RunStore:
         except Exception as exc:
             raise UnreadableRun(path, exc) from exc
 
+    @staticmethod
+    def spec_ref(ref: str) -> str:
+        """The spec name a reference means: a ``.eval.yaml`` path becomes its name.
+
+        So the path handed to ``caliper run`` also works for ``report``,
+        ``compare`` and ``list``, which file runs by spec name.
+        """
+        return spec_name(Path(ref)) if ref.endswith(".eval.yaml") else ref
+
     def resolve(self, spec_or_file: str, run: str | None = None) -> Path | None:
         """Resolve a run reference to a path, or ``None`` when there is no such run.
 
@@ -203,6 +219,7 @@ class RunStore:
         if path.suffix == ".json":
             return path if path.exists() else None
 
+        spec_or_file = self.spec_ref(spec_or_file)
         if run:
             candidate = self.spec_dir(spec_or_file) / f"{run}.json"
             return candidate if candidate.exists() else None

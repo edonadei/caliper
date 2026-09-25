@@ -6,7 +6,7 @@
 
 ## Updating docs after API changes
 
-When any of the following change, update all three locations before marking the task done:
+When any of the following change, update every location below that covers it before marking the task done:
 
 - A `caliper run` CLI flag is added, removed, or renamed
 - The `.eval.yaml` spec format changes (new fields, removed fields, renamed keys)
@@ -15,9 +15,12 @@ When any of the following change, update all three locations before marking the 
 
 **Locations to update:**
 
-1. `README.md` — CLI reference table and any relevant prose sections
-2. `skills/evaluate-skill/REFERENCE.md` — the source skill reference
-3. `skills/grill-skill/REFERENCE.md` — the grill-skill reference
+1. `README.md` — CLI reference table, exit codes, and any relevant prose sections
+2. `docs/spec-reference.md` — the full `.eval.yaml` format and judging rules
+3. `docs/backends.md` — backend setup, `--model` syntax, MCP support by backend
+4. `docs/results.md` — scoring, `caliper compare`, and the results JSON schema
+5. `skills/evaluate-skill/REFERENCE.md` — the source skill reference
+6. `skills/grill-skill/REFERENCE.md` — the grill-skill reference
 
 ## Formatting
 

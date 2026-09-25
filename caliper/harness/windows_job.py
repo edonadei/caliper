@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import subprocess
+import time
 from ctypes import wintypes
 
 import psutil
@@ -25,6 +26,29 @@ _kernel32.ResumeThread.argtypes = (wintypes.HANDLE,)
 _kernel32.ResumeThread.restype = wintypes.DWORD
 _kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
 _kernel32.CloseHandle.restype = wintypes.BOOL
+_kernel32.QueryInformationJobObject.argtypes = (
+    wintypes.HANDLE,
+    ctypes.c_int,
+    wintypes.LPVOID,
+    wintypes.DWORD,
+    wintypes.LPDWORD,
+)
+_kernel32.QueryInformationJobObject.restype = wintypes.BOOL
+
+_JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION = 1
+
+
+class _BasicAccounting(ctypes.Structure):
+    _fields_ = [
+        ("TotalUserTime", wintypes.LARGE_INTEGER),
+        ("TotalKernelTime", wintypes.LARGE_INTEGER),
+        ("ThisPeriodTotalUserTime", wintypes.LARGE_INTEGER),
+        ("ThisPeriodTotalKernelTime", wintypes.LARGE_INTEGER),
+        ("TotalPageFaultCount", wintypes.DWORD),
+        ("TotalProcesses", wintypes.DWORD),
+        ("ActiveProcesses", wintypes.DWORD),
+        ("TotalTerminatedProcesses", wintypes.DWORD),
+    ]
 
 
 def assign_and_resume(process: subprocess.Popen) -> int:
@@ -52,10 +76,31 @@ def assign_and_resume(process: subprocess.Popen) -> int:
         raise
 
 
-def close(job: int) -> None:
-    """End every process in the job, including children of an exited launcher."""
+def close(job: int, timeout: float = 2.0) -> None:
+    """End every process in the job, including children of an exited launcher.
+
+    ``TerminateJobObject`` only starts the termination, so wait (up to
+    ``timeout``) until the job reports no active process, as the POSIX branch
+    waits on its process group: a caller that returns must leave no survivor.
+    """
     try:
         if not _kernel32.TerminateJobObject(job, 1):
             raise ctypes.WinError(ctypes.get_last_error())
+        deadline = time.monotonic() + timeout
+        while _active_processes(job) and time.monotonic() < deadline:
+            time.sleep(0.01)
     finally:
         _kernel32.CloseHandle(job)
+
+
+def _active_processes(job: int) -> int:
+    info = _BasicAccounting()
+    if not _kernel32.QueryInformationJobObject(
+        job,
+        _JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION,
+        ctypes.byref(info),
+        ctypes.sizeof(info),
+        None,
+    ):
+        return 0  # Unqueryable: nothing more to wait on.
+    return info.ActiveProcesses

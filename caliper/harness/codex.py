@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 import tempfile
 from pathlib import Path
 from typing import Callable
 
 import tomli_w
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10, where tomllib is not yet stdlib
+    import tomli as tomllib
 
 from caliper.harness.base import (
     ConversationTurn,
@@ -17,7 +23,7 @@ from caliper.harness.base import (
     PromptResult,
     RunContext,
 )
-from caliper.harness.mcp import resolve_servers
+from caliper.harness.mcp import merge_user_servers, resolve_servers
 from caliper.schema.results import TokenUsage
 
 CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
@@ -25,8 +31,14 @@ CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
 # The ChatGPT login in auth.json carries the account's hosted connectors
 # (mcp__codex_apps__*) and remote plugins, which stripping [mcp_servers] can't
 # reach. A -c override beats any [features] table in the seeded config.toml,
-# so neither an attempt nor the judge sees them (docs/adr/0026).
+# so neither an isolated attempt nor the judge sees them (docs/adr/0026); an
+# attempt loading user customizations leaves them on (docs/adr/0028).
 NO_ACCOUNT_CONNECTORS = ("-c", "features.apps=false", "-c", "features.plugins=false")
+
+# The server name codex's hosted connectors surface under
+# (``mcp__codex_apps__<tool>``), recorded as one server: caliper can't list the
+# connectors behind it.
+CODEX_APPS_SERVER = "codex_apps"
 
 
 class CodexHarness(CliHarness):
@@ -66,11 +78,19 @@ class CodexHarness(CliHarness):
         return [(real / "auth.json", codex_home / "auth.json")]
 
     def _prepare(self, ctx: RunContext) -> None:
-        self._materialize_config(
-            ctx,
-            Path(ctx.isolated_home) / ".codex",
-            Path.home() / ".codex" / "config.toml",
-        )
+        real = Path.home() / ".codex"
+        codex_home = Path(ctx.isolated_home) / ".codex"
+        self._materialize_config(ctx, codex_home, real / "config.toml")
+        # Installed plugins, and the MCP servers they bring, live in this
+        # directory rather than in config.toml; a copy keeps the user's own
+        # untouched (docs/adr/0028).
+        if ctx.user_customizations and (real / "plugins").is_dir():
+            shutil.copytree(
+                real / "plugins",
+                codex_home / "plugins",
+                symlinks=True,
+                dirs_exist_ok=True,
+            )
 
     def _command(
         self, ctx: RunContext
@@ -88,12 +108,26 @@ class CodexHarness(CliHarness):
             "--dangerously-bypass-approvals-and-sandbox",
             "--color",
             "never",
-            *NO_ACCOUNT_CONNECTORS,
+            *self._connector_overrides(ctx),
             "-",
         ]
         if ctx.model:
             cmd[2:2] = ["--model", ctx.model]
         return cmd, full_prompt, None
+
+    @staticmethod
+    def _connector_overrides(ctx: RunContext) -> tuple[str, ...]:
+        """The ``-c`` overrides that keep the account's connectors out, if any.
+
+        All of them when isolated. When loading user customizations, only the
+        hosted apps, and only if the spec declares a ``codex_apps`` of its own:
+        the spec wins a name clash, ablated or not (docs/adr/0028).
+        """
+        if not ctx.user_customizations:
+            return NO_ACCOUNT_CONNECTORS
+        if CODEX_APPS_SERVER in ctx.spec_mcp_names:
+            return ("-c", "features.apps=false")
+        return ()
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
         return self._isolated_env(ctx)
@@ -314,37 +348,38 @@ class CodexHarness(CliHarness):
     def _materialize_config(
         self, ctx: RunContext, codex_home: Path, real_config: Path
     ) -> None:
-        """Seed the isolated ``config.toml``: stripped user config + declared MCP.
+        """Seed the isolated ``config.toml`` from the user's, parsed and rewritten.
 
-        The user's real config is copied minus its top-level ``model =`` line and
-        minus any ``[mcp_servers*]`` tables it carries; the declared ``mcp:``
-        servers are then serialized as a fresh ``[mcp_servers.*]`` block. Rewriting
-        the section wholesale is the tool-environment normalization: an attempt
-        sees only the spec's servers, never the user's ambient personal ones — even
-        though codex is otherwise stateless, because the leak comes from seeding the
-        real config. When neither a real config nor a declared server exists,
-        nothing is written (the CLI falls back to its own defaults). The file may
-        now hold resolved secrets, so it is kept ``0600``.
+        The top-level ``model`` is dropped, so the seeded config never pins a
+        model over the invocation (docs/adr/0012), and ``mcp_servers`` becomes
+        :func:`merge_user_servers` of the user's and the declared ones
+        (docs/adr/0028). Parsing rather than line-editing handles every TOML
+        spelling of a server. Nothing is written when there is neither a real
+        config nor a declared server. Kept ``0600``: it may hold resolved secrets.
         """
-        base = ""
-        real_exists = real_config.exists()
-        if real_exists:
-            base = self._strip_seeded_config(real_config.read_text())
         servers = self._translate_mcp_servers(ctx)
-
+        real_exists = real_config.exists()
         if not real_exists and not servers:
             return
 
-        parts: list[str] = []
-        if base.strip():
-            parts.append(base.rstrip("\n"))
-        if servers:
-            parts.append(tomli_w.dumps({"mcp_servers": servers}).rstrip("\n"))
-        content = "\n\n".join(parts) + "\n" if parts else ""
+        config: dict = {}
+        if real_exists:
+            try:
+                config = tomllib.loads(real_config.read_text())
+            except tomllib.TOMLDecodeError as exc:
+                raise HarnessConfigurationError(
+                    f"Codex's config at {real_config} is not valid TOML ({exc}).\n\n"
+                    "caliper copies it into each attempt, and codex would refuse "
+                    "it there too. Fix the file, then rerun caliper."
+                ) from exc
+        config.pop("model", None)
+        merged = merge_user_servers(config.pop("mcp_servers", None), servers, ctx)
+        if merged:
+            config["mcp_servers"] = merged
 
         codex_home.mkdir(parents=True, exist_ok=True)
         dst = codex_home / "config.toml"
-        dst.write_text(content)
+        dst.write_text(tomli_w.dumps(config))
         dst.chmod(0o600)
 
     def _translate_mcp_servers(self, ctx: RunContext) -> dict[str, dict]:
@@ -367,38 +402,28 @@ class CodexHarness(CliHarness):
             servers[name] = entry
         return servers
 
-    def _strip_seeded_config(self, config: str) -> str:
-        """Drop the top-level ``model =`` line and every ``[mcp_servers*]`` table.
+    def _loaded_user_customizations(
+        self, proc: ProcessResult, ctx: RunContext
+    ) -> set[str] | None:
+        """The servers in the ``config.toml`` the attempt ran with, plus hosted apps.
 
-        The model line is stripped so the seeded config never pins a model over the
-        caliper invocation; the ``mcp_servers`` tables are stripped so the user's
-        ambient personal servers are replaced (in ``_materialize_config``) by
-        exactly the declared set. Line-based on purpose: it needs no TOML *reader*
-        (unavailable on the 3.10 floor) and mirrors codex's own table layout.
+        The hosted apps surface as one server, ``codex_apps``, and only for a
+        ChatGPT login whose config leaves ``apps`` on. Such a login's plugins
+        bring tools caliper can't list, so with plugins on the set is unknown.
         """
-        filtered: list[str] = []
-        in_table = False
-        dropping_mcp = False
-        for line in config.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("["):
-                in_table = True
-                dropping_mcp = self._is_mcp_servers_header(stripped)
-            if dropping_mcp:
-                continue
-            if not in_table and stripped.startswith("model ="):
-                continue
-            filtered.append(line)
-        return "\n".join(filtered) + ("\n" if config.endswith("\n") else "")
-
-    @staticmethod
-    def _is_mcp_servers_header(stripped: str) -> bool:
-        """True for a ``[mcp_servers]``/``[mcp_servers.x]``/``[[mcp_servers…]]`` header."""
-        return (
-            stripped == "[mcp_servers]"
-            or stripped.startswith("[mcp_servers.")
-            or stripped.startswith("[[mcp_servers")
-        )
+        codex_home = Path(ctx.isolated_home) / ".codex"
+        config_path = codex_home / "config.toml"
+        config = tomllib.loads(config_path.read_text()) if config_path.exists() else {}
+        servers = config.get("mcp_servers")
+        names = set(servers) if isinstance(servers, dict) else set()
+        features = config.get("features")
+        features = features if isinstance(features, dict) else {}
+        if _chatgpt_login(codex_home / "auth.json"):
+            if features.get("plugins") is not False:
+                return None
+            if features.get("apps") is not False:
+                names.add(CODEX_APPS_SERVER)
+        return names
 
     def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
         if proc.returncode == 0:
@@ -515,3 +540,17 @@ def _error_message_from_json(candidate: str) -> str | None:
         if isinstance(message, str) and message:
             return message
     return None
+
+
+def _chatgpt_login(auth_path: Path) -> bool:
+    """True when ``auth.json`` holds a ChatGPT login, the only kind with apps.
+
+    A ChatGPT login stores OAuth ``tokens``; an API-key login does not, and
+    brings no hosted connectors. Unreadable or absent counts as no login, so a
+    connector set caliper cannot vouch for is never recorded.
+    """
+    try:
+        auth = json.loads(auth_path.read_text())
+    except (OSError, ValueError):
+        return False
+    return isinstance(auth, dict) and bool(auth.get("tokens"))

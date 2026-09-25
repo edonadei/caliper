@@ -220,10 +220,68 @@ def test_a_spec_that_is_not_a_mapping_says_so(tmp_path, text, message) -> None:
         load_spec(_write(tmp_path, text))
 
 
-@pytest.mark.parametrize("text", ["tasks:\n", "tasks: [foo]\n"])
-def test_a_malformed_tasks_list_is_a_schema_error(tmp_path, text) -> None:
-    with pytest.raises(ValidationError):
+@pytest.mark.parametrize(
+    "text, message",
+    [
+        ("tasks:\n", "`tasks:` must be a list of tasks, not nothing"),
+        ("tasks: go\n", "`tasks:` must be a list of tasks, not a string"),
+        ("tasks: [foo]\n", "task 1 must be a mapping with `name:` and `prompt:`"),
+    ],
+)
+def test_a_malformed_tasks_list_says_what_shape_it_needs(
+    tmp_path, text, message
+) -> None:
+    with pytest.raises(ValueError, match=message):
         load_spec(_write(tmp_path, text))
+
+
+@pytest.mark.parametrize(
+    "prefix, shown",
+    [
+        ("user_customizations: true\n", "user_customizations: true"),
+        ("user_customizations: false\n", "user_customizations: false"),
+        ("", None),
+    ],
+)
+def test_validate_shows_an_explicit_user_customizations_setting(
+    tmp_path, prefix, shown
+) -> None:
+    result = CliRunner().invoke(
+        app, ["validate", str(_write(tmp_path, prefix + _TASK))]
+    )
+    assert result.exit_code == 0, result.output
+    if shown:
+        assert shown in result.output
+    else:
+        assert "user_customizations" not in result.output
+
+
+def test_every_smoke_eval_pins_isolation() -> None:
+    # Runs load user customizations by default (docs/adr/0028); a smoke eval
+    # measures the backend, and its #129 probe tasks assert zero undeclared MCP
+    # tools, so each one must opt out explicitly.
+    from pathlib import Path
+
+    smoke = sorted(Path(__file__).parent.glob("*-smoke.eval.yaml"))
+    assert smoke
+    for path in smoke:
+        assert load_spec(path).user_customizations is False, path.name
+
+
+def test_no_repo_eval_hook_relies_on_pwd() -> None:
+    # Hooks run in the attempt workdir, so $PWD is never the repo or spec dir;
+    # $CALIPER_SPEC_DIR is (docs/spec-reference.md).
+    from pathlib import Path
+
+    root = Path(__file__).parent.parent
+    specs = [
+        p for p in root.rglob("*.eval.yaml") if not {".venv", ".caliper"} & set(p.parts)
+    ]
+    assert specs
+    for path in specs:
+        for task in load_spec(path).tasks:
+            for hook in (task.setup, task.cleanup):
+                assert "$PWD" not in (hook or ""), f"{path.name}: {task.name}"
 
 
 def test_a_spec_needs_at_least_one_task(tmp_path) -> None:

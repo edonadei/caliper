@@ -10,7 +10,7 @@ import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import IO, Callable
+from typing import IO, Callable, Iterable
 
 from caliper import cancel
 from caliper.harness.prompt_failure import (
@@ -70,6 +70,9 @@ class AttemptResult:
     # a provider signal is told apart from an agent *writing about* one
     # (docs/adr/0019).
     salvaged: bool = False
+    # The user customizations this attempt loaded, by name, declared servers
+    # excluded. ``None`` when isolated or when the backend can't tell (docs/adr/0028).
+    loaded_user_customizations: list[str] | None = None
 
 
 @dataclass
@@ -109,6 +112,13 @@ class RunContext:
     # no ``mcp:`` block; an empty mapping means it had one whose servers were all
     # ablated, which a backend still isolates to zero servers.
     mcp_servers: dict[str, McpServer] | None = None
+    # Load the user's own MCP servers and connectors beside ``mcp_servers``.
+    # ``False`` here: the run seam resolves the product default, so any other
+    # context (the judge's) stays isolated (docs/adr/0028).
+    user_customizations: bool = False
+    # Every name the spec's ``mcp:`` declares, ablated ones included: a user's
+    # server never takes one of them (docs/adr/0028).
+    spec_mcp_names: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         """The context owns its lists, and tolerates ``None`` for the optional ones.
@@ -126,6 +136,9 @@ class RunContext:
         self.skill_refs = list(self.skill_refs or [])
         self.extra_path = list(self.extra_path or [])
         self.forbidden_files = list(self.forbidden_files or [])
+        self.spec_mcp_names = frozenset(self.spec_mcp_names) | frozenset(
+            self.mcp_servers or {}
+        )
 
 
 @dataclass
@@ -398,6 +411,7 @@ class CliHarness(HarnessBackend):
             usage=self._safe_usage(proc, ctx),
             cancelled=proc.cancelled,
             salvaged=not parsed,
+            loaded_user_customizations=self._recorded_customizations(proc, ctx),
         )
 
     def run_prompt(
@@ -477,8 +491,9 @@ class CliHarness(HarnessBackend):
         Runs after :meth:`_seed_home`, so a backend that has to *rewrite* a
         config (codex's stripped ``config.toml``, hermes' normalized
         ``mcp_servers``) sees the verbatim copy already in place, and so
-        claude-code can tell whether credentials were seeded before it falls
-        back to the Keychain. That order is part of the contract (docs/adr/0020).
+        claude-code's Keychain credentials replace a seeded ``.credentials.json``
+        rather than being overwritten by it. That order is part of the contract
+        (docs/adr/0020).
         """
 
     @abstractmethod
@@ -582,6 +597,33 @@ class CliHarness(HarnessBackend):
         docstring for the disjoint-fields contract).
         """
         return None
+
+    def _loaded_user_customizations(
+        self, proc: ProcessResult, ctx: RunContext
+    ) -> Iterable[str] | None:
+        """The MCP server names this attempt had, where the backend can see them.
+
+        Only asked when the attempt loaded user customizations; may include the
+        spec's own servers, which :meth:`_recorded_customizations` removes.
+        Default: ``None``, "unknown".
+        """
+        return None
+
+    def _recorded_customizations(
+        self, proc: ProcessResult, ctx: RunContext
+    ) -> list[str] | None:
+        """What ``AttemptResult.loaded_user_customizations`` records.
+
+        ``None`` when isolated or unknown, and when reading fails: like
+        :meth:`_safe_usage`, a provenance record must not sink the attempt.
+        """
+        if not ctx.user_customizations:
+            return None
+        try:
+            names = self._loaded_user_customizations(proc, ctx)
+        except Exception:
+            return None
+        return None if names is None else sorted(set(names) - ctx.spec_mcp_names)
 
     def _safe_usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
         """Extract usage, but never let a token-accounting failure sink an attempt.
