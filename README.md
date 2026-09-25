@@ -206,9 +206,9 @@ assertion or judge reason *why*. Full results are saved as JSON under
 
 ### Not sure what to put in a spec?
 
-The **[Eval Starter Pack](examples/starter-pack/)** has four copy-paste
+The **[Eval Starter Pack](examples/starter-pack/)** has five copy-paste
 templates, each catching a real agent failure (false success, tool misuse,
-runaway loops, prompt regressions). Every template runs green as-is against a
+runaway loops, prompt regressions, stale context treated as current). Every template runs green as-is against a
 bundled example, then points at your own skill by editing two or three
 commented lines.
 

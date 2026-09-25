@@ -117,10 +117,10 @@ cd ../05-context-boundary  && caliper run context-boundary.eval.yaml --k 3
 
 Each template marks the lines you edit with a `👉 EDIT` comment — follow the
 numbered markers and you'll catch every line that needs changing (watch for the
-side-effect path, which can appear in `setup`, `cleanup`, `prompt`, and
-`assert` at once). The edits boil down to:
+side-effect path, which can appear in both `prompt` and `assert`). The edits
+boil down to:
 
-1. **`skill.path`** — point it at your own `SKILL.md` (or delete it to test the
+1. **`skills:`** — point it at your own `SKILL.md` (or delete it to test the
    bare agent with no skill).
 2. **`tasks[].prompt`** (and the matching `expect:`/`assert:`) — describe a real
    request and what a correct result looks like for *your* skill.
@@ -128,6 +128,12 @@ side-effect path, which can appear in `setup`, `cleanup`, `prompt`, and
 The agent itself isn't in the template — pass it at run time with `--model`
 (`claude-code`, `codex`, `pi`, or a `backend:model` pair); it defaults to
 `claude-code`.
+
+Every attempt runs in its own fresh, empty workdir, and `setup:`, the agent,
+and `assert:` all share it. So the templates use relative paths like `note.txt`:
+no leftover file from an earlier run can fake a pass, and parallel attempts
+never touch each other's files. If your task needs starting files, create them
+in `setup:`.
 
 For templates 2 and 3, the fake tool under `bin/` is a stand-in so the example
 runs without any external service. When you switch to your own agent, delete the

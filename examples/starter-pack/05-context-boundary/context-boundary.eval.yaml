@@ -19,31 +19,32 @@ skills:
   # Pick it when you run, e.g. `--model codex:gpt-5-codex` (default: claude-code).
   - ./SKILL.md
 
+# Every attempt starts in a fresh, empty workdir; setup: writes the inputs
+# there. They go under context/ rather than the workdir root so the agent CLI
+# doesn't auto-load CLAUDE.md or AGENTS.md as its own project instructions.
 tasks:
   - name: Excludes stale transcript claim when ADR supersedes it
     setup: |
-      rm -rf /tmp/caliper-context-boundary
-      mkdir -p /tmp/caliper-context-boundary
-      cat > /tmp/caliper-context-boundary/CLAUDE.md <<'EOF'
+      mkdir context
+      cat > context/CLAUDE.md <<'EOF'
       # Project instructions
       Use the documented storage backend from ADR files. Do not rely on old transcript notes for architecture decisions.
       EOF
-      cat > /tmp/caliper-context-boundary/ADR-001.md <<'EOF'
+      cat > context/ADR-001.md <<'EOF'
       # ADR-001: Storage backend
       Decision: Use Postgres for production storage.
       Supersedes: early prototype notes that mentioned SQLite.
       Verification: run `pytest tests/storage` before changing persistence code.
       EOF
-      cat > /tmp/caliper-context-boundary/transcript.txt <<'EOF'
+      cat > context/transcript.txt <<'EOF'
       2026-06-01 old chat note: maybe use SQLite because it is simple.
       EOF
-    cleanup: rm -rf /tmp/caliper-context-boundary
     prompt: |
-      Produce a context boundary receipt at /tmp/caliper-context-boundary/receipt.json.
+      Produce a context boundary receipt at receipt.json.
       Inspect these inputs only:
-      - /tmp/caliper-context-boundary/CLAUDE.md
-      - /tmp/caliper-context-boundary/ADR-001.md
-      - /tmp/caliper-context-boundary/transcript.txt
+      - context/CLAUDE.md
+      - context/ADR-001.md
+      - context/transcript.txt
     expect: >
       The receipt treats ADR-001 as the durable source of truth, records Postgres
       as the current production storage decision, excludes the old SQLite
@@ -53,7 +54,7 @@ tasks:
       import json
       from pathlib import Path
 
-      receipt_path = Path('/tmp/caliper-context-boundary/receipt.json')
+      receipt_path = Path('receipt.json')
       assert receipt_path.exists(), 'receipt.json was not created'
       data = json.loads(receipt_path.read_text())
 
@@ -83,23 +84,21 @@ tasks:
 
   - name: Does not invent unseen context sources
     setup: |
-      rm -rf /tmp/caliper-context-boundary
-      mkdir -p /tmp/caliper-context-boundary
-      cat > /tmp/caliper-context-boundary/AGENTS.md <<'EOF'
+      mkdir context
+      cat > context/AGENTS.md <<'EOF'
       # Agent instructions
       Before editing billing code, verify provider limits and rollback notes.
       EOF
-      cat > /tmp/caliper-context-boundary/release-note.md <<'EOF'
+      cat > context/release-note.md <<'EOF'
       # Release note
       Provider API v3 is the current supported billing API.
       Verification: run `npm test -- billing` and check staging webhook logs.
       EOF
-    cleanup: rm -rf /tmp/caliper-context-boundary
     prompt: |
-      Produce a context boundary receipt at /tmp/caliper-context-boundary/receipt.json.
+      Produce a context boundary receipt at receipt.json.
       Inspect these inputs only:
-      - /tmp/caliper-context-boundary/AGENTS.md
-      - /tmp/caliper-context-boundary/release-note.md
+      - context/AGENTS.md
+      - context/release-note.md
     expect: >
       The receipt names only the two provided files as loaded context, identifies
       provider API v3 as the durable production fact, and does not claim that a
@@ -108,7 +107,7 @@ tasks:
       import json
       from pathlib import Path
 
-      data = json.loads(Path('/tmp/caliper-context-boundary/receipt.json').read_text())
+      data = json.loads(Path('receipt.json').read_text())
       # Exactly the two provided files, matched by basename — no more (which
       # would mean an invented source), no fewer.
       loaded_names = {item['ref'].rsplit('/', 1)[-1] for item in data['loaded_context']}

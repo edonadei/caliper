@@ -5,6 +5,8 @@
 #
 # When you point this template at your own agent, replace this with whatever
 # tool or step you want to bound, and make the assert count your real signal.
-echo "called $(date +%s%N)" >> "${CALIPER_FETCH_LOG:-/tmp/caliper-fetch-calls.log}"
+# Logs to the directory it's called from: the agent starts in the attempt's own
+# workdir, which is where the eval's assert reads the log back.
+echo "called $(date +%s%N)" >> "${CALIPER_FETCH_LOG:-$PWD/fetch-calls.log}"
 echo "ERROR: source unavailable (HTTP 404 - permanent)" >&2
 exit 1

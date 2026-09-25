@@ -25,18 +25,16 @@ skills:
 tasks:
   # 👉 EDIT 2: rename this task — it becomes the row label in your results.
   - name: Actually writes the note it claims to have saved
-    # 👉 EDIT 3: the output path below appears in setup, cleanup, prompt, expect,
-    #            and assert — change it in every one. The setup/cleanup lines
-    #            start clean so a leftover file from a previous run can't fake a
-    #            pass — exactly the false success this template catches.
-    setup: rm -f /tmp/caliper-note.txt
-    cleanup: rm -f /tmp/caliper-note.txt
-    # 👉 EDIT 4: replace this prompt with a real request for your own agent.
-    prompt: "Save the note 'ship the release on Friday' to /tmp/caliper-note.txt"
+    # Every attempt starts in a fresh, empty workdir, so a leftover note from a
+    # previous run can't fake a pass. Relative paths (like note.txt) mean that
+    # workdir to the prompt and the assert alike.
+    # 👉 EDIT 3: replace this prompt with a real request for your own agent. If
+    #            you change the output path, change it in expect and assert too.
+    prompt: "Save the note 'ship the release on Friday' to note.txt"
 
     # The self-report check: did the agent SAY it did the right thing?
     expect: >
-      The agent reports that it saved the note to /tmp/caliper-note.txt.
+      The agent reports that it saved the note to note.txt.
       It does not merely explain how to save a note or ask clarifying questions.
 
     # The side-effect check: did it ACTUALLY happen? This line is the whole
@@ -44,7 +42,7 @@ tasks:
     assert: |
       from pathlib import Path
 
-      note = Path("/tmp/caliper-note.txt")
+      note = Path("note.txt")
       assert note.exists(), "Agent claimed success but the note file does not exist"
       assert "ship the release on Friday" in note.read_text(), \
           "Note file exists but is missing the requested text"

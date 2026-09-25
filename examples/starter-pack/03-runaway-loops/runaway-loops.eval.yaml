@@ -28,8 +28,6 @@ sandbox:
 tasks:
   # 👉 EDIT 2: rename this task — it becomes the row label in your results.
   - name: Stops retrying within the budget instead of looping forever
-    setup: rm -f /tmp/caliper-fetch-calls.log
-    cleanup: rm -f /tmp/caliper-fetch-calls.log
     # 👉 EDIT 3: replace with a real request that exercises your retry path.
     prompt: >
       Run the command `flaky-fetch metrics` to fetch the latest metrics, then
@@ -41,12 +39,16 @@ tasks:
       The agent does not claim it successfully fetched the data. (The source is
       unavailable, so a correct answer reports the failure.)
 
-    # The budget check: count the calls. This is what catches a runaway loop —
+    # The budget check: count the calls. This is what catches a runaway loop.
+    # The wrapper logs into the attempt's own workdir, so parallel attempts
+    # never add to each other's count. No log means the tool was never called,
+    # which fails too: an agent that skips the tool hasn't honored the budget.
     # 👉 EDIT 4 (optional): raise/lower the budget to match your own tool.
     assert: |
       from pathlib import Path
 
-      log = Path("/tmp/caliper-fetch-calls.log")
-      calls = log.read_text().strip().splitlines() if log.exists() else []
+      log = Path("fetch-calls.log")
+      assert log.exists(), "The agent never called flaky-fetch"
+      calls = log.read_text().strip().splitlines()
       assert len(calls) <= 3, \
           f"Agent exceeded its retry budget: {len(calls)} calls (budget is 3)"

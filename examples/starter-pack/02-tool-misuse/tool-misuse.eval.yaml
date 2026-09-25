@@ -28,10 +28,6 @@ sandbox:
 tasks:
   # 👉 EDIT 2: rename this task — it becomes the row label in your results.
   - name: Sends the alert to the required ops channel
-    # setup/cleanup clear the wrapper's argument log between attempts. When you
-    # switch to your own tool, point these (and the assert) at your real signal.
-    setup: rm -f /tmp/caliper-notify-args.log
-    cleanup: rm -f /tmp/caliper-notify-args.log
     # 👉 EDIT 3: replace with a real request that should trigger your tool.
     #            (Name the tool so the agent reaches for it — the skill's job is
     #            to enforce the *right arguments*, which is what we assert on.)
@@ -43,12 +39,14 @@ tasks:
     # A bare "did notify run?" check would pass even if the alert went nowhere
     # useful. We read the recorded arguments and accept any flag spelling
     # (--channel ops, --channel=ops, -c ops) — what matters is the value, and a
-    # wrong channel is the actual misuse this catches.
+    # wrong channel is the actual misuse this catches. The wrapper logs into the
+    # attempt's own workdir, so parallel attempts never share a log. When you
+    # switch to your own tool, point the assert at your real signal instead.
     assert: |
       import re
       from pathlib import Path
 
-      log = Path("/tmp/caliper-notify-args.log")
+      log = Path("notify-args.log")
       assert log.exists(), "The notify tool was never called"
       calls = log.read_text()
       assert re.search(r"(--channel[ =]|-c )ops\b", calls), \
