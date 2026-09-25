@@ -26,6 +26,7 @@ from caliper.reporter import (
     update_progress,
 )
 from caliper.runstore import RunStore
+from caliper.environment import choose_user_customizations
 from caliper.runner import run, AttemptEvent, RunAborted
 from caliper.schema.results import Outcome, RunResults, TaskResult
 from caliper.schema.spec import (
@@ -33,7 +34,6 @@ from caliper.schema.spec import (
     VALID_BACKENDS,
     load_spec,
     parse_target,
-    resolve_user_customizations,
     spec_name,
 )
 
@@ -228,12 +228,12 @@ def run_cmd(
     # non-interactively. Loud when a flag or the spec asked for it, named by its
     # source; one dim line when the default applied, since that is every run. A
     # backend without MCP gets the runner's no-effect warning instead.
-    loading, explicit = resolve_user_customizations(user_customizations, spec)
-    if loading and harness.supports_mcp:
-        if explicit:
+    customizations = choose_user_customizations(user_customizations, spec, harness)
+    if customizations.load:
+        if customizations.explicit:
             source = (
                 "--user-customizations"
-                if user_customizations
+                if customizations.source == "flag"
                 else "user_customizations: true (spec)"
             )
             console.print(
