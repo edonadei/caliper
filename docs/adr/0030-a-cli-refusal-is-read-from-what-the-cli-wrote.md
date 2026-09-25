@@ -12,9 +12,9 @@ patched separately with `answered()` in two callers
 ([0019](0019-an-attempt-may-be-invoked-more-than-once.md)).
 
 A refusal is now read **once**, by the harness, and **only from what the CLI
-wrote**: stderr (on a failed run, or when the agent never spoke), stdout that
-did not parse as the agent's stream, and the error events a CLI writes into its
-own stream (claude's `result` flagged `is_error`, codex's `error` and
+wrote**: stderr (on a failed run, or when the agent never spoke), plain-text
+stdout when nothing parsed as the agent's stream (never a JSON event: a stream
+echoes the prompt), and the error events a CLI writes into its own stream (claude's `result` flagged `is_error`, codex's `error` and
 `turn.failed`, pi's `stopReason: error` messages). The agent's turns are never
 read.
 
@@ -46,6 +46,7 @@ pre-judge outcome act on that field instead of matching text themselves.
 - A CLI error event after a real conversation now counts. A pi or claude run
   that talked, then hit a 429 its CLI reported, is retried; before, the answer
   it had started masked the throttle.
-- stderr after a successful run with an answer is ignored. A CLI that warns on
-  stderr during a good run, or prints the answer there (hermes), does not
-  refuse anything.
+- stderr after a successful run with an answer is ignored, so a CLI that warns
+  there during a good run refuses nothing. hermes prints its reply on stderr
+  whatever the exit code, so its stderr is ignored on any exit once the agent
+  gave a real answer.
