@@ -94,7 +94,7 @@ class HermesHarness(CliHarness):
         Hermes reads MCP servers from ``config.yaml``'s ``mcp_servers`` key, and
         the seeded config is copied verbatim from the user's real ``~/.hermes``
         — which may carry the user's *own* MCP servers. Overwriting the key
-        wholesale (and dropping ``inherit_mcp_toolsets``) is the tool-environment
+        wholesale is the tool-environment
         half of Hermes' neutralization: an attempt sees only the spec's declared
         servers, never ambient user state. When the spec declares no ``mcp:``
         block the key is removed, so a no-MCP eval runs with zero MCP servers.
@@ -103,8 +103,8 @@ class HermesHarness(CliHarness):
         in the config; the file may now hold them, so it is kept ``0600``.
 
         When loading user customizations, ``mcp_servers`` is instead
-        :func:`merge_user_servers` of the user's and the declared ones, and
-        ``inherit_mcp_toolsets`` stays (docs/adr/0028).
+        :func:`merge_user_servers` of the user's and the declared ones
+        (docs/adr/0028).
         """
         servers = self._translate_mcp_servers(ctx)
         config_path = hermes_home / "config.yaml"
@@ -113,8 +113,6 @@ class HermesHarness(CliHarness):
             loaded = yaml.safe_load(config_path.read_text())
             config = loaded if isinstance(loaded, dict) else {}
             servers = merge_user_servers(config.get("mcp_servers"), servers, ctx)
-            if not ctx.user_customizations:
-                config.pop("inherit_mcp_toolsets", None)
             if servers:
                 config["mcp_servers"] = servers
             else:
@@ -130,16 +128,10 @@ class HermesHarness(CliHarness):
     def _loaded_user_customizations(
         self, proc: ProcessResult, ctx: RunContext
     ) -> list[str] | None:
-        """The servers in the ``config.yaml`` the attempt ran with.
-
-        Unknown when ``inherit_mcp_toolsets`` is on: it brings toolsets caliper
-        can't list.
-        """
+        """The servers in the ``config.yaml`` the attempt ran with."""
         config_path = self._hermes_home(ctx) / "config.yaml"
         loaded = yaml.safe_load(config_path.read_text()) if config_path.exists() else {}
         config = loaded if isinstance(loaded, dict) else {}
-        if config.get("inherit_mcp_toolsets"):
-            return None
         servers = config.get("mcp_servers")
         return list(servers) if isinstance(servers, dict) else []
 

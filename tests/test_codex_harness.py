@@ -601,6 +601,23 @@ def test_codex_user_customizations_keeps_user_servers_and_connectors(
     assert captured["result"].loaded_user_customizations == ["codex_apps", "personal"]
 
 
+@pytest.mark.parametrize("loads", [True, False])
+def test_codex_copies_installed_plugins_only_when_loading(
+    monkeypatch, tmp_path, loads
+) -> None:
+    # Plugins, and the MCP servers they bring, live outside config.toml.
+    home = _fake_codex_home(tmp_path, _AMBIENT_CONFIG)
+    plugin = home / ".codex" / "plugins" / "cache" / "market" / "cua" / "server.json"
+    plugin.parent.mkdir(parents=True)
+    plugin.write_text("{}")
+    seeded = _run_codex_mcp(
+        monkeypatch, tmp_path, None, home=home, user_customizations=loads
+    )
+    copied = seeded.parent / "plugins" / "cache" / "market" / "cua" / "server.json"
+    assert copied.exists() is loads
+    assert plugin.exists()
+
+
 def test_codex_user_customizations_lets_the_spec_win_a_name_clash(
     monkeypatch, tmp_path
 ) -> None:

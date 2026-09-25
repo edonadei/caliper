@@ -165,7 +165,6 @@ def _fake_home_with_user_mcp(tmp_path):
     config = {
         "model": {"provider": "anthropic"},
         "mcp_servers": {"personal": {"command": "my-private-server"}},
-        "inherit_mcp_toolsets": True,
     }
     (home / ".hermes" / "config.yaml").write_text(yaml.safe_dump(config))
     return home
@@ -225,13 +224,11 @@ def test_hermes_translates_stdio_mcp_and_overwrites_user_servers(
             )
         },
     )
-    # The declared server replaces the user's ambient server wholesale, and the
-    # toolset-inheritance flag is scrubbed — the neutral tool environment.
+    # The declared server replaces the user's ambient server wholesale.
     assert config["mcp_servers"] == {
         "echo": {"command": "python3", "args": ["/tmp/echo.py"], "env": {"DEBUG": "1"}}
     }
     assert "personal" not in config["mcp_servers"]
-    assert "inherit_mcp_toolsets" not in config
 
 
 def test_hermes_translates_remote_header_auth_and_interpolates(
@@ -265,7 +262,6 @@ def test_hermes_removes_mcp_servers_when_spec_declares_none(
     config, _ = _run_hermes_mcp(monkeypatch, tmp_path, None)
     # A no-MCP eval must not inherit the user's personal servers.
     assert "mcp_servers" not in config
-    assert "inherit_mcp_toolsets" not in config
 
 
 def test_hermes_user_customizations_merges_user_servers_with_the_spec_winning(
@@ -287,9 +283,8 @@ def test_hermes_user_customizations_merges_user_servers_with_the_spec_winning(
         "personal": {"command": "spec-server"},
         "echo": {"command": "python3"},
     }
-    assert config["inherit_mcp_toolsets"] is True
-    # Loaded toolsets can't be listed, so the set is unknown, not empty.
-    assert captured["result"].loaded_user_customizations is None
+    # The user's only server was shadowed, so none of theirs was loaded.
+    assert captured["result"].loaded_user_customizations == []
 
 
 def test_hermes_user_customizations_keeps_and_records_user_servers(

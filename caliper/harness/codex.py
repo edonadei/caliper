@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -77,11 +78,19 @@ class CodexHarness(CliHarness):
         return [(real / "auth.json", codex_home / "auth.json")]
 
     def _prepare(self, ctx: RunContext) -> None:
-        self._materialize_config(
-            ctx,
-            Path(ctx.isolated_home) / ".codex",
-            Path.home() / ".codex" / "config.toml",
-        )
+        real = Path.home() / ".codex"
+        codex_home = Path(ctx.isolated_home) / ".codex"
+        self._materialize_config(ctx, codex_home, real / "config.toml")
+        # Installed plugins, and the MCP servers they bring, live in this
+        # directory rather than in config.toml; a copy keeps the user's own
+        # untouched (docs/adr/0028).
+        if ctx.user_customizations and (real / "plugins").is_dir():
+            shutil.copytree(
+                real / "plugins",
+                codex_home / "plugins",
+                symlinks=True,
+                dirs_exist_ok=True,
+            )
 
     def _command(
         self, ctx: RunContext

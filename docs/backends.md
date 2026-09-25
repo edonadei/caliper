@@ -173,8 +173,8 @@ hosted OAuth connector a spec can't declare. `--no-user-customizations`, or
 | Backend | What is loaded |
 |---|---|
 | `claude-code` | The `mcpServers` in your `~/.claude.json`, plus your claude.ai connectors (`--strict-mcp-config` is dropped) |
-| `codex` | The `[mcp_servers.*]` tables in your `~/.codex/config.toml`, plus ChatGPT apps and plugins (surfacing as `codex_apps`) |
-| `hermes` | The `mcp_servers` in your `~/.hermes/config.yaml` (and `inherit_mcp_toolsets`) |
+| `codex` | The `[mcp_servers.*]` tables in your `~/.codex/config.toml`, your installed plugins (`~/.codex/plugins`, copied into the attempt), and ChatGPT apps (surfacing as `codex_apps`) |
+| `hermes` | The `mcp_servers` in your `~/.hermes/config.yaml` |
 | `pi` | Nothing: no MCP by design. The run records it as off, and warns only if a flag or the spec asked for it |
 
 - **The spec wins a name clash.** A declared server replaces your server of the
