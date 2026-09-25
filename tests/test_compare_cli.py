@@ -57,7 +57,7 @@ def _write_run(
                 ],
             )
         ],
-        aggregate=AggregateScore(avg_score=1.0, scored_tasks=1, per_task=[]),
+        aggregate=AggregateScore(avg_score=1.0, scored_tasks=1),
     )
     out_dir = root / ".caliper" / "results" / spec
     out_dir.mkdir(parents=True, exist_ok=True)

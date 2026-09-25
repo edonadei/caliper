@@ -46,7 +46,7 @@ def _activation(
     ``k`` does not enter activation at all — it only sizes the execution rows —
     so these tests pin it at 1 and read the activation fields.
     """
-    return AggregateScore.from_task_results(task_results, k=1, declared=declared)
+    return AggregateScore.from_task_results(task_results, declared=declared)
 
 
 def test_a_task_asserting_nothing_is_skipped_not_scored_zero():

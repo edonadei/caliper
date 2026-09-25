@@ -42,7 +42,7 @@ def _results() -> RunResults:
         ),
         skill_snapshots=[],
         task_results=[],
-        aggregate=AggregateScore(avg_score=0.0, per_task=[]),
+        aggregate=AggregateScore(avg_score=0.0),
     )
 
 

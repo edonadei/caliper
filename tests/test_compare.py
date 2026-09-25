@@ -12,7 +12,6 @@ from caliper.schema.results import (
     RunResults,
     SkillSnapshot,
     TaskResult,
-    TaskScore,
     pass_at_k,
     pass_hat_k,
     success_rate,
@@ -33,16 +32,6 @@ def _task(name: str, outcomes: list[Outcome], task_id: str = "task-000") -> Task
 
 
 def _run(tasks: list[TaskResult], *, spec: str = "demo", k: int = 5) -> RunResults:
-    per_task = [
-        TaskScore(
-            task_id=t.task_id,
-            task_name=t.task_name,
-            successes=t.successes,
-            k=k,
-            score=t.pass_at_k,
-        )
-        for t in tasks
-    ]
     scored = [t.pass_at_k for t in tasks if t.pass_at_k is not None]
     return RunResults(
         run=RunMeta(
@@ -55,7 +44,6 @@ def _run(tasks: list[TaskResult], *, spec: str = "demo", k: int = 5) -> RunResul
         task_results=tasks,
         aggregate=AggregateScore(
             avg_score=sum(scored) / len(scored) if scored else 0.0,
-            per_task=per_task,
         ),
     )
 

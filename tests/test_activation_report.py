@@ -140,7 +140,6 @@ def test_report_prints_both_scoreboards_separately():
             tasks,
             AggregateScore(
                 avg_score=1.0,
-                per_task=[],
                 avg_activation_score=0.733,
                 activation_tasks=3,
                 activation_per_skill=[
@@ -166,7 +165,7 @@ def test_a_timed_out_attempt_shows_what_it_activated_and_its_error():
     timed_out.assert_evidence = "timeout"
     tasks = [task([timed_out], ["sleeper"])]
 
-    out = render(_results(tasks, AggregateScore(avg_score=0.0, per_task=[])))
+    out = render(_results(tasks, AggregateScore(avg_score=0.0)))
 
     assert re.search(r"activated so far\s+sleeper", out)
     assert re.search(r"error\s+timeout", out)
@@ -175,7 +174,7 @@ def test_a_timed_out_attempt_shows_what_it_activated_and_its_error():
 
 def test_activation_line_is_absent_when_nothing_was_asserted():
     tasks = [task([attempt(1, activated=["mine"])], None)]
-    out = render(_results(tasks, AggregateScore(avg_score=1.0, per_task=[])))
+    out = render(_results(tasks, AggregateScore(avg_score=1.0)))
     assert "Score" in out
     assert "Activation" not in out
 
@@ -196,7 +195,7 @@ def _run(*, era, skills, spec="demo") -> RunResults:
             SkillSnapshot(name=n, path=f"/x/{n}/SKILL.md") for n in skills
         ],
         task_results=[task([attempt(1)], None, name="shared")],
-        aggregate=AggregateScore(avg_score=1.0, per_task=[]),
+        aggregate=AggregateScore(avg_score=1.0),
     )
 
 
@@ -265,7 +264,7 @@ def _act_run(passed_flags):
         ),
         skill_snapshots=[SkillSnapshot(name="mine", path="/x/SKILL.md")],
         task_results=[_act_task("canonical ask", ["mine"], passed_flags)],
-        aggregate=AggregateScore(avg_score=0.0, per_task=[]),
+        aggregate=AggregateScore(avg_score=0.0),
     )
 
 
@@ -325,7 +324,6 @@ def test_execution_headline_is_skipped_when_nothing_was_measured():
             AggregateScore(
                 avg_score=0.0,
                 scored_tasks=0,
-                per_task=[],
                 avg_activation_score=1.0,
                 activation_tasks=1,
             ),
@@ -340,9 +338,7 @@ def test_execution_headline_is_skipped_when_nothing_was_measured():
 
 def test_execution_headline_reports_its_task_count():
     tasks = [task([attempt(1, activated=["mine"], activation_passed=True)], ["mine"])]
-    out = render(
-        _results(tasks, AggregateScore(avg_score=1.0, scored_tasks=2, per_task=[]))
-    )
+    out = render(_results(tasks, AggregateScore(avg_score=1.0, scored_tasks=2)))
     assert "2 tasks" in out
 
 
@@ -350,7 +346,7 @@ def test_a_finished_attempt_does_not_claim_it_stopped():
     finished = attempt(1, outcome=Outcome.TASK_FAIL, activated=["sleeper"])
     tasks = [task([finished], ["sleeper"])]
 
-    out = render(_results(tasks, AggregateScore(avg_score=0.0, per_task=[])))
+    out = render(_results(tasks, AggregateScore(avg_score=0.0)))
 
     assert "Attempt 1" in out
     assert "activated so far" not in out

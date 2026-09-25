@@ -59,11 +59,10 @@ def test_score_is_the_raw_rate_over_usable_only() -> None:
                 Outcome.INFRA_ERROR,
             )
         ],
-        k=5,
     )
 
     # The infra attempt left the denominator: the rate is over 4, not 5.
-    assert agg.per_task[0].score == success_rate(3, 4) == 0.75
+    assert agg.avg_score == success_rate(3, 4) == 0.75
 
 
 def test_a_fully_unusable_task_scores_none_and_leaves_the_average_alone() -> None:
@@ -72,13 +71,10 @@ def test_a_fully_unusable_task_scores_none_and_leaves_the_average_alone() -> Non
             _task("t1", "Throttled", Outcome.INFRA_ERROR, Outcome.TIMEOUT),
             _task("t2", "Clean", Outcome.PASS, Outcome.PASS),
         ],
-        k=2,
     )
 
-    by_id = {t.task_id: t for t in agg.per_task}
-    assert by_id["t1"].score is None
     # The unmeasured task must not drag the average toward 0.
-    assert agg.avg_score == by_id["t2"].score == 1.0
+    assert agg.avg_score == 1.0
     assert agg.scored_tasks == 1
 
 
@@ -88,28 +84,17 @@ def test_average_ignores_none_scores() -> None:
             _task("t1", "A", Outcome.PASS, Outcome.TASK_FAIL),
             _task("t2", "B", Outcome.JUDGE_ERROR),  # excluded
         ],
-        k=2,
     )
 
     assert agg.avg_score == success_rate(1, 2) == 0.5
 
 
-def test_every_row_records_the_runs_requested_depth() -> None:
-    """A task that ran short of k is visible as such, not silently rescaled."""
-    agg = AggregateScore.from_task_results(
-        [_task("t1", "Cut short", Outcome.PASS)], k=5
-    )
-
-    assert agg.per_task[0].k == 5
-    assert agg.per_task[0].successes == 1
-
-
 def test_no_tasks_averages_to_zero_rather_than_none() -> None:
     """An empty run is 0.0%, which is what `list` renders; it is never saved."""
-    agg = AggregateScore.from_task_results([], k=3)
+    agg = AggregateScore.from_task_results([])
 
     assert agg.avg_score == 0.0
-    assert agg.per_task == []
+    assert agg.scored_tasks == 0
 
 
 # --- one constructor, both scoreboards ---------------------------------------
@@ -146,7 +131,6 @@ def _asserting(
 def test_one_call_builds_both_scoreboards() -> None:
     agg = AggregateScore.from_task_results(
         [_asserting((Outcome.PASS, ["a"]), (Outcome.TASK_FAIL, ["a"]), expected=["a"])],
-        k=2,
         declared=["a"],
     )
 
@@ -165,7 +149,6 @@ def test_a_firing_description_over_a_failing_body_scores_one_and_zero() -> None:
     """
     agg = AggregateScore.from_task_results(
         [_asserting((Outcome.TASK_FAIL, ["mine"]), expected=["mine"])],
-        k=1,
         declared=["mine"],
     )
 
@@ -180,7 +163,7 @@ def test_a_passing_body_under_a_silent_description_scores_one_and_zero() -> None
     suspect even though every attempt passed.
     """
     agg = AggregateScore.from_task_results(
-        [_asserting((Outcome.PASS, []), expected=["mine"])], k=1, declared=["mine"]
+        [_asserting((Outcome.PASS, []), expected=["mine"])], declared=["mine"]
     )
 
     assert agg.avg_score == 1.0
@@ -190,7 +173,7 @@ def test_a_passing_body_under_a_silent_description_scores_one_and_zero() -> None
 def test_an_unasserted_run_has_no_activation_headline() -> None:
     """None, never 0.0: nothing was claimed, so nothing was missed."""
     agg = AggregateScore.from_task_results(
-        [task_result(Outcome.PASS, task_id="t1")], k=1, declared=["a"]
+        [task_result(Outcome.PASS, task_id="t1")], declared=["a"]
     )
 
     assert agg.avg_activation_score is None
@@ -199,7 +182,7 @@ def test_an_unasserted_run_has_no_activation_headline() -> None:
 
 def test_a_declared_skill_gets_a_row_even_when_it_never_fired() -> None:
     agg = AggregateScore.from_task_results(
-        [_asserting((Outcome.PASS, []), expected=[])], k=1, declared=["dormant"]
+        [_asserting((Outcome.PASS, []), expected=[])], declared=["dormant"]
     )
 
     assert [s.skill for s in agg.activation_per_skill] == ["dormant"]

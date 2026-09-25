@@ -175,7 +175,7 @@ def _run(interrupted: bool, *, spec: str = "demo", successes: int = 2) -> RunRes
                 ],
             )
         ],
-        aggregate=AggregateScore(avg_score=successes / 4, per_task=[]),
+        aggregate=AggregateScore(avg_score=successes / 4),
     )
 
 

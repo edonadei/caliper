@@ -262,7 +262,7 @@ def _trigger_only_run() -> RunResults:
         skill_snapshots=[],
         task_results=[_trigger_task()],
         # What the runner builds for such a run: an average over no scored task.
-        aggregate=AggregateScore(avg_score=0.0, scored_tasks=0, per_task=[]),
+        aggregate=AggregateScore(avg_score=0.0, scored_tasks=0),
     )
 
 
@@ -299,7 +299,7 @@ def test_list_still_prints_a_measured_score() -> None:
     A run that really did score 0% must still say so.
     """
     results = _trigger_only_run()
-    results.aggregate = AggregateScore(avg_score=0.0, scored_tasks=1, per_task=[])
+    results.aggregate = AggregateScore(avg_score=0.0, scored_tasks=1)
 
     assert _score_cell(results) == "0.0%"
 

@@ -289,6 +289,9 @@ time, and it only appears when a judge ran.
 - `AggregateScore` has `avg_activation_score`, `activation_tasks`, and
   `activation_per_skill` (per-skill `expected`/`fired`/`hits` with derived
   `recall`/`precision`), alongside `scored_tasks` for the execution half.
+- `AggregateScore` no longer carries `per_task`. Each task's rate is on its
+  `TaskResult` (`score`, `successes`, `usable`), which is the only per-task copy.
+  Older runs that still have `per_task` load unchanged; the key is ignored.
 - `RunMeta.era` records how skills were loaded when the run was made. Runs saved
   before Caliper switched to install-and-discover
   ([ADR 0013](adr/0013-install-and-discover-is-the-only-loading-discipline.md))

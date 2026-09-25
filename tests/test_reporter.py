@@ -23,7 +23,6 @@ from caliper.schema.results import (
     RunResults,
     SkillSnapshot,
     TaskResult,
-    TaskScore,
 )
 
 
@@ -122,16 +121,6 @@ def _make_task(
 
 
 def _make_results(task_results: list[TaskResult]) -> RunResults:
-    scores = [
-        TaskScore(
-            task_id=tr.task_id,
-            task_name=tr.task_name,
-            successes=tr.successes,
-            k=1,
-            score=tr.pass_at_k,
-        )
-        for tr in task_results
-    ]
     return RunResults(
         run=RunMeta(
             spec="test-spec",
@@ -143,7 +132,6 @@ def _make_results(task_results: list[TaskResult]) -> RunResults:
         task_results=task_results,
         aggregate=AggregateScore(
             avg_score=sum(tr.pass_at_k for tr in task_results) / len(task_results),
-            per_task=scores,
         ),
     )
 
@@ -314,15 +302,6 @@ def test_aborted_unusable_task_is_reported_as_aborted() -> None:
         task_results=[task],
         aggregate=AggregateScore(
             avg_score=0.0,
-            per_task=[
-                TaskScore(
-                    task_id=task.task_id,
-                    task_name=task.task_name,
-                    successes=task.successes,
-                    k=3,
-                    score=None,
-                )
-            ],
         ),
     )
 
@@ -370,15 +349,6 @@ def test_early_stopped_task_with_usable_pass_is_not_reported_as_aborted() -> Non
         task_results=[task],
         aggregate=AggregateScore(
             avg_score=1.0,
-            per_task=[
-                TaskScore(
-                    task_id=task.task_id,
-                    task_name=task.task_name,
-                    successes=task.successes,
-                    k=5,
-                    score=1.0,
-                )
-            ],
         ),
     )
 
@@ -481,7 +451,7 @@ def test_trigger_probe_attempt_shows_its_activation_verdict() -> None:
         ),
         skill_snapshot=SkillSnapshot(path="/fake/SKILL.md"),
         task_results=[task],
-        aggregate=AggregateScore.from_task_results([task], k=2),
+        aggregate=AggregateScore.from_task_results([task]),
     )
 
     out = _render_markup(results)

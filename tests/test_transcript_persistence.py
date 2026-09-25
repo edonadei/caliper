@@ -89,7 +89,7 @@ def test_run_results_transcript_round_trips_through_json() -> None:
                 ],
             )
         ],
-        aggregate=AggregateScore(avg_score=0.0, per_task=[]),
+        aggregate=AggregateScore(avg_score=0.0),
     )
 
     restored = RunResults.model_validate_json(results.model_dump_json())

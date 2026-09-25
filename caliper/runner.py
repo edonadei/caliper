@@ -208,7 +208,7 @@ def run(
     # Both scoreboards at once — they are two fields of one object, and the
     # activation half is never folded into avg_score (docs/adr/0014).
     aggregate = AggregateScore.from_task_results(
-        task_results, k, declared=[ref.name for ref in skill_refs]
+        task_results, declared=[ref.name for ref in skill_refs]
     )
 
     results = RunResults(

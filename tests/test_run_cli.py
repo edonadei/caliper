@@ -60,7 +60,7 @@ tasks:
             ),
             skill_snapshots=[],
             task_results=[],
-            aggregate=AggregateScore(avg_score=0.0, per_task=[]),
+            aggregate=AggregateScore(avg_score=0.0),
         )
 
     monkeypatch.setattr(
@@ -126,7 +126,7 @@ def test_run_cli_resolves_backend_and_judge_model_targets(
             ),
             skill_snapshots=[],
             task_results=[],
-            aggregate=AggregateScore(avg_score=0.0, per_task=[]),
+            aggregate=AggregateScore(avg_score=0.0),
         )
 
     def fake_get_harness(backend, model):
@@ -184,7 +184,7 @@ def test_run_cli_collects_repeated_ablate_flags(monkeypatch, tmp_path) -> None:
             ),
             skill_snapshots=[],
             task_results=[],
-            aggregate=AggregateScore(avg_score=0.0, per_task=[]),
+            aggregate=AggregateScore(avg_score=0.0),
         )
 
     monkeypatch.setattr(
@@ -231,7 +231,7 @@ def _finished(timestamp: datetime) -> RunResults:
                 ],
             )
         ],
-        aggregate=AggregateScore(avg_score=1.0, per_task=[]),
+        aggregate=AggregateScore(avg_score=1.0),
     )
 
 
@@ -616,7 +616,7 @@ def test_a_cheat_stays_flagged_in_live_progress_after_later_attempts(
             ),
             skill_snapshots=[],
             task_results=[],
-            aggregate=AggregateScore(avg_score=0.0, per_task=[]),
+            aggregate=AggregateScore(avg_score=0.0),
         )
 
     monkeypatch.setattr(

@@ -172,7 +172,7 @@ def _saved(
             SkillSnapshot(name=n, path=f"/x/{n}/SKILL.md") for n in skills
         ],
         task_results=[],
-        aggregate=AggregateScore(avg_score=0.0, per_task=[]),
+        aggregate=AggregateScore(avg_score=0.0),
     )
 
 

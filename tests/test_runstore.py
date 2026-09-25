@@ -19,7 +19,7 @@ def _results(spec: str = "my-skill", *, at: datetime | None = None) -> RunResult
             backend="claude-code",
         ),
         task_results=[],
-        aggregate=AggregateScore(avg_score=0.0, per_task=[]),
+        aggregate=AggregateScore(avg_score=0.0),
     )
 
 

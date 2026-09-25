@@ -688,16 +688,6 @@ class UsageTotals(BaseModel):
         return totals
 
 
-class TaskScore(BaseModel):
-    task_id: str
-    task_name: str
-    k: int
-    successes: int
-    # The raw success rate (Caliper's primary metric). None when every attempt was
-    # unusable (excluded from the aggregate average).
-    score: float | None
-
-
 class SkillActivationStats(BaseModel):
     """Per-skill recall and precision, counted over attempts.
 
@@ -772,7 +762,6 @@ class AggregateScore(BaseModel):
     # rather than 0.0%, which would be a fabricated failure of the same kind the
     # activation side is careful to avoid.
     scored_tasks: int = 0
-    per_task: list[TaskScore]
     # The activation scoreboard. Kept beside the execution one but never blended
     # into it: a bad `description` and a bad body have opposite fixes, so a
     # single headline mixing them would point at neither (docs/adr/0014).
@@ -786,7 +775,6 @@ class AggregateScore(BaseModel):
     def from_task_results(
         cls,
         task_results: list[TaskResult],
-        k: int,
         declared: list[str] | None = None,
     ) -> AggregateScore:
         """Both of a run's scoreboards, built from the tasks that produced them.
@@ -797,8 +785,7 @@ class AggregateScore(BaseModel):
 
         Takes the results themselves rather than counts pulled out of them —
         each task already knows its own successes, usable denominator and score
-        (docs/adr/0007) — and ``k`` is the run's requested depth, recorded per
-        row so a reader can see a task that ran short of it.
+        (docs/adr/0007), and ``task_results`` is where a reader finds them.
 
         ``declared`` is the whole neighbourhood, in spec order; see
         :meth:`_activation_rows` for why a dormant member still gets a row.
@@ -807,21 +794,10 @@ class AggregateScore(BaseModel):
         bad body have opposite fixes, so a single headline mixing them would
         point at neither (docs/adr/0014). They meet here and nowhere else.
         """
-        per_task = [
-            TaskScore(
-                task_id=task.task_id,
-                task_name=task.task_name,
-                k=k,
-                successes=task.successes,
-                score=task.score,
-            )
-            for task in task_results
-        ]
-
         # A task with no usable attempts scores ``None`` and is excluded rather
         # than dragged to 0%: it was never measured, and averaging a
         # non-measurement in would understate the skill (docs/adr/0007).
-        scored = [t.score for t in per_task if t.score is not None]
+        scored = [t.score for t in task_results if t.score is not None]
 
         # Activation averages to ``None`` where execution averages to 0.0: an
         # unasserted run claimed nothing, so it is rendered skipped, while an
@@ -833,7 +809,6 @@ class AggregateScore(BaseModel):
         return cls(
             avg_score=mean_rate(scored),
             scored_tasks=len(scored),
-            per_task=per_task,
             avg_activation_score=(
                 mean_rate(activation_scores) if activation_scores else None
             ),
@@ -897,8 +872,9 @@ class AggregateScore(BaseModel):
         The field arrived with install-and-discover (#80), so a file without it
         is a legacy run (``era: None``) — and taking the ``0`` default at face
         value would claim that run measured nothing, which is the fabricated
-        reading ``measured`` exists to prevent, pointed the other way. Its
-        per-task rows are still there, so they are what answers the question.
+        reading ``measured`` exists to prevent, pointed the other way. Such a
+        file still carries the ``per_task`` rows current runs no longer write,
+        so they are what answers the question.
 
         Only the *absent* key is filled: a stored ``0`` is a real claim by a
         current run that every task was a trigger probe, and stays one.

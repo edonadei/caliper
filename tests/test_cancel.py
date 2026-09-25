@@ -671,7 +671,7 @@ def _one_attempt_run(k: int = 3) -> RunResults:
                 ],
             )
         ],
-        aggregate=AggregateScore(avg_score=1.0, per_task=[]),
+        aggregate=AggregateScore(avg_score=1.0),
     )
 
 
