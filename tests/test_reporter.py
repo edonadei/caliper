@@ -484,3 +484,20 @@ def test_trigger_probe_attempt_shows_its_activation_verdict() -> None:
 
     assert "✗ Attempt 1" in out
     assert "✓ Attempt 2" in out
+
+
+def test_truncating_escaped_markup_cannot_expose_a_tag() -> None:
+    # 501 chars: the cut lands right after "x", where escaping would have put
+    # the backslash that shields "[/dim]".
+    output = "x[/dim]" + "y" * (_OUTPUT_TRUNCATE_AT - 6)
+    results = _make_results([_make_task("task-001", passed=False, output=output)])
+
+    out = _render_markup(results)
+
+    assert "[/dim]" + "y" * 10 in out
+
+
+def test_empty_output_marker_is_visible_when_markup_is_rendered() -> None:
+    results = _make_results([_make_task("task-001", passed=False, output="")])
+
+    assert "[no output]" in _render_markup(results)

@@ -264,7 +264,7 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
                 f"{failure.phase} exited {failure.exit_code}[/red]"
             )
             if failure.output:
-                console.print(f"      {_format_output(escape(failure.output))}")
+                console.print(f"      {_format_output(failure.output)}")
     console.print()
 
     _print_score(results)
@@ -639,12 +639,20 @@ _OUTPUT_TRUNCATE_AT = 500
 
 
 def _format_output(output: str) -> str:
+    """Raw agent or hook output as safe markup, keeping only its tail if long.
+
+    Truncates *before* escaping: cutting an escaped string could keep a tag and
+    drop the backslash that shields it, and Rich would then parse the tag.
+    """
     if not output or not output.strip():
-        return "[dim][no output][/dim]"
+        return r"[dim]\[no output][/dim]"
     if len(output) > _OUTPUT_TRUNCATE_AT:
-        tail = output[-_OUTPUT_TRUNCATE_AT:]
-        return f"[dim][...truncated, showing last {_OUTPUT_TRUNCATE_AT} chars][/dim]\n{tail}"
-    return output
+        tail = escape(output[-_OUTPUT_TRUNCATE_AT:])
+        return (
+            rf"[dim]\[...truncated, showing last {_OUTPUT_TRUNCATE_AT} chars][/dim]"
+            f"\n{tail}"
+        )
+    return escape(output)
 
 
 _HARNESS_FAILURES = frozenset({Outcome.TIMEOUT, Outcome.INFRA_ERROR})
@@ -711,7 +719,7 @@ def _print_task_detail(tr: TaskResult, k: int) -> None:
                 "    [dim]activated so far[/dim]",
                 f"[dim]{escape(reached)}[/dim]",
             )
-        grid.add_row("    [dim]output[/dim]", _format_output(escape(attempt.output)))
+        grid.add_row("    [dim]output[/dim]", _format_output(attempt.output))
         if attempt.assert_evidence:
             # A timeout or infra failure stores the harness's error here, not an
             # assertion's.

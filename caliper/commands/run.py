@@ -271,6 +271,8 @@ def run_cmd(
     pass_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
     unusable_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
     unchecked_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
+    # Sticky: a later clean attempt must not wipe the live cheat warning.
+    cheated: set[str] = set()
 
     def on_attempt_done(event: AttemptEvent) -> None:
         task = next((t for t in spec.tasks if t.id == event.task_id), None)
@@ -281,6 +283,8 @@ def run_cmd(
             pass_counts[task.name] += 1
         if event.outcome == Outcome.NOT_CHECKED:
             unchecked_counts[task.name] += 1
+        if event.outcome == Outcome.CHEAT:
+            cheated.add(task.name)
         # `is_execution_noise`, not `not is_usable`: a NOT_CHECKED trigger probe
         # is a healthy attempt, and flagging it live as yellow ⊘ told a watching
         # agent to stop for a run in which nothing had gone wrong.
@@ -298,7 +302,7 @@ def run_cmd(
             k,
             attempt_counts[task.name],
             pass_counts[task.name],
-            cheated=event.outcome == Outcome.CHEAT,
+            cheated=task.name in cheated,
             unusable=unusable_counts[task.name],
             unchecked=unchecked_counts[task.name],
         )
