@@ -33,6 +33,13 @@ _SKILL_NAME_KEYS = ("skill", "name", "skill_name")
 _MAX_DEPTH = 5
 
 
+def _path_pattern(suffix: str) -> re.Pattern[str]:
+    """``suffix`` at a path boundary, matching either separator: Windows reads
+    arrive with backslashes."""
+    body = r"[/\\]".join(re.escape(part) for part in suffix.strip("/").split("/"))
+    return re.compile(r"(?:^|[/\\\s\"'])" + body + r"\b")
+
+
 class ActivationDetector:
     """Reads an attempt's transcript for the skills the agent reached for."""
 
@@ -44,8 +51,7 @@ class ActivationDetector:
         # matches a read of `some-unit-normalizer/SKILL.md`, and a bare listing
         # of the skills root matches nothing at all.
         self._patterns = {
-            name: re.compile(rf"(?:^|[/\s\"']){re.escape(name)}/SKILL\.md\b")
-            for name in self._names
+            name: _path_pattern(f"{name}/SKILL.md") for name in self._names
         }
 
     def detect(
@@ -68,9 +74,7 @@ class ActivationDetector:
             # Plugin paths are suffixes too: a relative read of a plugin skill
             # must not fall through to a declared skill's basename.
             for name, path in (additional_paths or {}).items():
-                detector._path_patterns[name] = re.compile(
-                    rf"(?:^|[/\s\"']){re.escape(path.lstrip('/'))}\b"
-                )
+                detector._path_patterns[name] = _path_pattern(path)
             return detector.detect(transcript)
         if not self._names:
             return None

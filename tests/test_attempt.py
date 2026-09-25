@@ -436,3 +436,31 @@ def test_relative_plugin_reads_are_observed_under_the_namespaced_name(declared):
         expected_activation=[],
     )
     assert assembled.record.activated == ["review:review"]
+
+
+def test_windows_plugin_reads_are_observed_under_the_namespaced_name():
+    assembled = _assemble(
+        _result(
+            transcript=[
+                _read_turn(
+                    r"C:\run\.claude\plugins\cache\0\review\skills\review\SKILL.md"
+                )
+            ],
+            user_skill_names=["review:review"],
+            user_skill_paths={
+                "review:review": "plugins/cache/0/review/skills/review/SKILL.md"
+            },
+        ),
+        activation=ActivationDetector(["review"], frozenset({"Skill"})),
+        expected_activation=[],
+    )
+    assert assembled.record.activated == ["review:review"]
+
+
+def test_windows_reads_of_a_declared_skill_are_observed():
+    assembled = _assemble(
+        _result(transcript=[_read_turn(r"C:\run\.claude\skills\review\SKILL.md")]),
+        activation=ActivationDetector(["review"], frozenset({"Skill"})),
+        expected_activation=["review"],
+    )
+    assert assembled.record.activated == ["review"]
