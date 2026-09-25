@@ -49,7 +49,7 @@ def test_update_progress_marks_early_stopped_task_finished() -> None:
 
     task = progress.tasks[task_ids["Task one"]]
     assert task.completed == 3
-    assert task.fields["status"] == "[bold yellow]⊘1[/bold yellow]"
+    assert task.fields["status"] == "[yellow]⊘1[/yellow]"
 
 
 def test_cheat_remains_visible_when_cleanup_fails() -> None:
@@ -400,3 +400,87 @@ def test_autorater_reasoning_shown_for_failed_task() -> None:
     )
     out = _render(results)
     assert "judge said no" in out
+
+
+# ---------------------------------------------------------------------------
+# Live progress tally and failure-panel rendering
+# ---------------------------------------------------------------------------
+
+
+def test_update_progress_shows_a_running_tally_rather_than_the_count() -> None:
+    progress, task_ids = make_progress(["Task one"], k=5)
+
+    update_progress(progress, task_ids, "Task one", k=5, completed=3, passed=2)
+
+    status = progress.tasks[task_ids["Task one"]].fields["status"]
+    assert status == "[green]✓2[/green] [red]✗1[/red]"
+
+
+def test_update_progress_keeps_a_finished_trigger_probe_neutral() -> None:
+    progress, task_ids = make_progress(["Probe"], k=3)
+
+    update_progress(
+        progress, task_ids, "Probe", k=3, completed=3, passed=0, unchecked=3
+    )
+
+    # Not a red ✗: a trigger probe asked no execution question.
+    assert progress.tasks[task_ids["Probe"]].fields["status"] == "[dim]—[/dim]"
+
+
+def _render_markup(results: RunResults) -> str:
+    buf = io.StringIO()
+    con = Console(file=buf, highlight=False, width=120)
+    import caliper.reporter as reporter_mod
+
+    orig = reporter_mod.console
+    reporter_mod.console = con
+    try:
+        print_results(results)
+    finally:
+        reporter_mod.console = orig
+    return buf.getvalue()
+
+
+def test_agent_output_that_looks_like_markup_renders_verbatim() -> None:
+    results = _make_results(
+        [_make_task("task-001", passed=False, output="see [bold]x[/] and [/dim]")]
+    )
+
+    assert "see [bold]x[/] and [/dim]" in _render_markup(results)
+
+
+def test_trigger_probe_attempt_shows_its_activation_verdict() -> None:
+    attempts = [
+        AttemptRecord(
+            attempt=n,
+            output="",
+            duration_seconds=1.0,
+            outcome=Outcome.NOT_CHECKED,
+            activated=activated,
+            activation_passed=activated == ["wanted"],
+        )
+        for n, activated in ((1, ["other"]), (2, ["wanted"]))
+    ]
+    task = TaskResult(
+        task_id="probe",
+        task_name="Probe",
+        attempts=attempts,
+        activation_expected=["wanted"],
+    )
+
+    results = RunResults(
+        run=RunMeta(
+            spec="test-spec",
+            timestamp=datetime(2026, 6, 21, 12, 0, 0, tzinfo=timezone.utc),
+            k=2,
+            backend="claude-code",
+        ),
+        skill_snapshot=SkillSnapshot(path="/fake/SKILL.md"),
+        task_results=[task],
+        aggregate=AggregateScore.from_task_results([task], k=2),
+    )
+
+    out = _render_markup(results)
+
+    assert "✗ Attempt 1" in out
+    assert "✓ Attempt 2" in out

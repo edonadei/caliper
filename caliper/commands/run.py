@@ -17,6 +17,9 @@ from caliper.skills import SkillResolutionError
 from caliper.harness import get_harness
 from caliper.judge import EvalJudge
 from caliper.reporter import (
+    SEP_GLYPH,
+    UNUSABLE_GLYPH,
+    WARN_GLYPH,
     make_progress,
     print_banner,
     print_results,
@@ -260,13 +263,14 @@ def run_cmd(
     # collecting would lose it entirely on the runs that then fail, which are
     # exactly the runs where knowing a member was stale matters most.
     def warn(message: str) -> None:
-        progress.console.print(f"[yellow]⚠[/yellow] [yellow]{message}[/yellow]")
+        progress.console.print(f"[yellow]{WARN_GLYPH} {message}[/yellow]")
 
     fetcher = SkillFetcher(on_warning=warn)
 
     attempt_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
     pass_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
     unusable_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
+    unchecked_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
 
     def on_attempt_done(event: AttemptEvent) -> None:
         task = next((t for t in spec.tasks if t.id == event.task_id), None)
@@ -275,6 +279,8 @@ def run_cmd(
         attempt_counts[task.name] += 1
         if event.outcome == Outcome.PASS:
             pass_counts[task.name] += 1
+        if event.outcome == Outcome.NOT_CHECKED:
+            unchecked_counts[task.name] += 1
         # `is_execution_noise`, not `not is_usable`: a NOT_CHECKED trigger probe
         # is a healthy attempt, and flagging it live as yellow ⊘ told a watching
         # agent to stop for a run in which nothing had gone wrong.
@@ -282,7 +288,7 @@ def run_cmd(
             unusable_counts[task.name] += 1
             # Surface noise the moment it lands so a watching agent/human can stop.
             progress.console.print(
-                f"[yellow]⊘[/yellow] {task.name} · attempt {event.attempt}: "
+                f"[yellow]{UNUSABLE_GLYPH}[/yellow] {task.name} {SEP_GLYPH} attempt {event.attempt}: "
                 f"[yellow]{event.outcome.value}[/yellow]"
             )
         update_progress(
@@ -294,6 +300,7 @@ def run_cmd(
             pass_counts[task.name],
             cheated=event.outcome == Outcome.CHEAT,
             unusable=unusable_counts[task.name],
+            unchecked=unchecked_counts[task.name],
         )
 
     def on_task_done(result: TaskResult) -> None:
@@ -311,6 +318,9 @@ def run_cmd(
             ),
             unusable=result.unusable,
             finished=True,
+            unchecked=sum(
+                attempt.outcome == Outcome.NOT_CHECKED for attempt in result.attempts
+            ),
         )
 
     aborted: RunAborted | None = None
