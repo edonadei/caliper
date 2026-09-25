@@ -102,8 +102,9 @@ In your agent:
 /grill-skill ./commit-writer/SKILL.md
 ```
 
-`grill-skill` reads your `SKILL.md`, interviews you, and writes a 3-task
-`.eval.yaml` (happy path, edge case, adversarial).
+`grill-skill` reads your `SKILL.md`, interviews you, and writes an
+`.eval.yaml`: happy path, edge case, and adversarial tasks, plus trigger probes
+that check your skill fires only when it should.
 
 **3. Run and measure**
 
@@ -218,11 +219,13 @@ commented lines.
 2. Run with `--k 1` while iterating on the spec.
 3. Add `assert:` for facts an LLM judge might guess wrong (files, JSON, command
    output).
-4. Move to `--k 3` or higher once the task is stable.
-5. Run once with `--ablate <skill>` (or `--ablate mcp:<server>`) and
-   `caliper compare` the two runs, to prove the skill makes a difference. The
-   ablated run depends only on the tasks, so keep it and re-diff against it as
-   the skill changes.
+4. Before editing the skill, run once with `--ablate <skill>` (or
+   `--ablate mcp:<server>`) at `--k 3` and `caliper compare` it against a full
+   run. A task the bare agent already passes doesn't need the skill: sharpen it
+   first. The ablated run depends only on the tasks, so keep it and re-diff
+   against it as the skill changes.
+5. Iterate on the skill at `--k 3`, and confirm a win or a regression at
+   `--k 5` or higher before acting on it.
 6. Commit the spec alongside the skill so contributors can run the same eval.
 
 ---
@@ -305,8 +308,11 @@ Use the evaluate-skill skill to run commit-writer.eval.yaml with k=3 and summari
 ### `grill-skill`: create evals interactively
 
 `grill-skill` reads your `SKILL.md`, interviews you about what good behavior
-looks like, and writes a 3-task spec. Then it runs the eval and loops: k=1 to
-validate, k=3 to measure, and an ablated run to diff against before you commit.
+looks like, and writes a spec: happy path, edge case, and adversarial tasks,
+plus neighbour and silence probes for the `description`. Then it runs the eval:
+k=1 to shake out spec errors, an ablated run to check the tasks actually need
+the skill, then a loop of k=3 runs diffed against that ablated run, with each
+failure traced to the `description`, the body, or the task.
 
 ```text
 /grill-skill ./commit-writer/SKILL.md
