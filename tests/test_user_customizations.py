@@ -16,12 +16,6 @@ from rich.console import Console
 
 import caliper.reporter as reporter_mod
 from caliper.compare import diff_runs
-from caliper.harness.base import (
-    AttemptResult,
-    HarnessBackend,
-    RunContext,
-)
-from caliper.judge.base import JudgeResult
 from caliper.runner import run
 from caliper.schema.results import (
     ERA_INSTALL_AND_DISCOVER,
@@ -32,40 +26,21 @@ from caliper.schema.results import (
 )
 from caliper.schema.spec import EvalSpec, McpServer, TaskSpec
 
+from conftest import ScriptedHarness, ScriptedJudge, agent_result
 
-class CustomizingHarness(HarnessBackend):
-    """Passes every attempt and reports a fixed set of loaded customizations when asked to."""
 
-    def __init__(self, *, supports_mcp: bool = True, loaded=("gmail",)) -> None:
-        self.supports_mcp = supports_mcp
-        self.loaded = loaded
-        self.contexts: list[RunContext] = []
-
-    @property
-    def name(self) -> str:
-        return "customizing"
-
-    def run(self, ctx: RunContext) -> AttemptResult:
-        self.contexts.append(ctx)
-        return AttemptResult(
+def _customizing(*, supports_mcp: bool = True, loaded=("gmail",)) -> ScriptedHarness:
+    """Passes every attempt, reporting ``loaded`` as its customizations when asked to load them."""
+    return ScriptedHarness(
+        lambda ctx: agent_result(
             transcript=[],
-            final_output="done",
-            exit_code=0,
-            duration_seconds=0.1,
             loaded_user_customizations=(
-                list(self.loaded)
-                if ctx.user_customizations and self.loaded is not None
-                else None
+                list(loaded) if ctx.user_customizations and loaded is not None else None
             ),
-        )
-
-
-class PassingJudge:
-    backend = "test"
-    model = None
-
-    def evaluate(self, *args, **kwargs) -> JudgeResult:
-        return JudgeResult(passed=True, reasoning="ok")
+        ),
+        name="customizing",
+        supports_mcp=supports_mcp,
+    )
 
 
 def _spec(tmp_path, *, mcp=None, spec_setting=None):
@@ -88,7 +63,7 @@ def _run(
         spec=spec,
         spec_path=spec_path,
         harness=harness,
-        judge=PassingJudge(),
+        judge=ScriptedJudge(),
         k=k,
         workers=1,
         timeout=30,
@@ -113,7 +88,7 @@ def _run(
 def test_the_invocation_then_the_spec_then_the_default(
     tmp_path, flag, spec_setting, expected
 ):
-    harness = CustomizingHarness()
+    harness = _customizing()
     results = _run(
         tmp_path, harness, k=2, spec_setting=spec_setting, user_customizations=flag
     )
@@ -126,7 +101,7 @@ def test_declared_and_ablated_servers_stay_the_specs(tmp_path):
     # mcp_servers stays the spec's own set, which ablation pairing reads; an
     # ablated name still reaches the harness so it can keep a user's server of
     # that name out of the run.
-    harness = CustomizingHarness()
+    harness = _customizing()
     mcp = {"echo": McpServer(command="python3"), "gone": McpServer(command="x")}
     results = _run(tmp_path, harness, mcp=mcp, ablate=["gone"])
     assert results.run.mcp_servers == ["echo"]
@@ -135,7 +110,7 @@ def test_declared_and_ablated_servers_stay_the_specs(tmp_path):
 
 
 def test_a_backend_that_cannot_see_them_records_unknown(tmp_path):
-    results = _run(tmp_path, CustomizingHarness(loaded=None))
+    results = _run(tmp_path, _customizing(loaded=None))
     assert results.run.user_customizations is True
     assert results.run.loaded_user_customizations is None
 
@@ -148,7 +123,7 @@ def test_a_backend_without_mcp_runs_isolated_and_warns_only_when_asked(
     tmp_path, flag, spec_setting, warned
 ):
     # Silent under the default: it would otherwise warn on every pi run.
-    harness = CustomizingHarness(supports_mcp=False)
+    harness = _customizing(supports_mcp=False)
     warnings: list[str] = []
     results = _run(
         tmp_path,

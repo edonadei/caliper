@@ -9,24 +9,12 @@ import pytest
 
 from caliper.environment import choose_user_customizations, resolve_environment
 from caliper.harness.base import (
-    AttemptResult,
-    HarnessBackend,
     HarnessConfigurationError,
 )
 from caliper.schema.spec import EvalSpec, McpServer, TaskSpec
 from caliper.workdir import AttemptWorkdir
 
-
-class _Backend(HarnessBackend):
-    def __init__(self, *, supports_mcp: bool = True) -> None:
-        self.supports_mcp = supports_mcp
-
-    @property
-    def name(self) -> str:
-        return "stub"
-
-    def run(self, ctx) -> AttemptResult:  # pragma: no cover - never invoked
-        raise NotImplementedError
+from conftest import ScriptedHarness
 
 
 def _skill(tmp_path, name: str) -> str:
@@ -46,7 +34,12 @@ def _spec(tmp_path, **fields):
 
 
 def _resolve(spec, spec_path, **overrides):
-    kwargs = dict(harness=_Backend(), ablate=[], user_customizations=None, timeout=30)
+    kwargs = dict(
+        harness=ScriptedHarness(supports_mcp=True),
+        ablate=[],
+        user_customizations=None,
+        timeout=30,
+    )
     kwargs.update(overrides)
     return resolve_environment(spec, spec_path, **kwargs)
 
@@ -74,7 +67,7 @@ def test_the_invocation_then_the_spec_then_the_default(
 ):
     spec, _ = _spec(tmp_path, user_customizations=spec_setting)
 
-    choice = choose_user_customizations(flag, spec, _Backend())
+    choice = choose_user_customizations(flag, spec, ScriptedHarness(supports_mcp=True))
 
     assert (choice.load, choice.source, choice.ignored) == (load, source, False)
 
@@ -84,7 +77,7 @@ def test_a_backend_without_mcp_loads_nothing_and_says_it_ignored_the_request(
 ):
     spec, _ = _spec(tmp_path)
 
-    choice = choose_user_customizations(True, spec, _Backend(supports_mcp=False))
+    choice = choose_user_customizations(True, spec, ScriptedHarness())
 
     assert (choice.load, choice.source, choice.ignored) == (False, "flag", True)
 
@@ -96,7 +89,7 @@ def test_an_ignored_explicit_request_is_warned_about_once(tmp_path):
     environment = _resolve(
         spec,
         spec_path,
-        harness=_Backend(supports_mcp=False),
+        harness=ScriptedHarness(),
         user_customizations=True,
         on_warning=warnings.append,
     )
@@ -112,7 +105,7 @@ def test_an_ignored_default_is_not_warned_about(tmp_path):
     _resolve(
         spec,
         spec_path,
-        harness=_Backend(supports_mcp=False),
+        harness=ScriptedHarness(),
         on_warning=warnings.append,
     )
 
@@ -158,7 +151,7 @@ def test_declared_servers_on_a_backend_without_mcp_are_refused(tmp_path):
     spec, spec_path = _spec(tmp_path, mcp={"s": McpServer(command="s")})
 
     with pytest.raises(HarnessConfigurationError, match="does not support MCP"):
-        _resolve(spec, spec_path, harness=_Backend(supports_mcp=False))
+        _resolve(spec, spec_path, harness=ScriptedHarness())
 
 
 # --- skills and the per-attempt context -------------------------------------

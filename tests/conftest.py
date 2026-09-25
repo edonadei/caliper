@@ -1,6 +1,10 @@
-"""Shared fakes for the CLI-agent boundary.
+"""Shared fakes: the backend and judge doubles, and the CLI-agent boundary.
 
-A harness reaches the outside world twice, and a test that fakes a CLI wants to
+:class:`ScriptedHarness` and :class:`ScriptedJudge` stand in for a backend and
+a judge at the run seam, so a runner test states only the result it is about
+(:func:`agent_result`, :func:`failed_result`, :func:`in_turn`).
+
+A real harness reaches the outside world twice, and a test that fakes a CLI wants to
 answer both from one function:
 
 * short capability probes (``codex --version``) still go through
@@ -19,13 +23,122 @@ without knowing which of the two calls it is answering.
 from __future__ import annotations
 
 import subprocess
+import threading
+from dataclasses import replace
 from typing import Callable
 
 import pytest
 
 from caliper import cancel
-from caliper.harness.base import RunContext
+from caliper.harness.base import (
+    AttemptResult,
+    ConversationTurn,
+    HarnessBackend,
+    RunContext,
+)
+from caliper.judge.base import JudgeResult
 from caliper.schema.results import AttemptRecord, Outcome, TaskResult
+
+
+def agent_result(**overrides) -> AttemptResult:
+    """A clean attempt: the agent said "done" and exited 0.
+
+    A test overrides only the fields it is about (``exit_code``,
+    ``resolved_model``, ``cancelled``, …).
+    """
+    fields = dict(
+        transcript=[ConversationTurn(role="assistant", content="done")],
+        final_output="done",
+        exit_code=0,
+        duration_seconds=0.1,
+    )
+    fields.update(overrides)
+    return AttemptResult(**fields)
+
+
+def failed_result(error: str = "agent failed", **overrides) -> AttemptResult:
+    """An attempt whose agent exited nonzero with nothing to judge."""
+    fields = dict(transcript=[], final_output="", exit_code=1, error=error)
+    fields.update(overrides)
+    return agent_result(**fields)
+
+
+def in_turn(*results: AttemptResult) -> Callable[[RunContext], AttemptResult]:
+    """A :class:`ScriptedHarness` script: each result in order, then the last again."""
+    queue = list(results)
+    lock = threading.Lock()
+
+    def next_result(ctx: RunContext) -> AttemptResult:
+        with lock:
+            return replace(queue.pop(0) if len(queue) > 1 else queue[0])
+
+    return next_result
+
+
+class ScriptedHarness(HarnessBackend):
+    """The backend double: answers every attempt from a script, and records it.
+
+    ``script`` is the :class:`AttemptResult` every invocation returns, or a
+    function of the :class:`RunContext` for one that depends on it (the attempt
+    number, the workdir, a sequence to step through). ``contexts`` holds what
+    each invocation was handed, in the order they arrived.
+    """
+
+    def __init__(
+        self,
+        script: AttemptResult | Callable[[RunContext], AttemptResult] | None = None,
+        *,
+        name: str = "scripted",
+        model: str | None = None,
+        supports_mcp: bool = False,
+        mcp_unsupported_hint: str | None = None,
+    ) -> None:
+        self.script = script if script is not None else agent_result()
+        self._name = name
+        self._model = model
+        self.supports_mcp = supports_mcp
+        self.mcp_unsupported_hint = mcp_unsupported_hint
+        self.contexts: list[RunContext] = []
+        # Attempts run on worker threads (docs/adr/0018).
+        self._lock = threading.Lock()
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def calls(self) -> int:
+        return len(self.contexts)
+
+    @property
+    def attempts(self) -> list[int]:
+        return [ctx.attempt for ctx in self.contexts]
+
+    def run(self, ctx: RunContext) -> AttemptResult:
+        with self._lock:
+            self.contexts.append(ctx)
+        if callable(self.script):
+            return self.script(ctx)
+        # A shallow copy: each attempt gets its own result object, though the
+        # transcript's turns are shared (nothing downstream mutates them).
+        return replace(self.script)
+
+
+class ScriptedJudge:
+    """The judge double: answers every attempt with one verdict, and counts calls."""
+
+    backend = "test"
+    model = None
+
+    def __init__(self, result: JudgeResult | None = None) -> None:
+        self.result = result or JudgeResult(passed=True, reasoning="ok")
+        self.calls = 0
+        self._lock = threading.Lock()
+
+    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
+        with self._lock:
+            self.calls += 1
+        return self.result
 
 
 def task_result(
@@ -48,17 +161,6 @@ def task_result(
         ],
         activation_expected=expected,
     )
-
-
-class StubHarness:
-    """A harness double for CLI tests whose ``run`` is itself stubbed.
-
-    ``caliper run`` reads ``supports_mcp`` to decide the start-of-run notice
-    (docs/adr/0028).
-    """
-
-    def __init__(self, supports_mcp: bool = False) -> None:
-        self.supports_mcp = supports_mcp
 
 
 def run_context(**overrides) -> RunContext:

@@ -23,85 +23,42 @@ from caliper.workdir import _STEP_TIMEOUTS
 from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, TaskSpec
 
-
-class FailingHarness(HarnessBackend):
-    @property
-    def name(self) -> str:
-        return "failing"
-
-    def run(self, ctx: RunContext) -> AttemptResult:
-        return AttemptResult(
-            transcript=[],
-            final_output="",
-            exit_code=1,
-            duration_seconds=0.1,
-            error="agent failed",
-        )
+from conftest import (
+    ScriptedHarness,
+    ScriptedJudge,
+    agent_result,
+    failed_result,
+    in_turn,
+)
 
 
-class InfraErrorHarness(FailingHarness):
-    def __init__(self) -> None:
-        self.attempts: list[int] = []
-
-    def run(self, ctx: RunContext) -> AttemptResult:
-        self.attempts.append(ctx.attempt)
-        return super().run(ctx)
-
-
-class MixedOutcomeHarness(HarnessBackend):
-    def __init__(self) -> None:
-        self.attempts: list[int] = []
-
-    @property
-    def name(self) -> str:
-        return "mixed"
-
-    def run(self, ctx: RunContext) -> AttemptResult:
-        self.attempts.append(ctx.attempt)
-        if ctx.attempt in (1, 3):
-            return AttemptResult(
-                transcript=[],
-                final_output="",
-                exit_code=1,
-                duration_seconds=0.1,
-                error="agent failed",
-            )
-        return AttemptResult(
-            transcript=[ConversationTurn(role="assistant", content="judge this")],
-            final_output="judge this",
-            exit_code=0,
-            duration_seconds=0.1,
-        )
+def _fails_first_and_third(ctx: RunContext) -> AttemptResult:
+    if ctx.attempt in (1, 3):
+        return failed_result()
+    return agent_result(
+        transcript=[ConversationTurn(role="assistant", content="judge this")],
+        final_output="judge this",
+    )
 
 
-class RecordingJudge:
-    backend = "test"
-    model = None
-
-    def __init__(self) -> None:
-        self.calls = 0
-
-    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
-        self.calls += 1
-        return JudgeResult(passed=True, reasoning="should not run")
-
-
-class PassingHarness(HarnessBackend):
-    def __init__(self) -> None:
-        self.calls = 0
-
-    @property
-    def name(self) -> str:
-        return "passing"
-
-    def run(self, ctx: RunContext) -> AttemptResult:
-        self.calls += 1
-        return AttemptResult(
-            transcript=[ConversationTurn(role="assistant", content="done")],
-            final_output="done",
-            exit_code=0,
-            duration_seconds=0.1,
-        )
+_TOOL_CALL_RESULT = agent_result(
+    transcript=[
+        ConversationTurn(role="assistant", content="calling tool"),
+        ConversationTurn(
+            role="tool_use",
+            content="[tool: mcp__wiki__read]",
+            tool_name="mcp__wiki__read",
+            tool_input={"page": "home"},
+        ),
+        ConversationTurn(
+            role="tool_result",
+            content="ok",
+            tool_name="mcp__wiki__read",
+            tool_output="ok",
+        ),
+    ],
+    duration_seconds=0.2,
+)
 
 
 def test_failed_setup_cannot_pass_from_stale_artifact_and_still_cleans_up(
@@ -118,7 +75,7 @@ def test_failed_setup_cannot_pass_from_stale_artifact_and_still_cleans_up(
         setup="echo setup broke >&2; exit 7",
         cleanup=f"touch {cleaned}",
     )
-    harness = PassingHarness()
+    harness = ScriptedHarness()
     judge = EvalJudge()
     results = run(
         EvalSpec(tasks=[task]),
@@ -153,7 +110,7 @@ def test_failed_setup_with_markup_output_still_reports(capfd, tmp_path) -> None:
     results = run(
         EvalSpec(tasks=[task]),
         tmp_path / "markup.eval.yaml",
-        PassingHarness(),
+        ScriptedHarness(),
         EvalJudge(),
         k=1,
         workers=1,
@@ -169,7 +126,7 @@ def test_failed_setup_with_markup_output_still_reports(capfd, tmp_path) -> None:
 def test_cancelling_setup_skips_agent_and_still_runs_cleanup(tmp_path) -> None:
     started = tmp_path / "setup-started"
     cleaned = tmp_path / "cleanup-ran"
-    harness = PassingHarness()
+    harness = ScriptedHarness()
     task = TaskSpec(
         id="task-001",
         name="Interrupted setup",
@@ -224,7 +181,7 @@ def test_failed_cleanup_keeps_agent_outcome_and_reports_both_hook_failures(
     results = run(
         EvalSpec(tasks=[task]),
         tmp_path / "hooks.eval.yaml",
-        PassingHarness(),
+        ScriptedHarness(),
         EvalJudge(),
         k=1,
         workers=1,
@@ -239,7 +196,7 @@ def test_failed_cleanup_keeps_agent_outcome_and_reports_both_hook_failures(
     passed = run(
         EvalSpec(tasks=[task]),
         tmp_path / "hooks.eval.yaml",
-        PassingHarness(),
+        ScriptedHarness(),
         EvalJudge(),
         k=1,
         workers=1,
@@ -263,16 +220,6 @@ def test_cleanup_runs_after_failed_timed_out_or_cancelled_agent(
 ) -> None:
     cleaned = tmp_path / "cleaned"
 
-    class StoppingHarness(HarnessBackend):
-        @property
-        def name(self) -> str:
-            return "stopping"
-
-        def run(self, ctx: RunContext) -> AttemptResult:
-            return AttemptResult(
-                transcript=[], final_output="", duration_seconds=0.1, **result_fields
-            )
-
     task = TaskSpec(
         id="task-001",
         name="Stopped",
@@ -283,7 +230,7 @@ def test_cleanup_runs_after_failed_timed_out_or_cancelled_agent(
     results = run(
         EvalSpec(tasks=[task]),
         tmp_path / "stopped.eval.yaml",
-        StoppingHarness(),
+        ScriptedHarness(agent_result(transcript=[], final_output="", **result_fields)),
         EvalJudge(),
         k=1,
         workers=1,
@@ -330,13 +277,13 @@ def _one_task_spec() -> EvalSpec:
 def test_runner_fails_attempt_when_harness_exits_nonzero(tmp_path) -> None:
     spec_path = tmp_path / "failing.eval.yaml"
     spec_path.write_text("tasks: []\n")
-    judge = RecordingJudge()
+    judge = ScriptedJudge()
     spec = _one_task_spec()
 
     results = run(
         spec=spec,
         spec_path=spec_path,
-        harness=FailingHarness(),
+        harness=ScriptedHarness(failed_result()),
         judge=judge,
         k=1,
         workers=1,
@@ -358,13 +305,13 @@ def test_runner_fails_attempt_when_harness_exits_nonzero(tmp_path) -> None:
 def test_runner_runs_all_infra_failures_by_default(tmp_path) -> None:
     spec_path = tmp_path / "failing.eval.yaml"
     spec_path.write_text("tasks: []\n")
-    harness = InfraErrorHarness()
+    harness = ScriptedHarness(failed_result())
 
     results = run(
         spec=_one_task_spec(),
         spec_path=spec_path,
         harness=harness,
-        judge=RecordingJudge(),
+        judge=ScriptedJudge(),
         k=3,
         workers=1,
         timeout=30,
@@ -379,13 +326,13 @@ def test_runner_runs_all_infra_failures_by_default(tmp_path) -> None:
 def test_runner_fail_fast_stops_after_unusable_threshold(tmp_path) -> None:
     spec_path = tmp_path / "failing.eval.yaml"
     spec_path.write_text("tasks: []\n")
-    harness = InfraErrorHarness()
+    harness = ScriptedHarness(failed_result())
 
     results = run(
         spec=_one_task_spec(),
         spec_path=spec_path,
         harness=harness,
-        judge=RecordingJudge(),
+        judge=ScriptedJudge(),
         k=3,
         workers=1,
         timeout=30,
@@ -402,7 +349,7 @@ def test_runner_fail_fast_stops_after_unusable_threshold(tmp_path) -> None:
 def test_runner_fail_fast_does_not_reset_streak_on_judge_error(tmp_path) -> None:
     spec_path = tmp_path / "failing.eval.yaml"
     spec_path.write_text("tasks: []\n")
-    harness = MixedOutcomeHarness()
+    harness = ScriptedHarness(_fails_first_and_third)
 
     results = run(
         spec=_one_task_spec(),
@@ -434,8 +381,8 @@ def test_runner_emits_task_done_when_fail_fast_stops_early(tmp_path) -> None:
     run(
         spec=_one_task_spec(),
         spec_path=spec_path,
-        harness=InfraErrorHarness(),
-        judge=RecordingJudge(),
+        harness=ScriptedHarness(failed_result()),
+        judge=ScriptedJudge(),
         k=3,
         workers=1,
         timeout=30,
@@ -447,31 +394,6 @@ def test_runner_emits_task_done_when_fail_fast_stops_early(tmp_path) -> None:
     assert finished_tasks[0].task_id == "task-001"
     assert len(finished_tasks[0].attempts) == 1
     assert finished_tasks[0].pass_at_k is None
-
-
-class ResolvedModelHarness(HarnessBackend):
-    """A harness that reports the concrete model it resolved for each attempt.
-
-    ``model`` is what it was *built* with (``None`` = the CLI's own default);
-    ``resolved_model`` is what actually ran.
-    """
-
-    def __init__(self, resolved_model: str, model: str | None = None) -> None:
-        self._resolved = resolved_model
-        self._model = model
-
-    @property
-    def name(self) -> str:
-        return "resolving"
-
-    def run(self, ctx: RunContext) -> AttemptResult:
-        return AttemptResult(
-            transcript=[ConversationTurn(role="assistant", content="done")],
-            final_output="done",
-            exit_code=0,
-            duration_seconds=0.1,
-            resolved_model=self._resolved,
-        )
 
 
 class ModelReportingJudge:
@@ -496,7 +418,9 @@ def test_runmeta_records_judge_engine_and_resolved_model(tmp_path) -> None:
         spec=_one_task_spec(),
         spec_path=spec_path,
         # No skill model requested — the backend's resolved model should fill it.
-        harness=ResolvedModelHarness("stepfun/step-3.7-flash:free"),
+        harness=ScriptedHarness(
+            agent_result(resolved_model="stepfun/step-3.7-flash:free")
+        ),
         judge=ModelReportingJudge(
             "anthropic/claude-sonnet-4.6",
             backend="hermes",
@@ -521,7 +445,7 @@ def test_runmeta_fills_default_judge_model_from_autorater(tmp_path) -> None:
     results = run(
         spec=_one_task_spec(),
         spec_path=spec_path,
-        harness=ResolvedModelHarness("some/model"),
+        harness=ScriptedHarness(agent_result(resolved_model="some/model")),
         # No judge model requested — the autorater's concrete model fills it.
         judge=ModelReportingJudge("claude-opus-4-8", backend="claude-code"),
         k=1,
@@ -546,7 +470,7 @@ def test_runmeta_records_no_judge_model_when_no_autorater_ran(tmp_path) -> None:
     results = run(
         spec=_one_task_spec(),
         spec_path=spec_path,
-        harness=ResolvedModelHarness("some/model"),
+        harness=ScriptedHarness(agent_result(resolved_model="some/model")),
         judge=EvalJudge(backend="claude-code"),
         k=1,
         workers=1,
@@ -571,10 +495,11 @@ def test_runmeta_records_resolved_model_over_requested_and_warns(tmp_path) -> No
     results = run(
         spec=_one_task_spec(),
         spec_path=spec_path,
-        harness=ResolvedModelHarness(
-            "some/other-model", model="anthropic/claude-sonnet-4.6"
+        harness=ScriptedHarness(
+            agent_result(resolved_model="some/other-model"),
+            model="anthropic/claude-sonnet-4.6",
         ),
-        judge=RecordingJudge(),
+        judge=ScriptedJudge(),
         k=1,
         workers=1,
         timeout=30,
@@ -585,27 +510,6 @@ def test_runmeta_records_resolved_model_over_requested_and_warns(tmp_path) -> No
     assert len(warnings) == 1
     assert "anthropic/claude-sonnet-4.6" in warnings[0]
     assert "some/other-model" in warnings[0]
-
-
-class RotatingModelHarness(HarnessBackend):
-    """Reports a different resolved model per attempt, in the given order."""
-
-    def __init__(self, resolved_models: list[str], model: str | None = None) -> None:
-        self._resolved = iter(resolved_models)
-        self._model = model
-
-    @property
-    def name(self) -> str:
-        return "rotating"
-
-    def run(self, ctx: RunContext) -> AttemptResult:
-        return AttemptResult(
-            transcript=[],
-            final_output="done",
-            exit_code=0,
-            duration_seconds=0.1,
-            resolved_model=next(self._resolved),
-        )
 
 
 def test_runmeta_records_the_majority_model_and_warns_on_a_mixed_run(
@@ -619,11 +523,20 @@ def test_runmeta_records_the_majority_model_and_warns_on_a_mixed_run(
     results = run(
         spec=_one_task_spec(),
         spec_path=spec_path,
-        harness=RotatingModelHarness(
-            ["provider/model-b", "provider/model-a", "provider/model-a"],
+        harness=ScriptedHarness(
+            in_turn(
+                *(
+                    agent_result(resolved_model=m)
+                    for m in [
+                        "provider/model-b",
+                        "provider/model-a",
+                        "provider/model-a",
+                    ]
+                )
+            ),
             model="provider/model-a",
         ),
-        judge=RecordingJudge(),
+        judge=ScriptedJudge(),
         k=3,
         workers=1,
         timeout=30,
@@ -636,33 +549,6 @@ def test_runmeta_records_the_majority_model_and_warns_on_a_mixed_run(
     assert "provider/model-b" in warnings[0]
 
 
-class CancelledAfterFirstHarness(HarnessBackend):
-    """Attempt 1 completes on ``actual``; every later one is killed by Ctrl-C."""
-
-    def __init__(self, actual: str, model: str) -> None:
-        self._actual = actual
-        self._model = model
-        self._calls = 0
-
-    @property
-    def name(self) -> str:
-        return "cancelling"
-
-    def run(self, ctx: RunContext) -> AttemptResult:
-        self._calls += 1
-        first = self._calls == 1
-        return AttemptResult(
-            transcript=[],
-            final_output="done" if first else "",
-            exit_code=0 if first else -1,
-            duration_seconds=0.1,
-            # A killed attempt has no export to read, so it falls back to the
-            # requested model.
-            resolved_model=self._actual if first else self._model,
-            cancelled=not first,
-        )
-
-
 def test_runmeta_ignores_the_models_of_cancelled_attempts(tmp_path) -> None:
     # A cancelled attempt is discarded, so its fallback model must not outvote
     # the one attempt that actually ran.
@@ -672,42 +558,24 @@ def test_runmeta_ignores_the_models_of_cancelled_attempts(tmp_path) -> None:
     results = run(
         spec=_one_task_spec(),
         spec_path=spec_path,
-        harness=CancelledAfterFirstHarness("provider/model-b", "provider/model-a"),
-        judge=RecordingJudge(),
+        harness=ScriptedHarness(
+            in_turn(
+                agent_result(resolved_model="provider/model-b"),
+                # A killed attempt has no export to read, so it falls back to
+                # the requested model.
+                failed_result(
+                    exit_code=-1, resolved_model="provider/model-a", cancelled=True
+                ),
+            ),
+            model="provider/model-a",
+        ),
+        judge=ScriptedJudge(),
         k=3,
         workers=1,
         timeout=30,
     )
 
     assert results.run.model == "provider/model-b"
-
-
-class TranscriptHarness(HarnessBackend):
-    @property
-    def name(self) -> str:
-        return "transcript"
-
-    def run(self, ctx: RunContext) -> AttemptResult:
-        return AttemptResult(
-            transcript=[
-                ConversationTurn(role="assistant", content="calling tool"),
-                ConversationTurn(
-                    role="tool_use",
-                    content="[tool: mcp__wiki__read]",
-                    tool_name="mcp__wiki__read",
-                    tool_input={"page": "home"},
-                ),
-                ConversationTurn(
-                    role="tool_result",
-                    content="ok",
-                    tool_name="mcp__wiki__read",
-                    tool_output="ok",
-                ),
-            ],
-            final_output="done",
-            exit_code=0,
-            duration_seconds=0.2,
-        )
 
 
 def test_runner_persists_attempt_transcript(tmp_path) -> None:
@@ -717,8 +585,8 @@ def test_runner_persists_attempt_transcript(tmp_path) -> None:
     results = run(
         spec=_one_task_spec(),
         spec_path=spec_path,
-        harness=TranscriptHarness(),
-        judge=RecordingJudge(),
+        harness=ScriptedHarness(_TOOL_CALL_RESULT),
+        judge=ScriptedJudge(),
         k=1,
         workers=1,
         timeout=30,
@@ -876,7 +744,7 @@ def test_a_hanging_setup_is_an_infra_error_not_a_stuck_worker(
         assert_script="assert True",
         setup="sleep 30",
     )
-    harness = PassingHarness()
+    harness = ScriptedHarness()
     results = run(
         EvalSpec(tasks=[task]),
         tmp_path / "hang.eval.yaml",
