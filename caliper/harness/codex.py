@@ -547,6 +547,8 @@ def _error_message_from_json(candidate: str) -> str | None:
         payload = json.loads(candidate)
     except json.JSONDecodeError:
         return None
+    if not isinstance(payload, dict):
+        return None
 
     error = payload.get("error")
     if isinstance(error, dict):

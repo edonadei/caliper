@@ -13,6 +13,7 @@ from caliper.harness.base import (
     ProcessResult,
     PromptCall,
     RunContext,
+    stream_events,
 )
 from caliper.harness.mcp import merge_user_servers, resolve_servers
 from caliper.harness.refusal import AUTH_MARKERS, ConfigSignal
@@ -307,15 +308,8 @@ class HermesHarness(CliHarness):
             return obj if isinstance(obj, dict) else None
         except json.JSONDecodeError:
             pass
-        for line in stripped.splitlines():
-            line = line.strip()
-            if not line.startswith("{"):
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(obj, dict) and "messages" in obj:
+        for obj in stream_events(stripped):
+            if "messages" in obj:
                 return obj
         return None
 

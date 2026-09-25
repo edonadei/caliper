@@ -822,8 +822,8 @@ class CliHarness(HarnessBackend):
 
     #: What a run shows when the CLI cannot be found or run: whose CLI, and how
     #: to install and authenticate it. Written out whole by each backend rather
-    #: than templated (docs/adr/0020). ``None`` skips the readiness check:
-    #: claude-code declares no :attr:`cli_name` to probe.
+    #: than templated (docs/adr/0020). Declaring it opts the backend into the
+    #: readiness check; claude-code leaves it ``None`` and skips the check.
     cli_unavailable_message: str | None = None
 
     #: Seconds ``<cli> --version`` may take before the CLI counts as unrunnable.
@@ -994,13 +994,11 @@ class CliHarness(HarnessBackend):
             cancelled=cancel.was_killed(proc),
         )
 
-    def _version_ok(
-        self, cli: str, *, timeout: int, args: tuple[str, ...] = ("--version",)
-    ) -> bool:
+    def _version_ok(self, cli: str, *, timeout: int) -> bool:
         """True when ``cli --version`` exits 0 — the CLI is installed and runnable."""
         try:
             result = subprocess.run(
-                [cli, *args], capture_output=True, text=True, timeout=timeout
+                [cli, "--version"], capture_output=True, text=True, timeout=timeout
             )
         except (OSError, subprocess.TimeoutExpired):
             return False
