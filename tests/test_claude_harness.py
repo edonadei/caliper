@@ -647,3 +647,35 @@ def test_claude_harness_leaves_an_agent_writing_about_a_404_alone(
     )
 
     assert result.final_output == "The API returned 404."
+
+
+@pytest.mark.parametrize(
+    "platform, keychain, seeded, expected",
+    [
+        # macOS: a Keychain entry wins over a possibly stale file (#180).
+        ("darwin", "keychain", "stale-file", "keychain"),
+        ("darwin", None, "file", "file"),
+        ("darwin", "keychain", None, "keychain"),
+        ("darwin", None, None, None),
+        # Elsewhere the file is the only source.
+        ("linux", "keychain", "file", "file"),
+    ],
+)
+def test_claude_harness_credentials_source(
+    monkeypatch, tmp_path, platform, keychain, seeded, expected
+) -> None:
+    real = tmp_path / "real"
+    (real / ".claude").mkdir(parents=True)
+    if seeded is not None:
+        (real / ".claude" / ".credentials.json").write_text(seeded)
+    monkeypatch.setattr(Path, "home", lambda: real)
+    monkeypatch.setattr("caliper.harness.claude_code.sys.platform", platform)
+    harness = ClaudeCodeHarness()
+    monkeypatch.setattr(harness, "_capture_output", lambda cmd, timeout: keychain)
+    ctx = run_context(isolated_home=str(tmp_path / "iso"))
+
+    harness._seed_home(ctx)
+    harness._prepare(ctx)
+
+    creds = harness._credentials_file(ctx)
+    assert (creds.read_text() if creds.exists() else None) == expected

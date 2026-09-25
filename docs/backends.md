@@ -61,7 +61,9 @@ stay traceable even though the spec doesn't pin an engine.
 ## Claude Code
 
 Install and authenticate the `claude` CLI. `--model claude-code` uses your
-existing Claude Code auth, with no extra configuration.
+existing Claude Code auth, with no extra configuration. On macOS the Keychain
+entry wins over `~/.claude/.credentials.json`, as it does for the CLI itself, so
+a stale file left next to a valid Keychain login doesn't break attempts.
 
 ## Codex
 

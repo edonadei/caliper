@@ -43,9 +43,9 @@ one of them turned out to be expressible as data:
 ## Ordering is part of the contract
 
 `_seed_home` runs **before** `_prepare`. A backend that has to rewrite a config
-must see the verbatim copy already in place, and claude-code's Keychain fallback
-must be able to test whether `.credentials.json` was seeded before deciding to
-shell out for it. Reversing the two would silently break both, so the order is
+must see the verbatim copy already in place, and on macOS claude-code's Keychain
+credentials must replace a seeded `.credentials.json`, which may be stale (#180),
+rather than be overwritten by it. Reversing the two would silently break both, so the order is
 stated in `run` and in `_prepare`'s docstring rather than left to be discovered.
 
 ## Costs accepted
