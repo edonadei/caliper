@@ -227,7 +227,8 @@ def run_cmd(
     # boundary (docs/adr/0027, docs/adr/0028), and a run must stay usable
     # non-interactively. Loud when a flag or the spec asked for it, named by its
     # source; one dim line when the default applied, since that is every run. A
-    # backend without MCP gets the runner's no-effect warning instead.
+    # backend without MCP gets the run's no-effect warning instead
+    # (caliper/environment.py).
     customizations = choose_user_customizations(user_customizations, spec, harness)
     if customizations.load:
         if customizations.explicit:

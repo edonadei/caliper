@@ -6,7 +6,9 @@ those depends on the spec, the invocation (``--ablate``,
 ``--user-customizations``) and what the backend can do, and each used to be
 worked out, or re-checked, in more than one place. :func:`resolve_environment`
 works them out once, before any paid attempt, and :meth:`RunEnvironment.context`
-is the only place an attempt's :class:`RunContext` is built.
+is the only place an attempt's :class:`RunContext` is built. The run command
+also asks :func:`choose_user_customizations` early, for its notice; the rule
+itself lives only here.
 See docs/CONTEXT.md → Run environment.
 """
 
@@ -81,7 +83,10 @@ class RunEnvironment:
     # declared block whose servers were all ablated. Both isolate the attempt
     # to zero servers (docs/adr/0026-attempts-never-see-account-connectors.md).
     mcp_servers: dict[str, McpServer] | None
-    user_customizations: UserCustomizations
+    # Whether attempts load this machine's user customizations: the choice
+    # :func:`choose_user_customizations` made, already off on a backend without
+    # MCP.
+    user_customizations: bool
     # Every name the spec declares, ablated ones included, so a user's own
     # skill or server never takes one of them (docs/adr/0028).
     spec_skill_names: frozenset[str]
@@ -111,7 +116,7 @@ class RunEnvironment:
             workdir=workdir.path,
             extra_path=self.extra_path,
             mcp_servers=self.mcp_servers,
-            user_customizations=self.user_customizations.load,
+            user_customizations=self.user_customizations,
             spec_mcp_names=self.spec_mcp_names,
             spec_skill_names=self.spec_skill_names,
             forbidden_files=self.forbidden_files,
@@ -173,7 +178,10 @@ def resolve_environment(
     # something other than what the spec claims, so refuse. Ablation resolves
     # first, so a spec whose servers were all ablated still runs: their absence
     # is then the user's choice, recorded in RunMeta.ablated.
+    # This guard relaxes by itself as each backend flips ``supports_mcp``.
     if ablation.mcp_servers and not harness.supports_mcp:
+        # A backend whose lack of MCP is permanent by design supplies its own
+        # hint; the others get the generic "not yet" message.
         if harness.mcp_unsupported_hint:
             raise HarnessConfigurationError(
                 f"This eval declares mcp: servers, but the '{harness.name}' "
@@ -210,7 +218,7 @@ def resolve_environment(
             if "mcp" in spec.model_fields_set
             else None
         ),
-        user_customizations=customizations,
+        user_customizations=customizations.load,
         spec_skill_names=frozenset(ref.name for ref in declared_refs),
         spec_mcp_names=frozenset(spec.mcp),
         extra_path=[str((spec_dir / p).resolve()) for p in spec.sandbox.extra_path],

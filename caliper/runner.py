@@ -232,7 +232,7 @@ def run(
             # describes itself and `compare` can check an `mcp:` marker against
             # it rather than trusting the marker alone.
             mcp_servers=sorted(environment.mcp_servers or {}),
-            user_customizations=environment.user_customizations.load,
+            user_customizations=environment.user_customizations,
             loaded_user_customizations=_recorded_customizations(
                 env.loaded_user_customizations
             ),

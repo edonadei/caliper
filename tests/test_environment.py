@@ -45,7 +45,7 @@ def _spec(tmp_path, **fields):
     return EvalSpec(**fields), spec_path
 
 
-def _resolve(tmp_path, spec, spec_path, **overrides):
+def _resolve(spec, spec_path, **overrides):
     kwargs = dict(harness=_Backend(), ablate=[], user_customizations=None, timeout=30)
     kwargs.update(overrides)
     return resolve_environment(spec, spec_path, **kwargs)
@@ -94,7 +94,6 @@ def test_an_ignored_explicit_request_is_warned_about_once(tmp_path):
     warnings: list[str] = []
 
     environment = _resolve(
-        tmp_path,
         spec,
         spec_path,
         harness=_Backend(supports_mcp=False),
@@ -102,7 +101,7 @@ def test_an_ignored_explicit_request_is_warned_about_once(tmp_path):
         on_warning=warnings.append,
     )
 
-    assert environment.user_customizations.load is False
+    assert environment.user_customizations is False
     assert len(warnings) == 1 and "no effect" in warnings[0]
 
 
@@ -111,7 +110,6 @@ def test_an_ignored_default_is_not_warned_about(tmp_path):
     warnings: list[str] = []
 
     _resolve(
-        tmp_path,
         spec,
         spec_path,
         harness=_Backend(supports_mcp=False),
@@ -127,7 +125,7 @@ def test_an_ignored_default_is_not_warned_about(tmp_path):
 def test_no_mcp_block_hands_the_backend_none(tmp_path):
     spec, spec_path = _spec(tmp_path)
 
-    ctx, _ = _context(_resolve(tmp_path, spec, spec_path), tmp_path)
+    ctx, _ = _context(_resolve(spec, spec_path), tmp_path)
 
     assert ctx.mcp_servers is None
     assert ctx.spec_mcp_names == frozenset()
@@ -136,7 +134,7 @@ def test_no_mcp_block_hands_the_backend_none(tmp_path):
 def test_an_empty_mcp_block_still_isolates(tmp_path):
     spec, spec_path = _spec(tmp_path, mcp={})
 
-    ctx, _ = _context(_resolve(tmp_path, spec, spec_path), tmp_path)
+    ctx, _ = _context(_resolve(spec, spec_path), tmp_path)
 
     assert ctx.mcp_servers == {}
 
@@ -148,7 +146,7 @@ def test_an_ablated_server_is_removed_but_stays_the_specs_name(tmp_path):
     }
     spec, spec_path = _spec(tmp_path, mcp=servers)
 
-    environment = _resolve(tmp_path, spec, spec_path, ablate=["cut"])
+    environment = _resolve(spec, spec_path, ablate=["cut"])
     ctx, _ = _context(environment, tmp_path)
 
     assert set(ctx.mcp_servers) == {"kept"}
@@ -160,7 +158,7 @@ def test_declared_servers_on_a_backend_without_mcp_are_refused(tmp_path):
     spec, spec_path = _spec(tmp_path, mcp={"s": McpServer(command="s")})
 
     with pytest.raises(HarnessConfigurationError, match="does not support MCP"):
-        _resolve(tmp_path, spec, spec_path, harness=_Backend(supports_mcp=False))
+        _resolve(spec, spec_path, harness=_Backend(supports_mcp=False))
 
 
 # --- skills and the per-attempt context -------------------------------------
@@ -171,7 +169,7 @@ def test_an_ablated_skill_is_not_installed_but_stays_the_specs_name(tmp_path):
         tmp_path, skills=[_skill(tmp_path, "a"), _skill(tmp_path, "b")]
     )
 
-    environment = _resolve(tmp_path, spec, spec_path, ablate=["b"])
+    environment = _resolve(spec, spec_path, ablate=["b"])
     ctx, _ = _context(environment, tmp_path)
 
     assert [ref.name for ref in ctx.skill_refs] == ["a"]
@@ -184,17 +182,15 @@ def test_an_ablated_skill_drops_every_activation_expectation(tmp_path):
         tmp_path, skills=[_skill(tmp_path, "a"), _skill(tmp_path, "b")], tasks=[task]
     )
 
-    assert _resolve(tmp_path, spec, spec_path).expected_activation(task) == ["a"]
-    ablated = _resolve(tmp_path, spec, spec_path, ablate=["b"])
+    assert _resolve(spec, spec_path).expected_activation(task) == ["a"]
+    ablated = _resolve(spec, spec_path, ablate=["b"])
     assert ablated.expected_activation(task) is None
 
 
 def test_the_context_carries_the_attempt_and_the_run_settings(tmp_path):
     spec, spec_path = _spec(tmp_path)
 
-    ctx, workdir = _context(
-        _resolve(tmp_path, spec, spec_path, timeout=45), tmp_path, attempt=2
-    )
+    ctx, workdir = _context(_resolve(spec, spec_path, timeout=45), tmp_path, attempt=2)
 
     assert (ctx.task_id, ctx.attempt, ctx.prompt) == ("task-001", 2, "do it")
     assert ctx.timeout == 45
