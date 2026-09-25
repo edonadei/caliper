@@ -26,8 +26,8 @@ A skill eval answers four separate questions. Each has its own measurement and i
 |---|---|---|
 | **Fires**: does the agent reach for the skill when it should, and only then? | `activates:` on tasks, and trigger probes | the skill's `description` frontmatter |
 | **Works**: once it fires, does it get the job done? | `expect:` / `assert:`, scored as the success rate | the skill's body |
-| **Earns**: does it beat the bare agent? | the control run (`--ablate <skill-name>`) and `caliper compare` | the tasks: if the bare agent passes, the task is too easy |
-| **Holds**: does it stay good across edits and over time? | `caliper compare` of saved runs, skill drift | the edit that moved it |
+| **Earns**: does it beat the agent without it? | the control (`--ablate <skill-name>`: the declared neighbourhood minus this skill) and `caliper compare`. For a truly bare agent, ablate every declared skill and isolate the run | the tasks: if the control passes too, the task is too easy |
+| **Holds**: does it stay good across edits and over time? | `caliper compare` of each full run against the previous one, skill drift | the edit that moved it |
 
 ## Spec shape
 
@@ -46,7 +46,7 @@ tasks:
     activates: []           # a trigger probe: no judge, cheap
 ```
 
-When you write a spec, every task with `expect:` or `assert:` also asserts `activates: [<skill-name>]`, refusals included, and every prompt reads like a real user's request with the skill left unnamed.
+When you write a spec, every task with `expect:` or `assert:` also asserts `activates:`, refusals included: the skill, plus any declared skill it delegates to on that task, and every prompt reads like a real user's request with the skill left unnamed.
 
 The spec has no `backend`/`model` or `judge:` block. The engine is chosen at run time, independently for the skill and the judge: `caliper run <spec> --model codex --judge-model codex`. Backends are `claude-code` (default), `codex`, `pi`, and `hermes`. Each attempt runs in a fresh, empty workdir, so `setup:` builds fixtures there with relative paths.
 
@@ -56,8 +56,8 @@ Complete examples live in `references/evals/`, each folder self-contained with i
 
 1. `caliper validate <spec>`. It never touches the network.
 2. `caliper run <spec> --k 1` to shake out spec and harness errors. Fix those before reading any score.
-3. `caliper run <spec> --k 3 --ablate <skill-name>`, once. This is the **control**: the skill isn't installed, so editing `SKILL.md` can't move its number. Keep its results path (`caliper list <spec-name>` marks ablated runs) and re-diff against it. Re-run it only when the tasks or the declared skills change.
-4. `caliper run <spec> --k 3`, then `caliper compare <control.json> <spec-name>`. A bare spec name resolves to that spec's latest run.
+3. `caliper run <spec> --k 3 --ablate <skill-name>`, once (write `skill:<skill-name>` if an `mcp:` server shares the name). This is the **control**: the declared neighbourhood without this skill. The skill isn't installed, so editing `SKILL.md` can't move its number. Keep its results path (`caliper list <spec-name>` marks ablated runs) and re-diff against it. Re-run it only when the tasks or the declared skills change.
+4. `caliper run <spec> --k 3`, then `caliper compare <control.json> <spec-name>` to see whether it earns its place. After each edit, also compare against the previous full run's path to see whether the edit held: a skill that got worse can still beat the control. A bare spec name resolves to that spec's latest run.
 
 ## Reading results
 
@@ -70,11 +70,12 @@ Trace every failing task to where its fix belongs:
 | Run exits `2` (backend misconfigured, unavailable model, failed hook or MCP server, or every attempt unusable) | The environment or the task's hooks. Report it as a configuration problem, not a task failure |
 | `⊘` unusable attempts (`infra_error`, `timeout`, `judge_error`) | Not the skill: rate limits, auth, or the judge. They are excluded from the score; re-run |
 | `cheat` outcome | The task: it leaks its answer. Tighten the task or `sandbox:` |
-| Activation fails (skill didn't fire, or another one did) | The skill's `description` |
+| Activation fails: an expected skill didn't fire | That skill's `description` |
+| Activation fails: an unexpected skill fired too | The extra skill's `description`, or the overlap between the two |
 | Activation fails because one of the user's own skills fired (`skill:` in the report header) | Not the `description` alone: that skill is real competition in their setup. Decide with the user whether to sharpen the description or isolate the run |
 | Activation passes, score low | The skill's body |
 | The judge's reasoning shows `expect:` was ambiguous | The task's grading: make the criterion observable, or add an `assert:` |
-| Full run ≈ control | The task: it doesn't need the skill |
+| Full run ≈ control, and the skill fired in the full run | The task: it doesn't need the skill. If the skill never fired, the fix is its `description` (above) |
 
 At k=3 one attempt is a 33-point swing. Before calling a change a win or a regression, re-run at k≥5. `caliper compare` flags any drop and never gates. A rewritten or shortened skill is safe to ship when, at k≥5, it stays within about 5% of the previous score and still beats the control.
 
@@ -92,6 +93,6 @@ If the user hasn't decided what to test (a skill with no `.eval.yaml`, or an eva
 
 - every task has an observable criterion, and at least one has a deterministic `assert:`;
 - execution tasks assert `activates:`, and the spec has at least one trigger probe;
-- the full run beats the control;
+- the full run beats the control on execution tasks, and holds against the previous full run. Trigger probes have no execution score: read them from the full run's activation;
 - the spec passes `caliper validate`;
 - the user has been told to commit the `.eval.yaml` beside `SKILL.md`. Saved runs under `.caliper/results/` are useful for diffing over time and safe to gitignore.

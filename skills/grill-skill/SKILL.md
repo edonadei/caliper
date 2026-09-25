@@ -12,8 +12,8 @@ An eval answers four questions, and the interview covers each:
 
 - **Fires**: does the agent reach for the skill when it should, and only then? Tested with `activates:` and trigger probes. Fixed in the `description`.
 - **Works**: once it fires, does it do the job? Tested with `expect:` / `assert:`. Fixed in the body.
-- **Earns**: does it beat the bare agent? Tested against the control run. A task the bare agent passes is fixed in the task.
-- **Holds**: does it stay good across edits? Tested by comparing each new run against the control.
+- **Earns**: does it beat the agent without it? Tested against the control: the declared neighbourhood with this skill removed. A task the control passes too is fixed in the task.
+- **Holds**: does it stay good across edits? Tested by comparing each new full run against the previous one.
 
 ## Entry point
 
@@ -45,7 +45,7 @@ Elicit, one question at a time:
 
 Always propose a silence probe as well: unrelated work, `activates: []`.
 
-Turn each answer into a task: a realistic `prompt` that never names the skill, an observable `expect`, an `assert` when the outcome is checkable, and `activates: [<skill-name>]` on execution tasks so the run can tell a `description` failure from a body failure. The harness is single-shot: nobody answers the agent's questions. If the skill asks before acting, the task judges that first turn: `expect:` the question, `assert:` nothing was done yet. Show the proposed YAML and confirm before writing.
+Turn each answer into a task: a realistic `prompt` that never names the skill, an observable `expect`, an `assert` when the outcome is checkable, and `activates:` on execution tasks, naming the skill plus any declared skill it delegates to on that task, so the run can tell a `description` failure from a body failure. The harness is single-shot: nobody answers the agent's questions. If the skill asks before acting, the task judges that first turn: `expect:` the question, `assert:` nothing was done yet. Show the proposed YAML and confirm before writing.
 
 Write the spec beside `SKILL.md`, named `<dir-name>.eval.yaml`, with `skills: [./SKILL.md]` and no engine: the backend and model are picked at run time with `--model` / `--judge-model`, so if the SKILL.md targets a non-default agent, tell the user which flag to pass.
 
@@ -65,9 +65,9 @@ Validate the spec, then run at `k=1` (commands in [REFERENCE.md](REFERENCE.md)).
 
 ## Phase 4 — Check the tasks need the skill
 
-Before anyone edits the skill, check that the tasks can tell it apart from the bare agent. Run the control (`--ablate <skill-name>`) and a full run, both at `k=3`, then `caliper compare` them.
+Before anyone edits the skill, check that the tasks can tell it apart from the control: the declared neighbourhood with this skill removed. Run the control (`--ablate <skill-name>`, or `skill:<skill-name>` if an `mcp:` server shares the name) and a full run, both at `k=3`, then `caliper compare` them. Check activation first: if the skill never fired in the full run, both runs measure the same agent, and the fix is its `description` (Phase 5), not the tasks.
 
-- **Bare agent scores about as well as the full run**: the task doesn't need the skill, so iterating on the skill against it measures nothing. Sharpen the task with the user (a harder input, the specific rule the skill adds), then re-run both.
+- **The skill fired, and the control scores about as well as the full run**: the task doesn't need the skill, so iterating on the skill against it measures nothing. Sharpen the task with the user (a harder input, the specific rule the skill adds), then re-run both.
 - **Full run clearly ahead**: the task measures the skill. Keep it.
 
 Keep the control's results path (`caliper list <spec-name>` shows which run was ablated). The skill isn't installed in that run, so editing `SKILL.md` can't move its number: re-diff against it instead of re-running it. Re-run it only when the tasks or the declared skills change.
@@ -81,13 +81,14 @@ Read each failing task before suggesting a fix, and say where the fix belongs:
 | Run exits `2` (backend misconfigured, unavailable model, failed hook or MCP server, or every attempt unusable) | The environment or the task's hooks, not the skill. Fix and re-run |
 | `⊘` unusable attempts (`infra_error`, `timeout`, `judge_error`) | Not the skill: rate limits, auth, or the judge. Fix and re-run |
 | `cheat` outcome | The task: it leaks its answer. Tighten the task or `sandbox:` |
-| Activation fails (skill didn't fire, or another one did) | The skill's `description` frontmatter |
+| Activation fails: an expected skill didn't fire | That skill's `description` |
+| Activation fails: an unexpected skill fired too | The extra skill's `description`, or the overlap between the two |
 | Activation fails because one of the user's own skills fired (`skill:` in the report header) | Not the `description` alone: that skill is real competition in their setup. Decide with the user whether to sharpen the description or isolate the run |
 | Activation passes, score low | The skill's body |
 | The judge's reasoning shows `expect:` was ambiguous | The task's grading: make the criterion observable, or add an `assert:` |
-| Full run ≈ control | The task (see Phase 4) |
+| Full run ≈ control, and the skill fired in the full run | The task (see Phase 4). If it never fired, the `description` |
 
 Then ask whether to iterate or finish.
 
-- **Iterate**: after the user edits their `SKILL.md`, re-run at `k=3`, `caliper compare` against the kept control, and diagnose again. At k=3 one attempt is a 33-point swing, so confirm a surprising win or loss at k≥5 before acting on it. Loop.
-- **Done**: confirm the full run beats the control, then remind the user to commit `SKILL.md` and the `.eval.yaml` together.
+- **Iterate**: after the user edits their `SKILL.md`, re-run at `k=3` and `caliper compare` it twice: against the previous full run (did the edit hold?) and against the kept control (does it still earn its place?). A skill that got worse can still beat the control. Diagnose again. At k=3 one attempt is a 33-point swing, so confirm a surprising win or loss at k≥5 before acting on it. Loop.
+- **Done**: confirm the full run beats the control on its execution tasks and holds against the previous full run, then remind the user to commit `SKILL.md` and the `.eval.yaml` together.
