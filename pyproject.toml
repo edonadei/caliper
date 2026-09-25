@@ -39,7 +39,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-codex = ["openai>=1.0"]
 dev = [
     "pytest",
     "ruff==0.15.20",
