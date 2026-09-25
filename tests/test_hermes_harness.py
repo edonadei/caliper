@@ -165,14 +165,24 @@ def _fake_home_with_user_mcp(tmp_path):
     config = {
         "model": {"provider": "anthropic"},
         "mcp_servers": {"personal": {"command": "my-private-server"}},
-        "inherit_mcp_toolsets": True,
     }
     (home / ".hermes" / "config.yaml").write_text(yaml.safe_dump(config))
     return home
 
 
-def _run_hermes_mcp(monkeypatch, tmp_path, mcp_servers, *, home=None):
-    """Run the harness with declared mcp_servers and return the seeded config."""
+def _run_hermes_mcp(
+    monkeypatch,
+    tmp_path,
+    mcp_servers,
+    *,
+    home=None,
+    user_customizations=False,
+    captured=None,
+):
+    """Run the harness with declared mcp_servers and return the seeded config.
+
+    ``captured``, when given, receives the attempt's ``result``.
+    """
     monkeypatch.setattr(
         "caliper.harness.mcp.preflight_stdio_servers", lambda *a, **kw: None
     )
@@ -186,15 +196,18 @@ def _run_hermes_mcp(monkeypatch, tmp_path, mcp_servers, *, home=None):
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     _install(monkeypatch, home, fake_run)
-    HermesHarness().run(
+    result = HermesHarness().run(
         run_context(
             prompt="Hello",
             model=None,
             timeout=30,
             isolated_home=str(iso),
             mcp_servers=mcp_servers,
+            user_customizations=user_customizations,
         )
     )
+    if captured is not None:
+        captured["result"] = result
     seeded = iso / ".hermes" / "config.yaml"
     return yaml.safe_load(seeded.read_text()), seeded
 
@@ -211,13 +224,11 @@ def test_hermes_translates_stdio_mcp_and_overwrites_user_servers(
             )
         },
     )
-    # The declared server replaces the user's ambient server wholesale, and the
-    # toolset-inheritance flag is scrubbed — the neutral tool environment.
+    # The declared server replaces the user's ambient server wholesale.
     assert config["mcp_servers"] == {
         "echo": {"command": "python3", "args": ["/tmp/echo.py"], "env": {"DEBUG": "1"}}
     }
     assert "personal" not in config["mcp_servers"]
-    assert "inherit_mcp_toolsets" not in config
 
 
 def test_hermes_translates_remote_header_auth_and_interpolates(
@@ -251,7 +262,70 @@ def test_hermes_removes_mcp_servers_when_spec_declares_none(
     config, _ = _run_hermes_mcp(monkeypatch, tmp_path, None)
     # A no-MCP eval must not inherit the user's personal servers.
     assert "mcp_servers" not in config
-    assert "inherit_mcp_toolsets" not in config
+
+
+def test_hermes_user_customizations_merges_user_servers_with_the_spec_winning(
+    monkeypatch, tmp_path
+) -> None:
+    captured: dict = {}
+    config, _ = _run_hermes_mcp(
+        monkeypatch,
+        tmp_path,
+        {
+            "echo": McpServer(command="python3"),
+            "personal": McpServer(command="spec-server"),
+        },
+        user_customizations=True,
+        captured=captured,
+    )
+    # The spec's `personal` replaces the user's; nothing else of theirs is lost.
+    assert config["mcp_servers"] == {
+        "personal": {"command": "spec-server"},
+        "echo": {"command": "python3"},
+    }
+    # The user's only server was shadowed, so none of theirs was loaded.
+    assert captured["result"].loaded_user_customizations == []
+
+
+def test_hermes_user_customizations_keeps_and_records_user_servers(
+    monkeypatch, tmp_path
+) -> None:
+    captured: dict = {}
+    home = _fake_home(tmp_path)
+    (home / ".hermes" / "config.yaml").write_text(
+        yaml.safe_dump({"mcp_servers": {"personal": {"command": "my-private-server"}}})
+    )
+    config, _ = _run_hermes_mcp(
+        monkeypatch,
+        tmp_path,
+        None,
+        home=home,
+        user_customizations=True,
+        captured=captured,
+    )
+    assert config["mcp_servers"] == {"personal": {"command": "my-private-server"}}
+    assert captured["result"].loaded_user_customizations == ["personal"]
+
+
+def test_hermes_user_customizations_still_ablates_a_server_the_user_also_has(
+    monkeypatch, tmp_path
+) -> None:
+    home = _fake_home_with_user_mcp(tmp_path)
+    iso = tmp_path / "iso"
+    (iso / ".hermes").mkdir(parents=True)
+    (iso / ".hermes" / "config.yaml").write_text(
+        (home / ".hermes" / "config.yaml").read_text()
+    )
+    HermesHarness()._prepare(
+        run_context(
+            isolated_home=str(iso),
+            mcp_servers={},
+            spec_mcp_names=frozenset({"personal"}),
+            user_customizations=True,
+        )
+    )
+    config = yaml.safe_load((iso / ".hermes" / "config.yaml").read_text())
+    assert "mcp_servers" not in config
 
 
 def test_hermes_errors_on_unset_mcp_env_var(monkeypatch, tmp_path) -> None:

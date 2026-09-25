@@ -1,6 +1,9 @@
 # End-to-end smoke eval for the `codex` backend.
 # The engine is a runtime axis, not a spec field — pick it when you run:
 #   caliper run tests/codex-smoke.eval.yaml --model codex
+# Pinned isolated: see test_every_smoke_eval_pins_isolation.
+user_customizations: false
+
 tasks:
   - name: Write hello to a file
     setup: rm -f /tmp/caliper-e2e-smoke-codex.txt

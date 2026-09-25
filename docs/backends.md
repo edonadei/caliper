@@ -146,9 +146,10 @@ error, never a silent no-op.
   streamable-HTTP transport from `url`, so `http` and `sse` collapse onto it.
 - **`hermes`** translates the block into its native `mcp_servers` config inside
   the isolated `HERMES_HOME`.
-- On both, `${VAR}` values are resolved at the harness boundary, and any personal
-  servers from your real config are replaced, so an attempt sees only the
-  declared set.
+- On both, `${VAR}` values are resolved at the harness boundary. Your personal
+  servers from the real config are kept alongside the declared set by default
+  ([loaded](#loading-your-user-customizations)); an isolated run replaces them,
+  so it sees only the declared set.
 - **Remote OAuth** isn't supported on `codex` or `hermes`: it needs an
   interactive browser flow the harness can't drive.
 - **`pi`** has no MCP by design
@@ -157,3 +158,33 @@ error, never a silent no-op.
   another backend. Running an `mcp:` spec on `pi` fails with that guidance.
 
 See [MCP servers](spec-reference.md#mcp-servers-mcp) for the spec format.
+
+## Loading your user customizations
+
+By default every attempt loads your **user customizations**: the MCP servers and
+account connectors your CLI loads by itself (user skills, plugins, rules and
+settings are planned to join them: #177), merged with the spec's `mcp:` block
+([ADR 0028](adr/0028-runs-load-user-customizations-by-default.md)), so a score
+measures the skill in the agent you actually use, including skills that rely on a
+hosted OAuth connector a spec can't declare. `--no-user-customizations`, or
+`user_customizations: false` in the spec, isolates a run to the declared servers; see
+[Portable scores](../README.md#portable-scores) for when that's needed.
+
+| Backend | What is loaded |
+|---|---|
+| `claude-code` | The `mcpServers` in your `~/.claude.json`, plus your claude.ai connectors (`--strict-mcp-config` is dropped) |
+| `codex` | The `[mcp_servers.*]` tables in your `~/.codex/config.toml`, your installed plugins (`~/.codex/plugins`, copied into the attempt), and ChatGPT apps (surfacing as `codex_apps`) |
+| `hermes` | The `mcp_servers` in your `~/.hermes/config.yaml` |
+| `pi` | Nothing: no MCP by design. The run records it as off, and warns only if a flag or the spec asked for it |
+
+- **The spec wins a name clash.** A declared server replaces your server of the
+  same name, in the attempt's copy of the config. Your real config is never
+  changed.
+- **The judge stays isolated**, whatever the setting.
+- **The run says so**: a notice at the start (attempts can act on those accounts
+  without asking), and the saved run records what was loaded, or "unknown" when
+  a source such as codex plugins can't be listed. See
+  [Results JSON](results.md#results-json) for how `compare` uses it.
+- **`--ablate` can't remove one of your servers.** It only names what the spec
+  declares. A spec can pin the setting; see
+  [the spec reference](spec-reference.md#user-customizations-user_customizations).

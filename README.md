@@ -243,10 +243,27 @@ commented lines.
 ```
 
 Each attempt runs in an isolated temporary home with no session history, in a
-fresh empty working directory. It sees only the MCP servers the spec declares:
-none of your personal servers, and none of the hosted connectors your Claude or
-ChatGPT account carries (Gmail, Drive, GitHub, and the like). Results are saved
-as JSON you can inspect and diff later.
+fresh empty working directory. By default it loads your **user customizations**:
+the MCP servers your CLI is configured with and the hosted connectors your Claude
+or ChatGPT account carries (Gmail, Drive, GitHub, and the like), merged with the
+servers the spec declares. That measures the skill in the agent you actually use.
+(Your own skills, plugins, rules and settings are planned to join them: #177.)
+Results are saved as JSON you can inspect and diff later, including which user
+customizations each run loaded.
+
+### Portable scores
+
+A default score depends on your setup. When the number has to mean the same thing
+on another machine, isolate the run so it sees only the servers the spec
+declares:
+
+- `caliper run spec.eval.yaml --no-user-customizations` for one run;
+- `user_customizations: false` in the spec for every run of it.
+
+Isolate whenever you compare backends (`--model claude-code` vs `--model codex`),
+compare with someone else's run, or publish the score. Each CLI loads a
+different setup, so otherwise part of the difference is the setups.
+`caliper compare` warns when two runs loaded differently.
 
 ---
 
@@ -337,6 +354,9 @@ The quick start covers the basics. A spec can also:
 - pull neighbour skills from a **git repo**, pinned to a commit
   (`skills: - {repo: owner/name, ref: …, path: …}`)
 - give the agent **MCP servers**, local or remote (`mcp:`)
+- **pin whether your own customizations load**: `user_customizations: false`
+  for a portable score from anyone, or `true` for a skill that needs your own
+  connectors
 - run **`setup:` and `cleanup:`** shell hooks in each attempt's workdir
 - extend `PATH` or **forbid files** the agent must not read (`sandbox:`)
 - assert **silence** (`activates: []`) or a **delegation chain**
@@ -372,12 +392,13 @@ run Caliper, inside the git repository. See
 | Flag | Default | Description |
 |---|---|---|
 | `--k INT` | `3` | Attempts per task |
-| `--ablate NAME` | none | Run without this declared skill or `mcp:` server (repeatable; name every skill for the bare agent). Qualify as `skill:`/`mcp:` when both declare the name |
+| `--ablate NAME` | none | Run without this declared skill or `mcp:` server (repeatable; name every skill, with `--no-user-customizations`, for the bare agent). Qualify as `skill:`/`mcp:` when both declare the name |
 | `--workers INT` | `4` | Attempts to run in parallel, across all tasks |
 | `--timeout INT` | `120` | Seconds per attempt |
 | `--fail-fast INT` | `0` | Stop a task after N consecutive `infra_error`/`timeout` attempts (`0` disables; counts attempts, not invocations) |
 | `--model TARGET` | `claude-code` | Skill engine: `backend`, `model`, or `backend:model` ([syntax](docs/backends.md#selecting-an-engine)) |
 | `--judge-model TARGET` | `claude-code` | Judge engine, same syntax |
+| `--user-customizations` / `--no-user-customizations` | the spec's `user_customizations`, else on | Load your MCP servers and account connectors into attempts, or not. See [Portable scores](#portable-scores) |
 | `--verbose` | off | Show per-attempt judge reasoning |
 | `--output PATH` | none | Also save results JSON to a specific path |
 

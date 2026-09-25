@@ -23,6 +23,23 @@ DEFAULT_BACKEND: str = "claude-code"
 # Pinned so the claude-code judge does not inherit a stale model from the
 # installed Claude CLI's own default (see issue #59).
 DEFAULT_JUDGE_MODEL: str = "claude-sonnet-5"
+# Runs load the user's customizations unless the invocation or the spec says
+# otherwise: most runs test a skill in the user's own agent (docs/adr/0028).
+DEFAULT_USER_CUSTOMIZATIONS: bool = True
+
+
+def resolve_user_customizations(
+    flag: bool | None, spec: "EvalSpec"
+) -> tuple[bool, bool]:
+    """``(load, explicit)``: the flag, else the spec, else the default.
+
+    ``explicit`` says whether the flag or spec chose it, which decides how
+    loudly the run says so.
+    """
+    requested = flag if flag is not None else spec.user_customizations
+    return (DEFAULT_USER_CUSTOMIZATIONS if requested is None else requested), (
+        requested is not None
+    )
 
 
 def normalize_backend(value: str) -> str:
@@ -270,6 +287,10 @@ class EvalSpec(BaseModel):
     skills: list[str | GitSkillSource] = []
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     mcp: dict[str, McpServer] = {}
+    # Whether runs load the user's customizations: ``false`` pins a portable,
+    # isolated score, ``true`` says the skill needs them, unset takes the
+    # default. The CLI flags override it (docs/adr/0028).
+    user_customizations: bool | None = None
     tasks: list[TaskSpec]
 
     model_config = ConfigDict(extra="forbid")

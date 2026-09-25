@@ -30,6 +30,7 @@ from caliper.schema.spec import (
     VALID_BACKENDS,
     load_spec,
     parse_target,
+    resolve_user_customizations,
     spec_name,
 )
 
@@ -119,6 +120,18 @@ def run_cmd(
         "--judge-model",
         help="Override judge backend/model (e.g. claude-code:claude-haiku-4-5-20251001)",
     ),
+    user_customizations: Optional[bool] = typer.Option(
+        None,
+        "--user-customizations/--no-user-customizations",
+        show_default=False,
+        help=(
+            "Whether attempts load your user customizations (the MCP servers "
+            "and account connectors your CLI loads by itself), merged with the "
+            "spec's mcp: (the spec wins a name clash). Omitted: the spec's "
+            "user_customizations, else on. Use --no-user-customizations for a "
+            "portable score or a harness comparison. The judge stays isolated."
+        ),
+    ),
 ) -> None:
     # Retired in favour of --ablate, which runs *one* arm and saves it as an
     # ordinary run. Kept parseable for one release because caliper ships on PyPI
@@ -207,6 +220,37 @@ def run_cmd(
     harness = get_harness(backend, skill_model)
     judge = EvalJudge(judge_backend, judge_model_name)
 
+    # A notice, not a prompt: an attempt's isolation was never a security
+    # boundary (docs/adr/0027, docs/adr/0028), and a run must stay usable
+    # non-interactively. Loud when a flag or the spec asked for it, named by its
+    # source; one dim line when the default applied, since that is every run. A
+    # backend without MCP gets the runner's no-effect warning instead.
+    loading, explicit = resolve_user_customizations(user_customizations, spec)
+    if loading and harness.supports_mcp:
+        if explicit:
+            source = (
+                "--user-customizations"
+                if user_customizations
+                else "user_customizations: true (spec)"
+            )
+            console.print(
+                f"[yellow]⚠ {source}:[/yellow] attempts get this machine's user "
+                "customizations (MCP servers, account connectors). The score "
+                "depends on this setup, and attempts can act on those accounts "
+                "without asking."
+                + (
+                    "\n[dim]  --no-user-customizations runs it isolated.[/dim]"
+                    if user_customizations is None
+                    else ""
+                )
+            )
+        else:
+            console.print(
+                "[dim]Loading this machine's user customizations (MCP servers, "
+                "account connectors); attempts can use them without asking.\n"
+                "  --no-user-customizations to isolate.[/dim]"
+            )
+
     task_names = [t.name for t in spec.tasks]
     progress, task_ids = make_progress(task_names, k)
 
@@ -286,6 +330,7 @@ def run_cmd(
                 on_warning=warn,
                 on_attempt_done=on_attempt_done,
                 on_task_done=on_task_done,
+                user_customizations=user_customizations,
             )
         except (SkillResolutionError, HarnessConfigurationError) as exc:
             fail(exc)

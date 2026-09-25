@@ -19,6 +19,9 @@
 #   caliper run tests/mcp-smoke.eval.yaml --k 1 --model hermes  # hermes
 #   caliper run tests/mcp-smoke.eval.yaml --k 1 --model codex   # codex
 
+# Pinned isolated: see test_every_smoke_eval_pins_isolation.
+user_customizations: false
+
 mcp:
   echo:
     command: python3

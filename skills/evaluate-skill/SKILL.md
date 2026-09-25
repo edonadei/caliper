@@ -53,6 +53,12 @@ If the skill has a `SKILL.md` but no `.eval.yaml`, suggest the `grill-skill` wor
 
 **Done when:** tasks have observable success criteria, at least one deterministic `assert:`, a positive delta against the ablated run, the spec passes `caliper validate`, and the user has been prompted to commit the spec.
 
+## Whose setup is measured
+
+Runs load the user's own customizations by default (their MCP servers and account connectors, merged with the spec's `mcp:`), which answers "does my skill work in *my* agent?". **Isolate** (`--no-user-customizations`, or `user_customizations: false` in the spec) when comparing backends or models, when the number leaves this machine (shared, published, compared with someone else's run), or when measuring the bare agent: each setup is different, so otherwise part of the delta is the setups. `--ablate` of the user's own skill needs no isolation, since both runs load the same setup.
+
+**Always tell the user which mode ran** and what it loaded, from the report header's `user customizations:` line (absent means isolated), and relay any fix `caliper compare` suggests about it.
+
 ## Committing
 
 Running Caliper produces two artifacts: the `.eval.yaml` spec — the valuable one, commit it beside the skill so anyone who clones the repo can run the same eval — and `.caliper/results/` saved run JSONs, useful for diffing over time and safe to gitignore. After creating or running an eval, tell the user to commit the spec alongside `SKILL.md`.

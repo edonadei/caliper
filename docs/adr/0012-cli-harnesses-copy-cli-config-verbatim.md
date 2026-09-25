@@ -8,7 +8,7 @@ credentials and mutates nothing (reference behavior); `pi` copies
 `~/.pi/agent/{auth.json,settings.json}` verbatim, keeping `settings.json`'s
 `defaultProvider`/`defaultModel`. `codex` is the one exception: it strips the
 top-level `model =` from the copied `config.toml`
-(`_strip_seeded_config` in `caliper/harness/codex.py`) so a spec with no
+(`_materialize_config` in `caliper/harness/codex.py`) so a spec with no
 `model:` falls back to the Codex CLI's built-in default.
 
 The rule is uniform — *copy verbatim, the CLI resolves the default, `--model`

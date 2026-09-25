@@ -20,6 +20,9 @@
 #   caliper run tests/mcp-header-smoke.eval.yaml --k 1                 # claude-code
 #   caliper run tests/mcp-header-smoke.eval.yaml --k 1 --model hermes  # hermes
 
+# Pinned isolated: see test_every_smoke_eval_pins_isolation.
+user_customizations: false
+
 mcp:
   echo:
     type: http

@@ -17,6 +17,9 @@
 #
 # http transport + claude-code backend (this is issue #48's slice).
 
+# Pinned isolated: see test_every_smoke_eval_pins_isolation.
+user_customizations: false
+
 mcp:
   deepwiki:
     type: http

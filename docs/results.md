@@ -193,6 +193,12 @@ How to read the diff:
 - **Token and wall-clock deltas are secondary** and never a regression: a drop is
   green (cheaper), a rise red (a trade-off to weigh). Only the score feeds
   `has_regression`.
+- **A different tool environment warns.** Two runs configured with different
+  `mcp:` servers, where only one loaded your user customizations, or both did on
+  different setups, get a warning in the header saying how to match them: tool
+  availability can move the score for reasons unrelated to the skill. Two
+  different backends with user customizations warn too, since each CLI loads its
+  own setup; isolate both runs (`--no-user-customizations`) for a harness comparison.
 
 `--format json` serializes the full comparison (per-task scores, deltas,
 regression flags, unmatched lists, warnings, `skill_drift`, and per-side usage)
@@ -299,6 +305,16 @@ time, and it only appears when a judge ran.
   between two runs isn't misread as an ablation of it. It's `None` on a run saved
   before the field existed (unknown, not "none"), and `compare` warns
   (`mcp_mismatch`) when two runs recorded different servers.
+- `RunMeta.user_customizations` records whether the run loaded the machine's user
+  customizations (the default; `false` when isolated, and on runs saved before the
+  field existed), and
+  `RunMeta.loaded_user_customizations` the loaded server names the backend could
+  see, declared ones excluded (`None` = unknown). Loaded servers never appear
+  in `mcp_servers`. `compare` warns (`user_customizations_mismatch`) when only one side
+  loaded, or both did with different recorded servers, and
+  (`cross_backend_user_customizations`) when two backends are compared with user customizations.
+  Two runs form an ablation pair only if they agree on the setting
+  ([ADR 0028](adr/0028-runs-load-user-customizations-by-default.md)).
 - `TaskComparison` has `a_activation`/`b_activation`/`activation_delta`/
   `activation_regression`, and `RunComparison` has `has_activation_regression`,
   kept strictly separate from `has_regression`.

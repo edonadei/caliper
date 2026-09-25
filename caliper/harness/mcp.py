@@ -35,7 +35,7 @@ from pathlib import Path
 import psutil
 
 from caliper import cancel
-from caliper.harness.base import HarnessConfigurationError
+from caliper.harness.base import HarnessConfigurationError, RunContext
 from caliper.schema.spec import McpServer
 
 # A ``${VAR}`` reference inside an MCP server field (stdio ``env`` values, remote
@@ -406,6 +406,18 @@ class ResolvedMcpServer:
         if self.env:
             rendered["env"] = self.env
         return rendered
+
+
+def merge_user_servers(
+    user_servers: object, declared: dict[str, dict], ctx: RunContext
+) -> dict[str, dict]:
+    """The attempt's MCP servers: the user's own when loading customizations,
+    minus any name the spec declares (ablated ones included), with the declared
+    servers on top. Just the declared servers when isolated (docs/adr/0028)."""
+    if not ctx.user_customizations or not isinstance(user_servers, dict):
+        return dict(declared)
+    kept = {n: e for n, e in user_servers.items() if n not in ctx.spec_mcp_names}
+    return {**kept, **declared}
 
 
 def resolve_servers(
