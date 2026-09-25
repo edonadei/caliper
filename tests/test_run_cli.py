@@ -19,7 +19,7 @@ from caliper.schema.results import (
     TaskResult,
 )
 
-from conftest import StubHarness
+from conftest import ScriptedHarness
 
 
 runner = CliRunner()
@@ -64,7 +64,7 @@ tasks:
         )
 
     monkeypatch.setattr(
-        "caliper.commands.run.get_harness", lambda *args, **kwargs: StubHarness()
+        "caliper.commands.run.get_harness", lambda *args, **kwargs: ScriptedHarness()
     )
     monkeypatch.setattr(
         "caliper.commands.run.EvalJudge", lambda *args, **kwargs: object()
@@ -131,7 +131,7 @@ def test_run_cli_resolves_backend_and_judge_model_targets(
 
     def fake_get_harness(backend, model):
         harness_args["backend"], harness_args["model"] = backend, model
-        return StubHarness()
+        return ScriptedHarness()
 
     def fake_eval_judge(backend, model):
         judge_args["backend"], judge_args["model"] = backend, model
@@ -188,7 +188,7 @@ def test_run_cli_collects_repeated_ablate_flags(monkeypatch, tmp_path) -> None:
         )
 
     monkeypatch.setattr(
-        "caliper.commands.run.get_harness", lambda *a, **k: StubHarness()
+        "caliper.commands.run.get_harness", lambda *a, **k: ScriptedHarness()
     )
     monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **k: object())
     monkeypatch.setattr(
@@ -237,7 +237,7 @@ def _finished(timestamp: datetime) -> RunResults:
 
 def _stub_a_run(monkeypatch, finished: RunResults) -> None:
     monkeypatch.setattr(
-        "caliper.commands.run.get_harness", lambda *a, **k: StubHarness()
+        "caliper.commands.run.get_harness", lambda *a, **k: ScriptedHarness()
     )
     monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **k: object())
     monkeypatch.setattr(
@@ -273,7 +273,7 @@ def test_run_cli_user_customizations_notice(
     _stub_a_run(monkeypatch, finished)
     monkeypatch.setattr(
         "caliper.commands.run.get_harness",
-        lambda *a, **k: StubHarness(supports_mcp=True),
+        lambda *a, **k: ScriptedHarness(supports_mcp=True),
     )
     monkeypatch.setattr(
         "caliper.commands.run.run", lambda **kw: calls.update(kw) or finished
@@ -620,7 +620,7 @@ def test_a_cheat_stays_flagged_in_live_progress_after_later_attempts(
         )
 
     monkeypatch.setattr(
-        "caliper.commands.run.get_harness", lambda *a, **k: StubHarness()
+        "caliper.commands.run.get_harness", lambda *a, **k: ScriptedHarness()
     )
     monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **k: object())
     monkeypatch.setattr(

@@ -1,6 +1,10 @@
-"""Shared fakes for the CLI-agent boundary.
+"""Shared fakes: the backend and judge doubles, and the CLI-agent boundary.
 
-A harness reaches the outside world twice, and a test that fakes a CLI wants to
+:class:`ScriptedHarness` and :class:`ScriptedJudge` stand in for a backend and
+a judge at the run seam, so a runner test states only the result it is about
+(:func:`agent_result`, :func:`failed_result`, :func:`in_turn`).
+
+A real harness reaches the outside world twice, and a test that fakes a CLI wants to
 answer both from one function:
 
 * short capability probes (``codex --version``) still go through
@@ -95,7 +99,7 @@ class ScriptedHarness(HarnessBackend):
         self.supports_mcp = supports_mcp
         self.mcp_unsupported_hint = mcp_unsupported_hint
         self.contexts: list[RunContext] = []
-        # Attempts run on worker threads.
+        # Attempts run on worker threads (docs/adr/0018).
         self._lock = threading.Lock()
 
     @property
@@ -115,7 +119,8 @@ class ScriptedHarness(HarnessBackend):
             self.contexts.append(ctx)
         if callable(self.script):
             return self.script(ctx)
-        # A copy, so no two attempts share one result object.
+        # A shallow copy: each attempt gets its own result object, though the
+        # transcript's turns are shared (nothing downstream mutates them).
         return replace(self.script)
 
 
@@ -128,9 +133,11 @@ class ScriptedJudge:
     def __init__(self, result: JudgeResult | None = None) -> None:
         self.result = result or JudgeResult(passed=True, reasoning="ok")
         self.calls = 0
+        self._lock = threading.Lock()
 
     def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
-        self.calls += 1
+        with self._lock:
+            self.calls += 1
         return self.result
 
 
@@ -154,17 +161,6 @@ def task_result(
         ],
         activation_expected=expected,
     )
-
-
-class StubHarness:
-    """A harness double for CLI tests whose ``run`` is itself stubbed.
-
-    ``caliper run`` reads ``supports_mcp`` to decide the start-of-run notice
-    (docs/adr/0028).
-    """
-
-    def __init__(self, supports_mcp: bool = False) -> None:
-        self.supports_mcp = supports_mcp
 
 
 def run_context(**overrides) -> RunContext:

@@ -65,6 +65,10 @@ def _installed(harness: ScriptedHarness) -> list[list[str]]:
     return [[ref.name for ref in ctx.skill_refs] for ctx in harness.contexts]
 
 
+def _servers(harness: ScriptedHarness) -> list[dict | None]:
+    return [ctx.mcp_servers for ctx in harness.contexts]
+
+
 def _spec_with_two_skills(tmp_path, *, activates=None) -> tuple[EvalSpec, object]:
     paths = []
     for name in ("subject", "keeper"):
@@ -213,7 +217,7 @@ def test_ablate_removes_a_declared_mcp_server(tmp_path):
     # An empty mapping, not None: the block was declared, so the backend must
     # still isolate the attempt to zero servers rather than fall back to its own
     # ambient config (see test_mcp.py for the runner-level guard).
-    assert [ctx.mcp_servers for ctx in harness.contexts] == [{}]
+    assert _servers(harness) == [{}]
     assert _installed(harness) == [["subject"]]
 
 
@@ -221,7 +225,7 @@ def test_a_run_without_ablate_hands_over_every_server(tmp_path):
     spec, spec_path = _spec_with_skill_and_server(tmp_path)
     harness = _recording()
     _run_spec(spec, spec_path, harness)
-    assert [ctx.mcp_servers for ctx in harness.contexts] == [
+    assert _servers(harness) == [
         {"weather": McpServer(command="python3", args=["w.py"])}
     ]
 
@@ -258,7 +262,7 @@ def test_the_mcp_qualifier_removes_the_server_not_the_skill(tmp_path):
     harness = _recording()
     results = _run_spec(spec, spec_path, harness, ablate=["mcp:weather"])
     assert _installed(harness) == [["subject", "weather"]]
-    assert [ctx.mcp_servers for ctx in harness.contexts] == [{}]
+    assert _servers(harness) == [{}]
     assert results.run.ablated == ["mcp:weather"]
 
 
@@ -267,7 +271,7 @@ def test_the_skill_qualifier_removes_the_skill_not_the_server(tmp_path):
     harness = _recording()
     results = _run_spec(spec, spec_path, harness, ablate=["skill:weather"])
     assert _installed(harness) == [["subject"]]
-    assert [ctx.mcp_servers for ctx in harness.contexts] == [
+    assert _servers(harness) == [
         {"weather": McpServer(command="python3", args=["w.py"])}
     ]
     assert results.run.ablated == ["weather"]

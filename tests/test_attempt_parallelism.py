@@ -18,10 +18,11 @@ from caliper.harness.base import (
     HarnessBackend,
     RunContext,
 )
-from caliper.judge.base import JudgeResult
 from caliper.runner import run
 from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, TaskSpec
+
+from conftest import ScriptedJudge
 
 
 class BarrierHarness(HarnessBackend):
@@ -77,14 +78,6 @@ class PerTaskConcurrencyProbe(HarnessBackend):
                 self._live[ctx.task_id] -= 1
 
 
-class PassingJudge:
-    backend = "test"
-    model = None
-
-    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
-        return JudgeResult(passed=True, reasoning="ok")
-
-
 def _spec(n_tasks: int = 1) -> EvalSpec:
     return EvalSpec(
         tasks=[
@@ -111,7 +104,7 @@ def test_attempts_of_a_single_task_run_in_parallel(tmp_path) -> None:
         spec=_spec(),
         spec_path=spec_path,
         harness=harness,
-        judge=PassingJudge(),
+        judge=ScriptedJudge(),
         k=4,
         workers=4,
         timeout=5,
@@ -128,7 +121,7 @@ def test_attempts_are_recorded_in_order_whatever_order_they_finish(tmp_path) -> 
         spec=_spec(),
         spec_path=spec_path,
         harness=BarrierHarness(parties=4),
-        judge=PassingJudge(),
+        judge=ScriptedJudge(),
         k=4,
         workers=4,
         timeout=5,
@@ -147,7 +140,7 @@ def test_workers_are_shared_across_tasks(tmp_path) -> None:
         spec=_spec(n_tasks=2),
         spec_path=spec_path,
         harness=BarrierHarness(parties=6),
-        judge=PassingJudge(),
+        judge=ScriptedJudge(),
         k=3,
         workers=6,
         timeout=5,
@@ -166,7 +159,7 @@ def test_fail_fast_keeps_a_task_sequential(tmp_path) -> None:
         spec=_spec(n_tasks=2),
         spec_path=spec_path,
         harness=harness,
-        judge=PassingJudge(),
+        judge=ScriptedJudge(),
         k=3,
         workers=6,
         timeout=5,
@@ -186,7 +179,7 @@ def test_every_attempt_runs_when_nothing_stops_the_run(tmp_path, fail_fast) -> N
         spec=_spec(n_tasks=2),
         spec_path=spec_path,
         harness=BarrierHarness(parties=1),
-        judge=PassingJudge(),
+        judge=ScriptedJudge(),
         k=3,
         workers=4,
         timeout=5,
@@ -228,7 +221,7 @@ def test_attempts_are_scheduled_round_robin_across_tasks(tmp_path) -> None:
         spec=_spec(n_tasks=3),
         spec_path=spec_path,
         harness=harness,
-        judge=PassingJudge(),
+        judge=ScriptedJudge(),
         k=2,
         # One worker, so submission order is execution order.
         workers=1,

@@ -220,16 +220,6 @@ def test_cleanup_runs_after_failed_timed_out_or_cancelled_agent(
 ) -> None:
     cleaned = tmp_path / "cleaned"
 
-    class StoppingHarness(HarnessBackend):
-        @property
-        def name(self) -> str:
-            return "stopping"
-
-        def run(self, ctx: RunContext) -> AttemptResult:
-            return AttemptResult(
-                transcript=[], final_output="", duration_seconds=0.1, **result_fields
-            )
-
     task = TaskSpec(
         id="task-001",
         name="Stopped",
@@ -240,7 +230,7 @@ def test_cleanup_runs_after_failed_timed_out_or_cancelled_agent(
     results = run(
         EvalSpec(tasks=[task]),
         tmp_path / "stopped.eval.yaml",
-        StoppingHarness(),
+        ScriptedHarness(agent_result(transcript=[], final_output="", **result_fields)),
         EvalJudge(),
         k=1,
         workers=1,

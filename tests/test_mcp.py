@@ -847,19 +847,21 @@ def test_guard_refuses_mcp_spec_on_unsupported_backend(tmp_path) -> None:
     spec_path.write_text("tasks: []\n")
     # A backend without a hint (a not-yet-implemented slice) gets the generic
     # "not supported yet" message.
+    harness = ScriptedHarness()
     with pytest.raises(
         HarnessConfigurationError, match="does not support MCP yet"
     ) as exc:
         run(
             spec=_spec_with_mcp(),
             spec_path=spec_path,
-            harness=ScriptedHarness(),
+            harness=harness,
             judge=ScriptedJudge(),
             k=1,
             workers=1,
             timeout=30,
         )
     assert "in this release" in str(exc.value)
+    assert harness.calls == 0
 
 
 def test_guard_refusal_uses_backend_hint_when_present(tmp_path) -> None:
@@ -867,13 +869,14 @@ def test_guard_refusal_uses_backend_hint_when_present(tmp_path) -> None:
     spec_path.write_text("tasks: []\n")
     # A backend whose lack of MCP is permanent-by-design supplies its own hint,
     # which the refusal carries verbatim — and drops the misleading "yet".
+    harness = ScriptedHarness(
+        mcp_unsupported_hint="Expose it as a CLI tool the skill drives instead."
+    )
     with pytest.raises(HarnessConfigurationError) as exc:
         run(
             spec=_spec_with_mcp(),
             spec_path=spec_path,
-            harness=ScriptedHarness(
-                mcp_unsupported_hint="Expose it as a CLI tool the skill drives instead."
-            ),
+            harness=harness,
             judge=ScriptedJudge(),
             k=1,
             workers=1,
@@ -882,6 +885,7 @@ def test_guard_refusal_uses_backend_hint_when_present(tmp_path) -> None:
     message = str(exc.value)
     assert "Expose it as a CLI tool the skill drives instead." in message
     assert "does not support MCP yet" not in message
+    assert harness.calls == 0
 
 
 def test_guard_allows_mcp_spec_on_supporting_backend(tmp_path) -> None:

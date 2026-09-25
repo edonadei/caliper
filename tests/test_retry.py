@@ -19,7 +19,6 @@ from caliper.harness.base import (
     RunContext,
 )
 from caliper.harness.refusal import CliRefusal, RefusalKind
-from caliper.judge.base import JudgeResult
 from caliper.retry import (
     RetryPolicy,
     SpendingCapReached,
@@ -29,6 +28,8 @@ from caliper.retry import (
 from caliper.runner import RunAborted, run
 from caliper.schema.results import Outcome, TokenUsage
 from caliper.schema.spec import EvalSpec, TaskSpec
+
+from conftest import ScriptedHarness, ScriptedJudge
 
 # No real waiting anywhere in this file: the policy's timing is asserted
 # directly, and every loop test injects zero delays.
@@ -234,23 +235,6 @@ class ContextRecordingHarness(ThrottleThenPassHarness):
         return super().run(ctx)
 
 
-class CappedHarness(HarnessBackend):
-    @property
-    def name(self) -> str:
-        return "capped"
-
-    def run(self, ctx: RunContext) -> AttemptResult:
-        return _result(**CAPPED)
-
-
-class PassingJudge:
-    backend = "test"
-    model = None
-
-    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
-        return JudgeResult(passed=True, reasoning="ok")
-
-
 def _spec() -> EvalSpec:
     return EvalSpec(
         tasks=[
@@ -278,7 +262,7 @@ def test_a_retried_attempt_is_one_attempt_in_the_results(tmp_path, monkeypatch) 
         spec=_spec(),
         spec_path=_spec_file(tmp_path),
         harness=harness,
-        judge=PassingJudge(),
+        judge=ScriptedJudge(),
         k=3,
         workers=1,
         timeout=5,
@@ -303,8 +287,8 @@ def test_a_spending_cap_aborts_the_run_and_saves_what_ran(
         run(
             spec=_spec(),
             spec_path=_spec_file(tmp_path),
-            harness=CappedHarness(),
-            judge=PassingJudge(),
+            harness=ScriptedHarness(_result(**CAPPED)),
+            judge=ScriptedJudge(),
             k=4,
             workers=1,
             timeout=5,
@@ -318,29 +302,16 @@ def test_a_spending_cap_aborts_the_run_and_saves_what_ran(
     assert aborted.results.task_results[0].attempts == []
 
 
-class AlwaysThrottledHarness(HarnessBackend):
-    def __init__(self) -> None:
-        self.invocations = 0
-
-    @property
-    def name(self) -> str:
-        return "throttled"
-
-    def run(self, ctx: RunContext) -> AttemptResult:
-        self.invocations += 1
-        return _result(**THROTTLED)
-
-
 def test_fail_fast_counts_attempts_not_invocations(tmp_path, monkeypatch) -> None:
     """`--fail-fast 2` means two dead attempts, however many spawns they cost."""
     monkeypatch.setattr("caliper.retry.RetryPolicy", lambda: NO_WAIT)
-    harness = AlwaysThrottledHarness()
+    harness = ScriptedHarness(_result(**THROTTLED))
 
     results = run(
         spec=_spec(),
         spec_path=_spec_file(tmp_path),
         harness=harness,
-        judge=PassingJudge(),
+        judge=ScriptedJudge(),
         k=6,
         workers=1,
         timeout=5,
@@ -352,7 +323,7 @@ def test_fail_fast_counts_attempts_not_invocations(tmp_path, monkeypatch) -> Non
     assert [a.retries for a in attempts] == [2, 2]
     # Two attempts, three invocations each — the flag bounds attempts, and the
     # inflation in spawns is the price of the retry, stated rather than hidden.
-    assert harness.invocations == 6
+    assert harness.calls == 6
 
 
 def test_a_run_that_measured_nothing_is_not_saved(tmp_path, monkeypatch) -> None:
@@ -363,10 +334,11 @@ def test_a_run_that_measured_nothing_is_not_saved(tmp_path, monkeypatch) -> None
         "tasks:\n  - name: One\n    prompt: Do it\n    assert: 'assert True'\n"
     )
     monkeypatch.setattr(
-        "caliper.commands.run.get_harness", lambda *a, **kw: CappedHarness()
+        "caliper.commands.run.get_harness",
+        lambda *a, **kw: ScriptedHarness(_result(**CAPPED)),
     )
     monkeypatch.setattr(
-        "caliper.commands.run.EvalJudge", lambda *a, **kw: PassingJudge()
+        "caliper.commands.run.EvalJudge", lambda *a, **kw: ScriptedJudge()
     )
 
     from typer.testing import CliRunner
@@ -458,7 +430,7 @@ def test_each_invocation_of_an_attempt_gets_its_own_context(
         spec=_spec(),
         spec_path=_spec_file(tmp_path),
         harness=harness,
-        judge=PassingJudge(),
+        judge=ScriptedJudge(),
         k=1,
         workers=1,
         timeout=5,
