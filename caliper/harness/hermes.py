@@ -26,6 +26,10 @@ from caliper.schema.results import TokenUsage
 _SEED_FILES = ("auth.json", "config.yaml", ".env")
 
 
+# The assistant turn hermes v0.21 exports when it never reached the model.
+_NOT_PROCESSED = "your request was not processed"
+
+
 class HermesHarness(CliHarness):
     """CLI-subprocess backend for Nous Research's `hermes` coding agent.
 
@@ -427,6 +431,15 @@ class HermesHarness(CliHarness):
             "OK'` works in your normal shell, then rerun caliper.",
         ),
     )
+
+    def _cli_text(self, proc: ProcessResult, transcript: list[ConversationTurn]) -> str:
+        # The oneshot prints its reply on stderr beside any error, whatever the
+        # exit code, so once the agent gave a real answer stderr is the agent's
+        # too. v0.21's "not processed" turn is hermes talking, not an answer.
+        answer = self._last_assistant(transcript)
+        if answer and not answer.lower().startswith(_NOT_PROCESSED):
+            return ""
+        return super()._cli_text(proc, [])
 
     def _diagnose(self, proc: ProcessResult, cli_text: str) -> str | None:
         return self._diagnose_unknown_model(cli_text)

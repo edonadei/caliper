@@ -534,9 +534,10 @@ def _stream_errors(stdout: str) -> list[str]:
             event = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if not isinstance(event, dict) or event.get("type") not in (
-            "error",
-            "turn.failed",
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") not in ("error", "turn.failed") and not isinstance(
+            event.get("error"), dict
         ):
             continue
         message = event.get("message")

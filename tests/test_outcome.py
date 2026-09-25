@@ -86,6 +86,15 @@ def test_pre_judge_infra_on_a_refusal_despite_zero_exit() -> None:
     assert exit.evidence == "429 rate limit"
 
 
+def test_pre_judge_keeps_the_refusal_as_evidence_when_no_model_call_was_seen() -> None:
+    h = _harness(
+        transcript=[],
+        final_output="",
+        refusal=CliRefusal(RefusalKind.THROTTLE, "429 rate limit; retry at 5pm"),
+    )
+    assert classify_pre_judge(h).evidence == "429 rate limit; retry at 5pm"
+
+
 def test_pre_judge_ignores_an_answer_that_mentions_a_limit() -> None:
     # The harness found no refusal in what the CLI wrote, so the words are the
     # agent's own (docs/adr/0030).

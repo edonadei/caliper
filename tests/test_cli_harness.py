@@ -492,3 +492,67 @@ def test_a_quota_is_a_spending_cap_on_every_backend(backend) -> None:
 
     assert refusal is not None
     assert refusal.kind is RefusalKind.SPENDING_CAP
+
+
+def test_pi_reads_its_error_event_not_the_prompt_it_echoes() -> None:
+    # A stream that never produced an answer still echoes the prompt; a task
+    # about usage limits must not turn a lapsed login into a spending cap.
+    prompt = {
+        "type": "message_end",
+        "message": {"role": "user", "content": "Handle the usage limit error."},
+    }
+    failed = {
+        "type": "message_end",
+        "message": {
+            "role": "assistant",
+            "content": [],
+            "stopReason": "error",
+            "errorMessage": "401 Unauthorized: please run /login",
+        },
+    }
+    proc = ProcessResult(
+        stdout="\n".join(json.dumps(event) for event in (prompt, failed)),
+        stderr="",
+        returncode=0,
+        timed_out=False,
+    )
+    harness = PiHarness()
+    transcript, _ = harness._parse_stream_with_tail(proc.stdout)
+
+    refusal = harness._refusal(proc, transcript)
+
+    assert refusal is not None
+    assert refusal.kind is RefusalKind.CONFIG
+
+
+def test_claude_reads_a_throttle_from_its_status_alone() -> None:
+    event = {
+        "type": "result",
+        "is_error": True,
+        "api_error_status": 429,
+        "result": "Request failed, try again later",
+    }
+    proc = ProcessResult(
+        stdout=json.dumps(event), stderr="", returncode=1, timed_out=False
+    )
+    harness = ClaudeCodeHarness()
+    transcript, _ = harness._parse_stream_with_tail(proc.stdout)
+
+    refusal = harness._refusal(proc, transcript)
+
+    assert refusal is not None
+    assert refusal.kind is RefusalKind.THROTTLE
+
+
+def test_hermes_answer_on_stderr_is_not_a_refusal_after_a_failed_exit() -> None:
+    # hermes prints its reply on stderr and keeps the oneshot's exit code.
+    proc = ProcessResult(
+        stdout=_answer_stream(HermesHarness),
+        stderr=_ANSWER,
+        returncode=1,
+        timed_out=False,
+    )
+    harness = HermesHarness()
+    transcript, _ = harness._parse_stream_with_tail(proc.stdout)
+
+    assert harness._refusal(proc, transcript) is None

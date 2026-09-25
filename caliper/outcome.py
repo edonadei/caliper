@@ -64,6 +64,13 @@ def classify_pre_judge(harness: AttemptResult) -> PreJudgeExit | None:
     if harness.exit_code != 0:
         return ends(Outcome.INFRA_ERROR, exited)
 
+    # Zero exit, but the CLI said the provider refused: a throttle that
+    # outlasted its retries. Read from what the CLI wrote, so an attempt that
+    # passed while writing about rate limits is not one (docs/adr/0030).
+    # Before the no-model-call check, whose evidence is only a guess at why.
+    if harness.refusal is not None:
+        return PreJudgeExit(Outcome.INFRA_ERROR, harness.refusal.message)
+
     # Zero exit, but no model call was ever seen: there is no attempt to judge,
     # and an activation check would read "nothing fired" as a verdict on the
     # skill rather than on a CLI that never started (docs/adr/0001).
@@ -73,12 +80,6 @@ def classify_pre_judge(harness: AttemptResult) -> PreJudgeExit | None:
             "no model call observed: nothing parsed from the agent's stream "
             "and no tokens reported",
         )
-
-    # Zero exit, but the CLI said the provider refused: a throttle that
-    # outlasted its retries. Read from what the CLI wrote, so an attempt that
-    # passed while writing about rate limits is not one (docs/adr/0030).
-    if harness.refusal is not None:
-        return ends(Outcome.INFRA_ERROR, harness.refusal.message)
 
     return None
 

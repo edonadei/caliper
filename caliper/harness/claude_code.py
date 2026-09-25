@@ -618,7 +618,11 @@ def _envelope_failure(envelope: object) -> PromptFailure | None:
 
 
 def _error_results(stdout: str) -> list[str]:
-    """The text of each ``result`` event the CLI flagged ``is_error``."""
+    """The text of each ``result`` event the CLI flagged ``is_error``.
+
+    Led by its ``api_error_status`` when it has one: a 429 is a throttle
+    whatever words the message uses.
+    """
     errors = []
     for line in stdout.splitlines():
         try:
@@ -629,9 +633,14 @@ def _error_results(stdout: str) -> list[str]:
             isinstance(event, dict)
             and event.get("type") == "result"
             and event.get("is_error")
-            and isinstance(result := event.get("result"), str)
         ):
-            errors.append(result.strip())
+            result = event.get("result")
+            text = result.strip() if isinstance(result, str) else ""
+            status = event.get("api_error_status")
+            if isinstance(status, int):
+                text = f"API error {status}: {text}".strip()
+            if text:
+                errors.append(text)
     return errors
 
 

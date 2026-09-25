@@ -24,7 +24,8 @@ from enum import Enum
 # Yes: the provider is busy or we are going too fast. Worth retrying in seconds
 # (docs/adr/0019-an-attempt-may-be-invoked-more-than-once.md).
 _THROTTLE_SIGNALS = re.compile(
-    r"rate.?limit|\b429\b|overloaded|too many requests|service unavailable|\b503\b",
+    r"rate.?limit|\b429\b|overloaded|too many requests|service unavailable"
+    r"|\b503\b|\b529\b",
     re.IGNORECASE,
 )
 

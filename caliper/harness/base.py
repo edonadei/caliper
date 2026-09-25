@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -680,18 +681,21 @@ class CliHarness(HarnessBackend):
     def _cli_text(self, proc: ProcessResult, transcript: list[ConversationTurn]) -> str:
         """What the CLI itself wrote, as opposed to what the agent said.
 
-        Default: stdout when nothing in it parsed as the agent's stream, and
-        stderr unless the run succeeded with the agent speaking — a CLI that
-        exits 0 after a real answer may still warn on stderr, and some CLIs
-        print the answer there too. A backend whose CLI reports errors inside
-        its stream adds them, whatever the exit code (docs/adr/0030).
+        Default: the plain-text lines of stdout when nothing in it parsed as the
+        agent's stream, and stderr unless the run succeeded with the agent
+        speaking — a CLI that exits 0 after a real answer may still warn on
+        stderr. Never a JSON event: a stream echoes the prompt and the system
+        prompt, so a backend whose CLI reports errors inside its stream picks
+        those events out itself, whatever the exit code (docs/adr/0030).
         """
         spoke = any(turn.role == "assistant" and turn.content for turn in transcript)
         parts = []
         if proc.returncode != 0 or not spoke:
             parts.append(proc.stderr)
         if not transcript:
-            parts.append(proc.stdout)
+            parts.extend(
+                line for line in proc.stdout.splitlines() if not _is_json(line)
+            )
         return "\n".join(part.strip() for part in parts if part and part.strip())
 
     def _fallback(
@@ -1001,3 +1005,12 @@ class CliHarness(HarnessBackend):
             if key in os.environ:
                 env[key] = os.environ[key]
         return env
+
+
+def _is_json(line: str) -> bool:
+    """Whether ``line`` is a JSON value: an event in an agent's stream."""
+    try:
+        json.loads(line)
+    except ValueError:
+        return False
+    return True
