@@ -42,6 +42,7 @@ class HermesHarness(CliHarness):
     """
 
     supports_mcp = True
+    user_settings_file = "config.yaml"
     cli_name = "hermes"
     cli_path_env_var = "HERMES_CLI_PATH"
     # Hermes advertises installed skills to the model as name + truncated
@@ -113,6 +114,18 @@ class HermesHarness(CliHarness):
             loaded = yaml.safe_load(config_path.read_text())
             config = loaded if isinstance(loaded, dict) else {}
             servers = merge_user_servers(config.get("mcp_servers"), servers, ctx)
+            if not ctx.user_customizations:
+                config = {
+                    key: value
+                    for key, value in config.items()
+                    if key
+                    in {
+                        "model",
+                        "provider",
+                        "providers",
+                        "custom_providers",
+                    }
+                }
             if servers:
                 config["mcp_servers"] = servers
             else:

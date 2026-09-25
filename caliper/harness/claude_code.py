@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Callable
@@ -10,6 +11,7 @@ from typing import Callable
 from caliper.harness.base import (
     ConversationTurn,
     CliHarness,
+    HarnessConfigurationError,
     ProcessResult,
     PromptCall,
     PromptResult,
@@ -22,6 +24,7 @@ from caliper.harness.prompt_failure import (
 )
 from caliper.harness.mcp import merge_user_servers, resolve_servers
 from caliper.schema.results import TokenUsage
+from caliper.skills import frontmatter_name
 
 
 def preferred_nvm_node_bin() -> str | None:
@@ -47,6 +50,8 @@ class ClaudeCodeHarness(CliHarness):
         self._model = model
 
     supports_mcp = True
+    user_rules = ("CLAUDE.md",)
+    user_settings_file = "settings.json"
     # The CLI classifies a real skill only at .claude/skills/<name>/SKILL.md and
     # exposes the agent's choice as a dedicated Skill tool call naming it.
     activation_tool_names = frozenset({"Skill"})
@@ -72,10 +77,93 @@ class ClaudeCodeHarness(CliHarness):
         # ANTHROPIC_API_KEY (which may be absent or unfunded).
         real_home = Path.home()
         home = Path(ctx.isolated_home)
-        return [
+        files = [
             (real_home / ".claude.json", home / ".claude.json"),
             (real_home / ".claude" / ".credentials.json", self._credentials_file(ctx)),
         ]
+
+        if ctx.user_customizations:
+            files.append(
+                (real_home / ".claude/settings.json", home / ".claude/settings.json")
+            )
+        return files
+
+    def _user_skill_name(self, path: Path) -> str:
+        # For personal Claude skills, frontmatter name is only a display label.
+        return path.parent.name
+
+    def _seed_user_files(self, ctx: RunContext) -> list[str]:
+        names = super()._seed_user_files(ctx)
+        if not ctx.user_customizations:
+            return names
+        real = Path.home() / ".claude"
+        target = Path(ctx.isolated_home) / ".claude"
+        registry = real / "plugins/installed_plugins.json"
+        if not registry.is_file():
+            return names
+        try:
+            data = json.loads(registry.read_text())
+            settings_path = target / "settings.json"
+            settings = (
+                json.loads(settings_path.read_text()) if settings_path.exists() else {}
+            )
+            enabled = settings.get("enabledPlugins", {})
+            selected = {}
+            for plugin_id, entries in data["plugins"].items():
+                if enabled.get(plugin_id) is not True:
+                    continue
+                for entry in entries:
+                    if entry.get("scope") != "user":
+                        continue
+                    source = Path(entry["installPath"])
+                    destination = (
+                        target / "plugins/cache" / str(len(selected)) / source.name
+                    )
+                    shutil.copytree(source, destination)
+                    selected[plugin_id] = [{**entry, "installPath": str(destination)}]
+                    names.append(f"plugin:{plugin_id}")
+                    break
+            output = target / "plugins/installed_plugins.json"
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(json.dumps({**data, "plugins": selected}))
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            raise HarnessConfigurationError(
+                f"Cannot stage Claude Code user plugins from {registry}: {exc}"
+            ) from exc
+        return names
+
+    def _plugin_skill_paths(self, ctx: RunContext) -> dict[str, str]:
+        registry = Path(ctx.isolated_home) / ".claude/plugins/installed_plugins.json"
+        if not ctx.user_customizations or not registry.exists():
+            return {}
+        paths = {}
+        for plugin_id, entries in json.loads(registry.read_text())["plugins"].items():
+            namespace = plugin_id.split("@", 1)[0]
+            for entry in entries:
+                root = Path(entry["installPath"])
+                manifest = root / ".claude-plugin/plugin.json"
+                metadata = json.loads(manifest.read_text()) if manifest.exists() else {}
+                namespace = metadata.get("name", namespace)
+                extra = metadata.get("skills", [])
+                if isinstance(extra, str):
+                    extra = [extra]
+                for relative in [".", "skills", *extra]:
+                    directory = root / relative
+                    if (directory / "SKILL.md").is_file():
+                        skills = [directory / "SKILL.md"]
+                    elif relative == ".":
+                        skills = []
+                    else:
+                        skills = list(directory.glob("*/SKILL.md"))
+                    for skill in skills:
+                        name = frontmatter_name(skill.read_text()) or skill.parent.name
+                        command_name = (
+                            name
+                            if name.startswith(f"{namespace}:")
+                            else f"{namespace}:{name}"
+                        )
+                        paths[command_name] = str(skill)
+        return paths
 
     def _prepare(self, ctx: RunContext) -> None:
         (Path(ctx.isolated_home) / ".claude").mkdir(parents=True, exist_ok=True)

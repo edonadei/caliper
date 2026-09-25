@@ -217,6 +217,13 @@ def test_a_flag_mismatch_warns_with_the_isolating_fix():
     [
         (["gmail"], ["drive"], True),
         (["gmail"], ["gmail"], False),
+        (["skill:personal"], ["rules:AGENTS.md"], True),
+        (
+            ["mcp:gmail", "settings:config.toml"],
+            ["settings:config.toml", "mcp:gmail"],
+            False,
+        ),
+        (["gmail"], ["mcp:gmail"], True),
         (["gmail"], None, False),
     ],
 )
@@ -312,3 +319,18 @@ def test_the_report_header_says_what_was_loaded(loads, loaded, shown):
         assert "user customizations:" in out and shown in out
     else:
         assert "user customizations" not in out
+
+
+def test_kind_prefixed_inventory_survives_saved_run_and_report():
+    names = [
+        "mcp:gmail",
+        "plugin:review@market",
+        "rules:CLAUDE.md",
+        "settings:settings.json",
+        "skill:personal",
+    ]
+    saved = _saved(loads=True, loaded=names)
+    reloaded = RunResults.model_validate_json(saved.model_dump_json())
+    assert reloaded.run.loaded_user_customizations == names
+    rendered = _render(reloaded)
+    assert all(name in rendered for name in names)

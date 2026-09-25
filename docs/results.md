@@ -308,12 +308,19 @@ time, and it only appears when a judge ran.
 - `RunMeta.user_customizations` records whether the run loaded the machine's user
   customizations (the default; `false` when isolated, and on runs saved before the
   field existed), and
-  `RunMeta.loaded_user_customizations` the loaded server names the backend could
-  see, declared ones excluded (`None` = unknown). Loaded servers never appear
-  in `mcp_servers`. `compare` warns (`user_customizations_mismatch`) when only one side
-  loaded, or both did with different recorded servers, and
+  `RunMeta.loaded_user_customizations` the names the backend could identify,
+  with kind prefixes: `mcp:gmail`, `skill:personal`, `plugin:review@market`,
+  `rules:CLAUDE.md`, `settings:config.toml`. Declared names are excluded.
+  `None` means unknown, including when Codex's hosted plugins prevent a complete
+  inventory; a partial inventory is not presented as complete. Loaded user
+  servers never appear in `mcp_servers`. `compare` warns (`user_customizations_mismatch`) when only one side
+  loaded, or both did with different recorded customization names, and
   (`cross_backend_user_customizations`) when two backends are compared with user customizations.
-  Two runs form an ablation pair only if they agree on the setting
+  Names are compared as sets; file contents, versions and hook behavior are not
+  fingerprinted. Older unprefixed inventories still load and conservatively
+  differ from new prefixed inventories. User-skill activations appear in the
+  attempt's `activated` list and participate in exact-set checks.
+  Two runs form an ablation pair only if their recorded customizations agree
   ([ADR 0028](adr/0028-runs-load-user-customizations-by-default.md)).
 - `TaskComparison` has `a_activation`/`b_activation`/`activation_delta`/
   `activation_regression`, and `RunComparison` has `has_activation_regression`,

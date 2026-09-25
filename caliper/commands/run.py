@@ -125,11 +125,11 @@ def run_cmd(
         "--user-customizations/--no-user-customizations",
         show_default=False,
         help=(
-            "Whether attempts load your user customizations (the MCP servers "
-            "and account connectors your CLI loads by itself), merged with the "
-            "spec's mcp: (the spec wins a name clash). Omitted: the spec's "
+            "Whether attempts load user skills, plugins, rules, settings and "
+            "connectors alongside the spec's skills and mcp: "
+            "(the spec wins a name clash). Omitted: the spec's "
             "user_customizations, else on. Use --no-user-customizations for a "
-            "portable score or a harness comparison. The judge stays isolated."
+            "portable score or a harness comparison. Judge connector controls are unchanged."
         ),
     ),
 ) -> None:
@@ -235,7 +235,7 @@ def run_cmd(
             )
             console.print(
                 f"[yellow]⚠ {source}:[/yellow] attempts get this machine's user "
-                "customizations (MCP servers, account connectors). The score "
+                "customizations (skills, plugins, rules, settings and connectors). The score "
                 "depends on this setup, and attempts can act on those accounts "
                 "without asking."
                 + (
@@ -246,8 +246,8 @@ def run_cmd(
             )
         else:
             console.print(
-                "[dim]Loading this machine's user customizations (MCP servers, "
-                "account connectors); attempts can use them without asking.\n"
+                "[dim]Loading this machine's user customizations (skills, plugins, "
+                "rules, settings and connectors); attempts can use them without asking.\n"
                 "  --no-user-customizations to isolate.[/dim]"
             )
 

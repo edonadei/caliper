@@ -382,8 +382,8 @@ def validate_activates(
         raise SkillResolutionError(
             f"Task '{task.name}' expects {', '.join(unknown)} to activate, but "
             f"the {spec_label}'s skills: declares only {listed}.\n\n"
-            "An undeclared skill is never installed, so it cannot activate and "
-            "the expectation could never be met. Add it to skills:, or correct "
+            "Expected skills must be declared even when user customizations load. "
+            "Add it to skills:, or correct "
             "the name (identity is the frontmatter name:, not the filename)."
         )
 

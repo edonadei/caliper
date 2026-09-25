@@ -9,7 +9,8 @@ reproducing your own setup meant re-declaring every personal server.
 
 So an attempt now loads the **user customizations** its CLI would load by
 itself: the servers in the user's own CLI config and the account's hosted
-connectors. The judge never does: a judge that sees connectors mistakes them for
+connectors. The judge's connector controls remain unchanged: a judge that sees
+connectors mistakes them for
 the attempt's tools (0026).
 
 ## Loading them is the default
@@ -36,9 +37,9 @@ never prompts, so `caliper run` stays usable non-interactively.
 ## Named for the whole user layer
 
 "User customizations" names everything a harness loads from the user's own
-layer, which Claude Code calls *user scope*: MCP servers and connectors today,
-and user skills, plugins, rules and settings to follow (#177), each with its own
-decision. "Customizations", not "extensions", because rules and settings change
+layer, which Claude Code calls *user scope*: MCP servers, connectors, user
+skills, plugins, rules and settings. The #177 extension follows the decisions
+below. "Customizations", not "extensions", because rules and settings change
 behaviour rather than add capabilities. The working name `inherit-mcp` was
 dropped as an implementation word naming only part of the layer.
 
@@ -66,3 +67,53 @@ isolated copy of the config, never the real file.
 - Keeping some of the user's codex servers means editing their `config.toml`,
   so it is now parsed (`tomllib`, `tomli` on 3.10) rather than line-edited.
 - Supersedes 0026's default. 0026's mechanism is what isolation still does.
+
+## Extending the user layer (#177)
+
+One switch controls the layer; per-kind switches are deferred until a concrete
+use case requires them. Claude Code and Codex load user skills and global rule
+files, Claude Code loads user settings and enabled user-scope installed plugins,
+and Hermes loads user skills and settings. Authentication/provider configuration
+remains available when isolated; the exact exceptions are in `docs/backends.md`.
+Codex's top-level model strip (0012) remains. Behavioral settings in Codex and
+Hermes now follow the switch rather than leaking into isolated attempts.
+
+**Activation measures competition.** User skills are copied into the native
+skills root and join the observed activation set. Extra user-skill activations
+fail exact `activates:` checks; expected names still have to be declared. The
+closed-neighbourhood premise of 0014 now applies only to isolated runs. A
+name declared by the spec is reserved even when ablated, so a user installation
+cannot silently restore it. Claude plugin skills retain their namespace and can
+be observed through named tool calls or reads of their staged skill files.
+
+**Hermes stays neutral.** We retain 0005's persona/memory exclusion and
+`--ignore-rules`. Loading mutable memory is deferred: a realistic starting memory
+needs a run-level snapshot and explicit semantics for preloaded skills. User
+skills remain discoverable; they are never preloaded. Each attempt copies its
+inputs from the user's setup into a new home; changes made inside an attempt do
+not seed the next one. External edits to the user's setup during a run remain
+possible, as with user MCP configuration.
+
+**Hooks run normally.** Settings and plugins may contain hooks, environment
+variables and permissions. The CLI's noninteractive flags still win. Hooks run
+under the attempt timeout, without preflight: a probe would execute side effects
+twice. Absolute paths authored in settings are preserved, consistent with 0027;
+isolation is not a security boundary.
+
+**Record names, with kinds.** `loaded_user_customizations` uses `mcp:`, `skill:`,
+`plugin:`, `rules:` and `settings:` prefixes. Config file names represent the
+settings source, not individual values or secrets. Unknown inventories remain
+`null`, including unlistable hosted Codex plugins. `report` displays these names;
+`compare` checks sets and warns on differences, without fingerprinting content,
+versions or hook effects. Old unprefixed names still deserialize and
+conservatively differ from new inventories. The six public reference locations
+and both skill guides describe these limits. Smoke evals stay pinned isolated.
+
+Claude personal skills retain the directory-based command name, including when
+frontmatter omits `name`. Plugin skills use the plugin namespace plus their
+frontmatter name (or directory fallback), including root-level skills. See the
+[CLI naming rules](https://code.claude.com/docs/en/skills#how-a-skill-gets-its-command-name).
+
+The extension changes attempt staging only. The bare-prompt judge path continues
+using the caller's CLI configuration with its existing connector controls; full
+judge user-layer isolation is outside #177.

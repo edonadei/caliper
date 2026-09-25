@@ -305,8 +305,8 @@ def test_codex_config_copy_strips_top_level_model(monkeypatch, tmp_path) -> None
 
     copied = (isolated_home / ".codex" / "config.toml").read_text()
     assert 'model = "gpt-5.5"' not in copied
-    assert 'model_reasoning_effort = "medium"' in copied
-    assert 'model = "profile-model"' in copied
+    assert "model_reasoning_effort" not in copied
+    assert "profile-model" not in copied
     assert (isolated_home / ".codex" / "auth.json").exists()
 
 
@@ -521,9 +521,9 @@ def test_codex_translates_stdio_and_strips_ambient_servers(
         "echo": {"command": "python3", "args": ["/tmp/echo.py"], "env": {"DEBUG": "1"}}
     }
     assert "personal" not in config["mcp_servers"]
-    # Non-MCP config survives the strip, but the top-level model pin is dropped.
-    assert config["approval_policy"] == "never"
-    assert config["history"] == {"persistence": "none"}
+    # Isolation strips behavioral settings as well as the top-level model pin.
+    assert "approval_policy" not in config
+    assert "history" not in config
     assert "model" not in config
 
 
@@ -560,7 +560,7 @@ def test_codex_removes_ambient_servers_when_spec_declares_none(
     config = tomllib.loads(seeded.read_text())
     # A no-MCP eval must not inherit the user's personal servers, but keeps the rest.
     assert "mcp_servers" not in config
-    assert config["approval_policy"] == "never"
+    assert "approval_policy" not in config
 
 
 def test_codex_writes_config_when_user_has_none(monkeypatch, tmp_path) -> None:
@@ -598,7 +598,11 @@ def test_codex_user_customizations_keeps_user_servers_and_connectors(
     assert "features.apps=false" not in captured["cmd"]
     assert "features.plugins=false" not in captured["cmd"]
     # Recorded: the user's server plus the hosted apps, never the declared one.
-    assert captured["result"].loaded_user_customizations == ["codex_apps", "personal"]
+    assert captured["result"].loaded_user_customizations == [
+        "mcp:codex_apps",
+        "mcp:personal",
+        "settings:config.toml",
+    ]
 
 
 @pytest.mark.parametrize("loads", [True, False])
@@ -633,7 +637,7 @@ def test_codex_user_customizations_lets_the_spec_win_a_name_clash(
     config = tomllib.loads(seeded.read_text())
     assert config["mcp_servers"] == {"personal": {"command": "spec-server"}}
     # An API-key login (no OAuth tokens) brings no hosted apps to claim.
-    assert captured["result"].loaded_user_customizations == []
+    assert captured["result"].loaded_user_customizations == ["settings:config.toml"]
 
 
 def test_codex_user_customizations_still_ablates_a_server_the_user_also_has(
@@ -677,7 +681,10 @@ def test_codex_records_no_hosted_apps_when_the_user_turned_them_off(
         user_customizations=True,
         captured=captured,
     )
-    assert captured["result"].loaded_user_customizations == ["personal"]
+    assert captured["result"].loaded_user_customizations == [
+        "mcp:personal",
+        "settings:config.toml",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -710,7 +717,7 @@ def test_codex_is_not_fooled_by_a_header_inside_a_multiline_value(
         'persistence = "none"\n',
     )
     seeded = _run_codex_mcp(monkeypatch, tmp_path, None, home=home)
-    assert tomllib.loads(seeded.read_text()) == {"history": {"persistence": "none"}}
+    assert tomllib.loads(seeded.read_text()) == {}
 
 
 def test_codex_refuses_an_invalid_user_config(monkeypatch, tmp_path) -> None:

@@ -605,6 +605,8 @@ def _measure_attempt(
                 # Ablated names too, so --ablate still removes a server the
                 # user also has under that name (docs/adr/0028).
                 spec_mcp_names=frozenset(spec.mcp),
+                spec_skill_names=frozenset(ref.name for ref in env.skill_refs)
+                | frozenset(env.ablated_skills),
                 forbidden_files=list(spec.sandbox.forbidden_files),
             )
         )

@@ -66,12 +66,12 @@ _Avoid_: MCP config, tool server.
 ## User customizations
 
 What a backend's CLI loads from the user's own setup rather than from the
-[[eval spec]]: today the MCP servers in the user's CLI config and the account's
-hosted connectors; later also user skills, plugins, rules and settings. A run
-loads them by default, beside the [[MCP server (declared)|declared servers]].
-What gets loaded depends on the machine, not the spec, and a user's server is
+[[eval spec]]: user skills, plugins, rules, settings, MCP servers and hosted
+connectors supported by that backend. A run loads them by default beside its
+declared skills and [[MCP server (declared)|declared servers]].
+What gets loaded depends on the machine, not the spec, and a user-only skill or server is
 never an [[ablation]] subject. The opposite is an *isolated* run, which sees
-only the declared servers: what a portable score needs (see
+only the declared skills and servers: what a portable score needs (see
 [[0028-runs-load-user-customizations-by-default]]).
 _Avoid_: inherited MCP, ambient MCP, account MCP, connectors (only part of it),
 default MCP ("default" is the engine), extensions (misses rules and settings).
