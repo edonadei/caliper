@@ -23,12 +23,13 @@ from caliper.reporter import (
     make_progress,
     print_banner,
     print_results,
+    TaskTally,
     update_progress,
 )
 from caliper.runstore import RunStore
 from caliper.environment import choose_user_customizations
 from caliper.runner import run, AttemptEvent, RunAborted
-from caliper.schema.results import Outcome, RunResults, TaskResult
+from caliper.schema.results import RunResults, TaskResult
 from caliper.schema.spec import (
     DEFAULT_BACKEND,
     VALID_BACKENDS,
@@ -268,45 +269,27 @@ def run_cmd(
 
     fetcher = SkillFetcher(on_warning=warn)
 
-    attempt_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
-    pass_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
-    unusable_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
-    unchecked_counts: dict[str, int] = {t.name: 0 for t in spec.tasks}
-    # Sticky: a later clean attempt must not wipe the live cheat warning.
-    cheated: set[str] = set()
+    # One tally per task, keyed by id, that the live view renders. A task that
+    # stops short of k gets its final row from its result instead.
+    names = {t.id: t.name for t in spec.tasks}
+    tallies = {t.id: TaskTally() for t in spec.tasks}
 
     def on_attempt_done(event: AttemptEvent) -> None:
-        task = next((t for t in spec.tasks if t.id == event.task_id), None)
-        if task is None:
+        name = names.get(event.task_id)
+        if name is None:
             return
-        attempt_counts[task.name] += 1
-        if event.outcome == Outcome.PASS:
-            pass_counts[task.name] += 1
-        if event.outcome == Outcome.NOT_CHECKED:
-            unchecked_counts[task.name] += 1
-        if event.outcome == Outcome.CHEAT:
-            cheated.add(task.name)
+        tally = tallies[event.task_id]
+        tally.add(event.outcome)
         # `is_execution_noise`, not `not is_usable`: a NOT_CHECKED trigger probe
         # is a healthy attempt, and flagging it live as yellow ⊘ told a watching
         # agent to stop for a run in which nothing had gone wrong.
         if event.outcome.is_execution_noise:
-            unusable_counts[task.name] += 1
             # Surface noise the moment it lands so a watching agent/human can stop.
             progress.console.print(
-                f"[yellow]{UNUSABLE_GLYPH}[/yellow] {task.name} {SEP_GLYPH} attempt {event.attempt}: "
+                f"[yellow]{UNUSABLE_GLYPH}[/yellow] {name} {SEP_GLYPH} attempt {event.attempt}: "
                 f"[yellow]{event.outcome.value}[/yellow]"
             )
-        update_progress(
-            progress,
-            task_ids,
-            task.name,
-            k,
-            attempt_counts[task.name],
-            pass_counts[task.name],
-            cheated=task.name in cheated,
-            unusable=unusable_counts[task.name],
-            unchecked=unchecked_counts[task.name],
-        )
+        update_progress(progress, task_ids, name, k, tally=tally)
 
     def on_task_done(result: TaskResult) -> None:
         if len(result.attempts) >= k:
@@ -316,16 +299,8 @@ def run_cmd(
             task_ids,
             result.task_name,
             k,
-            len(result.attempts),
-            result.successes,
-            cheated=any(
-                attempt.outcome == Outcome.CHEAT for attempt in result.attempts
-            ),
-            unusable=result.unusable,
+            tally=TaskTally.of(result),
             finished=True,
-            unchecked=sum(
-                attempt.outcome == Outcome.NOT_CHECKED for attempt in result.attempts
-            ),
         )
 
     aborted: RunAborted | None = None

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Callable
 
 from rich import box
@@ -95,17 +96,23 @@ RULE_GLYPH = _RULE
 WARN_GLYPH = _WARN
 SEP_GLYPH = _SEP
 
-# Per-outcome glyph for the per-attempt detail view. Usable failures read as
-# failures; the three noise outcomes get the distinct ⊘ marker.
+# Per-outcome glyph and style. Usable failures read as failures; the three noise
+# outcomes get the distinct ⊘ marker; a trigger probe is dim, not yellow:
+# nothing was asked, so nothing went wrong. As (glyph, style) for the attempt
+# strips, built as rich Text so colour survives regardless of markup mode.
+_OUTCOME_STYLE = {
+    Outcome.PASS: (_CHECK, "green"),
+    Outcome.TASK_FAIL: (_CROSS, "red"),
+    Outcome.CHEAT: (_WARN, "yellow"),
+    Outcome.INFRA_ERROR: (_UNUSABLE, "yellow"),
+    Outcome.TIMEOUT: (_UNUSABLE, "yellow"),
+    Outcome.JUDGE_ERROR: (_UNUSABLE, "yellow"),
+    Outcome.NOT_CHECKED: (_RULE, "dim"),
+}
+# The same, as markup, for the per-attempt detail view.
 _OUTCOME_GLYPH = {
-    Outcome.PASS: f"[green]{_CHECK}[/green]",
-    Outcome.TASK_FAIL: f"[red]{_CROSS}[/red]",
-    Outcome.CHEAT: f"[yellow]{_WARN}[/yellow]",
-    Outcome.INFRA_ERROR: f"[yellow]{_UNUSABLE}[/yellow]",
-    Outcome.TIMEOUT: f"[yellow]{_UNUSABLE}[/yellow]",
-    Outcome.JUDGE_ERROR: f"[yellow]{_UNUSABLE}[/yellow]",
-    # Dim, not yellow: nothing was asked, so nothing went wrong.
-    Outcome.NOT_CHECKED: f"[dim]{_RULE}[/dim]",
+    outcome: f"[{style}]{glyph}[/{style}]"
+    for outcome, (glyph, style) in _OUTCOME_STYLE.items()
 }
 
 
@@ -157,35 +164,81 @@ def make_progress(tasks: list[str], k: int) -> tuple[Progress, dict[str, TaskID]
     return progress, task_ids
 
 
+@dataclass
+class TaskTally:
+    """One task's attempts so far, counted by outcome for the live progress view.
+
+    Fed each outcome as it lands, or built from a finished :class:`TaskResult`:
+    the same counts either way, so the live row and the final row cannot
+    disagree. The categories are the outcomes' own (docs/adr/0001): noise is
+    ``unusable``, a trigger probe is ``unchecked``, and a cheat is a failure
+    that stays flagged once seen.
+    """
+
+    outcomes: list[Outcome] = field(default_factory=list)
+
+    @classmethod
+    def of(cls, result: TaskResult) -> TaskTally:
+        return cls([attempt.outcome for attempt in result.attempts])
+
+    def add(self, outcome: Outcome) -> None:
+        self.outcomes.append(outcome)
+
+    @property
+    def completed(self) -> int:
+        return len(self.outcomes)
+
+    @property
+    def passed(self) -> int:
+        return self.outcomes.count(Outcome.PASS)
+
+    @property
+    def unusable(self) -> int:
+        return sum(1 for o in self.outcomes if o.is_execution_noise)
+
+    @property
+    def unchecked(self) -> int:
+        return self.outcomes.count(Outcome.NOT_CHECKED)
+
+    @property
+    def usable(self) -> int:
+        return sum(1 for o in self.outcomes if o.is_usable)
+
+    @property
+    def failed(self) -> int:
+        """Usable attempts that did not pass: task failures and cheats."""
+        return self.usable - self.passed
+
+    @property
+    def cheated(self) -> bool:
+        return Outcome.CHEAT in self.outcomes
+
+
 def update_progress(
     progress: Progress,
     task_ids: dict[str, TaskID],
     task_name: str,
     k: int,
-    completed: int,
-    passed: int,
-    cheated: bool = False,
-    unusable: int = 0,
+    tally: TaskTally,
     finished: bool = False,
-    unchecked: int = 0,
 ) -> None:
     tid = task_ids.get(task_name)
     if tid is None:
         return
+    completed = tally.completed
     terminal = completed == k or finished
-    if cheated:
+    if tally.cheated:
         status = f"[bold yellow]{_WARN} cheat[/bold yellow]"
-    elif terminal and passed == k:
+    elif terminal and tally.passed == k:
         status = f"[bold green]{_CHECK}[/bold green]"
-    elif terminal and completed and unchecked == completed:
+    elif terminal and completed and tally.unchecked == completed:
         # A trigger probe asked no execution question; its activation verdict
         # is the report's to give, so the live view stays neutral.
         status = f"[dim]{_RULE}[/dim]"
     else:
         # The tally, not the count again: the bar and `n/k` beside it already
         # say how far along the task is, not how it is going.
-        failed = completed - passed - unusable - unchecked
-        status = _tally(passed, failed, unusable)
+        status = _tally(tally.passed, tally.failed, tally.unusable)
     rendered_completed = k if finished and completed < k else completed
     progress.update(tid, total=k, completed=rendered_completed, status=status)
 
@@ -740,19 +793,6 @@ def _print_task_detail(tr: TaskResult, k: int) -> None:
     console.print(Panel(grid, title=title, title_align="left", border_style="dim"))
 
 
-# Per-outcome (glyph, style) for building the side-by-side attempt strips as
-# rich Text, so colour survives regardless of markup mode.
-_OUTCOME_STYLE = {
-    Outcome.PASS: (_CHECK, "green"),
-    Outcome.TASK_FAIL: (_CROSS, "red"),
-    Outcome.CHEAT: (_WARN, "yellow"),
-    Outcome.INFRA_ERROR: (_UNUSABLE, "yellow"),
-    Outcome.TIMEOUT: (_UNUSABLE, "yellow"),
-    Outcome.JUDGE_ERROR: (_UNUSABLE, "yellow"),
-    Outcome.NOT_CHECKED: (_RULE, "dim"),
-}
-
-
 def _fmt_score(score: float | None) -> str:
     return _RULE if score is None else f"{score * 100:.1f}%"
 
@@ -921,9 +961,8 @@ def _alt_metric_cell(
     """
 
     def val(outcomes: list[Outcome]) -> float | None:
-        successes = sum(1 for o in outcomes if o == Outcome.PASS)
-        usable = sum(1 for o in outcomes if o.is_usable)
-        return formula(successes, usable)
+        tally = TaskTally(outcomes)
+        return formula(tally.passed, tally.usable)
 
     return _score_pair(
         _fmt_score(val(tc.a_outcomes)), _fmt_score(val(tc.b_outcomes)), "", ""
