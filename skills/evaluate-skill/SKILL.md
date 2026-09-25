@@ -55,7 +55,7 @@ If the skill has a `SKILL.md` but no `.eval.yaml`, suggest the `grill-skill` wor
 
 ## Whose setup is measured
 
-Runs load the user's own customizations by default (their MCP servers and account connectors, merged with the spec's `mcp:`), which answers "does my skill work in *my* agent?". **Isolate** (`--no-user-customizations`, or `user_customizations: false` in the spec) when comparing backends or models, when the number leaves this machine (shared, published, compared with someone else's run), or when measuring the bare agent: each setup is different, so otherwise part of the delta is the setups. `--ablate` of the user's own skill needs no isolation, since both runs load the same setup.
+Runs load the user's own customizations by default (user skills, plugins, rules, settings and connectors; see REFERENCE.md for backend exceptions), which answers "does my skill work in *my* agent?". **Isolate** (`--no-user-customizations`, or `user_customizations: false` in the spec) when comparing backends or models, when the number leaves this machine (shared, published, compared with someone else's run), or when measuring the bare agent: each setup is different, so otherwise part of the delta is the setups. `--ablate` of the user's own skill needs no isolation, since both runs load the same setup.
 
 **Always tell the user which mode ran** and what it loaded, from the report header's `user customizations:` line (absent means isolated), and relay any fix `caliper compare` suggests about it.
 

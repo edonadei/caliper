@@ -82,7 +82,11 @@ def assemble_attempt(
     # saw load before the cut still loaded, so keep it. Seeing nothing is
     # ambiguous (nothing loaded, or we missed it), so record ``None``, not an
     # empty list. Neither is graded. See docs/CONTEXT.md → Activation admissibility.
-    observed = activation.detect(result.transcript)
+    observed = activation.detect(
+        result.transcript,
+        additional_names=result.user_skill_names,
+        additional_paths=result.user_skill_paths,
+    )
     if pre_judge is None:
         activated = observed
         activation_passed = check_activation(activated, expected_activation)

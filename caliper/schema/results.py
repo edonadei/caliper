@@ -207,7 +207,8 @@ class RunMeta(BaseModel):
     # Kept apart from ``mcp_servers``, which ablation pairing reads as the
     # spec's own set (docs/adr/0028).
     user_customizations: bool = False
-    # Every name any attempt loaded, declared servers excluded. ``None`` =
+    # Kind-prefixed names (mcp:, skill:, plugin:, rules:, settings:), declared
+    # skills and servers excluded. Older unprefixed records remain readable. ``None`` =
     # unknown, so ``[]`` means "loaded, and there were none".
     loaded_user_customizations: list[str] | None = None
     # The judge engine that graded this run. Optional so results saved before

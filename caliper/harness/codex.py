@@ -46,6 +46,8 @@ class CodexHarness(CliHarness):
         self._model = model
 
     supports_mcp = True
+    user_rules = ("AGENTS.md", "AGENTS.override.md")
+    user_settings_file = "config.toml"
     cli_name = "codex"
     cli_path_env_var = "CODEX_CLI_PATH"
 
@@ -88,7 +90,7 @@ class CodexHarness(CliHarness):
             shutil.copytree(
                 real / "plugins",
                 codex_home / "plugins",
-                symlinks=True,
+                symlinks=False,
                 dirs_exist_ok=True,
             )
 
@@ -372,6 +374,21 @@ class CodexHarness(CliHarness):
                     "caliper copies it into each attempt, and codex would refuse "
                     "it there too. Fix the file, then rerun caliper."
                 ) from exc
+        if not ctx.user_customizations:
+            # Keep connection settings while removing behavioral customizations.
+            config = {
+                key: value
+                for key, value in config.items()
+                if key
+                in {
+                    "model_provider",
+                    "model_providers",
+                    "cli_auth_credentials_store",
+                    "forced_login_method",
+                    "forced_chatgpt_workspace_id",
+                    "chatgpt_base_url",
+                }
+            }
         config.pop("model", None)
         merged = merge_user_servers(config.pop("mcp_servers", None), servers, ctx)
         if merged:

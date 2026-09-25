@@ -163,30 +163,55 @@ See [MCP servers](spec-reference.md#mcp-servers-mcp) for the spec format.
 
 ## Loading your user customizations
 
-By default every attempt loads your **user customizations**: the MCP servers and
-account connectors your CLI loads by itself (user skills, plugins, rules and
-settings are planned to join them: #177), merged with the spec's `mcp:` block
+By default every attempt loads your **user customizations**: user skills,
+plugins, rules, settings, MCP servers and account connectors, alongside the
+spec's declared skills and servers
 ([ADR 0028](adr/0028-runs-load-user-customizations-by-default.md)), so a score
 measures the skill in the agent you actually use, including skills that rely on a
 hosted OAuth connector a spec can't declare. `--no-user-customizations`, or
-`user_customizations: false` in the spec, isolates a run to the declared servers; see
+`user_customizations: false` in the spec, isolates a run to the declared skills and servers; see
 [Portable scores](../README.md#portable-scores) for when that's needed.
 
 | Backend | What is loaded |
 |---|---|
-| `claude-code` | The `mcpServers` in your `~/.claude.json`, plus your claude.ai connectors (`--strict-mcp-config` is dropped) |
-| `codex` | The `[mcp_servers.*]` tables in your `~/.codex/config.toml`, your installed plugins (`~/.codex/plugins`, copied into the attempt), and ChatGPT apps (surfacing as `codex_apps`) |
-| `hermes` | The `mcp_servers` in your `~/.hermes/config.yaml` |
+| `claude-code` | The `mcpServers` in your `~/.claude.json`, plus claude.ai connectors, `~/.claude/skills`, `CLAUDE.md`, `settings.json` (including hooks, permissions and env), and enabled user-scope plugins from the installed registry |
+| `codex` | The `[mcp_servers.*]` tables in your `~/.codex/config.toml`, your installed plugins (`~/.codex/plugins`, copied into the attempt), ChatGPT apps (`codex_apps`), `~/.codex/skills`, `AGENTS.md` / `AGENTS.override.md`, and `config.toml` settings (the top-level model pin is still stripped) |
+| `hermes` | `~/.hermes/skills` and `config.yaml`, including `mcp_servers`; persona and memory remain excluded |
 | `pi` | Nothing: no MCP by design. The run records it as off, and warns only if a flag or the spec asked for it |
 
-- **The spec wins a name clash.** A declared server replaces your server of the
-  same name, in the attempt's copy of the config. Your real config is never
+- **The spec wins a name clash.** A declared skill or server replaces your own of the
+  same name, including when the declared name is ablated, in the attempt's copy of the config. Your real config is never
   changed.
-- **The judge stays isolated**, whatever the setting.
+- **The judge's connector isolation is unchanged**, whatever the setting.
 - **The run says so**: a notice at the start (attempts can act on those accounts
-  without asking), and the saved run records what was loaded, or "unknown" when
-  a source such as codex plugins can't be listed. See
+  without asking), and the saved run records what was loaded, marking MCP as
+  `mcp:(not listed)` when a source such as codex plugins can't be listed. See
   [Results JSON](results.md#results-json) for how `compare` uses it.
-- **`--ablate` can't remove one of your servers.** It only names what the spec
+- **`--ablate` names only declared skills and servers.** It only names what the spec
   declares. A spec can pin the setting; see
   [the spec reference](spec-reference.md#user-customizations-user_customizations).
+
+User skills and Claude plugin installations are copied, not linked back to the
+original. Plugin registry paths point at the private copies. Skills stay
+available through discovery, and unexpected user-skill activations count against
+`activates:`. Claude plugin skills keep their `plugin:skill` identity. Skills
+the CLI ships itself are skipped: hidden folders such as codex's `.system`, and
+the skills in hermes' `.bundled_manifest`. Of two user skills with the same
+name, the first in sorted path order is used.
+
+Hermes continues to pass `--ignore-rules` and copies no `SOUL.md` or memory files
+(ADR 0005). Each attempt starts independently; its writes stay in its temporary
+home. Hooks in settings/plugins run normally under the attempt timeout. They
+are not separately preflighted. Caliper's noninteractive CLI flags still take
+precedence over interactive permission settings.
+
+Isolation retains credentials and connection configuration: Codex's provider,
+provider definitions, credential-store/login/workspace selection and ChatGPT
+base URL; Hermes's model/provider definitions and credential `.env`. Behavioral
+settings are removed. Codex's top-level `model` exception from ADR 0012 remains
+in both modes. Absolute paths in user settings or hooks are not rewritten; this
+is measurement isolation, not a security boundary (ADR 0027).
+
+The switch applies to attempts. The judge's bare-prompt path retains its existing
+connector controls and uses the caller's CLI configuration; this switch does not
+strip the judge's global skills, rules or settings.

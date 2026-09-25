@@ -284,7 +284,7 @@ def test_hermes_user_customizations_merges_user_servers_with_the_spec_winning(
         "echo": {"command": "python3"},
     }
     # The user's only server was shadowed, so none of theirs was loaded.
-    assert captured["result"].loaded_user_customizations == []
+    assert captured["result"].loaded_user_customizations == ["settings:config.yaml"]
 
 
 def test_hermes_user_customizations_keeps_and_records_user_servers(
@@ -304,7 +304,10 @@ def test_hermes_user_customizations_keeps_and_records_user_servers(
         captured=captured,
     )
     assert config["mcp_servers"] == {"personal": {"command": "my-private-server"}}
-    assert captured["result"].loaded_user_customizations == ["personal"]
+    assert captured["result"].loaded_user_customizations == [
+        "mcp:personal",
+        "settings:config.yaml",
+    ]
 
 
 def test_hermes_user_customizations_still_ablates_a_server_the_user_also_has(

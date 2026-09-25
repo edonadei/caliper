@@ -116,8 +116,8 @@ def _user_customizations_warning(a: RunMeta, b: RunMeta) -> str | None:
         # without MCP.
         side, other = ("A", "B") if a.user_customizations else ("B", "A")
         return (
-            f"only {side} loaded this machine's user customizations (MCP "
-            f"servers, account connectors), so tool availability can move the "
+            f"only {side} loaded this machine's user customizations (skills, plugins, "
+            f"rules, settings and connectors), so tool availability can move the "
             f"score for reasons unrelated to the skill — re-run {side} with "
             f"--no-user-customizations to match {other}"
         )
@@ -131,7 +131,7 @@ def _user_customizations_warning(a: RunMeta, b: RunMeta) -> str | None:
         return (
             f"different user customizations: {a_names or ['(none)']} vs "
             f"{b_names or ['(none)']} — the runs loaded different setups, so "
-            "tool availability can move the score; re-run both with "
+            "the setup can move the score; re-run both with "
             "--no-user-customizations for a portable comparison"
         )
     return None
