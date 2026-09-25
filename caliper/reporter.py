@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Callable
 
 from rich import box
@@ -22,6 +21,7 @@ from rich.text import Text
 from caliper.schema.results import (
     ObservedActivation,
     Outcome,
+    OutcomeTally,
     RunComparison,
     RunResults,
     TaskComparison,
@@ -164,72 +164,25 @@ def make_progress(tasks: list[str], k: int) -> tuple[Progress, dict[str, TaskID]
     return progress, task_ids
 
 
-@dataclass
-class TaskTally:
-    """One task's attempts so far, counted by outcome for the live progress view.
-
-    Fed each outcome as it lands, or built from a finished :class:`TaskResult`:
-    the same counts either way, so the live row and the final row cannot
-    disagree. The categories are the outcomes' own (docs/adr/0001): noise is
-    ``unusable``, a trigger probe is ``unchecked``, and a cheat is a failure
-    that stays flagged once seen.
-    """
-
-    outcomes: list[Outcome] = field(default_factory=list)
-
-    @classmethod
-    def of(cls, result: TaskResult) -> TaskTally:
-        return cls([attempt.outcome for attempt in result.attempts])
-
-    def add(self, outcome: Outcome) -> None:
-        self.outcomes.append(outcome)
-
-    @property
-    def completed(self) -> int:
-        return len(self.outcomes)
-
-    @property
-    def passed(self) -> int:
-        return self.outcomes.count(Outcome.PASS)
-
-    @property
-    def unusable(self) -> int:
-        return sum(1 for o in self.outcomes if o.is_execution_noise)
-
-    @property
-    def unchecked(self) -> int:
-        return self.outcomes.count(Outcome.NOT_CHECKED)
-
-    @property
-    def usable(self) -> int:
-        return sum(1 for o in self.outcomes if o.is_usable)
-
-    @property
-    def failed(self) -> int:
-        """Usable attempts that did not pass: task failures and cheats."""
-        return self.usable - self.passed
-
-    @property
-    def cheated(self) -> bool:
-        return Outcome.CHEAT in self.outcomes
-
-
 def update_progress(
     progress: Progress,
     task_ids: dict[str, TaskID],
     task_name: str,
     k: int,
-    tally: TaskTally,
+    tally: OutcomeTally,
     finished: bool = False,
 ) -> None:
     tid = task_ids.get(task_name)
     if tid is None:
         return
+    # A snapshot: worker threads keep adding to the live tally, and every count
+    # below must come from the same outcomes.
+    tally = OutcomeTally(list(tally.outcomes))
     completed = tally.completed
     terminal = completed == k or finished
     if tally.cheated:
         status = f"[bold yellow]{_WARN} cheat[/bold yellow]"
-    elif terminal and tally.passed == k:
+    elif terminal and tally.successes == k:
         status = f"[bold green]{_CHECK}[/bold green]"
     elif terminal and completed and tally.unchecked == completed:
         # A trigger probe asked no execution question; its activation verdict
@@ -238,7 +191,7 @@ def update_progress(
     else:
         # The tally, not the count again: the bar and `n/k` beside it already
         # say how far along the task is, not how it is going.
-        status = _tally(tally.passed, tally.failed, tally.unusable)
+        status = _tally(tally.successes, tally.failed, tally.unusable)
     rendered_completed = k if finished and completed < k else completed
     progress.update(tid, total=k, completed=rendered_completed, status=status)
 
@@ -961,8 +914,8 @@ def _alt_metric_cell(
     """
 
     def val(outcomes: list[Outcome]) -> float | None:
-        tally = TaskTally(outcomes)
-        return formula(tally.passed, tally.usable)
+        tally = OutcomeTally(outcomes)
+        return formula(tally.successes, tally.usable)
 
     return _score_pair(
         _fmt_score(val(tc.a_outcomes)), _fmt_score(val(tc.b_outcomes)), "", ""

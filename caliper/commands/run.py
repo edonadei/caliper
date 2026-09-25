@@ -23,13 +23,12 @@ from caliper.reporter import (
     make_progress,
     print_banner,
     print_results,
-    TaskTally,
     update_progress,
 )
 from caliper.runstore import RunStore
 from caliper.environment import choose_user_customizations
 from caliper.runner import run, AttemptEvent, RunAborted
-from caliper.schema.results import RunResults, TaskResult
+from caliper.schema.results import OutcomeTally, RunResults, TaskResult
 from caliper.schema.spec import (
     DEFAULT_BACKEND,
     VALID_BACKENDS,
@@ -272,7 +271,7 @@ def run_cmd(
     # One tally per task, keyed by id, that the live view renders. A task that
     # stops short of k gets its final row from its result instead.
     names = {t.id: t.name for t in spec.tasks}
-    tallies = {t.id: TaskTally() for t in spec.tasks}
+    tallies = {t.id: OutcomeTally() for t in spec.tasks}
 
     def on_attempt_done(event: AttemptEvent) -> None:
         name = names.get(event.task_id)
@@ -299,7 +298,7 @@ def run_cmd(
             task_ids,
             result.task_name,
             k,
-            tally=TaskTally.of(result),
+            tally=result.tally,
             finished=True,
         )
 

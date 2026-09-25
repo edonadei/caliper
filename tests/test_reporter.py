@@ -11,7 +11,6 @@ from caliper.reporter import (
     _status_cell,
     make_progress,
     print_results,
-    TaskTally,
     update_progress,
 )
 from caliper.schema.results import (
@@ -19,6 +18,7 @@ from caliper.schema.results import (
     AttemptRecord,
     HookFailure,
     Outcome,
+    OutcomeTally,
     RunMeta,
     RunResults,
     SkillSnapshot,
@@ -42,7 +42,7 @@ def test_update_progress_marks_early_stopped_task_finished() -> None:
         task_ids,
         "Task one",
         k=3,
-        tally=TaskTally([Outcome.INFRA_ERROR]),
+        tally=OutcomeTally([Outcome.INFRA_ERROR]),
         finished=True,
     )
 
@@ -409,7 +409,7 @@ def test_autorater_reasoning_shown_for_failed_task() -> None:
 def test_update_progress_shows_a_running_tally_rather_than_the_count() -> None:
     progress, task_ids = make_progress(["Task one"], k=5)
 
-    tally = TaskTally([Outcome.PASS, Outcome.TASK_FAIL, Outcome.PASS])
+    tally = OutcomeTally([Outcome.PASS, Outcome.TASK_FAIL, Outcome.PASS])
     update_progress(progress, task_ids, "Task one", k=5, tally=tally)
 
     status = progress.tasks[task_ids["Task one"]].fields["status"]
@@ -420,7 +420,7 @@ def test_update_progress_keeps_a_finished_trigger_probe_neutral() -> None:
     progress, task_ids = make_progress(["Probe"], k=3)
 
     update_progress(
-        progress, task_ids, "Probe", k=3, tally=TaskTally([Outcome.NOT_CHECKED] * 3)
+        progress, task_ids, "Probe", k=3, tally=OutcomeTally([Outcome.NOT_CHECKED] * 3)
     )
 
     # Not a red ✗: a trigger probe asked no execution question.
@@ -504,7 +504,7 @@ def test_empty_output_marker_is_visible_when_markup_is_rendered() -> None:
 
 
 def test_a_tally_counts_each_outcome_once():
-    tally = TaskTally()
+    tally = OutcomeTally()
     for outcome in (
         Outcome.PASS,
         Outcome.TASK_FAIL,
@@ -514,12 +514,12 @@ def test_a_tally_counts_each_outcome_once():
     ):
         tally.add(outcome)
 
-    assert (tally.completed, tally.passed, tally.failed) == (5, 1, 2)
+    assert (tally.completed, tally.successes, tally.failed) == (5, 1, 2)
     assert (tally.unusable, tally.unchecked, tally.usable) == (1, 1, 3)
 
 
 def test_a_cheat_stays_on_the_tally_after_clean_attempts():
-    tally = TaskTally([Outcome.CHEAT, Outcome.PASS, Outcome.PASS])
+    tally = OutcomeTally([Outcome.CHEAT, Outcome.PASS, Outcome.PASS])
 
     assert tally.cheated
 
@@ -535,4 +535,4 @@ def test_a_finished_task_tallies_like_its_attempts_did_live():
         ],
     )
 
-    assert TaskTally.of(result) == TaskTally(outcomes)
+    assert result.tally == OutcomeTally(outcomes)
