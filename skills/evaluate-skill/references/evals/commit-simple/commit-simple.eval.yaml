@@ -1,78 +1,84 @@
 skills:
   - ./SKILL.md
 
+# Each attempt runs in a fresh, empty workdir (docs/adr/0026): setup builds the
+# repo right there, so parallel attempts never share a fixture.
+#
+# The harness is single-shot — nobody answers the agent's questions — and this
+# skill asks before committing. So every task judges the first turn only, and
+# the assert checks that no commit was made on top of the fixture's "init".
+
 tasks:
-  - name: Conventional commit on a feature branch
+  - name: Proposes a conventional commit on a feature branch
     setup: >
-      rm -rf /tmp/vrd-commit-1 && mkdir /tmp/vrd-commit-1 && cd /tmp/vrd-commit-1 &&
-      git init && git config user.email "eval@test.com" && git config user.name "Eval" &&
-      echo "# App" > README.md && git add README.md && git commit -m "init" &&
-      git checkout -b feat/user-auth &&
+      git init -q && git config user.email "eval@test.com" && git config user.name "Eval" &&
+      echo "# App" > README.md && git add README.md && git commit -qm "init" &&
+      git checkout -qb feat/user-auth &&
       printf 'def login(user, pwd):\n    return check_credentials(user, pwd)\n' > auth.py &&
       git add auth.py
-    cleanup: rm -rf /tmp/vrd-commit-1
-    prompt: "I've staged a new auth.py file in /tmp/vrd-commit-1. Please commit it."
+    prompt: "I've staged a new auth.py file. Please commit it."
     expect: >
-      Agent navigates to /tmp/vrd-commit-1, inspects the staged diff, proposes a
-      Conventional Commit message (e.g. feat: add login function), asks for
-      confirmation before committing, and completes the commit after confirmation.
+      Agent inspects the staged diff, proposes a Conventional Commit message
+      (e.g. feat: add login function), and asks for confirmation before
+      committing. Fail if it commits without asking.
+    assert: &no-commit |
+      import subprocess
+      count = subprocess.run(["git", "rev-list", "--count", "HEAD"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+      assert count == "1", f"Agent committed without confirmation ({count} commits)"
 
   - name: Asks about branching when on main
     setup: >
-      rm -rf /tmp/vrd-commit-2 && mkdir /tmp/vrd-commit-2 && cd /tmp/vrd-commit-2 &&
-      git init && git config user.email "eval@test.com" && git config user.name "Eval" &&
-      echo "# App" > README.md && git add README.md && git commit -m "init" &&
+      git init -q -b main && git config user.email "eval@test.com" && git config user.name "Eval" &&
+      echo "# App" > README.md && git add README.md && git commit -qm "init" &&
       printf 'def new_feature():\n    pass\n' > feature.py &&
       git add feature.py
-    cleanup: rm -rf /tmp/vrd-commit-2
-    prompt: "I have staged changes in /tmp/vrd-commit-2. Please commit them."
+    prompt: "I have staged changes. Please commit them."
     expect: >
-      Agent inspects the repo, notices the current branch is main or master, and
-      asks the user whether to create a new branch before committing rather than
+      Agent inspects the repo, notices the current branch is main, and asks the
+      user whether to create a new branch before committing rather than
       committing directly to main.
+    assert: *no-commit
 
   - name: Proposes split commits for logically separate changes
     setup: >
-      rm -rf /tmp/vrd-commit-3 && mkdir /tmp/vrd-commit-3 && cd /tmp/vrd-commit-3 &&
-      git init && git config user.email "eval@test.com" && git config user.name "Eval" &&
-      echo "# App" > README.md && git add README.md && git commit -m "init" &&
-      git checkout -b feat/batch &&
+      git init -q && git config user.email "eval@test.com" && git config user.name "Eval" &&
+      echo "# App" > README.md && git add README.md && git commit -qm "init" &&
+      git checkout -qb feat/batch &&
       printf 'def new_endpoint():\n    """New REST endpoint."""\n    pass\n' > api.py &&
       printf '# Changelog\n\n## v2.0\n- Added new endpoint\n' > CHANGELOG.md &&
       git add api.py CHANGELOG.md
-    cleanup: rm -rf /tmp/vrd-commit-3
-    prompt: "I have staged changes in /tmp/vrd-commit-3, can you help me commit?"
+    prompt: "I have staged changes, can you help me commit?"
     expect: >
       Agent detects two logically separate changes — new feature code in api.py and
       documentation in CHANGELOG.md — and proposes splitting them into two separate
-      commits rather than bundling everything in one.
+      commits rather than bundling everything in one, then asks to confirm the plan.
+    assert: *no-commit
 
   - name: Always asks before committing even when told to go ahead
     setup: >
-      rm -rf /tmp/vrd-commit-4 && mkdir /tmp/vrd-commit-4 && cd /tmp/vrd-commit-4 &&
-      git init && git config user.email "eval@test.com" && git config user.name "Eval" &&
-      echo "# App" > README.md && git add README.md && git commit -m "init" &&
-      git checkout -b fix/null-check &&
+      git init -q && git config user.email "eval@test.com" && git config user.name "Eval" &&
+      echo "# App" > README.md && git add README.md && git commit -qm "init" &&
+      git checkout -qb fix/null-check &&
       printf 'def safe_get(d, key):\n    return d.get(key) if d else None\n' > utils.py &&
       git add utils.py
-    cleanup: rm -rf /tmp/vrd-commit-4
-    prompt: "Please commit my staged changes in /tmp/vrd-commit-4 right away, no need to confirm."
+    prompt: "Please commit my staged changes right away, no need to confirm."
     expect: >
       Even though the user says to skip confirmation, the agent still proposes the
       commit message and asks for explicit user confirmation before committing,
       following the rule to always ask before committing.
+    assert: *no-commit
 
-  - name: Hands off to commit-pr when pull request is requested
+  - name: Leaves the pull request to commit-pr
     setup: >
-      rm -rf /tmp/vrd-commit-5 && mkdir /tmp/vrd-commit-5 && cd /tmp/vrd-commit-5 &&
-      git init && git config user.email "eval@test.com" && git config user.name "Eval" &&
-      echo "# App" > README.md && git add README.md && git commit -m "init" &&
-      git checkout -b feat/new-ui &&
+      git init -q && git config user.email "eval@test.com" && git config user.name "Eval" &&
+      echo "# App" > README.md && git add README.md && git commit -qm "init" &&
+      git checkout -qb feat/new-ui &&
       printf 'div.container { max-width: 1200px; }\n' > styles.css &&
       git add styles.css
-    cleanup: rm -rf /tmp/vrd-commit-5
-    prompt: "I have staged changes in /tmp/vrd-commit-5. I want to commit and then open a pull request."
+    prompt: "I have staged changes. I want to commit and then open a pull request."
     expect: >
-      Agent commits the staged changes and then explicitly suggests using the
-      commit-pr skill to handle the pull request creation, rather than attempting
-      to create the PR itself.
+      Agent proposes a commit message and asks for confirmation, and says the
+      pull request should be handled by the commit-pr skill rather than
+      attempting to create the PR itself.
+    assert: *no-commit

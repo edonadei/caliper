@@ -4,8 +4,6 @@ skills:
 sandbox:
   extra_path:
     - "./bin"
-  forbidden_files:
-    - ".*\\.eval\\.yaml$"
 
 tasks:
   - name: Summarize a plain URL
@@ -35,10 +33,9 @@ tasks:
       The summary is presented concisely to the user.
 
   - name: Summarize a local PDF file
-    setup: echo "%PDF-1.4 fake pdf" > /tmp/report.pdf
-    cleanup: rm -f /tmp/report.pdf
-    prompt: "Can you summarize /tmp/report.pdf for me?"
+    setup: echo "%PDF-1.4 fake pdf" > report.pdf
+    prompt: "Can you summarize ./report.pdf for me?"
     expect: >
-      Agent invokes summarize with the local file path /tmp/report.pdf as the
+      Agent invokes summarize with the local file path ./report.pdf as the
       argument. Agent presents the summary of the PDF to the user without
       asking clarifying questions first.

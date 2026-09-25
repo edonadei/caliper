@@ -385,6 +385,15 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
+def _wait_for_text(path: Path, deadline: float) -> str:
+    """Poll until ``path`` has content; ``write_text`` creates it empty first."""
+    while time.monotonic() < deadline:
+        if path.exists() and (text := path.read_text()):
+            return text
+        time.sleep(0.01)
+    return ""
+
+
 @contextmanager
 def _running_attempt(
     tmp_path: Path, command: list[str], pid_file: Path, timeout: int
@@ -407,11 +416,9 @@ def _running_attempt(
     thread.start()
     pids: list[int] = []
     try:
-        deadline = time.monotonic() + 5
-        while not pid_file.exists() and time.monotonic() < deadline:
-            time.sleep(0.01)
-        assert pid_file.exists(), "the agent did not start its tools"
-        pids = [int(pid) for pid in pid_file.read_text().split()]
+        text = _wait_for_text(pid_file, time.monotonic() + 5)
+        assert text, "the agent did not start its tools"
+        pids = [int(pid) for pid in text.split()]
         yield pids, finished, box
     finally:
         cancel.request()
@@ -508,10 +515,9 @@ def test_stopping_an_attempt_reaches_a_tool_after_its_agent_exits(
         assert _pid_alive(tool_pid)
         assert not leaf_pid_file.exists()
         trigger.touch()
-        while not leaf_pid_file.exists() and time.monotonic() < deadline:
-            time.sleep(0.01)
-        assert leaf_pid_file.exists(), "the detached tool did not spawn its child"
-        leaf_pid = int(leaf_pid_file.read_text())
+        leaf_pid_text = _wait_for_text(leaf_pid_file, deadline)
+        assert leaf_pid_text, "the detached tool did not spawn its child"
+        leaf_pid = int(leaf_pid_text)
         pids.append(leaf_pid)
         assert _pid_alive(leaf_pid)
         if stop == "cancel":

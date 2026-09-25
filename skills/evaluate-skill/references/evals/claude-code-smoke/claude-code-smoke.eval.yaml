@@ -1,20 +1,14 @@
 skills:
   - ./SKILL.md
 
-sandbox:
-  forbidden_files:
-    - ".*\\.eval\\.yaml$"    # .caliper/results/ is auto-forbidden already
-
 tasks:
   - name: Writes the smoke output file
-    setup: rm -f /tmp/caliper-claude-code-smoke.txt
-    cleanup: rm -f /tmp/caliper-claude-code-smoke.txt
     prompt: >
       Run the Claude Code smoke evaluation and write the result to
-      /tmp/caliper-claude-code-smoke.txt.
+      ./smoke.txt.
     assert: |
       from pathlib import Path
 
-      path = Path("/tmp/caliper-claude-code-smoke.txt")
+      path = Path("./smoke.txt")
       assert path.exists(), "smoke output file was not created"
       assert path.read_text().strip() == "claude-code-smoke-ok", "unexpected smoke output"
