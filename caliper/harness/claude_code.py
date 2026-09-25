@@ -47,6 +47,18 @@ def preferred_nvm_node_bin() -> str | None:
     return str(max(candidates, key=lambda item: item[:3])[3])
 
 
+_NOT_LOGGED_IN = (
+    "Claude Code is not logged in for the evaluation harness.\n\n"
+    "caliper runs Claude Code in an isolated HOME so each attempt has no "
+    "session history. The Claude CLI returned:\n"
+    "  {text}\n\n"
+    "Run `claude`, then `/login`, and retry the eval. If "
+    "`claude -p 'Reply OK'` works in your normal shell but caliper still "
+    "fails, the harness is not finding or copying the credential store "
+    "that your Claude Code install uses."
+)
+
+
 class ClaudeCodeHarness(CliHarness):
     def __init__(self, model: str | None = None) -> None:
         self._model = model
@@ -334,15 +346,14 @@ class ClaudeCodeHarness(CliHarness):
 
     config_signals = (
         ConfigSignal(
-            ("not logged in", "please run /login"),
-            "Claude Code is not logged in for the evaluation harness.\n\n"
-            "caliper runs Claude Code in an isolated HOME so each attempt has no "
-            "session history. The Claude CLI returned:\n"
-            "  {text}\n\n"
-            "Run Claude Code login for this machine, then retry the eval. If "
-            "`claude -p 'Reply OK'` works in your normal shell but caliper still "
-            "fails, the harness is not finding or copying the credential store "
-            "that your Claude Code install uses.",
+            (
+                "not logged in",
+                "please run /login",
+                "failed to authenticate",
+                "oauth session expired",
+                "invalid api key",
+            ),
+            _NOT_LOGGED_IN,
         ),
         ConfigSignal(
             (
@@ -372,13 +383,16 @@ class ClaudeCodeHarness(CliHarness):
         # Read off the CLI's own result envelope, not the text: an agent can
         # write about a 404 without being one. Same classification the judge's
         # prompt path uses (issue #75, docs/adr/0001).
-        unavailable = _unavailable_model_message(proc.stdout)
-        if unavailable is not None:
+        failure = _closing_envelope_failure(proc.stdout)
+        if failure is not None and failure.kind is PromptFailureKind.AUTH:
+            # A bare 401 may carry no login words for config_signals to match.
+            return _NOT_LOGGED_IN.replace("{text}", cli_text)
+        if failure is not None and failure.kind is PromptFailureKind.MODEL_UNAVAILABLE:
             model_part = f" '{self._model}'" if self._model else ""
             return (
                 f"Claude Code cannot run the requested model{model_part}.\n\n"
                 "The Claude CLI returned:\n"
-                f"  {unavailable}\n\n"
+                f"  {failure.message}\n\n"
                 "Pass `--model claude-code:<model>` with a model this account "
                 "can use, or `--model claude-code` for the CLI default, then "
                 "retry the eval."
@@ -675,8 +689,8 @@ def _error_results(stdout: str) -> list[str]:
     return errors
 
 
-def _unavailable_model_message(stdout: str) -> str | None:
-    """The CLI's message when its closing ``result`` event is a model 404."""
+def _closing_envelope_failure(stdout: str) -> PromptFailure | None:
+    """The classified failure the CLI's closing ``result`` event reports, if any."""
     for line in reversed(stdout.splitlines()):
         try:
             event = json.loads(line)
@@ -684,10 +698,7 @@ def _unavailable_model_message(stdout: str) -> str | None:
             continue
         if not isinstance(event, dict) or event.get("type") != "result":
             continue
-        failure = _envelope_failure(event)
-        if failure is not None and failure.kind is PromptFailureKind.MODEL_UNAVAILABLE:
-            return failure.message
-        return None
+        return _envelope_failure(event)
     return None
 
 
