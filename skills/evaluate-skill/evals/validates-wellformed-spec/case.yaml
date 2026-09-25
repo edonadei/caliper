@@ -1,8 +1,0 @@
-schema_version: "1.1"
-name: validates-wellformed-spec
-description: >-
-  Ported from evaluate-skill.eval.yaml task "Validates a well-formed spec and
-  reports it as valid". The caliper task's `setup:` block becomes
-  context.scaffold_script, so this case needs --scaffold.
-context:
-  scaffold_script: scaffold.sh

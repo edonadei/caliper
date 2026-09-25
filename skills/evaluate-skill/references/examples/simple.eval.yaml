@@ -1,25 +1,29 @@
 skills:
   - ~/.claude/skills/review/SKILL.md
 
+# The spec itself and any .caliper/ results are forbidden automatically; list
+# only extra answer keys here.
 sandbox:
   forbidden_files:
-    - ".*\\.eval\\.yaml$"    # .caliper/results/ is auto-forbidden already
+    - "./answers/.*"
 
+# Each attempt runs in a fresh, empty workdir: setup:, the agent, assert: and
+# cleanup: all run there, so relative paths mean the same file to each step.
 tasks:
   # The prompt never names the skill: it is installed, not preloaded, so the
   # agent has to reach for it. `activates:` asserts that it did.
   - name: Detects a null pointer bug
-    setup: echo "setting up"
-    cleanup: echo "cleaning up"
-    prompt: Review the staged changes in /tmp/eval-repo
-    expect: The review identifies a null pointer dereference
+    setup: >
+      git init -q && git config user.email "eval@test.com" && git config user.name "Eval" &&
+      printf 'def lookup(users, name):\n    return users.get(name).email\n' > user_lookup.py &&
+      git add user_lookup.py
+    prompt: Review the staged changes
+    expect: The review identifies that users.get(name) can return None and crash on .email
     activates: [review]
 
   - name: Creates an output file
-    setup: mkdir -p /tmp/eval-work
-    cleanup: rm -rf /tmp/eval-work
-    prompt: Write hello world to /tmp/eval-work/out.txt
-    expect: A file is written at /tmp/eval-work/out.txt
+    prompt: Write hello world to out.txt
+    expect: A file is written at out.txt
     assert: |
       import os
-      assert os.path.exists("/tmp/eval-work/out.txt"), "Output file not created"
+      assert os.path.exists("out.txt"), "Output file not created"

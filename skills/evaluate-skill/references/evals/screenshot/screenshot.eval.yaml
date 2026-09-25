@@ -1,27 +1,21 @@
 skills:
   - ./SKILL.md
 
-sandbox:
-  forbidden_files:
-    - ".*\\.eval\\.yaml$"
-
 tasks:
   - name: Saves a screenshot to an explicit path
-    cleanup: >
-      python -c "from pathlib import Path; Path('/tmp/caliper-screenshot-explicit.png').unlink(missing_ok=True)"
     prompt: >
       Take a desktop screenshot and save it exactly at
-      /tmp/caliper-screenshot-explicit.png.
+      ./screenshot.png.
       Report the saved file path when you are done.
     expect: >
       The final response reports that the screenshot was saved at exactly
-      /tmp/caliper-screenshot-explicit.png. Fail if it only describes how to
+      ./screenshot.png. Fail if it only describes how to
       take a screenshot, reports a different path, or does not indicate
       completion. The deterministic assert verifies that the PNG file exists.
     assert: |
       from pathlib import Path
 
-      path = Path("/tmp/caliper-screenshot-explicit.png")
+      path = Path("./screenshot.png")
       assert path.exists(), "Screenshot file was not created"
       assert path.stat().st_size > 100, "Screenshot file is unexpectedly small"
       assert path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n", "Screenshot is not a PNG"
