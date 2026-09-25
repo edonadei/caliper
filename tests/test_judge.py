@@ -577,6 +577,20 @@ def test_the_autorater_times_its_own_call(attempt_workdir) -> None:
     assert result.autorater_seconds >= 0
 
 
+def test_an_assert_script_beside_the_autorater_is_not_judge_time(
+    attempt_workdir,
+) -> None:
+    result = EvalJudge(backend="codex", harness=_verdict(True)).evaluate(
+        task=_task(expect="x", assert_script="import time\ntime.sleep(0.3)"),
+        transcript=[],
+        final_output="",
+        workdir=attempt_workdir,
+    )
+
+    assert result.assert_passed is True
+    assert result.autorater_seconds < 0.3
+
+
 def test_an_assert_only_task_records_no_autorater_time(attempt_workdir) -> None:
     harness = _verdict(True)
     result = EvalJudge(backend="codex", harness=harness).evaluate(

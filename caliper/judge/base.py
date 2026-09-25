@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from caliper.harness.base import ConversationTurn
+from caliper.harness.base import ConversationTurn, PromptResult
 from caliper.schema.spec import TaskSpec
 from caliper.workdir import AttemptWorkdir
 
@@ -28,6 +28,18 @@ class JudgeResult:
     # is the difference between "the judge was fast" and "no judge ran"
     # (docs/CONTEXT.md → Judge time).
     autorater_seconds: float | None = None
+
+
+class PromptBackend(Protocol):
+    """What the autorater needs of a backend: one bare prompt in, its answer out.
+
+    The ``run_prompt`` half of the backend seam. Every ``HarnessBackend``
+    satisfies it; a test answers the prompt itself.
+    """
+
+    def run_prompt(
+        self, prompt: str, *, model: str | None = None, cwd: str, timeout: int = 60
+    ) -> PromptResult: ...
 
 
 class Judge(Protocol):

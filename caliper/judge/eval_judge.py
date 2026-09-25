@@ -7,11 +7,10 @@ from pathlib import Path
 from caliper.harness import get_harness
 from caliper.harness.base import (
     ConversationTurn,
-    HarnessBackend,
     HarnessConfigurationError,
 )
 from caliper.harness.prompt_failure import PromptFailureKind, format_judge_failure
-from caliper.judge.base import Judge, JudgeResult
+from caliper.judge.base import Judge, JudgeResult, PromptBackend
 from caliper.schema.spec import (
     DEFAULT_BACKEND,
     TaskSpec,
@@ -148,7 +147,7 @@ class EvalJudge(Judge):
         backend: str = DEFAULT_BACKEND,
         model: str | None = None,
         *,
-        harness: HarnessBackend | None = None,
+        harness: PromptBackend | None = None,
     ) -> None:
         # The judge engine is a runtime axis, resolved from --judge-model (ADR
         # 0004). ``model`` stays as *requested*: ``None`` means the pinned
@@ -160,7 +159,9 @@ class EvalJudge(Judge):
         # The backend that answers the autorater's prompt, through the
         # ``run_prompt`` half of the backend seam. Built from ``backend`` on
         # first use, once per judge rather than per attempt; passed in by a
-        # caller (a test) that answers the prompt itself.
+        # caller (a test) that answers the prompt itself. Worker threads share
+        # the judge, so two may each build one on first use; that is harmless,
+        # since a harness holds only its model.
         self._harness = harness
 
     def evaluate(
@@ -183,16 +184,13 @@ class EvalJudge(Judge):
         autorater_model: str | None = None
         autorater_seconds: float | None = None
         if task.expect:
-            # Timed around the model call alone: an assert script is not judge
-            # time (docs/CONTEXT.md → Judge time).
-            started = time.monotonic()
             (
                 llm_passed,
                 llm_reasoning,
                 autorater_errored,
                 autorater_model,
+                autorater_seconds,
             ) = self._llm_evaluate(task, transcript, workdir)
-            autorater_seconds = time.monotonic() - started
             autorater_reasoning = llm_reasoning
             # An errored autorater yields no verdict: leave autorater_passed None
             # so it is dropped from the checks rather than counted as a failure.
@@ -228,7 +226,7 @@ class EvalJudge(Judge):
         task: TaskSpec,
         transcript: list[ConversationTurn],
         workdir: AttemptWorkdir,
-    ) -> tuple[bool, str, bool, str | None]:
+    ) -> tuple[bool, str, bool, str | None, float | None]:
         # An autorater is one bare prompt through a CLI agent — the same
         # backend adapters that run attempts also answer the judge, via the
         # ``run_prompt`` half of the backend seam.
@@ -238,7 +236,13 @@ class EvalJudge(Judge):
                     self.backend, resolve_judge_model(self.backend, self.model)
                 )
             except ValueError:
-                return False, f"Unknown judge backend: {self.backend!r}", True, None
+                return (
+                    False,
+                    f"Unknown judge backend: {self.backend!r}",
+                    True,
+                    None,
+                    None,
+                )
         harness = self._harness
 
         user_msg = _USER_TMPL.format(
@@ -250,7 +254,11 @@ class EvalJudge(Judge):
         # In the workdir, not the spec dir: the judge grades what the agent left
         # there, and must not sit beside the answer key or write into the
         # author's repo (docs/adr/0026).
+        # Timed around the model call alone: an assert script or building the
+        # harness is not judge time (docs/CONTEXT.md → Judge time).
+        started = time.monotonic()
         result = harness.run_prompt(prompt, cwd=workdir.path, timeout=60)
+        seconds = time.monotonic() - started
         if result.failure is not None:
             # Switch on the typed kind here, in the judge — provider status codes
             # never leak past the harness boundary (issue #75, ADR-0001).
@@ -260,10 +268,10 @@ class EvalJudge(Judge):
                 # per-attempt judge_error would pay for each agent run only to
                 # discard it. Stop the run instead (issue #139).
                 raise HarnessConfigurationError(reasoning)
-            return False, reasoning, True, result.resolved_model
+            return False, reasoning, True, result.resolved_model, seconds
         if result.error:
-            return False, result.error, True, result.resolved_model
+            return False, result.error, True, result.resolved_model, seconds
         passed, reasoning, errored = _parse_rich_response(
             _strip_markdown_fence(result.text), workdir
         )
-        return passed, reasoning, errored, result.resolved_model
+        return passed, reasoning, errored, result.resolved_model, seconds
