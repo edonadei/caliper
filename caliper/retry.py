@@ -25,13 +25,12 @@ from typing import Callable
 
 from caliper import cancel
 from caliper.harness.base import AttemptResult
-from caliper.outcome import (
-    answered,
+from caliper.harness.refusal import (
     looks_like_spending_cap,
-    spending_cap_line,
     looks_like_throttle,
-    signal_text,
+    spending_cap_line,
 )
+from caliper.outcome import answered, signal_text
 from caliper.schema.results import TokenUsage
 
 

@@ -8,7 +8,8 @@ import pytest
 
 from caliper.harness.base import HarnessConfigurationError
 from caliper.harness.pi import PiHarness
-from caliper.outcome import looks_like_infra_failure, signal_text
+from caliper.harness.refusal import looks_like_infra_failure
+from caliper.outcome import signal_text
 from caliper.skills import resolve_skills
 
 from conftest import patch_cli_calls, run_context

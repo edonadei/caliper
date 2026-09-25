@@ -12,7 +12,7 @@ from caliper.harness.base import (
     PromptCall,
     RunContext,
 )
-from caliper.outcome import looks_like_infra_failure
+from caliper.harness.refusal import looks_like_infra_failure
 from caliper.schema.results import TokenUsage
 
 
