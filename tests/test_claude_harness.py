@@ -719,6 +719,26 @@ def test_claude_harness_expired_login_is_configuration_error(
     assert "retry" in str(exc.value)
 
 
+def test_claude_harness_bare_401_is_configuration_error(monkeypatch, tmp_path):
+    def fake_run(cmd, **kwargs):
+        envelope = {
+            "type": "result",
+            "is_error": True,
+            "api_error_status": 401,
+            "result": "Request failed",
+        }
+        return subprocess.CompletedProcess(
+            cmd, 1, stdout=json.dumps(envelope), stderr=""
+        )
+
+    patch_cli_calls(monkeypatch, fake_run)
+    with pytest.raises(HarnessConfigurationError) as exc:
+        ClaudeCodeHarness().run(run_context(isolated_home=str(tmp_path / "home")))
+
+    assert "API error 401: Request failed" in str(exc.value)
+    assert "Run `claude`, then `/login`" in str(exc.value)
+
+
 @pytest.mark.parametrize("exit_code", [0, 1])
 def test_claude_harness_agent_discussing_expired_login_is_not_configuration_error(
     monkeypatch, tmp_path, exit_code
