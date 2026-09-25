@@ -1,5 +1,10 @@
 # An attempt may be invoked more than once
 
+> **Amended by [0030](0030-a-cli-refusal-is-read-from-what-the-cli-wrote.md):**
+> a throttle or cap is no longer matched over the attempt's output and then
+> guarded with `answered()`. The harness reads it once, from what the CLI wrote,
+> and carries it as `AttemptResult.refusal`; the retry seam acts on that field.
+
 An **attempt** is one measured shot at the task; an **invocation** is one spawn
 of the agent. They used to be the same object. They are not, because an
 invocation the provider refuses — a 429, an overload, a 503 — produces no

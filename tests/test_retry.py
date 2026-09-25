@@ -18,6 +18,7 @@ from caliper.harness.base import (
     HarnessBackend,
     RunContext,
 )
+from caliper.harness.refusal import CliRefusal, RefusalKind
 from caliper.judge.base import JudgeResult
 from caliper.retry import (
     RetryPolicy,
@@ -43,13 +44,12 @@ def _result(
     usage: TokenUsage | None = None,
     timed_out: bool = False,
     salvaged: bool = False,
+    refusal: CliRefusal | None = None,
 ) -> AttemptResult:
     """One invocation's result.
 
-    ``salvaged`` models the shape that matters to the retry seam: nothing parsed
-    out of the agent's stream, so the raw stdout was rescued as a single turn.
-    That is what a CLI bailing looks like, as against an agent answering — see
-    ``caliper.outcome.answered``.
+    ``refusal`` is what the harness read from what the CLI wrote; the retry
+    seam acts on it alone (docs/adr/0030).
     """
     return AttemptResult(
         transcript=[ConversationTurn(role="assistant", content=output)],
@@ -60,16 +60,27 @@ def _result(
         usage=usage,
         timed_out=timed_out,
         salvaged=salvaged,
+        refusal=refusal,
     )
 
 
 # A throttled CLI exits non-zero with the refusal on stderr and nothing parsed.
 THROTTLED = dict(
-    output="", error="Error 429: rate limit exceeded", exit_code=1, salvaged=True
+    output="",
+    error="Error 429: rate limit exceeded",
+    exit_code=1,
+    salvaged=True,
+    refusal=CliRefusal(RefusalKind.THROTTLE, "Error 429: rate limit exceeded"),
 )
 # A capped CLI exits *zero* with the cap message as its only output — the case
 # that forces signals to be matched on a clean exit at all.
-CAPPED = dict(output="You have reached your usage limit for this month.", salvaged=True)
+CAPPED = dict(
+    output="You have reached your usage limit for this month.",
+    salvaged=True,
+    refusal=CliRefusal(
+        RefusalKind.SPENDING_CAP, "You have reached your usage limit for this month."
+    ),
+)
 
 
 def _queue(*results: AttemptResult):
@@ -141,39 +152,6 @@ def test_a_spending_cap_raises_instead_of_retrying() -> None:
 
     assert len(calls) == 1
     assert "usage limit" in str(excinfo.value)
-
-
-def test_a_spending_cap_quotes_the_line_that_says_so() -> None:
-    # codex opens its stream with its own chatter; the limit is further down.
-    output = (
-        '{"type":"thread.started","thread_id":"t"}\n'
-        '{"type":"error","message":"You\'ve hit your usage limit. Upgrade to Pro '
-        "(https://chatgpt.com/explore/pro), visit "
-        "https://chatgpt.com/codex/settings/usage to purchase more credits or "
-        'try again at Sep 24th, 2026 2:02 AM."}'
-    )
-    invoke, _ = _queue(_result(output=output, exit_code=1, salvaged=True))
-
-    with pytest.raises(SpendingCapReached) as excinfo:
-        invoke_with_retry(invoke, NO_WAIT)
-
-    assert "try again at Sep 24th, 2026 2:02 AM." in str(excinfo.value)
-    assert "thread.started" not in str(excinfo.value)
-
-
-def test_a_spending_cap_nested_in_a_json_event_is_quoted_by_its_text() -> None:
-    # pi reports the limit inside the assistant message it failed to produce.
-    output = (
-        '{"type":"message_end","message":{"role":"assistant","content":[],'
-        '"usage":{"input":0},"errorMessage":"Codex error: The usage limit '
-        'has been reached"}}'
-    )
-    invoke, _ = _queue(_result(output=output, salvaged=True))
-
-    with pytest.raises(SpendingCapReached) as excinfo:
-        invoke_with_retry(invoke, NO_WAIT)
-
-    assert "  Codex error: The usage limit has been reached\n" in str(excinfo.value)
 
 
 def test_a_cancelled_backoff_stops_retrying() -> None:
@@ -437,11 +415,9 @@ def test_a_passing_attempt_that_mentions_a_throttle_is_not_respawned() -> None:
     assert len(calls) == 1
 
 
-def test_a_capped_cli_is_still_caught_when_the_message_is_the_whole_output() -> None:
-    """The shape the detection exists for: exit 0, cap message, nothing parsed."""
-    invoke, _ = _queue(
-        _result(output="Your spending cap has been reached.", salvaged=True)
-    )
+def test_a_cap_on_a_zero_exit_still_stops_the_run() -> None:
+    """A capped CLI often exits 0; the refusal is what counts, not the exit."""
+    invoke, _ = _queue(_result(**CAPPED))
 
     with pytest.raises(SpendingCapReached):
         invoke_with_retry(invoke, NO_WAIT)

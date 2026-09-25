@@ -688,13 +688,24 @@ still say no on every remaining attempt, so the run stops (an [[interrupted
 run]], with the cap as its cause). A bare crash: no, it reproduces, so it is
 recorded as-is rather than retried into looking flaky.
 
-A signal only counts when it is the invocation's *outcome* rather than its
+A signal only counts when it is a [[CLI refusal]] rather than the agent's
 content: an attempt that answered a task **about** rate limiting is not a
 throttled attempt. `retries` is recorded rather than hidden because it is the one
 signal that says a run was fighting the API — which a reader needs before
 trusting its timings, since [[wall-clock time]] counts the spawns and not the
 waiting between them. See
 docs/adr/0019-an-attempt-may-be-invoked-more-than-once.md.
+
+## CLI refusal
+
+The agent's CLI declining to run an invocation, in its own words: the provider
+is busy (a throttle), the account is out of budget (a spending cap), or the CLI
+is misconfigured (a lapsed login, a model it cannot run). Read only from what
+the CLI wrote, never from the agent's answer, so an agent that writes "not
+logged in" or "rate limit" about its task has not refused anything. A throttle
+is [[retry|retried]]; a spending cap or a misconfiguration stops the run. See
+docs/adr/0030-a-cli-refusal-is-read-from-what-the-cli-wrote.md.
+_Avoid_: infra signal, provider signal (for the misconfiguration case).
 
 ## Usable / unusable attempt
 

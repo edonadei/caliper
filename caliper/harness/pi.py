@@ -12,8 +12,23 @@ from caliper.harness.base import (
     PromptCall,
     RunContext,
 )
-from caliper.outcome import looks_like_infra_failure
+from caliper.harness.refusal import AUTH_MARKERS, ConfigSignal
 from caliper.schema.results import TokenUsage
+
+
+_PROVIDER_DIAGNOSIS = (
+    "pi cannot run with the current provider/credential "
+    "configuration.\n\n"
+    "Caliper copies your `~/.pi/agent` auth and settings verbatim "
+    "and passes a model to pi only when you select one. The pi CLI "
+    "returned:\n"
+    "  {text}\n\n"
+    "pi's built-in default provider is `google`, so running "
+    "`--model pi` with no model (and no Google credentials) can fail "
+    "here. Pass `--model pi:<model>` for a provider you are "
+    "authenticated for, or configure pi's default provider with `pi` "
+    "directly, then rerun caliper."
+)
 
 
 class PiHarness(CliHarness):
@@ -233,75 +248,43 @@ class PiHarness(CliHarness):
         # the same stream an attempt run reads, tail and all.
         return self._parse_stream_with_tail(proc.stdout)[1]
 
-    def _diagnose(self, proc: ProcessResult, final_output: str) -> str | None:
-        if proc.returncode == 0:
-            # In --mode json pi exits 0 even when it never reached the model,
-            # and reports why only as an errored assistant message in its stream
-            # (#132). Read those alone: the rest of stdout is the agent talking,
-            # and an answer that mentions "401" is not a broken login. A cap or
-            # throttle is left out too, whatever auth words it brushes: the
-            # retry seam reads it from the salvaged stream and knows what to do.
-            text = "\n".join(
-                error
-                for error in self._stream_errors(proc.stdout)
-                if not looks_like_infra_failure(error)
-            )
-        else:
-            text = "\n".join(p for p in (proc.stdout, proc.stderr) if p).strip()
-        if not text:
-            return None
-        lowered = text.lower()
+    config_signals = (
+        ConfigSignal(
+            (
+                "no api key",
+                "no credentials",
+                "missing api key",
+                "set an api key",
+                "no provider",
+                "unknown provider",
+            ),
+            _PROVIDER_DIAGNOSIS,
+        ),
+        ConfigSignal(
+            (*AUTH_MARKERS, "oauth refresh failed", "invalid_grant", "refresh token"),
+            "pi cannot run with the current authentication "
+            "configuration.\n\n"
+            "Caliper drives the local pi CLI and reuses its `~/.pi/agent` "
+            "credentials. The pi CLI returned:\n"
+            "  {text}\n\n"
+            "Authenticate pi (e.g. `pi` then `/login`, or set the provider "
+            "API key), verify `pi --print 'Reply OK'` works in your normal "
+            "shell, then rerun caliper.",
+        ),
+    )
 
-        provider_markers = (
-            "no api key",
-            "no credentials",
-            "missing api key",
-            "set an api key",
-            "no provider",
-            "unknown provider",
-        )
-        if any(marker in lowered for marker in provider_markers) or (
-            "provider" in lowered and "api key" in lowered
-        ):
-            return (
-                "pi cannot run with the current provider/credential "
-                "configuration.\n\n"
-                "Caliper copies your `~/.pi/agent` auth and settings verbatim "
-                "and passes a model to pi only when you select one. The pi CLI "
-                "returned:\n"
-                f"  {text}\n\n"
-                "pi's built-in default provider is `google`, so running "
-                "`--model pi` with no model (and no Google credentials) can fail "
-                "here. Pass `--model pi:<model>` for a provider you are "
-                "authenticated for, or configure pi's default provider with `pi` "
-                "directly, then rerun caliper."
-            )
+    def _cli_text(self, proc: ProcessResult, transcript: list[ConversationTurn]) -> str:
+        # In --mode json pi exits 0 even when it never reached the model, and
+        # reports why only as an errored assistant message in its stream
+        # (#132). Those messages are the CLI talking; the rest of the stream is
+        # the agent, and an answer that mentions "401" is not a broken login.
+        errors = self._stream_errors(proc.stdout)
+        return "\n".join([*errors, super()._cli_text(proc, transcript)]).strip()
 
-        auth_markers = (
-            "401",
-            "unauthorized",
-            "not logged in",
-            "please login",
-            "please run /login",
-            "authentication",
-            "invalid api key",
-            "subscription",
-            "oauth refresh failed",
-            "invalid_grant",
-            "refresh token",
-        )
-        if any(marker in lowered for marker in auth_markers):
-            return (
-                "pi cannot run with the current authentication "
-                "configuration.\n\n"
-                "Caliper drives the local pi CLI and reuses its `~/.pi/agent` "
-                "credentials. The pi CLI returned:\n"
-                f"  {text}\n\n"
-                "Authenticate pi (e.g. `pi` then `/login`, or set the provider "
-                "API key), verify `pi --print 'Reply OK'` works in your normal "
-                "shell, then rerun caliper."
-            )
-
+    def _diagnose(self, proc: ProcessResult, cli_text: str) -> str | None:
+        lowered = cli_text.lower()
+        if "provider" in lowered and "api key" in lowered:
+            return _PROVIDER_DIAGNOSIS.replace("{text}", cli_text)
         return None
 
     @staticmethod

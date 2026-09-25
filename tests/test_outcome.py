@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 from caliper.harness.base import AttemptResult, ConversationTurn
+from caliper.harness.refusal import CliRefusal, RefusalKind
 from caliper.judge.base import JudgeResult
-from caliper.outcome import (
-    classify_pre_judge,
-    judge_outcome,
-    looks_like_infra_failure,
-)
+from caliper.outcome import classify_pre_judge, judge_outcome
 from caliper.schema.results import Outcome, TokenUsage
 
 
@@ -19,6 +16,7 @@ def _harness(
     transcript: list[ConversationTurn] | None = None,
     salvaged: bool = False,
     usage: TokenUsage | None = None,
+    refusal: CliRefusal | None = None,
 ) -> AttemptResult:
     return AttemptResult(
         transcript=(
@@ -33,6 +31,7 @@ def _harness(
         timed_out=timed_out,
         salvaged=salvaged,
         usage=usage,
+        refusal=refusal,
     )
 
 
@@ -74,14 +73,33 @@ def test_pre_judge_infra_on_nonzero_exit() -> None:
     assert classify_pre_judge(_harness(exit_code=1)).outcome is Outcome.INFRA_ERROR
 
 
-def test_pre_judge_infra_on_signal_despite_zero_exit() -> None:
+def test_pre_judge_infra_on_a_refusal_despite_zero_exit() -> None:
     h = _harness(
         exit_code=0,
         final_output="Spending cap reached resets 4:30am",
         salvaged=True,
         usage=TokenUsage(input_tokens=12),
+        refusal=CliRefusal(RefusalKind.THROTTLE, "429 rate limit"),
     )
-    assert classify_pre_judge(h).outcome is Outcome.INFRA_ERROR
+    exit = classify_pre_judge(h)
+    assert exit.outcome is Outcome.INFRA_ERROR
+    assert exit.evidence == "429 rate limit"
+
+
+def test_pre_judge_keeps_the_refusal_as_evidence_when_no_model_call_was_seen() -> None:
+    h = _harness(
+        transcript=[],
+        final_output="",
+        refusal=CliRefusal(RefusalKind.THROTTLE, "429 rate limit; retry at 5pm"),
+    )
+    assert classify_pre_judge(h).evidence == "429 rate limit; retry at 5pm"
+
+
+def test_pre_judge_ignores_an_answer_that_mentions_a_limit() -> None:
+    # The harness found no refusal in what the CLI wrote, so the words are the
+    # agent's own (docs/adr/0030).
+    h = _harness(final_output="I added handling for the 429 rate limit.")
+    assert classify_pre_judge(h) is None
 
 
 def test_pre_judge_infra_when_no_model_call_was_observed() -> None:
@@ -122,22 +140,3 @@ def test_pre_judge_ignores_cheat_and_judge_states() -> None:
     # Cheat is not a pre-judge concern: it needs the transcript scan that runs
     # after this predicate, so a clean-exit attempt returns None here.
     assert classify_pre_judge(_harness()) is None
-
-
-# --- looks_like_infra_failure --------------------------------------------
-
-
-def test_looks_like_infra_matches_known_signals() -> None:
-    for text in (
-        "Spending cap reached",
-        "rate limit exceeded",
-        "HTTP 429 Too Many Requests",
-        "the model is overloaded",
-        "quota exceeded for this key",
-    ):
-        assert looks_like_infra_failure(text), text
-
-
-def test_looks_like_infra_ignores_normal_output() -> None:
-    assert not looks_like_infra_failure("The assistant wrote the file successfully.")
-    assert not looks_like_infra_failure("")
