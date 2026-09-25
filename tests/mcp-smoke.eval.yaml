@@ -11,8 +11,8 @@
 #
 # The MCP server's `command` runs from the agent's isolated working dir, so the
 # server script must be at an absolute path. `setup:` stages the fixture into a
-# fixed /tmp location (run this from the repo root so $PWD resolves); `cleanup:`
-# removes it.
+# fixed /tmp location (found via $CALIPER_SPEC_DIR, since hooks run in the
+# attempt workdir); `cleanup:` removes it.
 #
 # Run it (pick the engine when you run):
 #   caliper run tests/mcp-smoke.eval.yaml --k 1                 # claude-code
@@ -29,7 +29,7 @@ mcp:
 
 tasks:
   - name: Uses the echo MCP server's secret_word tool
-    setup: cp "$PWD/tests/fixtures/mcp/echo_server.py" /tmp/caliper-echo-mcp.py
+    setup: cp "$CALIPER_SPEC_DIR/fixtures/mcp/echo_server.py" /tmp/caliper-echo-mcp.py
     cleanup: rm -f /tmp/caliper-echo-mcp.py
     prompt: >
       Call the "secret_word" tool provided by the "echo" MCP server, then tell me
