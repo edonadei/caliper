@@ -516,25 +516,30 @@ def test_a_measured_attempt_reports_the_model_and_customizations_it_saw():
 # Each reaches the judge (``judge.calls == 1``) or ends the attempt before it.
 
 
-def _reaches_the_judge(result: AttemptResult) -> bool:
+def _judged(result: AttemptResult):
+    """The record, and whether the attempt reached the judge."""
     judge = RecordingJudge()
-    _assemble(result, judge=judge)
-    return judge.calls == 1
+    record = _assemble(result, judge=judge).record
+    return record, judge.calls == 1
+
+
+def _reaches_the_judge(result: AttemptResult) -> bool:
+    return _judged(result)[1]
 
 
 def test_a_refusal_despite_a_zero_exit_is_infra_error_with_its_message():
-    result = _result(
-        final_output="Spending cap reached resets 4:30am",
-        salvaged=True,
-        usage=TokenUsage(input_tokens=12),
-        refusal=CliRefusal(RefusalKind.THROTTLE, "429 rate limit"),
+    record, judged = _judged(
+        _result(
+            final_output="Spending cap reached resets 4:30am",
+            salvaged=True,
+            usage=TokenUsage(input_tokens=12),
+            refusal=CliRefusal(RefusalKind.THROTTLE, "429 rate limit"),
+        )
     )
-
-    record = _assemble(result).record
 
     assert record.outcome is Outcome.INFRA_ERROR
     assert record.assert_evidence == "429 rate limit"
-    assert not _reaches_the_judge(result)
+    assert not judged
 
 
 def test_a_refusal_is_the_evidence_even_when_no_model_call_was_seen():
@@ -576,8 +581,10 @@ def test_an_answer_that_mentions_a_limit_is_still_judged():
 def test_no_observed_model_call_in_any_form_is_infra_error(result):
     # Zero exit, nothing parsed, no tokens: the CLI bailed before any model
     # call (an expired login reported inside its own stream). Nothing to judge.
-    assert _assemble(result).record.outcome is Outcome.INFRA_ERROR
-    assert not _reaches_the_judge(result)
+    record, judged = _judged(result)
+
+    assert record.outcome is Outcome.INFRA_ERROR
+    assert not judged
 
 
 def test_an_unparsed_attempt_that_spent_tokens_is_still_judged():

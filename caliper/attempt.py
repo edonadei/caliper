@@ -4,9 +4,10 @@ This is **the seam where an attempt is assembled** (docs/CONTEXT.md → Outcome)
 given how an attempt ended — a setup hook that failed, or the ``AttemptResult``
 the harness produced — decide what happened and return the ``AttemptRecord``
 that goes into the results file, or nothing when the run's own cancellation
-killed it. Every grading rule lives here — the setup-failure and cancellation
-exits, the pre-judge skip, activation, cheat detection, the (paid) judge call,
-and the precedence between them.
+killed the agent. Every grading rule lives here — the setup-failure and
+killed-agent exits, the pre-judge skip, activation, cheat detection, the (paid)
+judge call, and the precedence between them. A run that stops before or between
+steps records nothing, and that stays with the runner.
 
 Deliberately **pure over an already-produced result**: no threads, no temp
 directories, no subprocesses. Those belong to the runner, which owns an
@@ -282,10 +283,8 @@ def _judge_outcome(judge: JudgeResult) -> Outcome:
     """The outcome an attempt earns from the verdict the judge returned.
 
     ``JUDGE_ERROR`` when the judge produced no usable verdict; otherwise the
-    verdict itself. The last step of the precedence ``assemble_attempt`` walks
-    (setup failed → cancelled → timeout → infra_error → cheat → not_checked →
-    judge), reached only by an attempt that got a fair shot and had a check to
-    grade.
+    verdict itself. The last step of the precedence ``assemble_attempt`` walks,
+    reached only by an attempt that got a fair shot and had a check to grade.
     """
     if judge.errored:
         return Outcome.JUDGE_ERROR
