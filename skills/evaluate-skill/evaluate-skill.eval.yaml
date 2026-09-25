@@ -159,6 +159,88 @@ tasks:
       relevant login or access guidance. If Claude Code is configured, the agent
       reports the eval result normally.
 
+  # Writing a spec whose tasks the user already decided is this skill's job
+  # (grill-skill owns the interview). The prompt mentions neither rule, so
+  # activates: on every execution task and skill-free prompts must come from
+  # the skill.
+  - name: Generated tasks assert activates and never name the skill
+    activates: [evaluate-skill]
+    setup: |
+      mkdir -p hello-file
+      cat > hello-file/SKILL.md << 'EOF'
+      ---
+      name: hello-file
+      description: Use when the user wants to write a greeting file.
+      allowed-tools: Bash
+      ---
+
+      # Hello File
+
+      Write the text "hello world" to ./hello.txt when the user asks.
+      EOF
+    prompt: >
+      Write the eval spec for my skill at ./hello-file/SKILL.md now, to
+      ./hello-file/hello-file.eval.yaml, without asking me anything more; I have
+      answered everything. Happy path: I ask for a greeting file and
+      ./hello.txt contains "hello world". Edge case: I ask for the greeting
+      "hi there" instead. Adversarial: I ask it to overwrite /etc/hosts, and it
+      must refuse. Don't run it.
+    expect: >
+      A valid .eval.yaml is written at ./hello-file/hello-file.eval.yaml
+      covering the happy path, edge case and adversarial case.
+    assert: |
+      import yaml
+
+      with open("hello-file/hello-file.eval.yaml") as f:
+          spec = yaml.safe_load(f)
+      tasks = spec.get("tasks") or []
+      execution = [t for t in tasks if "expect" in t or "assert" in t]
+      assert execution, "no execution tasks"
+      for t in execution:
+          assert "hello-file" in (t.get("activates") or []), \
+              f"task {t.get('name')!r} does not assert activates: [hello-file]"
+      for t in tasks:
+          prompt = str(t.get("prompt", "")).lower()
+          assert "hello-file" not in prompt and "skill" not in prompt, \
+              f"task {t.get('name')!r} names the skill in its prompt: {prompt!r}"
+
+  # Advising the next run is operating an eval: the control comes first.
+  - name: Runs the control before iterating on the skill
+    activates: [evaluate-skill]
+    setup: |
+      mkdir -p changelog-writer
+      cat > changelog-writer/SKILL.md << 'EOF'
+      ---
+      name: changelog-writer
+      description: Use when the user wants to turn merged PRs into a changelog entry.
+      allowed-tools: Bash, Read, Write
+      ---
+
+      # Changelog Writer
+
+      Read the merged PRs since the last tag and write a grouped changelog
+      entry (Features / Fixes / Chore) to CHANGELOG.md.
+      EOF
+      cat > changelog-writer/changelog-writer.eval.yaml << 'EOF'
+      skills:
+        - ./SKILL.md
+      tasks:
+        - name: Groups three merged PRs by type
+          prompt: Write the changelog entry for the PRs merged since v1.0.
+          expect: CHANGELOG.md gains one entry with Features, Fixes and Chore headings.
+          activates: [changelog-writer]
+      EOF
+    prompt: >
+      My eval at ./changelog-writer/changelog-writer.eval.yaml validated and its
+      k=1 run was clean, no harness errors. Before I start editing SKILL.md,
+      what run should come next, and why? Just tell me; don't run anything.
+    expect: >
+      Pass if the agent recommends running the control next, i.e. the same
+      tasks with the skill removed (`--ablate changelog-writer`), alongside a
+      full run and a `caliper compare`, to check that the tasks actually need
+      the skill before iterating on it. Fail if it recommends going straight to
+      editing the skill or to repeated full runs without that control.
+
   # Diagnosis: each fixture is real `caliper report` / `caliper compare` output,
   # rendered from the reporter for one branch of the diagnosis table.
   - name: Traces a skill that never fired to its description

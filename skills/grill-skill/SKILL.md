@@ -1,6 +1,6 @@
 ---
 name: grill-skill
-description: Build and harden a skill with evals — interview to design its eval tasks, then run, measure, and iterate. Use when the user wants to create or improve a skill's eval, or run the create → test → improve loop for a skill.
+description: Interview the user to decide what a skill's eval should test, then build the spec and iterate until the skill ships. Use when the user wants help designing a skill's eval, has a skill with no eval, or wants to find what an existing eval misses.
 allowed-tools: Bash, Read, Write, Edit
 ---
 

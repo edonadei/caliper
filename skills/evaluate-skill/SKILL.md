@@ -1,6 +1,6 @@
 ---
 name: evaluate-skill
-description: Run, read, and diagnose a skill's Caliper eval — its success rate over k attempts, whether it fires, and whether it beats the bare agent. Use when the user wants to run, validate, interpret, or compare a skill's eval, or write an .eval.yaml spec.
+description: Run, read, and diagnose a skill's Caliper eval — its success rate over k attempts, whether it fires, and whether it beats the bare agent. Use when the user wants to run, validate, interpret, or compare a skill's eval, or write an .eval.yaml spec whose tasks they have already decided.
 allowed-tools: Bash
 ---
 
@@ -46,6 +46,8 @@ tasks:
     activates: []           # a trigger probe: no judge, cheap
 ```
 
+When you write a spec, every task with `expect:` or `assert:` also asserts `activates: [<skill-name>]`, refusals included, and every prompt reads like a real user's request with the skill left unnamed.
+
 The spec has no `backend`/`model` or `judge:` block. The engine is chosen at run time, independently for the skill and the judge: `caliper run <spec> --model codex --judge-model codex`. Backends are `claude-code` (default), `codex`, `pi`, and `hermes`. Each attempt runs in a fresh, empty workdir, so `setup:` builds fixtures there with relative paths.
 
 Complete examples live in `references/evals/`, each folder self-contained with its fixture `SKILL.md`. `references/examples/simple.eval.yaml` is one compact spec.
@@ -83,7 +85,7 @@ Runs load the user's own customizations by default (their MCP servers and accoun
 
 ## No eval yet?
 
-If the skill has a `SKILL.md` but no `.eval.yaml`, suggest `grill-skill`: it interviews the user and writes the spec. To design tasks yourself, follow "Designing evals" in [REFERENCE.md](REFERENCE.md).
+If the user hasn't decided what to test (a skill with no `.eval.yaml`, or an eval whose gaps they want found), suggest `grill-skill`: it interviews them and writes the spec. To design tasks yourself, follow "Designing evals" in [REFERENCE.md](REFERENCE.md).
 
 ## Done when
 
