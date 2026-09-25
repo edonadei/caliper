@@ -37,8 +37,9 @@ class Judge(Protocol):
     ``RunMeta`` records, asked of the judge rather than passed in beside it.
     ``model`` is ``None`` when the judge lets its CLI pick.
 
-    ``workdir`` is the attempt workdir: every assertion *runs* there, and its
-    ``spec_dir`` is where an ``assert: ./check.py`` path resolves from
+    ``workdir`` is the attempt workdir, where every assertion *runs*. An
+    ``assert: ./check.py`` path still resolves from the spec's directory, which
+    the workdir carries as ``workdir.spec_dir``
     (docs/adr/0026-an-attempt-runs-in-one-fresh-workdir.md).
     """
 
