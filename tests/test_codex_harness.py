@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 
 try:
@@ -627,6 +628,31 @@ def test_codex_copies_installed_plugins_only_when_loading(
     copied = seeded.parent / "plugins" / "cache" / "market" / "cua" / "server.json"
     assert copied.exists() is loads
     assert plugin.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_codex_plugin_links_keep_their_targets(monkeypatch, tmp_path) -> None:
+    home = _fake_codex_home(tmp_path, _AMBIENT_CONFIG)
+    plugins = home / ".codex" / "plugins"
+    shared = home / ".codex" / "shared"
+    shared.mkdir()
+    (shared / "asset.txt").write_text("shared")
+    plugin = plugins / "cache" / "cua"
+    plugin.mkdir(parents=True)
+    (plugin / "local.txt").write_text("local")
+    (plugin / "inside").symlink_to("local.txt")
+    (plugin / "outside").symlink_to("../../../shared/asset.txt")
+    (plugin / "dangling").symlink_to("missing.txt")
+    seeded = _run_codex_mcp(
+        monkeypatch, tmp_path, None, home=home, user_customizations=True
+    )
+    copied = seeded.parent / "plugins" / "cache" / "cua"
+    # A link within the tree stays relative, so it follows the copy.
+    assert os.readlink(copied / "inside") == "local.txt"
+    # A link out of the tree is repointed at the user's original target.
+    assert (copied / "outside").read_text() == "shared"
+    # A dangling link is copied as is rather than aborting the attempt.
+    assert (copied / "dangling").is_symlink()
 
 
 def test_codex_user_customizations_lets_the_spec_win_a_name_clash(

@@ -74,21 +74,15 @@ One switch controls the layer; per-kind switches are deferred until a concrete
 use case requires them. Claude Code and Codex load user skills and global rule
 files, Claude Code loads user settings and enabled user-scope installed plugins,
 and Hermes loads user skills and settings. Authentication/provider configuration
-remains available when isolated; the exact exceptions are in `docs/backends.md`.
+remains available when isolated; the exact allowlists and upstream references
+are in [the backend guide](../backends.md#loading-your-user-customizations).
+The allowlists retain whole provider definitions and Hermes terminal connection
+settings so isolation does not silently change endpoints or execution hosts.
+Unknown top-level keys are removed; new connection keys need an explicit update.
 Codex's top-level model strip (0012) remains. Behavioral settings in Codex and
 Hermes now follow the switch rather than leaking into isolated attempts.
 
-**Activation measures competition.** User skills are copied into the native
-skills root and join the observed activation set. Extra user-skill activations
-fail exact `activates:` checks; expected names still have to be declared. The
-closed-neighbourhood premise of 0014 now applies only to isolated runs. A
-name declared by the spec is reserved even when ablated, so a user installation
-cannot silently restore it. Claude plugin skills retain their namespace and can
-be observed through named tool calls or reads of their staged skill files.
-Skills the CLI ships in the user's skills root (hidden folders such as Codex's
-`.system`, Hermes' `.bundled_manifest`) are not the user's and are not copied.
-Skills install flat, so of two same-named user skills the first in sorted path
-order wins rather than aborting the run.
+See [user skills compete for activation](0031-user-skills-compete-for-activation.md) for this decision.
 
 **Hermes stays neutral.** We retain 0005's persona/memory exclusion and
 `--ignore-rules`. Loading mutable memory is deferred: a realistic starting memory
@@ -98,11 +92,7 @@ inputs from the user's setup into a new home; changes made inside an attempt do
 not seed the next one. External edits to the user's setup during a run remain
 possible, as with user MCP configuration.
 
-**Hooks run normally.** Settings and plugins may contain hooks, environment
-variables and permissions. The CLI's noninteractive flags still win. Hooks run
-under the attempt timeout, without preflight: a probe would execute side effects
-twice. Absolute paths authored in settings are preserved, consistent with 0027;
-isolation is not a security boundary.
+See [user hooks run without preflight](0032-user-hooks-run-without-preflight.md) for this decision.
 
 **Record names, with kinds.** `loaded_user_customizations` uses `mcp:`, `skill:`,
 `plugin:`, `rules:` and `settings:` prefixes. Config file names represent the
