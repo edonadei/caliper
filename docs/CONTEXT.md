@@ -238,7 +238,8 @@ What lines a task up **across two runs**. The stable identity is the task's
 **`task_name`** (the authored `name`). `task_id` is *not* an identity: today it
 is assigned positionally at load (`task-001`, `task-002`, …), so it changes when
 tasks are reordered or inserted. Comparison therefore matches on `task_name`,
-using positional `task_id` only to disambiguate duplicate names. A task present
+and a spec may not give two tasks the same name. A run saved before that rule
+may still carry duplicates, which comparison matches by position. A task present
 in only one run is **unmatched**.
 
 ## Success rate (the score)

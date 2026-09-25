@@ -589,3 +589,52 @@ def test_run_rejects_a_value_below_one_before_running(
 
     assert result.exit_code == 1
     assert f"{flag} must be at least 1" in result.output
+
+
+def test_a_cheat_stays_flagged_in_live_progress_after_later_attempts(
+    monkeypatch, tmp_path
+) -> None:
+    from caliper.runner import AttemptEvent
+
+    spec_file = tmp_path / "sample.eval.yaml"
+    spec_file.write_text(
+        "skills:\n  - ./SKILL.md\n"
+        "tasks:\n  - name: One\n    prompt: Do it\n    assert: assert True\n"
+    )
+    updates = []
+
+    def fake_run(**kwargs):
+        task_id = kwargs["spec"].tasks[0].id
+        for n, outcome in enumerate((Outcome.CHEAT, Outcome.PASS, Outcome.PASS), 1):
+            kwargs["on_attempt_done"](AttemptEvent(task_id, n, outcome))
+        return RunResults(
+            run=RunMeta(
+                spec="sample",
+                timestamp=datetime(2026, 7, 3, tzinfo=timezone.utc),
+                k=kwargs["k"],
+                backend="codex",
+            ),
+            skill_snapshots=[],
+            task_results=[],
+            aggregate=AggregateScore(avg_score=0.0, per_task=[]),
+        )
+
+    monkeypatch.setattr(
+        "caliper.commands.run.get_harness", lambda *a, **k: StubHarness()
+    )
+    monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **k: object())
+    monkeypatch.setattr(
+        "caliper.commands.run.make_progress", lambda *a, **k: (_Progress(), {})
+    )
+    monkeypatch.setattr(
+        "caliper.commands.run.update_progress",
+        lambda *a, **k: updates.append(k["cheated"]),
+    )
+    monkeypatch.setattr("caliper.commands.run.print_banner", lambda *a, **k: None)
+    monkeypatch.setattr("caliper.commands.run.print_results", lambda *a, **k: None)
+    monkeypatch.setattr("caliper.commands.run.run", fake_run)
+
+    result = runner.invoke(app, ["run", str(spec_file), "--k", "3"])
+
+    assert result.exit_code == 0, result.output
+    assert updates == [True, True, True]

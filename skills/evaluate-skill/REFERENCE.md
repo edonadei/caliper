@@ -113,7 +113,7 @@ tasks:
     activates: []                 # nothing fired
 ```
 
-Each task needs at least one of `expect`, `assert` or `activates`.
+Each task needs at least one of `expect`, `assert` or `activates`. A spec needs at least one task, and task names must be unique: `caliper compare` matches tasks across runs by name.
 
 `activates:` asserts the **exact set** of skills the agent loaded on an attempt.
 Skills are installed where the agent looks for them and never pasted into the

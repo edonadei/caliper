@@ -155,7 +155,7 @@ tasks:
     activates: []                # a trigger probe: no judge, no execution score
 ```
 
-Each task needs at least one of `expect`, `assert` or `activates`.
+Each task needs at least one of `expect`, `assert` or `activates`. A spec needs at least one task, and task names must be unique: `caliper compare` matches tasks across runs by name.
 
 Each attempt runs in a fresh, empty **attempt workdir**: `setup:`, the agent,
 `assert:` and `cleanup:` all run there, so a relative path means the same file to
