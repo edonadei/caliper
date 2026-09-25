@@ -42,6 +42,7 @@ class HermesHarness(CliHarness):
     """
 
     supports_mcp = True
+    user_settings_file = "config.yaml"
     cli_name = "hermes"
     cli_path_env_var = "HERMES_CLI_PATH"
     # Hermes advertises installed skills to the model as name + truncated
@@ -88,6 +89,17 @@ class HermesHarness(CliHarness):
     def skills_root(self, ctx: RunContext) -> Path:
         return self._hermes_home(ctx) / "skills"
 
+    def _bundled_skill_names(self, source: Path) -> set[str]:
+        # Hermes lists the skills it ships as `name:hash` lines.
+        manifest = source / ".bundled_manifest"
+        if not manifest.is_file():
+            return set()
+        return {
+            line.split(":", 1)[0].strip()
+            for line in manifest.read_text().splitlines()
+            if line.strip()
+        }
+
     def _configure_mcp(self, ctx: RunContext, hermes_home: Path) -> None:
         """Normalize the seeded config's ``mcp_servers`` to exactly the declared set.
 
@@ -113,6 +125,18 @@ class HermesHarness(CliHarness):
             loaded = yaml.safe_load(config_path.read_text())
             config = loaded if isinstance(loaded, dict) else {}
             servers = merge_user_servers(config.get("mcp_servers"), servers, ctx)
+            if not ctx.user_customizations:
+                config = {
+                    key: value
+                    for key, value in config.items()
+                    if key
+                    in {
+                        "model",
+                        "provider",
+                        "providers",
+                        "custom_providers",
+                    }
+                }
             if servers:
                 config["mcp_servers"] = servers
             else:

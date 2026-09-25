@@ -244,18 +244,20 @@ commented lines.
 
 Each attempt runs in an isolated temporary home with no session history, in a
 fresh empty working directory. By default it loads your **user customizations**:
-the MCP servers your CLI is configured with and the hosted connectors your Claude
-or ChatGPT account carries (Gmail, Drive, GitHub, and the like), merged with the
-servers the spec declares. That measures the skill in the agent you actually use.
-(Your own skills, plugins, rules and settings are planned to join them: #177.)
+your CLI's MCP servers, account connectors, user skills, plugins, rules and
+settings. Declared skills and servers win name clashes, even when ablated.
+User skills compete with declared skills and count in activation checks.
+Hermes keeps its neutral memory/persona policy; see [backend details](docs/backends.md#loading-your-user-customizations).
+Hooks run as part of the attempt, subject to its timeout.
 Results are saved as JSON you can inspect and diff later, including which user
-customizations each run loaded.
+customizations each run loaded (`mcp:(not listed)` when the backend can't list
+its MCP servers).
 
 ### Portable scores
 
 A default score depends on your setup. When the number has to mean the same thing
-on another machine, isolate the run so it sees only the servers the spec
-declares:
+on another machine, isolate the run so it sees only the skills and servers the
+spec declares:
 
 - `caliper run spec.eval.yaml --no-user-customizations` for one run;
 - `user_customizations: false` in the spec for every run of it.
@@ -398,7 +400,7 @@ run Caliper, inside the git repository. See
 | `--fail-fast INT` | `0` | Stop a task after N consecutive `infra_error`/`timeout` attempts (`0` disables; counts attempts, not invocations) |
 | `--model TARGET` | `claude-code` | Skill engine: `backend`, `model`, or `backend:model` ([syntax](docs/backends.md#selecting-an-engine)) |
 | `--judge-model TARGET` | `claude-code` | Judge engine, same syntax |
-| `--user-customizations` / `--no-user-customizations` | the spec's `user_customizations`, else on | Load your MCP servers and account connectors into attempts, or not. See [Portable scores](#portable-scores) |
+| `--user-customizations` / `--no-user-customizations` | the spec's `user_customizations`, else on | Load your user skills, plugins, rules, settings and connectors into attempts, or isolate. See [Portable scores](#portable-scores) |
 | `--verbose` | off | Show per-attempt judge reasoning |
 | `--output PATH` | none | Also save results JSON to a specific path |
 
