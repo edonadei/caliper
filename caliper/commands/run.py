@@ -103,9 +103,6 @@ def run_cmd(
             "a full run with `caliper compare`."
         ),
     ),
-    baseline: bool = typer.Option(
-        False, "--baseline", hidden=True, help="Retired — see --ablate"
-    ),
     output: Optional[Path] = typer.Option(
         None, "--output", help="Save results JSON to path"
     ),
@@ -136,30 +133,6 @@ def run_cmd(
         ),
     ),
 ) -> None:
-    # Retired in favour of --ablate, which runs *one* arm and saves it as an
-    # ordinary run. Kept parseable for one release because caliper ships on PyPI
-    # and typer's bare "No such option" would tell an outside caller nothing
-    # about where the capability went. Not silently remapped: --baseline ran two
-    # arms in one invocation, so honouring the old name over the new semantics
-    # would halve a scripted caller's spend and stop rendering the delta it was
-    # reading. See
-    # docs/adr/0015-ablation-names-its-subject-at-the-invocation.md.
-    if baseline:
-        fail(
-            CannotRun(
-                "`--baseline` has been retired.\n\n"
-                "It ran a second, no-skill arm inside every invocation, re-paying "
-                "for a number that cannot move when the skill changes: the "
-                "no-skill arm has no skill in it.\n\n"
-                "Run the arm once and keep it:\n"
-                "  caliper run <spec> --ablate <skill-name>\n"
-                "  caliper compare <that-run> <your-run>\n\n"
-                "Name every declared skill to get the bare agent. The saved arm "
-                "is reusable across every later iteration of the skill.",
-                title="Retired flag",
-            )
-        )
-
     if k < 1:
         fail(
             BadInput(f"--k must be at least 1, got {k}: the run would measure nothing.")
