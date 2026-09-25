@@ -192,7 +192,10 @@ hosted OAuth connector a spec can't declare. `--no-user-customizations`, or
   [the spec reference](spec-reference.md#user-customizations-user_customizations).
 
 User skills and Claude plugin installations are copied, not linked back to the
-original. Plugin registry paths point at the private copies. Skills stay
+original. Plugin registry paths point at the private copies. An enabled Claude plugin
+whose installation directory is missing is skipped with a warning; invalid
+plugin metadata produces a configuration error naming the affected file.
+Codex plugin trees preserve symlinks, including dangling links and loops. Skills stay
 available through discovery, and unexpected user-skill activations count against
 `activates:`. Claude plugin skills keep their `plugin:skill` identity. Skills
 the CLI ships itself are skipped: hidden folders such as codex's `.system`, and
@@ -205,12 +208,30 @@ home. Hooks in settings/plugins run normally under the attempt timeout. They
 are not separately preflighted. Caliper's noninteractive CLI flags still take
 precedence over interactive permission settings.
 
-Isolation retains credentials and connection configuration: Codex's provider,
-provider definitions, credential-store/login/workspace selection and ChatGPT
-base URL; Hermes's model/provider definitions and credential `.env`. Behavioral
-settings are removed. Codex's top-level `model` exception from ADR 0012 remains
-in both modes. Absolute paths in user settings or hooks are not rewritten; this
-is measurement isolation, not a security boundary (ADR 0027).
+Isolation retains credentials and connection configuration. The top-level
+allowlists are deliberate; unknown keys are removed rather than silently
+carrying new behavioral settings into an isolated run (ADR 0028):
+
+| Backend | Keys retained with `--no-user-customizations` |
+| --- | --- |
+| Codex | `model_provider`, `model_providers`, `cli_auth_credentials_store`, `forced_login_method`, `forced_chatgpt_workspace_id`, `chatgpt_base_url`, `openai_base_url` |
+| Hermes | `model`, `provider`, `providers`, `custom_providers`, `terminal` |
+
+Nested values in these sections are retained in full. Codex provider definitions
+therefore keep their endpoints and authentication options; Hermes keeps
+`model.base_url` and terminal backend/connection options. Hermes also retains
+its credential `.env` and auth files. Preserving `terminal` means isolation does
+not silently switch a Docker or SSH setup to local execution. Terminal options
+can affect execution behavior; they are an explicit exception to the removal of
+behavioral settings such as `agent`, `skills`, and memory configuration.
+
+These lists were checked against the upstream
+[Codex configuration reference](https://developers.openai.com/codex/config-reference/),
+[Hermes model configuration](https://hermes-agent.nousresearch.com/docs/user-guide/configuring-models),
+and [Hermes terminal configuration](https://hermes-agent.nousresearch.com/docs/user-guide/configuration#terminal-backend-configuration).
+Codex's top-level `model` exception from ADR 0012 remains in both modes.
+Absolute paths in user settings or hooks are not rewritten; this is measurement
+isolation, not a security boundary (ADR 0027).
 
 The switch applies to attempts. The judge's bare-prompt path retains its existing
 connector controls and uses the caller's CLI configuration; this switch does not

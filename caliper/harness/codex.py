@@ -91,7 +91,7 @@ class CodexHarness(CliHarness):
             shutil.copytree(
                 real / "plugins",
                 codex_home / "plugins",
-                symlinks=False,
+                symlinks=True,
                 dirs_exist_ok=True,
             )
 
@@ -376,7 +376,8 @@ class CodexHarness(CliHarness):
                     "it there too. Fix the file, then rerun caliper."
                 ) from exc
         if not ctx.user_customizations:
-            # Keep connection settings while removing behavioral customizations.
+            # Connection allowlist: docs/backends.md and docs/adr/0028.
+            # Keep provider tables intact, including endpoints and auth options.
             config = {
                 key: value
                 for key, value in config.items()
@@ -388,6 +389,7 @@ class CodexHarness(CliHarness):
                     "forced_login_method",
                     "forced_chatgpt_workspace_id",
                     "chatgpt_base_url",
+                    "openai_base_url",
                 }
             }
         config.pop("model", None)

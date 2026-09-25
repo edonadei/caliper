@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -117,6 +118,13 @@ class ClaudeCodeHarness(CliHarness):
                     if entry.get("scope") != "user":
                         continue
                     source = Path(entry["installPath"])
+                    if not source.exists():
+                        logging.getLogger(__name__).warning(
+                            "Skipping Claude Code user plugin %s: installation %s is missing",
+                            plugin_id,
+                            source,
+                        )
+                        continue
                     destination = (
                         target / "plugins/cache" / str(len(selected)) / source.name
                     )
@@ -139,38 +147,61 @@ class ClaudeCodeHarness(CliHarness):
         if not ctx.user_customizations or not registry.exists():
             return {}
         paths = {}
-        for plugin_id, entries in json.loads(registry.read_text())["plugins"].items():
-            namespace = plugin_id.split("@", 1)[0]
-            for entry in entries:
-                root = Path(entry["installPath"])
-                manifest = root / ".claude-plugin/plugin.json"
-                metadata = json.loads(manifest.read_text()) if manifest.exists() else {}
-                namespace = metadata.get("name", namespace)
-                extra = metadata.get("skills", [])
-                if isinstance(extra, str):
-                    extra = [extra]
-                for relative in [".", "skills", *extra]:
-                    directory = root / relative
-                    if (directory / "SKILL.md").is_file():
-                        skills = [directory / "SKILL.md"]
-                    elif relative == ".":
-                        skills = []
-                    else:
-                        skills = list(directory.glob("*/SKILL.md"))
-                    for skill in skills:
-                        name = frontmatter_name(skill.read_text()) or skill.parent.name
-                        command_name = (
-                            name
-                            if name.startswith(f"{namespace}:")
-                            else f"{namespace}:{name}"
+        metadata_path = registry
+        try:
+            for plugin_id, entries in json.loads(registry.read_text())[
+                "plugins"
+            ].items():
+                for entry in entries:
+                    namespace = plugin_id.split("@", 1)[0]
+                    metadata_path = registry
+                    root = Path(entry["installPath"])
+                    manifest = root / ".claude-plugin/plugin.json"
+                    metadata_path = manifest
+                    metadata = (
+                        json.loads(manifest.read_text()) if manifest.exists() else {}
+                    )
+                    namespace = metadata.get("name", namespace)
+                    if not isinstance(namespace, str) or not namespace:
+                        raise ValueError("plugin name must be a nonempty string")
+                    extra = metadata.get("skills", [])
+                    if isinstance(extra, str):
+                        extra = [extra]
+                    if not isinstance(extra, list) or not all(
+                        isinstance(path, str) for path in extra
+                    ):
+                        raise ValueError(
+                            "plugin skills must be a path or list of paths"
                         )
-                        # Recorded as a suffix under ~/.claude so the
-                        # detector matches absolute and relative reads alike.
-                        paths[command_name] = (
-                            skill.relative_to(claude_dir).as_posix()
-                            if skill.is_relative_to(claude_dir)
-                            else str(skill)
-                        )
+                    for relative in [".", "skills", *extra]:
+                        directory = root / relative
+                        if (directory / "SKILL.md").is_file():
+                            skills = [directory / "SKILL.md"]
+                        elif relative == ".":
+                            skills = []
+                        else:
+                            skills = list(directory.glob("*/SKILL.md"))
+                        for skill in skills:
+                            metadata_path = skill
+                            name = (
+                                frontmatter_name(skill.read_text()) or skill.parent.name
+                            )
+                            command_name = (
+                                name
+                                if name.startswith(f"{namespace}:")
+                                else f"{namespace}:{name}"
+                            )
+                            # Recorded as a suffix under ~/.claude so the
+                            # detector matches absolute and relative reads alike.
+                            paths[command_name] = (
+                                skill.relative_to(claude_dir).as_posix()
+                                if skill.is_relative_to(claude_dir)
+                                else str(skill)
+                            )
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            raise HarnessConfigurationError(
+                f"Cannot read Claude Code plugin metadata from {metadata_path}: {exc}"
+            ) from exc
         return paths
 
     def _prepare(self, ctx: RunContext) -> None:

@@ -131,6 +131,8 @@ class HermesHarness(CliHarness):
             config = loaded if isinstance(loaded, dict) else {}
             servers = merge_user_servers(config.get("mcp_servers"), servers, ctx)
             if not ctx.user_customizations:
+                # Connection allowlist: docs/backends.md and docs/adr/0028.
+                # Preserve the execution host as well as model endpoints.
                 config = {
                     key: value
                     for key, value in config.items()
@@ -140,6 +142,7 @@ class HermesHarness(CliHarness):
                         "provider",
                         "providers",
                         "custom_providers",
+                        "terminal",
                     }
                 }
             if servers:
