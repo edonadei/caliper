@@ -31,6 +31,13 @@
 > rather than a `task_fail`, and is dropped under rule B like an errored
 > autorater. A `setup:` that runs past its limit is an `infra_error`, like one
 > that exits nonzero.
+>
+> **Amended:** `assemble_attempt` also takes the two endings the runner used to
+> label itself: a failed `setup:` hook (`SetupFailed`, an `infra_error` before
+> the agent runs) and a spawn the run's cancellation killed (no record at all).
+> Precedence is now `setup failed → cancelled → timeout → infra_error → cheat →
+> not_checked → judge`. `caliper/outcome.py` is folded into `caliper/attempt.py`;
+> `classify_pre_judge` and `judge_outcome` are private helpers there.
 
 An attempt's result is a typed `Outcome` (`pass`, `task_fail`, `judge_error`,
 `infra_error`, `timeout`, `cheat`), not just `passed: bool`, so infrastructure
