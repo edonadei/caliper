@@ -491,8 +491,9 @@ class CliHarness(HarnessBackend):
         Runs after :meth:`_seed_home`, so a backend that has to *rewrite* a
         config (codex's stripped ``config.toml``, hermes' normalized
         ``mcp_servers``) sees the verbatim copy already in place, and so
-        claude-code can tell whether credentials were seeded before it falls
-        back to the Keychain. That order is part of the contract (docs/adr/0020).
+        claude-code's Keychain credentials replace a seeded ``.credentials.json``
+        rather than being overwritten by it. That order is part of the contract
+        (docs/adr/0020).
         """
 
     @abstractmethod

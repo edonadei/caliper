@@ -80,12 +80,11 @@ class ClaudeCodeHarness(CliHarness):
     def _prepare(self, ctx: RunContext) -> None:
         (Path(ctx.isolated_home) / ".claude").mkdir(parents=True, exist_ok=True)
 
-        # On macOS, OAuth credentials may live in the Keychain rather than in
-        # .credentials.json. Seed the isolated home so the subprocess can auth
-        # without a browser login flow.
-        creds_dst = self._credentials_file(ctx)
-        if sys.platform == "darwin" and not creds_dst.exists():
-            self._seed_credentials_from_keychain(creds_dst)
+        # On macOS the CLI reads its OAuth credentials from the Keychain first,
+        # so a Keychain entry replaces the seeded .credentials.json, which may
+        # be a stale leftover (#180). Without an entry the seeded file stays.
+        if sys.platform == "darwin":
+            self._seed_credentials_from_keychain(self._credentials_file(ctx))
 
         if ctx.user_customizations and ctx.spec_mcp_names:
             self._drop_shadowed_user_servers(ctx)
@@ -380,6 +379,7 @@ class ClaudeCodeHarness(CliHarness):
         if out:
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_text(out)
+            dst.chmod(0o600)
 
     def _loaded_user_customizations(
         self, proc: ProcessResult, ctx: RunContext
