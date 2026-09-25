@@ -517,10 +517,9 @@ def test_report_outside_the_project_does_not_find_its_runs(
     assert "No evaluation results" in result.output
 
 
-def test_baseline_is_retired_and_says_where_the_capability_went(tmp_path) -> None:
-    # Not remapped onto --ablate: --baseline ran two arms in one invocation, so
-    # honouring the name over the new semantics would silently halve a scripted
-    # caller's spend and stop rendering the delta it was reading (docs/adr/0015).
+def test_baseline_is_no_longer_an_option(tmp_path) -> None:
+    # Retired for --ablate in v0.10.0 and kept as a hidden, erroring flag for
+    # the releases after it (docs/adr/0015); now simply unknown.
     spec_file = tmp_path / "sample.eval.yaml"
     spec_file.write_text(
         "skills:\n  - ./SKILL.md\n"
@@ -528,8 +527,7 @@ def test_baseline_is_retired_and_says_where_the_capability_went(tmp_path) -> Non
     )
     result = runner.invoke(app, ["run", str(spec_file), "--baseline"])
     assert result.exit_code == 2
-    assert "--ablate" in result.output
-    assert "caliper compare" in result.output
+    assert "No such option" in result.output
 
 
 def test_run_cli_rejects_fewer_than_one_attempt(monkeypatch, tmp_path) -> None:

@@ -50,8 +50,8 @@ class ExitCode(IntEnum):
     OK = 0
     # Bad input: the spec, the path or the run reference is wrong.
     BAD_INPUT = 1
-    # Could not run: a misconfigured backend, an exhausted account, a retired
-    # flag. To CI this is a broken pipeline, not a failing skill.
+    # Could not run: a misconfigured backend, an exhausted account. To CI
+    # this is a broken pipeline, not a failing skill.
     CANNOT_RUN = 2
     # Reserved for a *pre-registered* bar that a clean run did not clear —
     # the one verdict worth failing a pipeline on. Nothing raises it yet;
