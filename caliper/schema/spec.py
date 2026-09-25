@@ -28,20 +28,6 @@ DEFAULT_JUDGE_MODEL: str = "claude-sonnet-5"
 DEFAULT_USER_CUSTOMIZATIONS: bool = True
 
 
-def resolve_user_customizations(
-    flag: bool | None, spec: "EvalSpec"
-) -> tuple[bool, bool]:
-    """``(load, explicit)``: the flag, else the spec, else the default.
-
-    ``explicit`` says whether the flag or spec chose it, which decides how
-    loudly the run says so.
-    """
-    requested = flag if flag is not None else spec.user_customizations
-    return (DEFAULT_USER_CUSTOMIZATIONS if requested is None else requested), (
-        requested is not None
-    )
-
-
 def normalize_backend(value: str) -> str:
     aliases = {
         "claude": "claude-code",

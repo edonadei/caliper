@@ -582,6 +582,16 @@ read; the run observes it and grades accordingly. No part of an attempt is a
 security boundary against the skill under test; see
 [[0027-an-attempt-is-not-a-security-boundary]].
 
+## Run environment
+
+What every attempt of one run is given, settled once before the first attempt:
+the installed [[skill neighbourhood]] after [[ablation]], the declared MCP
+servers after ablation, and whether [[user customizations]] load. It follows
+from the spec, the invocation and what the backend can do, and it is the same
+for every attempt of the run. What varies per attempt (the prompt, the
+[[attempt workdir]]) is not part of it.
+_Avoid_: sandbox (that is what the agent may not touch), setup.
+
 ## Attempt workdir
 
 The one directory every step of an attempt runs in: `setup:`, the agent,
