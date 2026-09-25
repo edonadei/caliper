@@ -435,7 +435,7 @@ def test_claude_harness_user_customizations_merge_with_the_spec_winning(
     assert captured["seeded"]["mcpServers"] == {"personal": {"command": "mine"}}
     assert json.loads((real_home / ".claude.json").read_text()) == user_config
     # Recorded off the init event, the declared server excluded.
-    assert result.loaded_user_customizations == ["claude.ai Gmail", "personal"]
+    assert result.loaded_user_customizations == ["mcp:claude.ai Gmail", "mcp:personal"]
 
 
 def test_claude_harness_records_unknown_without_an_init_event() -> None:

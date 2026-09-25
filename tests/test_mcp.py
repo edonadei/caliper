@@ -896,9 +896,7 @@ class _PassJudge:
     backend = "test"
     model = None
 
-    def evaluate(
-        self, task, transcript, final_output, spec_dir, workdir
-    ) -> JudgeResult:
+    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
         return JudgeResult(passed=True, reasoning="ok")
 
 

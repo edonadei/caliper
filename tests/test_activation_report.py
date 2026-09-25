@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 
 import pytest
@@ -167,9 +168,9 @@ def test_a_timed_out_attempt_shows_what_it_activated_and_its_error():
 
     out = render(_results(tasks, AggregateScore(avg_score=0.0, per_task=[])))
 
-    assert "activated before it stopped: sleeper" in out
-    assert "error: timeout" in out
-    assert "assert: timeout" not in out
+    assert re.search(r"activated so far\s+sleeper", out)
+    assert re.search(r"error\s+timeout", out)
+    assert not re.search(r"assert\s+timeout", out)
 
 
 def test_activation_line_is_absent_when_nothing_was_asserted():
@@ -343,3 +344,13 @@ def test_execution_headline_reports_its_task_count():
         _results(tasks, AggregateScore(avg_score=1.0, scored_tasks=2, per_task=[]))
     )
     assert "2 tasks" in out
+
+
+def test_a_finished_attempt_does_not_claim_it_stopped():
+    finished = attempt(1, outcome=Outcome.TASK_FAIL, activated=["sleeper"])
+    tasks = [task([finished], ["sleeper"])]
+
+    out = render(_results(tasks, AggregateScore(avg_score=0.0, per_task=[])))
+
+    assert "Attempt 1" in out
+    assert "activated so far" not in out

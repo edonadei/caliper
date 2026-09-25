@@ -25,6 +25,12 @@
 > the backstop for the causes no backend recognises. `classify_pre_judge` now
 > returns the evidence with the label, so the record's `assert_evidence` names
 > the branch that fired rather than re-deriving it.
+>
+> **Amended by [0029](0029-every-step-runs-under-the-same-rules.md):** an
+> `assert:` or script check that runs past its time limit yields **no verdict**
+> rather than a `task_fail`, and is dropped under rule B like an errored
+> autorater. A `setup:` that runs past its limit is an `infra_error`, like one
+> that exits nonzero.
 
 An attempt's result is a typed `Outcome` (`pass`, `task_fail`, `judge_error`,
 `infra_error`, `timeout`, `cheat`), not just `passed: bool`, so infrastructure

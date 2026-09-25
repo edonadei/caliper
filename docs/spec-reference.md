@@ -250,18 +250,18 @@ agent never sees its tool definitions.
 - An isolated run (`--no-user-customizations`, or `user_customizations: false`) sees exactly the
   surviving declared servers, none when every one is ablated or there's no
   `mcp:` block: `claude-code` runs with `--strict-mcp-config`, and `codex` with
-  its `apps` and `plugins` features off. The judge is always isolated this way,
+  its `apps` and `plugins` features off. The judge keeps its existing connector isolation,
   so it can't mistake your connectors for the attempt's.
 
 ### User customizations (`user_customizations:`)
 
-By default every run loads your **user customizations**: the MCP servers your CLI
-is configured with and your account's hosted connectors, merged with `mcp:`. That
-measures the skill in your own agent. (User skills, plugins, rules and settings
-are planned to join them: #177.) A spec can pin the setting for every run of it:
+By default every run loads your **user customizations**: user skills, plugins,
+rules, settings, MCP servers and hosted connectors. See the
+[backend coverage and exceptions](backends.md#loading-your-user-customizations).
+A spec can pin the setting for every run of it:
 
 ```yaml
-user_customizations: false   # portable: every run sees only the declared servers
+user_customizations: false   # portable: every run sees only the declared skills and servers
 # user_customizations: true  # the skill needs the runner's own connectors
 ```
 
@@ -275,6 +275,12 @@ user_customizations: false   # portable: every run sees only the declared server
 - A backend without MCP (`pi`) runs isolated; it warns only when the flag or the
   spec asked for them.
 - `caliper validate` shows an explicit setting in its summary.
+
+Declared skill and server names win clashes, including ablated names. User
+skills remain discoverable and an extra activation fails an exact `activates:`
+check. Expected names must still be declared in `skills:`: declare a dependency
+when you want to require it. There are no per-kind switches. Hooks are loaded
+with settings and run within the attempt timeout, without a separate preflight.
 
 See [Portable scores](../README.md#portable-scores) for when to isolate.
 

@@ -4,6 +4,10 @@ skills:
   # activates: below also checks that the right one of the two fires.
   - ../evaluate-skill/SKILL.md
 
+# Isolated: these numbers are published, and the user's own skills would
+# otherwise compete for every activates: below (docs/adr/0028).
+user_customizations: false
+
 # The engine (backend + model) is a runtime axis, not a spec field — this eval
 # runs on whatever `--model` / `--judge-model` select (default claude-code).
 

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import pytest
+
 from caliper.activation import ActivationDetector
 from caliper.attempt import assemble_attempt
 from caliper.harness.base import AttemptResult, ConversationTurn
 from caliper.judge.base import JudgeResult
 from caliper.schema.results import Outcome, TokenUsage
 from caliper.schema.spec import TaskSpec
+from caliper.workdir import AttemptWorkdir
 
 
 # --- doubles ---------------------------------------------------------------
@@ -26,8 +29,7 @@ class RecordingJudge:
         task: TaskSpec,
         transcript: list[ConversationTurn],
         final_output: str,
-        spec_dir: str,
-        workdir: str,
+        workdir: AttemptWorkdir,
     ) -> JudgeResult:
         self.calls += 1
         return self.result
@@ -73,8 +75,8 @@ def _assemble(result: AttemptResult, **overrides):
     kwargs = dict(
         attempt=1,
         task=_task(),
-        spec_dir="/tmp",
-        workdir="/tmp",
+        # Never entered: the recording judge does not run anything in it.
+        workdir=AttemptWorkdir("/tmp"),
         expected_activation=None,
         activation=ActivationDetector([], frozenset()),
         sandbox=StubSandbox(),
@@ -368,3 +370,97 @@ def test_a_kept_observation_is_evidence_and_never_a_verdict():
     assert assembled.record.activation_passed is None
     assert assembled.record.activation_scored is False
     assert assembled.record.activation_observed is False
+
+
+def test_user_skill_activation_counts_as_an_unexpected_activation():
+    assembled = _assemble(
+        _result(
+            transcript=[_read_turn("/home/.codex/skills/personal/SKILL.md")],
+            user_skill_names=["personal"],
+        ),
+        activation=_detector(),
+        expected_activation=[],
+    )
+    assert assembled.record.activated == ["personal"]
+    assert assembled.record.activation_passed is False
+
+
+def test_plugin_skill_file_reads_are_observed_under_the_namespaced_name():
+    assembled = _assemble(
+        _result(
+            transcript=[
+                _read_turn("/isolated/.claude/plugins/cache/0/skills/review/SKILL.md")
+            ],
+            user_skill_names=["review:review"],
+            user_skill_paths={
+                "review:review": "/isolated/.claude/plugins/cache/0/skills/review/SKILL.md"
+            },
+        ),
+        activation=_detector(),
+        expected_activation=[],
+    )
+    assert assembled.record.activated == ["review:review"]
+    assert assembled.record.activation_passed is False
+
+
+def test_plugin_read_does_not_credit_a_declared_skill_with_the_same_basename():
+    path = "/isolated/.claude/plugins/cache/0/skills/review/SKILL.md"
+    assembled = _assemble(
+        _result(
+            transcript=[_read_turn(path)],
+            user_skill_names=["plugin:review"],
+            user_skill_paths={"plugin:review": path},
+        ),
+        activation=ActivationDetector(["review"], frozenset({"Skill"})),
+        expected_activation=["review"],
+    )
+    assert assembled.record.activated == ["plugin:review"]
+    assert assembled.record.activation_passed is False
+
+
+@pytest.mark.parametrize("declared", [[], ["review"]])
+def test_relative_plugin_reads_are_observed_under_the_namespaced_name(declared):
+    assembled = _assemble(
+        _result(
+            transcript=[
+                _read_turn(
+                    "../iso/.claude/plugins/cache/0/review/skills/review/SKILL.md"
+                )
+            ],
+            user_skill_names=["review:review"],
+            user_skill_paths={
+                "review:review": "plugins/cache/0/review/skills/review/SKILL.md"
+            },
+        ),
+        activation=ActivationDetector(declared, frozenset({"Skill"})),
+        expected_activation=[],
+    )
+    assert assembled.record.activated == ["review:review"]
+
+
+def test_windows_plugin_reads_are_observed_under_the_namespaced_name():
+    assembled = _assemble(
+        _result(
+            transcript=[
+                _read_turn(
+                    r"C:\run\.claude\plugins\cache\0\review\skills\review\SKILL.md"
+                )
+            ],
+            user_skill_names=["review:review"],
+            user_skill_paths={
+                "review:review": "plugins/cache/0/review/skills/review/SKILL.md"
+            },
+        ),
+        activation=ActivationDetector(["review"], frozenset({"Skill"})),
+        expected_activation=[],
+    )
+    assert assembled.record.activated == ["review:review"]
+
+
+def test_windows_reads_of_a_declared_skill_are_observed():
+    assembled = _assemble(
+        _result(transcript=[_read_turn(r"C:\run\.claude\skills\review\SKILL.md")]),
+        activation=ActivationDetector(["review"], frozenset({"Skill"})),
+        expected_activation=["review"],
+    )
+    assert assembled.record.activated == ["review"]

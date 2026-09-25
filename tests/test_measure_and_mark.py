@@ -30,6 +30,7 @@ from caliper.schema.results import (
     UsageTotals,
 )
 from caliper.schema.spec import TaskSpec
+from caliper.workdir import AttemptWorkdir
 
 runner = CliRunner()
 
@@ -43,9 +44,7 @@ class SlowJudge:
     backend = "test"
     model = None
 
-    def evaluate(
-        self, task, transcript, final_output, spec_dir, workdir
-    ) -> JudgeResult:
+    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
         time.sleep(0.05)
         return JudgeResult(passed=True, reasoning="ok")
 
@@ -66,8 +65,8 @@ def _assemble(task: TaskSpec, result: AttemptResult) -> AttemptRecord:
         result,
         attempt=1,
         task=task,
-        spec_dir=".",
-        workdir=".",
+        # Never entered: the slow judge does not run anything in it.
+        workdir=AttemptWorkdir("."),
         expected_activation=None,
         activation=ActivationDetector([], frozenset()),
         sandbox=OpenSandbox(),

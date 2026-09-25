@@ -158,3 +158,12 @@ def _clear_cancellation():
     """
     yield
     cancel.reset()
+
+
+@pytest.fixture
+def attempt_workdir(tmp_path):
+    """A live attempt workdir whose spec dir is ``tmp_path``."""
+    from caliper.workdir import AttemptWorkdir
+
+    with AttemptWorkdir(tmp_path) as workdir:
+        yield workdir

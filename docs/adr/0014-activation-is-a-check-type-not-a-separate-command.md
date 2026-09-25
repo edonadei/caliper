@@ -56,7 +56,9 @@ of check rather than split across two files.
   rule would let a flaky autorater silently shrink the activation sample for a
   reason with no causal connection to it. The report must print both counts and
   nothing may assume they match.
-- **Exact set match is affordable because the neighbourhood is closed.** The
+- **Exact set match is affordable because the neighbourhood is closed.**
+  Amended by [0028](0028-runs-load-user-customizations-by-default.md): this
+  premise holds in isolated mode; default runs also count user-skill activations. The
   isolated home contains only declared skills, so the observed set is always a
   subset of `skills:` and enumeration is bounded by a list the author wrote. An
   undeclared dependency is not installed and cannot activate — which makes the

@@ -55,7 +55,7 @@ Read the existing spec and report its tasks, grouped by the question each answer
 
 ## Whose setup is measured
 
-Runs load the user's own customizations by default (their MCP servers and account connectors, merged with the spec's `mcp:`), which answers "does my skill work in *my* agent?". **Isolate** (`--no-user-customizations`, or `user_customizations: false` in the spec) when comparing backends or models, when the number leaves this machine (shared, published, compared with someone else's run), or when measuring the bare agent: each setup is different, so otherwise part of the delta is the setups. `--ablate` of the user's own skill needs no isolation, since both runs load the same setup.
+Runs load the user's own customizations by default (user skills, plugins, rules, settings and connectors; see REFERENCE.md for backend exceptions), which answers "does my skill work in *my* agent?". **Isolate** (`--no-user-customizations`, or `user_customizations: false` in the spec) when comparing backends or models, when the number leaves this machine (shared, published, compared with someone else's run), or when measuring the bare agent: each setup is different, so otherwise part of the delta is the setups. `--ablate` of the user's own skill needs no isolation, since both runs load the same setup.
 
 **Always tell the user which mode ran** and what it loaded, from the report header's `user customizations:` line (absent means isolated), and relay any fix `caliper compare` suggests about it.
 
@@ -82,6 +82,7 @@ Read each failing task before suggesting a fix, and say where the fix belongs:
 | `⊘` unusable attempts (`infra_error`, `timeout`, `judge_error`) | Not the skill: rate limits, auth, or the judge. Fix and re-run |
 | `cheat` outcome | The task: it leaks its answer. Tighten the task or `sandbox:` |
 | Activation fails (skill didn't fire, or another one did) | The skill's `description` frontmatter |
+| Activation fails because one of the user's own skills fired (`skill:` in the report header) | Not the `description` alone: that skill is real competition in their setup. Decide with the user whether to sharpen the description or isolate the run |
 | Activation passes, score low | The skill's body |
 | The judge's reasoning shows `expect:` was ambiguous | The task's grading: make the criterion observable, or add an `assert:` |
 | Full run ≈ control | The task (see Phase 4) |

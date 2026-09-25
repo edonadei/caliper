@@ -19,9 +19,13 @@ from caliper.harness.prompt_failure import (
 )
 from caliper.schema.results import TokenUsage
 from caliper.schema.spec import McpServer
-from caliper.skills import SkillRef, install_skills
+from caliper.skills import SkillRef, frontmatter_name, install_skills
 
 _POST_KILL_DRAIN_TIMEOUT = 1
+
+# Recorded beside the staged user files when the backend cannot list its MCP
+# servers: the inventory is partial, and says so (docs/adr/0028).
+UNLISTED_MCP = "mcp:(not listed)"
 
 
 class HarnessConfigurationError(RuntimeError):
@@ -70,9 +74,11 @@ class AttemptResult:
     # a provider signal is told apart from an agent *writing about* one
     # (docs/adr/0019).
     salvaged: bool = False
-    # The user customizations this attempt loaded, by name, declared servers
-    # excluded. ``None`` when isolated or when the backend can't tell (docs/adr/0028).
+    # Kind-prefixed user customizations, declared skills and servers excluded. ``None`` when isolated or when the backend can't tell (docs/adr/0028).
     loaded_user_customizations: list[str] | None = None
+    # Facts for activation even when connector provenance is unknown.
+    user_skill_names: list[str] = field(default_factory=list)
+    user_skill_paths: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -112,13 +118,14 @@ class RunContext:
     # no ``mcp:`` block; an empty mapping means it had one whose servers were all
     # ablated, which a backend still isolates to zero servers.
     mcp_servers: dict[str, McpServer] | None = None
-    # Load the user's own MCP servers and connectors beside ``mcp_servers``.
+    # Load the supported user layer beside declared skills and servers.
     # ``False`` here: the run seam resolves the product default, so any other
     # context (the judge's) stays isolated (docs/adr/0028).
     user_customizations: bool = False
     # Every name the spec's ``mcp:`` declares, ablated ones included: a user's
     # server never takes one of them (docs/adr/0028).
     spec_mcp_names: frozenset[str] = frozenset()
+    spec_skill_names: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         """The context owns its lists, and tolerates ``None`` for the optional ones.
@@ -134,6 +141,9 @@ class RunContext:
         is read-only to every backend that has one.
         """
         self.skill_refs = list(self.skill_refs or [])
+        self.spec_skill_names = frozenset(self.spec_skill_names) | frozenset(
+            ref.name for ref in self.skill_refs
+        )
         self.extra_path = list(self.extra_path or [])
         self.forbidden_files = list(self.forbidden_files or [])
         self.spec_mcp_names = frozenset(self.spec_mcp_names) | frozenset(
@@ -361,8 +371,12 @@ class CliHarness(HarnessBackend):
         self._ensure_ready(ctx)
         self._seed_home(ctx)
         self._prepare(ctx)
+        user_files = self._seed_user_files(ctx)
         # After _prepare: a backend's skills root can depend on state _prepare
         # sets up (hermes' HERMES_HOME, pi's agent dir).
+        user_skills = self._install_user_skills(ctx)
+        plugin_skills = self._plugin_skill_paths(ctx)
+        user_files.extend(f"skill:{name}" for name in plugin_skills)
         self._install_skills(ctx)
         cmd, stdin, cleanup = self._command(ctx)
         env = self._environment(ctx)
@@ -411,7 +425,11 @@ class CliHarness(HarnessBackend):
             usage=self._safe_usage(proc, ctx),
             cancelled=proc.cancelled,
             salvaged=not parsed,
-            loaded_user_customizations=self._recorded_customizations(proc, ctx),
+            loaded_user_customizations=self._recorded_customizations(
+                proc, ctx, user_files + [f"skill:{name}" for name in user_skills]
+            ),
+            user_skill_paths=plugin_skills,
+            user_skill_names=sorted(set(user_skills) | set(plugin_skills)),
         )
 
     def run_prompt(
@@ -503,6 +521,71 @@ class CliHarness(HarnessBackend):
         The one backend-specific fact install-and-discover needs. Called after
         ``_prepare``, so it may read state that hook set up.
         """
+
+    user_rules: tuple[str, ...] = ()
+    user_settings_file: str | None = None
+
+    def _seed_user_files(self, ctx: RunContext) -> list[str]:
+        """Record input files before the agent can mutate its private copies."""
+        if not ctx.user_customizations or not self.supports_mcp:
+            return []
+        target = self.skills_root(ctx).parent
+        source = Path.home() / target.relative_to(ctx.isolated_home)
+        names = []
+        for name in self.user_rules:
+            if (source / name).is_file():
+                (target / name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source / name, target / name)
+                names.append(f"rules:{name}")
+        if self.user_settings_file and (source / self.user_settings_file).is_file():
+            names.append(f"settings:{self.user_settings_file}")
+        return names
+
+    def _plugin_skill_paths(self, ctx: RunContext) -> dict[str, str]:
+        """Namespaced plugin skills whose file paths do not contain their name."""
+        return {}
+
+    def _user_skill_name(self, path: Path) -> str | None:
+        return frontmatter_name(path.read_text())
+
+    def _bundled_skill_names(self, source: Path) -> set[str]:
+        """Skills the CLI ships in the user's skills root; not the user's own."""
+        return set()
+
+    def _install_user_skills(self, ctx: RunContext) -> list[str]:
+        if not ctx.user_customizations or not self.supports_mcp:
+            return []
+        root = self.skills_root(ctx)
+        source = Path.home() / root.relative_to(ctx.isolated_home)
+        refs = []
+        # Follow user-installed directory symlinks, but install independent copies.
+        visited: set[Path] = set()
+        bundled = self._bundled_skill_names(source)
+        for directory, directories, files in os.walk(source, followlinks=True):
+            resolved = Path(directory).resolve()
+            if resolved in visited:
+                directories.clear()
+                continue
+            visited.add(resolved)
+            # Hidden directories hold the CLI's own state and system skills
+            # (codex's `.system`), which it installs for itself.
+            directories[:] = sorted(d for d in directories if not d.startswith("."))
+            if "SKILL.md" not in files:
+                continue
+            directories.clear()
+            path = Path(directory) / "SKILL.md"
+            name = self._user_skill_name(path)
+            if not name or name in ctx.spec_skill_names or name in bundled:
+                continue
+            if name in {".", ".."} or "/" in name or "\\" in name:
+                raise HarnessConfigurationError(f"Invalid user skill name: {name!r}")
+            # Installed flat, so two same-named skills (e.g. in different hermes
+            # categories) cannot both land; the first in walk order wins.
+            if any(ref.name == name for ref in refs):
+                continue
+            refs.append(SkillRef(name, path))
+        install_skills(refs, root, ctx.forbidden_files)
+        return sorted(ref.name for ref in refs)
 
     def _install_skills(self, ctx: RunContext) -> None:
         """Install the declared neighbourhood; never preload any of it.
@@ -610,20 +693,27 @@ class CliHarness(HarnessBackend):
         return None
 
     def _recorded_customizations(
-        self, proc: ProcessResult, ctx: RunContext
+        self, proc: ProcessResult, ctx: RunContext, user_files: list[str]
     ) -> list[str] | None:
         """What ``AttemptResult.loaded_user_customizations`` records.
 
-        ``None`` when isolated or unknown, and when reading fails: like
-        :meth:`_safe_usage`, a provenance record must not sink the attempt.
+        ``None`` when isolated. When the MCP inventory is unknown, or reading
+        it fails (like :meth:`_safe_usage`, a provenance record must not sink
+        the attempt), the staged files are still recorded, marked with
+        :data:`UNLISTED_MCP` so the partial list never reads as complete.
         """
         if not ctx.user_customizations:
             return None
         try:
             names = self._loaded_user_customizations(proc, ctx)
         except Exception:
-            return None
-        return None if names is None else sorted(set(names) - ctx.spec_mcp_names)
+            names = None
+        if names is None:
+            return sorted({UNLISTED_MCP, *user_files})
+        return sorted(
+            {f"mcp:{name}" for name in set(names) - ctx.spec_mcp_names}
+            | set(user_files)
+        )
 
     def _safe_usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
         """Extract usage, but never let a token-accounting failure sink an attempt.

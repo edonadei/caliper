@@ -56,9 +56,7 @@ class PassingJudge:
     backend = "test"
     model = None
 
-    def evaluate(
-        self, task, transcript, final_output, spec_dir, workdir
-    ) -> JudgeResult:
+    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
         return JudgeResult(passed=True, reasoning="ok")
 
 
@@ -289,9 +287,7 @@ class UnavailableModelJudge:
     backend = "claude-code"
     model = "claude-bogus"
 
-    def evaluate(
-        self, task, transcript, final_output, spec_dir, workdir
-    ) -> JudgeResult:
+    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
         raise HarnessConfigurationError("Judge model 'claude-bogus' is unavailable")
 
 

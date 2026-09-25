@@ -78,8 +78,9 @@ validation.
   removes the very choice being measured. Write the prompt a real user would.
 - **`activates:` asserts the exact set** of skills that loaded: `[a]` means `a`
   and nothing else, `[]` means silence. Names are the frontmatter `name:`, not
-  filenames. A skill the spec doesn't declare is never installed, so if yours
-  delegates to another, declare it and list the whole chain.
+  filenames. By default the user's own skills are installed too, and one that
+  fires fails the match; isolate the run to install only the declared skills.
+  If yours delegates to another, declare it and list the whole chain.
 - **Single-shot.** Each attempt is one prompt; nobody answers the agent's
   questions. For a skill that asks before acting, judge the first turn:
   `expect:` the question, `assert:` that nothing was done yet.
@@ -88,7 +89,8 @@ validation.
   to each. It is not the spec's directory and not a git repo: build what the task
   needs in `setup:` (`cp -R "$CALIPER_SPEC_DIR/fixture/." .`, `git init`).
   Fixed `/tmp` paths collide across attempts running in parallel. A failed
-  `setup:` records an unusable `infra_error`.
+  `setup:`, or one running past 600 seconds, records an unusable `infra_error`.
+  An `assert:` is killed after 30 seconds and gives no verdict.
 - **`expect:` is a pass/fail criterion.** Say what evidence the judge should
   look for and what counts as failure:
 
@@ -107,10 +109,12 @@ validation.
   `url`, `headers`). Put secrets in host env vars as `${VAR}`. Stdio paths
   starting with `./` resolve from the spec's directory, and a server that can't
   start stops the run as a configuration error. `pi` has no MCP support;
-  `claude-code`, `codex` and `hermes` do. By default a run also loads the user's
-  own MCP servers and connectors, so a task may rely on one the user has; put
-  `user_customizations: false` at the top of the spec for a portable score (see
-  "Whose setup is measured" in [SKILL.md](SKILL.md)).
+  `claude-code`, `codex` and `hermes` do.
+- **User customizations.** By default a run also loads the user's own skills,
+  rules, settings, plugins, MCP servers and connectors, so a task may rely on a
+  connector the user has. Put `user_customizations: false` at the top of the
+  spec for a portable score (see "Whose setup is measured" in
+  [SKILL.md](SKILL.md)).
 
 ## Reading a run
 

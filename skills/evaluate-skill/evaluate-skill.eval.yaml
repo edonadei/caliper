@@ -4,6 +4,10 @@ skills:
   # below also checks that the right one of the two fires.
   - ../grill-skill/SKILL.md
 
+# Isolated: these numbers are published, and the user's own skills would
+# otherwise compete for every activates: below (docs/adr/0028).
+user_customizations: false
+
 # The engine (backend + model) is a runtime axis, not a spec field — run this
 # eval with `--model codex --judge-model codex` (or any other engine).
 

@@ -25,6 +25,7 @@ from caliper.outcome import classify_pre_judge, judge_outcome
 from caliper.sandbox import Sandbox
 from caliper.schema.results import AttemptRecord, Outcome, TranscriptTurn
 from caliper.schema.spec import TaskSpec
+from caliper.workdir import AttemptWorkdir
 
 
 @dataclass(frozen=True)
@@ -47,8 +48,7 @@ def assemble_attempt(
     *,
     attempt: int,
     task: TaskSpec,
-    spec_dir: str,
-    workdir: str,
+    workdir: AttemptWorkdir,
     expected_activation: list[str] | None,
     activation: ActivationDetector,
     sandbox: Sandbox,
@@ -82,7 +82,11 @@ def assemble_attempt(
     # saw load before the cut still loaded, so keep it. Seeing nothing is
     # ambiguous (nothing loaded, or we missed it), so record ``None``, not an
     # empty list. Neither is graded. See docs/CONTEXT.md → Activation admissibility.
-    observed = activation.detect(result.transcript)
+    observed = activation.detect(
+        result.transcript,
+        additional_names=result.user_skill_names,
+        additional_paths=result.user_skill_paths,
+    )
     if pre_judge is None:
         activated = observed
         activation_passed = check_activation(activated, expected_activation)
@@ -139,7 +143,6 @@ def assemble_attempt(
         task=task,
         transcript=result.transcript,
         final_output=result.final_output,
-        spec_dir=spec_dir,
         workdir=workdir,
     )
     # Timed here rather than inside the judge: this is the only place that knows

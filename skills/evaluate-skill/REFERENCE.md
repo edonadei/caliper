@@ -46,7 +46,7 @@ sandbox:
     - "./answers/.*"        #   .caliper/ results are forbidden already
   extra_path: ["./bin"]     # optional; relative to the spec, prefixed to PATH
 
-user_customizations: false  # optional; isolate from the user's own MCP setup
+user_customizations: false  # optional; isolate from the user's own skills and setup
 
 mcp:                        # optional MCP servers the agent may use
   weather:                  # local stdio server
@@ -95,9 +95,12 @@ checks before its first attempt):
   The old singular `skill: path:` key is rejected too; use `skills:`.
 - **Identity is the frontmatter `name:`**, not the filename or directory.
   `activates:` names must match it.
-- **The neighbourhood is closed.** A skill the spec doesn't declare is never
-  installed and can never activate. If yours delegates to another skill, declare
-  it and list the whole chain in `activates:`.
+- **Declared skills win; the user's skills compete.** By default a run also
+  installs the user's own skills (see User customizations), and one that fires
+  counts as an extra activation, failing an exact `activates:` match. Isolate
+  the run for a closed neighbourhood of exactly the declared skills. If yours
+  delegates to another skill, declare it and list the whole chain in
+  `activates:`.
 - **Never name the skill in a prompt.** Choosing the skill is part of what is
   measured.
 - **Attempt workdir.** Each attempt gets a fresh, empty directory that `setup:`,
@@ -107,9 +110,13 @@ checks before its first attempt):
   get `CALIPER_WORKDIR` and `CALIPER_SPEC_DIR`. `assert: ./check.py` resolves
   against the spec's directory. Fixed `/tmp` paths collide across attempts
   running in parallel.
-- **Hooks.** A failed `setup:` records an unusable `infra_error` and skips the
-  agent and judge. `cleanup:` always runs. A failed cleanup leaves the attempt's
-  outcome intact but makes `run` exit `2`.
+- **Hooks and asserts are time-limited.** A failed `setup:`, or one still
+  running after 600 seconds, records an unusable `infra_error` and skips the
+  agent and judge. `cleanup:` always runs, under the same limit; a failed
+  cleanup leaves the attempt's outcome intact but makes `run` exit `2`. An
+  `assert:` is killed after 30 seconds and gives no verdict, so the attempt is a
+  `judge_error` unless `expect:` produced one. Assertion evidence is the tail of
+  the script's output.
 - **Git sources.** `run` fetches them before the first attempt; `validate` never
   touches the network. A pinned `ref:` is offline after its first fetch. A git
   source whose skill has a symlink pointing outside the clone is refused.
@@ -163,19 +170,30 @@ unknown `hermes:<model>` stops the run with exit `2`.
 
 ## User customizations
 
-By default every attempt also loads the MCP servers and account connectors its
-CLI would load by itself (`~/.claude.json` and claude.ai connectors;
-`~/.codex/config.toml` and ChatGPT apps; `~/.hermes/config.yaml`), merged with
-the spec's `mcp:`. A declared server wins a name clash, and `--ablate` can't name
-the user's own servers. `pi` has nothing to load, and the judge is always
-isolated.
+By default every attempt also loads the user layer its CLI would load by
+itself, merged with what the spec declares:
+
+| Backend | Loads |
+|---|---|
+| `claude-code` | `~/.claude/skills`, `CLAUDE.md`, `settings.json`, enabled user-scope plugins, `~/.claude.json` MCP servers and claude.ai connectors |
+| `codex` | `~/.codex/skills`, `AGENTS.md` / `AGENTS.override.md`, plugins, settings, `~/.codex/config.toml` MCP servers and ChatGPT apps (its top-level model pin is stripped) |
+| `hermes` | `~/.hermes/skills`, settings, `~/.hermes/config.yaml` MCP servers (still `--ignore-rules`, no persona or memory) |
+| `pi` | nothing |
+
+A declared skill or server wins a name clash, even when ablated, and `--ablate`
+can't name the user's own. User skills count as activations: one that fires
+fails an exact `activates:` match. Skills a CLI ships itself are not user skills.
+Isolation keeps authentication and provider settings. The judge keeps its own
+connector isolation either way.
 
 Isolate with `--no-user-customizations` or a top-level
 `user_customizations: false` in the spec. A skill that can't be measured without
 the user's connectors (a hosted OAuth connector like Drive) can pin
 `user_customizations: true`. The flag wins, then the spec, then the default.
-The report header's `user customizations:` line says what loaded (absent means
-isolated), and `compare` warns when two runs loaded differently. When to isolate:
+The report header's `user customizations:` line lists what loaded with a kind
+prefix (`skill:`, `plugin:`, `rules:`, `settings:`, `mcp:`; `mcp:(not listed)`
+when the backend can't list its servers), and is absent when isolated. `compare`
+warns when two runs loaded different name sets. When to isolate:
 "Whose setup is measured" in [SKILL.md](SKILL.md).
 
 ## Reading results
@@ -193,7 +211,7 @@ When in doubt use the raw rate: pass@k flatters flaky skills (`1/3 → 70.4%`).
 | `pass` | Every check passed | yes |
 | `task_fail` | A check failed | yes |
 | `cheat` | The transcript shows a read of a forbidden file | yes |
-| `infra_error`, `timeout`, `judge_error` | Infrastructure or judge noise, shown as `⊘`. `infra_error` includes an attempt where no model call was observed | no: reported as "N unusable" |
+| `infra_error`, `timeout`, `judge_error` | Infrastructure or judge noise, shown as `⊘`. `infra_error` includes an attempt where no model call was observed; `judge_error` includes an `assert:` that timed out | no: reported as "N unusable" |
 | `not_checked` | A trigger probe: no `expect:`/`assert:` to check | no |
 
 A throttled provider (429, overloaded, 503) is retried twice with backoff and

@@ -7,6 +7,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
 from rich.progress import (
+    BarColumn,
     Progress,
     SpinnerColumn,
     TaskID,
@@ -90,6 +91,9 @@ UNUSABLE_GLYPH = _UNUSABLE
 # Likewise: `list` renders an unmeasured run's score with the same rule the
 # report uses for "nothing to show here".
 RULE_GLYPH = _RULE
+# And for `run`'s live warnings, which print beside the progress view.
+WARN_GLYPH = _WARN
+SEP_GLYPH = _SEP
 
 # Per-outcome glyph for the per-attempt detail view. Usable failures read as
 # failures; the three noise outcomes get the distinct ⊘ marker.
@@ -122,18 +126,26 @@ def print_banner(
 
 def make_progress(tasks: list[str], k: int) -> tuple[Progress, dict[str, TaskID]]:
     progress = Progress(
-        SpinnerColumn(),
+        SpinnerColumn(finished_text=" "),
         TextColumn(
             "[bold]{task.description}",
             justify="left",
             table_column=Column(width=40, overflow="ellipsis", no_wrap=True),
+        ),
+        BarColumn(
+            bar_width=min(max(k, 6), 20),
+            style="dim",
+            complete_style="cyan",
+            finished_style="cyan",
         ),
         TextColumn(
             "[cyan]{task.completed}/{task.total}",
             table_column=Column(width=5, no_wrap=True),
         ),
         TimeElapsedColumn(),
-        TextColumn("{task.fields[status]}", table_column=Column(width=7, no_wrap=True)),
+        TextColumn(
+            "{task.fields[status]}", table_column=Column(width=12, no_wrap=True)
+        ),
         console=console,
         expand=False,
         transient=True,
@@ -155,6 +167,7 @@ def update_progress(
     cheated: bool = False,
     unusable: int = 0,
     finished: bool = False,
+    unchecked: int = 0,
 ) -> None:
     tid = task_ids.get(task_name)
     if tid is None:
@@ -162,18 +175,31 @@ def update_progress(
     terminal = completed == k or finished
     if cheated:
         status = f"[bold yellow]{_WARN} cheat[/bold yellow]"
-    elif terminal and unusable:
-        status = f"[bold yellow]{_UNUSABLE}{unusable}[/bold yellow]"
-    elif terminal:
-        status = (
-            f"[bold green]{_CHECK}[/bold green]"
-            if passed == k
-            else f"[bold red]{_CROSS}[/bold red]"
-        )
+    elif terminal and passed == k:
+        status = f"[bold green]{_CHECK}[/bold green]"
+    elif terminal and completed and unchecked == completed:
+        # A trigger probe asked no execution question; its activation verdict
+        # is the report's to give, so the live view stays neutral.
+        status = f"[dim]{_RULE}[/dim]"
     else:
-        status = f"[dim]{completed}/{k}[/dim]"
+        # The tally, not the count again: the bar and `n/k` beside it already
+        # say how far along the task is, not how it is going.
+        failed = completed - passed - unusable - unchecked
+        status = _tally(passed, failed, unusable)
     rendered_completed = k if finished and completed < k else completed
     progress.update(tid, total=k, completed=rendered_completed, status=status)
+
+
+def _tally(passed: int, failed: int, unusable: int) -> str:
+    """`✓2 ✗1 ⊘1`, each part only when non-zero."""
+    parts = []
+    if passed:
+        parts.append(f"[green]{_CHECK}{passed}[/green]")
+    if failed:
+        parts.append(f"[red]{_CROSS}{failed}[/red]")
+    if unusable:
+        parts.append(f"[yellow]{_UNUSABLE}{unusable}[/yellow]")
+    return " ".join(parts)
 
 
 def print_results(results: RunResults, verbose: bool = False) -> None:
@@ -238,7 +264,7 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
                 f"{failure.phase} exited {failure.exit_code}[/red]"
             )
             if failure.output:
-                console.print(f"      {_format_output(escape(failure.output))}")
+                console.print(f"      {_format_output(failure.output)}")
     console.print()
 
     _print_score(results)
@@ -248,8 +274,9 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
         box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False
     )
     table.add_column("Task")
-    table.add_column(f"k ({k})", justify="center")
-    table.add_column("success", justify="right")
+    # Count and rate in one cell, the way the per-skill table shows its rates:
+    # a separate `k` column restated the denominator on every row.
+    table.add_column(f"success (k={k})", justify="right")
     if verbose:
         table.add_column("pass@k", justify="right", style="dim")
         table.add_column("pass^k", justify="right", style="dim")
@@ -267,10 +294,7 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
             _fmt_tokens(totals.total_tokens) if totals.tokens_reported else _RULE
         )
         wall_cell = _fmt_duration(totals.wall_seconds)
-        # A trigger-only task has no execution numbers to show; "0/3" would read
-        # as three failures rather than three questions never asked.
-        k_cell = _RULE if tr.trigger_only else f"{tr.successes}/{k}"
-        row = [tr.task_name, k_cell, _fmt_score(tr.score)]
+        row = [tr.task_name, _success_cell(tr, k)]
         if verbose:
             row += [_fmt_score(tr.pass_at_k), _fmt_score(tr.pass_hat_k)]
         row += [_activation_cell(tr), tokens_cell, wall_cell, status_text]
@@ -329,10 +353,8 @@ def _print_task_details(task_results: list[TaskResult], k: int, verbose: bool) -
     tasks_to_detail = (
         task_results if verbose else [tr for tr in task_results if _needs_detail(tr)]
     )
-    if tasks_to_detail:
-        console.print()
-        for tr in tasks_to_detail:
-            _print_task_detail(tr, k)
+    for tr in tasks_to_detail:
+        _print_task_detail(tr, k)
 
 
 def _needs_detail(tr: TaskResult) -> bool:
@@ -369,6 +391,19 @@ def _activation_cell(tr: TaskResult) -> Text:
     if score >= 0.99:
         return Text(_CHECK, style="green")
     return Text(_CROSS, style="red")
+
+
+def _success_cell(tr: TaskResult, k: int) -> Text:
+    """`2/3   66.7%`, or a dim "—" for a trigger-only task.
+
+    A trigger-only task has no execution numbers to show; "0/3" would read as
+    three failures rather than three questions never asked.
+    """
+    if tr.trigger_only:
+        return Text(_RULE, style="dim")
+    cell = Text(f"{tr.successes}/{k}".rjust(5), style="dim")
+    cell.append(f"  {_fmt_score(tr.score):>{_SCORE_W}}")
+    return cell
 
 
 def _status_cell(tr: TaskResult, k: int) -> Text:
@@ -604,72 +639,105 @@ _OUTPUT_TRUNCATE_AT = 500
 
 
 def _format_output(output: str) -> str:
+    """Raw agent or hook output as safe markup, keeping only its tail if long.
+
+    Truncates *before* escaping: cutting an escaped string could keep a tag and
+    drop the backslash that shields it, and Rich would then parse the tag.
+    """
     if not output or not output.strip():
-        return "[dim][no output][/dim]"
+        return r"[dim]\[no output][/dim]"
     if len(output) > _OUTPUT_TRUNCATE_AT:
-        tail = output[-_OUTPUT_TRUNCATE_AT:]
-        return f"[dim][...truncated, showing last {_OUTPUT_TRUNCATE_AT} chars][/dim]\n{tail}"
-    return output
+        tail = escape(output[-_OUTPUT_TRUNCATE_AT:])
+        return (
+            rf"[dim]\[...truncated, showing last {_OUTPUT_TRUNCATE_AT} chars][/dim]"
+            f"\n{tail}"
+        )
+    return escape(output)
 
 
 _HARNESS_FAILURES = frozenset({Outcome.TIMEOUT, Outcome.INFRA_ERROR})
 
 
+def _attempt_glyph(attempt) -> str:
+    """The attempt's verdict glyph.
+
+    A trigger probe's attempt checked nothing but activation, so that verdict is
+    the one to show — a bare "—" hid which attempts reached for the wrong skill.
+    """
+    if attempt.outcome == Outcome.NOT_CHECKED and attempt.activation_passed is not None:
+        return _OUTCOME_GLYPH[
+            Outcome.PASS if attempt.activation_passed else Outcome.TASK_FAIL
+        ]
+    return _OUTCOME_GLYPH.get(attempt.outcome, f"[red]{_CROSS}[/red]")
+
+
 def _print_task_detail(tr: TaskResult, k: int) -> None:
-    lines: list[str] = []
+    # A two-column grid rather than pre-indented lines, so a long output or
+    # judge note wraps under its own column instead of back at the border.
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(no_wrap=True)
+    grid.add_column(overflow="fold")
     if tr.aborted(k):
-        lines.append(
-            f"  [yellow]ABORTED[/yellow] after {len(tr.attempts)}/{k} attempts"
+        grid.add_row(
+            "[yellow]ABORTED[/yellow]", f"after {len(tr.attempts)}/{k} attempts"
         )
     # A red activation row is unreadable without the claim it broke, so say what
     # the task expected before listing what each attempt actually reached for.
     if tr.activation_expected is not None:
         expected = ", ".join(tr.activation_expected) or "(nothing — silence)"
-        lines.append(f"  [dim]expected to activate:[/dim] {expected}")
+        grid.add_row("[dim]should activate[/dim]", escape(expected))
     for attempt in tr.attempts:
-        prefix = _OUTCOME_GLYPH.get(attempt.outcome, f"[red]{_CROSS}[/red]")
         label = (
             ""
             if attempt.outcome.is_usable or attempt.outcome == Outcome.NOT_CHECKED
-            else f"  [yellow]{attempt.outcome.value}[/yellow]"
+            else f"[yellow]{attempt.outcome.value}[/yellow]  "
         )
         meta = f"{attempt.duration_seconds:.1f}s"
         if attempt.usage is not None and attempt.usage.total_tokens is not None:
             meta += f" {_SEP} {_fmt_tokens(attempt.usage.total_tokens)} tok"
-        lines.append(f"  Attempt {attempt.attempt}  {prefix}{label}  ({meta})")
+        grid.add_row(
+            f"{_attempt_glyph(attempt)} Attempt {attempt.attempt}",
+            f"{label}[dim]{meta}[/dim]",
+        )
         if attempt.cheated:
             for ev in attempt.cheat_evidence:
-                lines.append(f"    [yellow]cheat:[/yellow] {ev}")
+                grid.add_row("    [yellow]cheat[/yellow]", escape(ev))
         if attempt.activation_passed is False:
             reached = ", ".join(attempt.activated or []) or "(nothing)"
-            lines.append(f"    [red]activated:[/red] {reached}")
+            grid.add_row("    [red]activated[/red]", escape(reached))
         elif attempt.activation_observed and attempt.activation_passed is None:
             # Nothing was asserted, so this is informational only — but it is
             # the one place the observation still surfaces now that the task
             # column carries a verdict rather than the skill names.
             reached = ", ".join(attempt.activated or []) or "(nothing)"
-            lines.append(f"    [dim]activated: {reached}[/dim]")
-        elif attempt.activated:
+            grid.add_row("    [dim]activated[/dim]", f"[dim]{escape(reached)}[/dim]")
+        elif attempt.activated and attempt.outcome in _HARNESS_FAILURES:
             # A timed-out or failed attempt keeps what it saw load before it
             # stopped. Not graded, but it is the first thing to look at.
             reached = ", ".join(attempt.activated)
-            lines.append(f"    [dim]activated before it stopped: {reached}[/dim]")
-        lines.append(f"    [dim]output:[/dim] {_format_output(attempt.output)}")
+            grid.add_row(
+                "    [dim]activated so far[/dim]",
+                f"[dim]{escape(reached)}[/dim]",
+            )
+        grid.add_row("    [dim]output[/dim]", _format_output(attempt.output))
         if attempt.assert_evidence:
             # A timeout or infra failure stores the harness's error here, not an
             # assertion's.
             label = "error" if attempt.outcome in _HARNESS_FAILURES else "assert"
-            lines.append(f"    [dim]{label}: {attempt.assert_evidence}[/dim]")
+            grid.add_row(
+                f"    [dim]{label}[/dim]",
+                f"[dim]{escape(attempt.assert_evidence)}[/dim]",
+            )
         if attempt.autorater_reasoning:
-            lines.append(f"    [dim]{attempt.autorater_reasoning}[/dim]")
+            grid.add_row(
+                "    [dim]judge[/dim]",
+                f"[dim]{escape(attempt.autorater_reasoning)}[/dim]",
+            )
 
-    console.print(
-        Panel(
-            "\n".join(lines),
-            title=f"[bold]{tr.task_name}[/bold]",
-            border_style="dim",
-        )
-    )
+    title = Text(tr.task_name, style="bold")
+    title.append("  ")
+    title.append_text(_status_cell(tr, k))
+    console.print(Panel(grid, title=title, title_align="left", border_style="dim"))
 
 
 # Per-outcome (glyph, style) for building the side-by-side attempt strips as

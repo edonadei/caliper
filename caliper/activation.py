@@ -33,27 +33,49 @@ _SKILL_NAME_KEYS = ("skill", "name", "skill_name")
 _MAX_DEPTH = 5
 
 
+def _path_pattern(suffix: str) -> re.Pattern[str]:
+    """``suffix`` at a path boundary, matching either separator: Windows reads
+    arrive with backslashes."""
+    body = r"[/\\]".join(re.escape(part) for part in suffix.strip("/").split("/"))
+    return re.compile(r"(?:^|[/\\\s\"'])" + body + r"\b")
+
+
 class ActivationDetector:
     """Reads an attempt's transcript for the skills the agent reached for."""
 
     def __init__(self, names: list[str], tool_names: frozenset[str]) -> None:
         self._names = list(names)
         self._tool_names = tool_names
+        self._path_patterns: dict[str, re.Pattern[str]] = {}
         # `<name>/SKILL.md` at a path boundary — so `unit-normalizer` never
         # matches a read of `some-unit-normalizer/SKILL.md`, and a bare listing
         # of the skills root matches nothing at all.
         self._patterns = {
-            name: re.compile(rf"(?:^|[/\s\"']){re.escape(name)}/SKILL\.md\b")
-            for name in self._names
+            name: _path_pattern(f"{name}/SKILL.md") for name in self._names
         }
 
-    def detect(self, transcript: list[ConversationTurn]) -> list[str] | None:
+    def detect(
+        self,
+        transcript: list[ConversationTurn],
+        *,
+        additional_names: list[str] | None = None,
+        additional_paths: dict[str, str] | None = None,
+    ) -> list[str] | None:
         """The observed activation set, or ``None`` when nothing was observable.
 
         ``None`` is reserved for "we could not see" — no skills installed, so no
         choice existed to observe. An empty list is a real observation: the agent
         was offered skills and reached for none.
         """
+        if additional_names:
+            detector = ActivationDetector(
+                sorted(set(self._names) | set(additional_names)), self._tool_names
+            )
+            # Plugin paths are suffixes too: a relative read of a plugin skill
+            # must not fall through to a declared skill's basename.
+            for name, path in (additional_paths or {}).items():
+                detector._path_patterns[name] = _path_pattern(path)
+            return detector.detect(transcript)
         if not self._names:
             return None
 
@@ -66,6 +88,12 @@ class ActivationDetector:
                 if named in self._patterns:
                     found.add(named)
             for value in self._strings(turn.tool_input):
+                # A namespaced plugin path is one activation, not also a read
+                # of a declared skill sharing its basename.
+                for name, pattern in self._path_patterns.items():
+                    if pattern.search(value):
+                        found.add(name)
+                        value = pattern.sub("", value)
                 for name, pattern in self._patterns.items():
                     if pattern.search(value):
                         found.add(name)
