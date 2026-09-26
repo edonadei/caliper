@@ -160,8 +160,8 @@ An MCP tool call appears in the transcript as `mcp__<server>__<tool>` on
 runs on more than one engine, word `expect:` around the behaviour rather than
 one backend's spelling.
 
-When `--judge-model` is omitted, the `claude-code` judge pins `claude-sonnet-5`
-so it doesn't inherit a stale model from the installed CLI.
+When `--judge-model` names no model, the judge uses its CLI's own default
+model, like the skill does.
 
 A run records the model the backend reported running, not the one requested,
 and warns on a mismatch. An unknown backend name is refused before any attempt;
