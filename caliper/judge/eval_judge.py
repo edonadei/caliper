@@ -15,7 +15,6 @@ from caliper.schema.spec import (
     DEFAULT_BACKEND,
     TaskSpec,
     assert_script_path,
-    resolve_judge_model,
 )
 from caliper.workdir import AttemptWorkdir, StepPhase
 
@@ -150,10 +149,9 @@ class EvalJudge(Judge):
         harness: PromptBackend | None = None,
     ) -> None:
         # The judge engine is a runtime axis, resolved from --judge-model (ADR
-        # 0004). ``model`` stays as *requested*: ``None`` means the pinned
-        # default is applied at call time, and a run that never calls an
-        # autorater (assert-only) records no judge model rather than one that
-        # never ran.
+        # 0004). ``None`` means the judge CLI's own default model, and a run
+        # that never calls an autorater (assert-only) records no judge model
+        # rather than one that never ran.
         self.backend = backend
         self.model = model
         # The backend that answers the autorater's prompt, through the
@@ -232,9 +230,7 @@ class EvalJudge(Judge):
         # ``run_prompt`` half of the backend seam.
         if self._harness is None:
             try:
-                self._harness = get_harness(
-                    self.backend, resolve_judge_model(self.backend, self.model)
-                )
+                self._harness = get_harness(self.backend, self.model)
             except ValueError:
                 return (
                     False,

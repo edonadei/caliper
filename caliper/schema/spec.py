@@ -20,9 +20,6 @@ VALID_BACKENDS: frozenset[str] = frozenset({"claude-code", "codex", "pi", "herme
 # still records the actual engine in RunMeta, so de-pinning costs no
 # reproducibility. See docs/adr/0004-engine-is-a-runtime-axis-not-a-spec-field.md.
 DEFAULT_BACKEND: str = "claude-code"
-# Pinned so the claude-code judge does not inherit a stale model from the
-# installed Claude CLI's own default (see issue #59).
-DEFAULT_JUDGE_MODEL: str = "claude-sonnet-5"
 # Runs load the user's customizations unless the invocation or the spec says
 # otherwise: most runs test a skill in the user's own agent (docs/adr/0028).
 DEFAULT_USER_CUSTOMIZATIONS: bool = True
@@ -33,19 +30,6 @@ def normalize_backend(value: str) -> str:
         "claude": "claude-code",
     }
     return aliases.get(value, value)
-
-
-def resolve_judge_model(backend: str, model: str | None) -> str | None:
-    """Return the concrete judge model to pass to the harness.
-
-    When the caller omits ``--judge-model``, only the claude-code judge gets a
-    pinned default — other backends keep their CLI-native default.
-    """
-    if model is not None:
-        return model
-    if normalize_backend(backend) == "claude-code":
-        return DEFAULT_JUDGE_MODEL
-    return None
 
 
 def parse_target(value: str) -> tuple[str | None, str | None]:

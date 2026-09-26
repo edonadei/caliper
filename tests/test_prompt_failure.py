@@ -17,7 +17,7 @@ from caliper.harness.prompt_failure import (
     format_judge_failure,
 )
 from caliper.judge.eval_judge import EvalJudge
-from caliper.schema.spec import DEFAULT_JUDGE_MODEL, TaskSpec
+from caliper.schema.spec import TaskSpec
 
 from conftest import patch_cli_calls
 
@@ -46,7 +46,7 @@ def test_classify_claude_api_error_status_maps_observed_codes() -> None:
 
 def test_classify_claude_prompt_failure_uses_recorded_fixture() -> None:
     stdout = json.dumps(RETIRED_MODEL_ENVELOPE)
-    result = _classify_claude_prompt_failure(stdout, DEFAULT_JUDGE_MODEL)
+    result = _classify_claude_prompt_failure(stdout, "claude-sonnet-4-20250514")
 
     assert result is not None
     assert result.text == ""
@@ -77,7 +77,7 @@ def test_claude_prompt_output_classifies_in_harness_not_downstream(
 
     patch_cli_calls(monkeypatch, fake_run)
 
-    result = ClaudeCodeHarness(model=DEFAULT_JUDGE_MODEL).run_prompt(
+    result = ClaudeCodeHarness(model="claude-sonnet-4-20250514").run_prompt(
         "anything", cwd="."
     )
 
@@ -141,7 +141,7 @@ def test_eval_judge_stops_the_run_on_an_unavailable_model(
 
     message = str(exc.value)
     assert "--judge-model" in message
-    assert DEFAULT_JUDGE_MODEL in message
+    assert "claude-sonnet-4-20250514" in message
     assert "unparseable" not in message.lower()
 
 

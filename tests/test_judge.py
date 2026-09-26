@@ -224,7 +224,7 @@ def test_eval_judge_claude_code_invokes_claude_cli(
     assert 0 < kwargs["timeout"] <= 60
 
 
-def test_eval_judge_claude_code_uses_pinned_default_model(
+def test_eval_judge_claude_code_defers_to_cli_default_model(
     monkeypatch, tmp_path, attempt_workdir
 ) -> None:
     calls = _spawn(
@@ -240,7 +240,7 @@ def test_eval_judge_claude_code_uses_pinned_default_model(
     )
 
     cmd, _kwargs = calls[0]
-    assert cmd[cmd.index("--model") + 1] == "claude-sonnet-5"
+    assert "--model" not in cmd
 
 
 def test_claude_judge_extracts_concrete_model_from_envelope(
