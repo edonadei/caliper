@@ -78,6 +78,8 @@ class PiHarness(CliHarness):
         # differs from codex (which strips its config default). models.json
         # defines custom providers (Ollama, proxies, any compatible baseUrl), so
         # a model that resolves by hand must resolve in the attempt too (#178).
+        # Its `!command` and `$NAME` credentials run in the isolated env, so
+        # home-relative or env-based ones don't resolve (docs/backends.md → pi).
         real = Path.home() / ".pi" / "agent"
         agent_dir = self._agent_dir(ctx)
         return [

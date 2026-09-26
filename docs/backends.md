@@ -92,7 +92,11 @@ pi's agent dir, where pi discovers them.
   Discovery is pi's default behavior, which is why pi also has `--no-skills`.
 - It reuses your `~/.pi/agent` `auth.json`, `settings.json` and `models.json`,
   so custom providers from `models.json` work in attempts. `!command` values in
-  `models.json` still run at request time, as they do when you run pi yourself.
+  `models.json` still run at request time, as they do when you run pi yourself,
+  but inside the attempt: `HOME` is the attempt's own empty home and only a few
+  variables (`PATH`, `LANG`, …) are passed through. So an `apiKey` of
+  `!cat ~/.config/x/token` or `$MY_TOKEN` resolves to nothing there. Use a
+  literal key or an absolute path in the command.
   The `:model` half of `--model pi:<model>` overrides pi's configured default.
 - pi's built-in default provider is `google`, so `--model pi` with no model
   relies on your pi config to resolve a provider you're authenticated for.
