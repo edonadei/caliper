@@ -53,10 +53,8 @@ stay traceable even though the spec doesn't pin an engine.
 - The `judge_model` likewise comes from the `claude-code` judge's JSON output
   when you don't name one.
 - `judge_model` stays empty for an `assert:`-only run, where no LLM judge ran.
-- When `--judge-model` is omitted, the `claude-code` judge pins `claude-sonnet-5`
-  at execution time so it doesn't inherit a stale model from the installed
-  Claude CLI. That pin is not written into `RunMeta` unless you pass it
-  explicitly or the autorater reports what it used.
+- When `--judge-model` names no model, the judge uses its CLI's own default
+  model, like the skill does.
 
 ## Claude Code
 

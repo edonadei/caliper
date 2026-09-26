@@ -460,9 +460,9 @@ def test_runmeta_fills_default_judge_model_from_autorater(tmp_path) -> None:
 def test_runmeta_records_no_judge_model_when_no_autorater_ran(tmp_path) -> None:
     """An assert-only run names no judge model: nothing graded it but a script.
 
-    ``EvalJudge`` applies a pinned default when the caller omits ``--judge-model``,
-    but only at the moment it calls an autorater. Recording that default on a
-    run that never made the call would claim a model graded work it never saw.
+    The judge model is only learned when an autorater reports it. Recording
+    one on a run that never made the call would claim a model graded work it
+    never saw.
     """
     spec_path = tmp_path / "prov.eval.yaml"
     spec_path.write_text("tasks: []\n")
