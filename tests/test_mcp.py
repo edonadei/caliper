@@ -12,10 +12,8 @@ from pydantic import ValidationError
 
 from caliper import cancel
 from caliper.harness.base import (
-    AttemptResult,
     CliHarness,
     ConversationTurn,
-    HarnessBackend,
     HarnessConfigurationError,
     RunContext,
 )
@@ -24,12 +22,11 @@ from caliper.harness.mcp import (
     preflight_stdio_servers,
     resolve_servers,
 )
-from caliper.judge.base import JudgeResult
 from caliper.runner import RunAborted, run
 from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, McpServer, TaskSpec
 
-from conftest import run_context
+from conftest import ScriptedHarness, ScriptedJudge, run_context
 
 
 # --- schema validation ----------------------------------------------------
@@ -288,12 +285,14 @@ def test_run_anchors_explicit_mcp_paths_to_spec_directory(
             args=["./servers/weather.py", "../shared/data", "bare", "/absolute"],
         )
     }
-    harness = _McpHarness()
+    harness = ScriptedHarness(supports_mcp=True)
 
-    run(spec, spec_path, harness, _PassJudge(), k=1, workers=1)
+    run(spec, spec_path, harness, ScriptedJudge(), k=1, workers=1)
 
-    assert harness.seen["echo"].command == str(spec_dir / "bin/server")
-    assert harness.seen["echo"].args == [
+    assert harness.contexts[0].mcp_servers["echo"].command == str(
+        spec_dir / "bin/server"
+    )
+    assert harness.contexts[0].mcp_servers["echo"].args == [
         str(spec_dir / "servers/weather.py"),
         str(tmp_path / "shared/data"),
         "bare",
@@ -609,7 +608,7 @@ def test_setup_can_stage_an_mcp_server_before_attempt_preflight(tmp_path) -> Non
         ],
     )
 
-    results = run(spec, spec_path, _AttemptPreflightHarness(), _PassJudge(), k=1)
+    results = run(spec, spec_path, _AttemptPreflightHarness(), ScriptedJudge(), k=1)
 
     assert staged.exists()
     assert results.task_results[0].attempts[0].outcome == Outcome.PASS
@@ -685,7 +684,7 @@ def test_interrupt_during_preflight_returns_an_interrupted_run(tmp_path) -> None
     def execute() -> None:
         try:
             box["result"] = run(
-                spec, spec_path, _AttemptPreflightHarness(), _PassJudge(), k=1
+                spec, spec_path, _AttemptPreflightHarness(), ScriptedJudge(), k=1
             )
         except Exception as exc:
             box["error"] = exc
@@ -786,11 +785,11 @@ def test_readme_relative_mcp_arg_starts_from_any_cwd(tmp_path, monkeypatch) -> N
     spec.mcp = {
         "weather": McpServer(command=sys.executable, args=["./servers/weather.py"])
     }
-    harness = _McpHarness()
+    harness = ScriptedHarness(supports_mcp=True)
 
-    run(spec, spec_path, harness, _PassJudge(), k=1, workers=1)
+    run(spec, spec_path, harness, ScriptedJudge(), k=1, workers=1)
 
-    assert harness.seen["weather"].args == [str(script)]
+    assert harness.contexts[0].mcp_servers["weather"].args == [str(script)]
 
 
 @pytest.mark.parametrize(
@@ -810,7 +809,7 @@ def test_dead_server_stops_run_before_any_attempt(tmp_path, script) -> None:
             spec,
             spec_path,
             _AttemptPreflightHarness(),
-            _PassJudge(),
+            ScriptedJudge(),
             k=1,
             workers=1,
             timeout=1,
@@ -825,79 +824,13 @@ def test_missing_server_command_stops_run_before_any_attempt(tmp_path) -> None:
     spec.mcp = {"missing": McpServer(command="./missing-server")}
 
     with pytest.raises(RunAborted, match="MCP server 'missing'") as exc:
-        run(spec, spec_path, _AttemptPreflightHarness(), _PassJudge(), k=1, workers=1)
+        run(
+            spec, spec_path, _AttemptPreflightHarness(), ScriptedJudge(), k=1, workers=1
+        )
     assert exc.value.results.task_results[0].attempts == []
 
 
 # --- run-seam capability guard --------------------------------------------
-
-
-class _NoMcpHarness(HarnessBackend):
-    @property
-    def name(self) -> str:
-        return "nomcp"
-
-    def run(self, *args, **kwargs) -> AttemptResult:  # pragma: no cover - never runs
-        raise AssertionError("run() must not be reached when the guard fires")
-
-
-class _ByDesignNoMcpHarness(HarnessBackend):
-    mcp_unsupported_hint = "Expose it as a CLI tool the skill drives instead."
-
-    @property
-    def name(self) -> str:
-        return "bydesign"
-
-    def run(self, *args, **kwargs) -> AttemptResult:  # pragma: no cover - never runs
-        raise AssertionError("run() must not be reached when the guard fires")
-
-
-class _NoMcpRunnableHarness(HarnessBackend):
-    """No MCP support, but it runs — for the ablate-every-server case."""
-
-    def __init__(self) -> None:
-        self.seen: dict | None = None
-
-    @property
-    def name(self) -> str:
-        return "nomcp"
-
-    def run(self, ctx: RunContext) -> AttemptResult:
-        self.seen = ctx.mcp_servers
-        return AttemptResult(
-            transcript=[],
-            final_output="ok",
-            exit_code=0,
-            duration_seconds=0.1,
-        )
-
-
-class _McpHarness(HarnessBackend):
-    supports_mcp = True
-
-    def __init__(self) -> None:
-        self.seen: dict | None = None
-
-    @property
-    def name(self) -> str:
-        return "yesmcp"
-
-    def run(self, ctx: RunContext) -> AttemptResult:
-        self.seen = ctx.mcp_servers
-        return AttemptResult(
-            transcript=[],
-            final_output="ok",
-            exit_code=0,
-            duration_seconds=0.1,
-        )
-
-
-class _PassJudge:
-    backend = "test"
-    model = None
-
-    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
-        return JudgeResult(passed=True, reasoning="ok")
 
 
 def _spec_with_mcp() -> EvalSpec:
@@ -914,19 +847,21 @@ def test_guard_refuses_mcp_spec_on_unsupported_backend(tmp_path) -> None:
     spec_path.write_text("tasks: []\n")
     # A backend without a hint (a not-yet-implemented slice) gets the generic
     # "not supported yet" message.
+    harness = ScriptedHarness()
     with pytest.raises(
         HarnessConfigurationError, match="does not support MCP yet"
     ) as exc:
         run(
             spec=_spec_with_mcp(),
             spec_path=spec_path,
-            harness=_NoMcpHarness(),
-            judge=_PassJudge(),
+            harness=harness,
+            judge=ScriptedJudge(),
             k=1,
             workers=1,
             timeout=30,
         )
     assert "in this release" in str(exc.value)
+    assert harness.calls == 0
 
 
 def test_guard_refusal_uses_backend_hint_when_present(tmp_path) -> None:
@@ -934,12 +869,15 @@ def test_guard_refusal_uses_backend_hint_when_present(tmp_path) -> None:
     spec_path.write_text("tasks: []\n")
     # A backend whose lack of MCP is permanent-by-design supplies its own hint,
     # which the refusal carries verbatim — and drops the misleading "yet".
+    harness = ScriptedHarness(
+        mcp_unsupported_hint="Expose it as a CLI tool the skill drives instead."
+    )
     with pytest.raises(HarnessConfigurationError) as exc:
         run(
             spec=_spec_with_mcp(),
             spec_path=spec_path,
-            harness=_ByDesignNoMcpHarness(),
-            judge=_PassJudge(),
+            harness=harness,
+            judge=ScriptedJudge(),
             k=1,
             workers=1,
             timeout=30,
@@ -947,23 +885,26 @@ def test_guard_refusal_uses_backend_hint_when_present(tmp_path) -> None:
     message = str(exc.value)
     assert "Expose it as a CLI tool the skill drives instead." in message
     assert "does not support MCP yet" not in message
+    assert harness.calls == 0
 
 
 def test_guard_allows_mcp_spec_on_supporting_backend(tmp_path) -> None:
     spec_path = tmp_path / "m.eval.yaml"
     spec_path.write_text("tasks: []\n")
-    harness = _McpHarness()
+    harness = ScriptedHarness(supports_mcp=True)
     run(
         spec=_spec_with_mcp(),
         spec_path=spec_path,
         harness=harness,
-        judge=_PassJudge(),
+        judge=ScriptedJudge(),
         k=1,
         workers=1,
         timeout=30,
     )
     # The runner threads the declared McpServer models straight to the backend.
-    assert harness.seen == {"echo": McpServer(command="python3", args=["s.py"])}
+    assert harness.contexts[0].mcp_servers == {
+        "echo": McpServer(command="python3", args=["s.py"])
+    }
 
 
 def _spec_without_mcp() -> EvalSpec:
@@ -979,7 +920,7 @@ def test_an_explicitly_empty_mcp_block_still_isolates(tmp_path) -> None:
     # empty mapping (zero servers), not None (the CLI's ambient config).
     spec_path = tmp_path / "m.eval.yaml"
     spec_path.write_text("tasks: []\n")
-    harness = _McpHarness()
+    harness = ScriptedHarness(supports_mcp=True)
     run(
         spec=EvalSpec(
             mcp={},
@@ -991,28 +932,28 @@ def test_an_explicitly_empty_mcp_block_still_isolates(tmp_path) -> None:
         ),
         spec_path=spec_path,
         harness=harness,
-        judge=_PassJudge(),
+        judge=ScriptedJudge(),
         k=1,
         workers=1,
         timeout=30,
     )
-    assert harness.seen == {}
+    assert harness.contexts[0].mcp_servers == {}
 
 
 def test_an_omitted_mcp_block_leaves_the_backend_config_alone(tmp_path) -> None:
     spec_path = tmp_path / "m.eval.yaml"
     spec_path.write_text("tasks: []\n")
-    harness = _McpHarness()
+    harness = ScriptedHarness(supports_mcp=True)
     run(
         spec=_spec_without_mcp(),
         spec_path=spec_path,
         harness=harness,
-        judge=_PassJudge(),
+        judge=ScriptedJudge(),
         k=1,
         workers=1,
         timeout=30,
     )
-    assert harness.seen is None
+    assert harness.contexts[0].mcp_servers is None
 
 
 def test_ablating_every_server_runs_on_a_backend_without_mcp(tmp_path) -> None:
@@ -1024,18 +965,18 @@ def test_ablating_every_server_runs_on_a_backend_without_mcp(tmp_path) -> None:
     # to its ambient config.
     spec_path = tmp_path / "m.eval.yaml"
     spec_path.write_text("tasks: []\n")
-    harness = _NoMcpRunnableHarness()
+    harness = ScriptedHarness()
     results = run(
         spec=_spec_with_mcp(),
         spec_path=spec_path,
         harness=harness,
-        judge=_PassJudge(),
+        judge=ScriptedJudge(),
         k=1,
         workers=1,
         timeout=30,
         ablate=["echo"],
     )
-    assert harness.seen == {}
+    assert harness.contexts[0].mcp_servers == {}
     assert results.run.ablated == ["mcp:echo"]
     assert results.run.mcp_servers == []
 
@@ -1056,8 +997,8 @@ def test_guard_still_refuses_when_a_server_survives_ablation(tmp_path) -> None:
         run(
             spec=spec,
             spec_path=spec_path,
-            harness=_NoMcpHarness(),
-            judge=_PassJudge(),
+            harness=ScriptedHarness(),
+            judge=ScriptedJudge(),
             k=1,
             workers=1,
             timeout=30,

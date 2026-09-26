@@ -47,17 +47,9 @@ from caliper.schema.results import (
     TaskResult,
 )
 from caliper.schema.spec import EvalSpec, TaskSpec
-from conftest import StubHarness
+from conftest import ScriptedHarness, ScriptedJudge
 
 runner = CliRunner()
-
-
-class PassingJudge:
-    backend = "test"
-    model = None
-
-    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
-        return JudgeResult(passed=True, reasoning="ok")
 
 
 class CancellingHarness(HarnessBackend):
@@ -164,7 +156,7 @@ def test_cancelling_keeps_the_attempts_already_paid_for(tmp_path) -> None:
         spec=_spec(),
         spec_path=_spec_file(tmp_path),
         harness=harness,
-        judge=PassingJudge(),
+        judge=ScriptedJudge(),
         k=5,
         workers=1,
         timeout=5,
@@ -185,7 +177,7 @@ def test_a_cancelled_run_does_not_start_the_remaining_attempts(tmp_path) -> None
         spec=_spec(n_tasks=2),
         spec_path=_spec_file(tmp_path),
         harness=harness,
-        judge=PassingJudge(),
+        judge=ScriptedJudge(),
         k=4,
         workers=1,
         timeout=5,
@@ -228,7 +220,7 @@ def test_attempts_killed_by_the_cancellation_are_not_recorded(tmp_path) -> None:
         spec=_spec(),
         spec_path=_spec_file(tmp_path),
         harness=harness,
-        judge=PassingJudge(),
+        judge=ScriptedJudge(),
         k=3,
         workers=1,
         timeout=5,
@@ -250,7 +242,7 @@ def test_an_attempt_that_failed_on_its_own_is_kept(tmp_path) -> None:
         spec=_spec(),
         spec_path=_spec_file(tmp_path),
         harness=FailsOnItsOwnHarness(),
-        judge=PassingJudge(),
+        judge=ScriptedJudge(),
         k=3,
         workers=1,
         timeout=5,
@@ -268,7 +260,7 @@ def test_a_fatal_error_mid_run_salvages_the_attempts_that_ran(tmp_path) -> None:
             spec=_spec(),
             spec_path=_spec_file(tmp_path),
             harness=ExpiringHarness(fail_from=2),
-            judge=PassingJudge(),
+            judge=ScriptedJudge(),
             k=4,
             workers=1,
             timeout=5,
@@ -696,7 +688,7 @@ def test_run_cli_exits_130_and_saves_an_interrupted_run(monkeypatch, tmp_path) -
         return _one_attempt_run(k=kwargs["k"])
 
     monkeypatch.setattr(
-        "caliper.commands.run.get_harness", lambda *a, **kw: StubHarness()
+        "caliper.commands.run.get_harness", lambda *a, **kw: ScriptedHarness()
     )
     monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **kw: object())
     monkeypatch.setattr("caliper.commands.run.run", fake_run)
@@ -724,7 +716,7 @@ def test_run_cli_saves_before_reporting_a_fatal_error(monkeypatch, tmp_path) -> 
         raise RunAborted(HarnessConfigurationError("credentials expired"), partial)
 
     monkeypatch.setattr(
-        "caliper.commands.run.get_harness", lambda *a, **kw: StubHarness()
+        "caliper.commands.run.get_harness", lambda *a, **kw: ScriptedHarness()
     )
     monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **kw: object())
     monkeypatch.setattr("caliper.commands.run.run", fake_run)

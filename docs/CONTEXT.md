@@ -172,7 +172,7 @@ Varying a skill's *text* across runs is not ablation — it is two runs and a
 of *every* member of the neighbourhood it installed — plural, because a
 neighbour's `description` is part of what produced the score, so a run is not
 reproducible without it.
-_Avoid_: baseline (the retired `--baseline` flag ran both arms inside a single
+_Avoid_: baseline (the removed `--baseline` flag ran both arms inside a single
 invocation, and so re-paid for the removed arm on every run).
 
 ## Saved run

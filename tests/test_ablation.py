@@ -16,10 +16,8 @@ from caliper.compare import diff_runs
 from caliper.harness.base import (
     AttemptResult,
     ConversationTurn,
-    HarnessBackend,
     RunContext,
 )
-from caliper.judge.base import JudgeResult
 from caliper.runner import run
 from caliper.schema.results import (
     ERA_INSTALL_AND_DISCOVER,
@@ -34,52 +32,41 @@ from caliper.schema.results import (
 from caliper.schema.spec import EvalSpec, McpServer, TaskSpec
 from caliper.skills import AblationError, SkillResolutionError
 
+from conftest import ScriptedHarness, ScriptedJudge, agent_result
+
 
 # --- fixtures -------------------------------------------------------------
 
 
-class RecordingHarness(HarnessBackend):
+def _reads_a_skill(ctx: RunContext) -> AttemptResult:
+    """Read one installed skill's file, so activation has something to observe
+    whatever the spec declared."""
+    target = ctx.skill_refs[-1].name if ctx.skill_refs else "none"
+    return agent_result(
+        transcript=[
+            ConversationTurn(
+                role="tool_use",
+                content="[tool: Read]",
+                tool_name="Read",
+                tool_input={
+                    "file_path": f"{ctx.isolated_home}/skills/{target}/SKILL.md"
+                },
+            )
+        ]
+    )
+
+
+def _recording() -> ScriptedHarness:
     """Passes every attempt, remembering the skills and MCP servers it was given."""
-
-    supports_mcp = True
-
-    def __init__(self) -> None:
-        self.installed: list[list[str]] = []
-        self.mcp_servers: list[dict | None] = []
-
-    @property
-    def name(self) -> str:
-        return "recording"
-
-    def run(self, ctx: RunContext) -> AttemptResult:
-        self.installed.append([ref.name for ref in ctx.skill_refs])
-        self.mcp_servers.append(ctx.mcp_servers)
-        # Read one installed skill's file, so activation has something to
-        # observe whatever the spec declared.
-        target = ctx.skill_refs[-1].name if ctx.skill_refs else "none"
-        return AttemptResult(
-            transcript=[
-                ConversationTurn(
-                    role="tool_use",
-                    content="[tool: Read]",
-                    tool_name="Read",
-                    tool_input={
-                        "file_path": f"{ctx.isolated_home}/skills/{target}/SKILL.md"
-                    },
-                )
-            ],
-            final_output="done",
-            exit_code=0,
-            duration_seconds=0.1,
-        )
+    return ScriptedHarness(_reads_a_skill, supports_mcp=True)
 
 
-class PassingJudge:
-    backend = "test"
-    model = None
+def _installed(harness: ScriptedHarness) -> list[list[str]]:
+    return [[ref.name for ref in ctx.skill_refs] for ctx in harness.contexts]
 
-    def evaluate(self, *args, **kwargs) -> JudgeResult:
-        return JudgeResult(passed=True, reasoning="ok")
+
+def _servers(harness: ScriptedHarness) -> list[dict | None]:
+    return [ctx.mcp_servers for ctx in harness.contexts]
 
 
 def _spec_with_two_skills(tmp_path, *, activates=None) -> tuple[EvalSpec, object]:
@@ -148,7 +135,7 @@ def _run_spec(spec, spec_path, harness, **kwargs) -> RunResults:
         spec=spec,
         spec_path=spec_path,
         harness=harness,
-        judge=PassingJudge(),
+        judge=ScriptedJudge(),
         k=1,
         workers=1,
         timeout=30,
@@ -161,23 +148,23 @@ def _run_spec(spec, spec_path, harness, **kwargs) -> RunResults:
 
 def test_ablate_installs_the_neighbourhood_minus_the_named_skill(tmp_path):
     spec, spec_path = _spec_with_two_skills(tmp_path)
-    harness = RecordingHarness()
+    harness = _recording()
     _run_spec(spec, spec_path, harness, ablate=["subject"])
-    assert harness.installed == [["keeper"]]
+    assert _installed(harness) == [["keeper"]]
 
 
 def test_ablating_every_member_leaves_the_bare_agent(tmp_path):
     spec, spec_path = _spec_with_two_skills(tmp_path)
-    harness = RecordingHarness()
+    harness = _recording()
     _run_spec(spec, spec_path, harness, ablate=["subject", "keeper"])
-    assert harness.installed == [[]]
+    assert _installed(harness) == [[]]
 
 
 def test_a_run_without_ablate_installs_everything(tmp_path):
     spec, spec_path = _spec_with_two_skills(tmp_path)
-    harness = RecordingHarness()
+    harness = _recording()
     results = _run_spec(spec, spec_path, harness)
-    assert harness.installed == [["subject", "keeper"]]
+    assert _installed(harness) == [["subject", "keeper"]]
     assert results.run.ablated == []
 
 
@@ -188,7 +175,7 @@ def test_the_ablated_names_are_recorded_on_run_meta(tmp_path):
     # An empty skill_snapshots list is otherwise ambiguous between "ablated
     # everything" and "declared no skills" — the marker is what disambiguates.
     spec, spec_path = _spec_with_two_skills(tmp_path)
-    results = _run_spec(spec, spec_path, RecordingHarness(), ablate=["subject"])
+    results = _run_spec(spec, spec_path, _recording(), ablate=["subject"])
     assert results.run.ablated == ["subject"]
     assert results.run.ablated_skills == ["subject"]
     assert results.run.ablated_servers == []
@@ -198,7 +185,7 @@ def test_snapshots_cover_only_the_installed_skills(tmp_path):
     # A snapshot claims "this is what produced the score"; the ablated skill did
     # not, because it was never installed.
     spec, spec_path = _spec_with_two_skills(tmp_path)
-    results = _run_spec(spec, spec_path, RecordingHarness(), ablate=["subject"])
+    results = _run_spec(spec, spec_path, _recording(), ablate=["subject"])
     assert [s.name for s in results.skill_snapshots] == ["keeper"]
 
 
@@ -206,9 +193,7 @@ def test_a_repeated_name_is_recorded_once(tmp_path):
     # The marker is the run's own description of what it did, so it should not
     # read `ablated: subject, subject` for one removed skill.
     spec, spec_path = _spec_with_two_skills(tmp_path)
-    results = _run_spec(
-        spec, spec_path, RecordingHarness(), ablate=["subject", "subject"]
-    )
+    results = _run_spec(spec, spec_path, _recording(), ablate=["subject", "subject"])
     assert results.run.ablated == ["subject"]
 
 
@@ -216,7 +201,7 @@ def test_ablating_an_undeclared_skill_is_refused(tmp_path):
     # A typo would otherwise produce a full run labelled as an ablation.
     spec, spec_path = _spec_with_two_skills(tmp_path)
     with pytest.raises(SkillResolutionError) as exc:
-        _run_spec(spec, spec_path, RecordingHarness(), ablate=["subjekt"])
+        _run_spec(spec, spec_path, _recording(), ablate=["subjekt"])
     assert "subjekt" in str(exc.value)
 
 
@@ -227,20 +212,20 @@ def test_ablate_removes_a_declared_mcp_server(tmp_path):
     # The server never reaches the harness config, so the agent never sees its
     # tool definitions — which is the question being asked of it.
     spec, spec_path = _spec_with_skill_and_server(tmp_path)
-    harness = RecordingHarness()
+    harness = _recording()
     _run_spec(spec, spec_path, harness, ablate=["weather"])
     # An empty mapping, not None: the block was declared, so the backend must
     # still isolate the attempt to zero servers rather than fall back to its own
     # ambient config (see test_mcp.py for the runner-level guard).
-    assert harness.mcp_servers == [{}]
-    assert harness.installed == [["subject"]]
+    assert _servers(harness) == [{}]
+    assert _installed(harness) == [["subject"]]
 
 
 def test_a_run_without_ablate_hands_over_every_server(tmp_path):
     spec, spec_path = _spec_with_skill_and_server(tmp_path)
-    harness = RecordingHarness()
+    harness = _recording()
     _run_spec(spec, spec_path, harness)
-    assert harness.mcp_servers == [
+    assert _servers(harness) == [
         {"weather": McpServer(command="python3", args=["w.py"])}
     ]
 
@@ -249,7 +234,7 @@ def test_the_ablated_server_is_recorded_qualified_on_run_meta(tmp_path):
     # The marker names what was removed; mcp_servers records the environment the
     # run actually had (none), so the saved run describes both sides of it.
     spec, spec_path = _spec_with_skill_and_server(tmp_path)
-    results = _run_spec(spec, spec_path, RecordingHarness(), ablate=["weather"])
+    results = _run_spec(spec, spec_path, _recording(), ablate=["weather"])
     assert results.run.ablated == ["mcp:weather"]
     assert results.run.ablated_skills == []
     assert results.run.ablated_servers == ["weather"]
@@ -258,7 +243,7 @@ def test_the_ablated_server_is_recorded_qualified_on_run_meta(tmp_path):
 
 def test_the_servers_a_run_kept_are_recorded_on_run_meta(tmp_path):
     spec, spec_path = _spec_with_skill_and_server(tmp_path)
-    results = _run_spec(spec, spec_path, RecordingHarness())
+    results = _run_spec(spec, spec_path, _recording())
     assert results.run.ablated == []
     assert results.run.mcp_servers == ["weather"]
 
@@ -266,7 +251,7 @@ def test_the_servers_a_run_kept_are_recorded_on_run_meta(tmp_path):
 def test_a_bare_name_on_a_collision_is_refused(tmp_path):
     spec, spec_path = _spec_with_skill_and_server(tmp_path, collide=True)
     with pytest.raises(AblationError) as exc:
-        _run_spec(spec, spec_path, RecordingHarness(), ablate=["weather"])
+        _run_spec(spec, spec_path, _recording(), ablate=["weather"])
     message = str(exc.value)
     assert "mcp:weather" in message and "skill:weather" in message
     assert exc.value.title == "Invalid ablation"
@@ -274,19 +259,19 @@ def test_a_bare_name_on_a_collision_is_refused(tmp_path):
 
 def test_the_mcp_qualifier_removes_the_server_not_the_skill(tmp_path):
     spec, spec_path = _spec_with_skill_and_server(tmp_path, collide=True)
-    harness = RecordingHarness()
+    harness = _recording()
     results = _run_spec(spec, spec_path, harness, ablate=["mcp:weather"])
-    assert harness.installed == [["subject", "weather"]]
-    assert harness.mcp_servers == [{}]
+    assert _installed(harness) == [["subject", "weather"]]
+    assert _servers(harness) == [{}]
     assert results.run.ablated == ["mcp:weather"]
 
 
 def test_the_skill_qualifier_removes_the_skill_not_the_server(tmp_path):
     spec, spec_path = _spec_with_skill_and_server(tmp_path, collide=True)
-    harness = RecordingHarness()
+    harness = _recording()
     results = _run_spec(spec, spec_path, harness, ablate=["skill:weather"])
-    assert harness.installed == [["subject"]]
-    assert harness.mcp_servers == [
+    assert _installed(harness) == [["subject"]]
+    assert _servers(harness) == [
         {"weather": McpServer(command="python3", args=["w.py"])}
     ]
     assert results.run.ablated == ["weather"]
@@ -295,14 +280,14 @@ def test_the_skill_qualifier_removes_the_skill_not_the_server(tmp_path):
 def test_ablating_an_undeclared_server_is_refused(tmp_path):
     spec, spec_path = _spec_with_skill_and_server(tmp_path)
     with pytest.raises(SkillResolutionError) as exc:
-        _run_spec(spec, spec_path, RecordingHarness(), ablate=["mcp:snow"])
+        _run_spec(spec, spec_path, _recording(), ablate=["mcp:snow"])
     assert "mcp:snow" in str(exc.value)
 
 
 def test_repeating_a_server_name_records_one_removal(tmp_path):
     spec, spec_path = _spec_with_skill_and_server(tmp_path)
     results = _run_spec(
-        spec, spec_path, RecordingHarness(), ablate=["weather", "mcp:weather"]
+        spec, spec_path, _recording(), ablate=["weather", "mcp:weather"]
     )
     assert results.run.ablated == ["mcp:weather"]
 
@@ -311,7 +296,7 @@ def test_ablating_a_server_leaves_the_activation_expectation_scored(tmp_path):
     # `activates:` names skills, and every one is still installed, so a server
     # ablation has no reason to withhold the verdict.
     spec, spec_path = _spec_with_skill_and_server(tmp_path, activates=["subject"])
-    results = _run_spec(spec, spec_path, RecordingHarness(), ablate=["weather"])
+    results = _run_spec(spec, spec_path, _recording(), ablate=["weather"])
     task = results.task_results[0]
     assert task.activation_expected == ["subject"]
     assert task.activation_score == 1.0
@@ -325,7 +310,7 @@ def test_an_ablated_run_drops_the_activation_expectation(tmp_path):
     # caliper assert a claim the author never wrote — and with a delegating
     # parent removed, its neighbours correctly stop firing.
     spec, spec_path = _spec_with_two_skills(tmp_path, activates=["subject", "keeper"])
-    results = _run_spec(spec, spec_path, RecordingHarness(), ablate=["subject"])
+    results = _run_spec(spec, spec_path, _recording(), ablate=["subject"])
     task = results.task_results[0]
     assert task.activation_expected is None
     assert task.activation_score is None
@@ -335,7 +320,7 @@ def test_an_activates_naming_the_ablated_skill_is_not_a_validation_error(tmp_pat
     # The expectation is dropped, not violated: validation still sees the full
     # declared set, so a normal spec stays runnable under --ablate.
     spec, spec_path = _spec_with_two_skills(tmp_path, activates=["subject"])
-    results = _run_spec(spec, spec_path, RecordingHarness(), ablate=["subject"])
+    results = _run_spec(spec, spec_path, _recording(), ablate=["subject"])
     assert results.task_results[0].activation_expected is None
 
 
@@ -343,7 +328,7 @@ def test_the_observation_survives_even_though_the_verdict_does_not(tmp_path):
     # (c) from the design: observe, don't score. The transcript reads keeper's
     # installed SKILL.md, and that fact is still recorded.
     spec, spec_path = _spec_with_two_skills(tmp_path, activates=["subject", "keeper"])
-    results = _run_spec(spec, spec_path, RecordingHarness(), ablate=["subject"])
+    results = _run_spec(spec, spec_path, _recording(), ablate=["subject"])
     attempt = results.task_results[0].attempts[0]
     assert attempt.activated == ["keeper"]
     assert attempt.activation_passed is None
@@ -351,7 +336,7 @@ def test_the_observation_survives_even_though_the_verdict_does_not(tmp_path):
 
 def test_a_normal_run_still_scores_its_activation_expectation(tmp_path):
     spec, spec_path = _spec_with_two_skills(tmp_path, activates=["keeper"])
-    results = _run_spec(spec, spec_path, RecordingHarness())
+    results = _run_spec(spec, spec_path, _recording())
     assert results.task_results[0].activation_expected == ["keeper"]
     assert results.task_results[0].activation_score == 1.0
 
