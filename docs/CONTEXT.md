@@ -663,10 +663,11 @@ axis: a skill edit that holds the score while cutting tokens *or* wall-time is a
 
 ## Judge time
 
-`AttemptRecord.judge_seconds` — wall-clock seconds the judge spent grading one
-attempt. A **sibling** of [[wall-clock time]], never part of it: that term is
-pinned to the harness spawn, and widening it would redefine the latency figure of
-every run already saved. `None` when no judge ran — an assert-only task, or an
+`AttemptRecord.judge_seconds` — wall-clock seconds the LLM autorater spent
+grading one attempt. An `assert:` script run beside it is not judge time. A
+**sibling** of [[wall-clock time]], never part of it: that term is pinned to the
+harness spawn, and widening it would redefine the latency figure of every run
+already saved. `None` when no judge ran — an assert-only task, or an
 attempt that exited before reaching one — which is a different claim from `0.0`,
 and the reason the run roll-up averages it over *graded* attempts rather than all
 of them.

@@ -8,7 +8,6 @@ interrupted run's score rendered identically to a complete one in `list` and in
 
 from __future__ import annotations
 
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -40,13 +39,18 @@ class OpenSandbox:
         return []
 
 
-class SlowJudge:
+class TimedJudge:
+    """Reports its autorater's time, as the judge that ran it measured it."""
+
     backend = "test"
     model = None
 
     def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
-        time.sleep(0.05)
-        return JudgeResult(passed=True, reasoning="ok")
+        return JudgeResult(
+            passed=True,
+            reasoning="ok",
+            autorater_seconds=1.5 if task.expect else None,
+        )
 
 
 def _harness_result(*, exit_code: int = 0, timed_out: bool = False) -> AttemptResult:
@@ -65,12 +69,12 @@ def _assemble(task: TaskSpec, result: AttemptResult) -> AttemptRecord:
         result,
         attempt=1,
         task=task,
-        # Never entered: the slow judge does not run anything in it.
+        # Never entered: the timed judge does not run anything in it.
         workdir=AttemptWorkdir("."),
         expected_activation=None,
         activation=ActivationDetector([], frozenset()),
         sandbox=OpenSandbox(),
-        judge=SlowJudge(),
+        judge=TimedJudge(),
     ).record
 
 
@@ -79,8 +83,9 @@ def test_judge_time_is_recorded_on_a_graded_attempt() -> None:
 
     record = _assemble(task, _harness_result())
 
-    assert record.judge_seconds is not None
-    assert record.judge_seconds >= 0.05
+    # The judge's own measure of its autorater, not a stopwatch around the
+    # whole judge call (which would count an assert script too).
+    assert record.judge_seconds == 1.5
 
 
 def test_judge_time_is_none_when_no_judge_ran() -> None:
