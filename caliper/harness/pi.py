@@ -75,11 +75,14 @@ class PiHarness(CliHarness):
         # the user's real ~/.pi) that PI_CODING_AGENT_DIR then points pi at.
         # The config's default model/provider is preserved on purpose; the
         # spec's `--model` overrides it when set. See issue #10 for why this
-        # differs from codex (which strips its config default).
+        # differs from codex (which strips its config default). models.json
+        # defines custom providers (Ollama, proxies, any compatible baseUrl), so
+        # a model that resolves by hand must resolve in the attempt too (#178).
         real = Path.home() / ".pi" / "agent"
         agent_dir = self._agent_dir(ctx)
         return [
-            (real / name, agent_dir / name) for name in ("auth.json", "settings.json")
+            (real / name, agent_dir / name)
+            for name in ("auth.json", "settings.json", "models.json")
         ]
 
     @staticmethod
