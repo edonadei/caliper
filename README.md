@@ -114,8 +114,6 @@ caliper compare \
   inbox-triage
 ```
 
-<sub>Get <code>RUN_ID</code> (the ablated run) from <code>caliper list inbox-triage</code>.</sub>
-
 </td>
 </tr>
 </table>
