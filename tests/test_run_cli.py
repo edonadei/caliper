@@ -580,11 +580,13 @@ def test_run_refuses_an_expect_spec_when_the_judge_cli_is_missing(
     """Every graded attempt would pay for the agent and land as a judge_error."""
     import caliper.commands.run as run_module
 
-    def never_run(**_: object):
-        raise AssertionError("run() should not be reached")
+    def refuse_before_any_attempt(**kwargs):
+        kwargs["before_attempts"]()
+        raise AssertionError("no attempt should be scheduled")
 
     monkeypatch.setattr(run_module, "get_harness", lambda *a, **k: _NoPromptCli())
-    monkeypatch.setattr(run_module, "run", never_run)
+    monkeypatch.setattr(run_module, "make_progress", lambda *a, **k: (_Progress(), {}))
+    monkeypatch.setattr(run_module, "run", refuse_before_any_attempt)
     spec = tmp_path / "s.eval.yaml"
     spec.write_text("tasks:\n  - {name: t, prompt: p, expect: it worked}\n")
 
@@ -663,6 +665,7 @@ def test_run_ignores_a_missing_judge_cli_when_no_task_has_expect(
     ran = []
 
     def fake_run(**kwargs):
+        kwargs["before_attempts"]()
         ran.append(True)
         return RunResults(
             run=RunMeta(

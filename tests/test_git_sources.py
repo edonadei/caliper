@@ -428,9 +428,9 @@ def test_validate_stays_offline_with_an_uncached_git_source(
 def test_run_refuses_an_unfetchable_git_source(tmp_path: Path, monkeypatch):
     """A member silently absent would measure against competition that wasn't there."""
     monkeypatch.setenv("CALIPER_CACHE_DIR", str(tmp_path / "cache"))
-    # Past the judge-CLI preflight on a machine without `claude`: the refusal
-    # under test is the fetch's.
-    monkeypatch.setattr(ClaudeCodeHarness, "prompt_cli_missing", lambda self: False)
+    # With no judge CLI either: the spec's own error is diagnosed first, so it
+    # keeps exit 1 rather than the missing judge's 2.
+    monkeypatch.setattr(ClaudeCodeHarness, "prompt_cli_missing", lambda self: True)
     spec = tmp_path / "demo.eval.yaml"
     spec.write_text(
         f"skills:\n"

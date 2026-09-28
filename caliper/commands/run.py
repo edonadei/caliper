@@ -198,15 +198,20 @@ def run_cmd(
             )
 
     judge_harness = get_harness(judge_backend, judge_model_name)
-    if any(t.expect for t in spec.tasks) and judge_harness.prompt_cli_missing():
-        fail(
-            CannotRun(
-                _judge_cli_missing(
-                    judge_backend, backend, named=judge_model is not None
-                ),
-                title="No judge",
+
+    def check_judge_cli() -> None:
+        # Called by the runner once the spec's skills and servers resolved: a
+        # bad skill source keeps its own diagnosis (exit 1) rather than being
+        # masked by a missing judge CLI, and no attempt has been paid for yet.
+        if any(t.expect for t in spec.tasks) and judge_harness.prompt_cli_missing():
+            fail(
+                CannotRun(
+                    _judge_cli_missing(
+                        judge_backend, backend, named=judge_model is not None
+                    ),
+                    title="No judge",
+                )
             )
-        )
 
     name = spec_name(spec_file)
     print_banner(name, k, backend, skill_model)
@@ -311,6 +316,7 @@ def run_cmd(
                 on_attempt_done=on_attempt_done,
                 on_task_done=on_task_done,
                 user_customizations=user_customizations,
+                before_attempts=check_judge_cli,
             )
         except (SkillResolutionError, HarnessConfigurationError) as exc:
             fail(exc)

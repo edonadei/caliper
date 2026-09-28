@@ -485,6 +485,41 @@ def test_runmeta_records_the_model_a_named_judge_resolved_to(tmp_path) -> None:
     assert results.run.judge_model == "claude-opus-5-5"
 
 
+class AlternatingModelJudge(ModelReportingJudge):
+    """A judge whose alias resolves to one model, then another, then the first."""
+
+    def __init__(self, *models: str) -> None:
+        super().__init__(models[0], backend="claude-code", model="opus")
+        self._models = list(models)
+        self._lock = threading.Lock()
+
+    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
+        with self._lock:
+            resolved = self._models.pop(0)
+        return JudgeResult(passed=True, reasoning="ok", resolved_model=resolved)
+
+
+def test_runmeta_records_the_most_common_judge_model_and_warns(tmp_path) -> None:
+    """Attempts finish in timing order: the first to finish must not name the judge."""
+    spec_path = tmp_path / "prov.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    warnings: list[str] = []
+
+    results = run(
+        spec=_one_task_spec(),
+        spec_path=spec_path,
+        harness=ScriptedHarness(agent_result(resolved_model="some/model")),
+        judge=AlternatingModelJudge("model-b", "model-a", "model-a"),
+        k=3,
+        workers=1,
+        timeout=30,
+        on_warning=warnings.append,
+    )
+
+    assert results.run.judge_model == "model-a"
+    assert any(w.startswith("Judge: ") and "model-b" in w for w in warnings)
+
+
 def test_runmeta_records_no_judge_model_when_no_autorater_ran(tmp_path) -> None:
     """An assert-only run names no judge model: nothing graded it but a script.
 

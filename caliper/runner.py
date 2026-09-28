@@ -117,6 +117,10 @@ def run(
     # ``--user-customizations``/``--no-user-customizations``; ``None`` follows the
     # spec, else the default (docs/adr/0028).
     user_customizations: bool | None = None,
+    # Called once the environment resolved and before any attempt is scheduled;
+    # may raise to refuse the run. The CLI checks the judge's CLI here, so a bad
+    # spec is diagnosed first and a missing judge still costs nothing.
+    before_attempts: Callable[[], None] | None = None,
 ) -> RunResults:
     # Before anything that can block: a Ctrl-C during skill fetching has to be
     # honoured by the attempts that would otherwise start right after it.
@@ -135,6 +139,8 @@ def run(
         on_warning=on_warning,
     )
     skill_refs = environment.skill_refs
+    if before_attempts is not None:
+        before_attempts()
 
     # Only the installed skills: a snapshot claims "this is what produced the
     # score", which an ablated skill demonstrably did not.
@@ -221,13 +227,18 @@ def run(
             backend=harness.name,
             model=_recorded_model(harness.model, env.resolved_models, on_warning),
             judge_backend=judge.backend,
-            # Prefer the concrete model an autorater reported (claude-code
-            # resolves an alias like `opus`), else the model the judge was asked
-            # for, so `compare` never reads an alias and the id it resolved to as
-            # two judges. None when neither exists: an assert-only run with no
-            # --judge-model model.
-            judge_model=(env.judge_models[0] if env.judge_models else None)
-            or judge.model,
+            # Recorded like the skill's model: what the autorater reported
+            # (claude-code resolves an alias like `opus`), most common first if
+            # attempts disagree, else the model asked for — so `compare` never
+            # reads an alias and the id it resolved to as two judges. None when
+            # neither exists: an assert-only run with no --judge-model model.
+            judge_model=_recorded_model(
+                judge.model,
+                env.judge_models,
+                (lambda message: on_warning(f"Judge: {message}"))
+                if on_warning
+                else None,
+            ),
             # Like judge_model, None when no task could have reached an
             # autorater: there is no prompt to rebuild.
             judge_prompt_version=judge.prompt_version
