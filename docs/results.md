@@ -306,6 +306,14 @@ All three are `null` on runs saved before they were recorded.
   *Activation admissibility* in [CONTEXT.md](CONTEXT.md).
 - `activation_passed` is the verdict: `null` means **not asserted** (a different
   `null` from `activated`'s, matching the existing `assert_passed` idiom).
+- `builtin_activated` lists the **built-in** skills the agent reached for:
+  skills the agent CLI ships itself (Claude Code's `claude-api`, say), neither
+  declared nor the user's own. They are shown in the report
+  (`Built-in skills  claude-api 2/4  (ship with claude-code; not scored)`) and never scored, so they never fail an
+  `activates:`. It's `[]` when the CLI listed its skills and none of those
+  fired, and `null` when it couldn't be observed: a backend that doesn't list
+  them (only `claude-code` does, from its `init` event), or a timeout or
+  infra failure that showed none.
 - `TaskResult` has `activation_expected` (the task's `activates:` set) plus
   derived `activation_usable` / `activation_successes` / `activation_score`.
 - `AggregateScore` has `avg_activation_score`, `activation_tasks`, and

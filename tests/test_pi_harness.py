@@ -393,6 +393,24 @@ def test_pi_answer_mentioning_auth_on_a_zero_exit_is_not_a_misconfiguration(
     assert result.final_output == "Return 401 Unauthorized here."
 
 
+def test_pi_seeds_models_json_so_custom_providers_resolve(
+    monkeypatch, tmp_path
+) -> None:
+    # A provider defined only in ~/.pi/agent/models.json must exist in the
+    # attempt's agent dir too, or `--model pi:<provider>/<model>` fails (#178).
+    real = tmp_path / "real" / ".pi" / "agent"
+    real.mkdir(parents=True)
+    (real / "models.json").write_text('{"providers": {"mock": {}}}')
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "real")
+
+    harness = PiHarness()
+    ctx = run_context(isolated_home=str(tmp_path / "home"))
+    harness._seed_home(ctx)
+
+    seeded = tmp_path / "home" / ".pi" / "agent" / "models.json"
+    assert seeded.read_text() == '{"providers": {"mock": {}}}'
+
+
 def test_pi_declares_mcp_unsupported_by_design() -> None:
     # pi has no MCP support by design; the harness advertises that permanence via
     # a hint (the run seam turns it into a tailored refusal) and never claims to

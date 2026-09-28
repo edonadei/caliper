@@ -84,11 +84,19 @@ Every entry is installed at the agent's own skills root under its frontmatter
 `name:`, and **nothing is preloaded**. Entries are peers: no entry is "the skill
 under test", so `activates:` always names skills explicitly.
 
-The set is closed. The agent sees these skills and nothing else, which is what
-makes activation a measurement rather than a guess. It also means a skill you
-*don't* declare can never activate. If yours delegates to another skill, declare
-that one too and list the whole chain (`activates: [mine, helper]`), which makes
-"did it actually delegate?" assertable.
+The set is closed. Caliper installs these skills and nothing else, which is
+what makes activation a measurement rather than a guess. A skill you don't
+declare is never installed, so `activates:` never counts it. If yours delegates
+to another skill, declare that one too and list the whole chain
+(`activates: [mine, helper]`), which makes "did it actually delegate?"
+assertable.
+
+The one exception is the skills an agent CLI ships inside its own binary, such
+as Claude Code's `claude-api`. They stay discoverable in every run, isolated or
+not, because they're part of the engine. When one fires, the report shows it as
+a **built-in skill**, and it never counts against `activates:`. Seeing one there
+next to a skill of yours that didn't fire means the built-in skill won that
+prompt.
 
 A skill must be a `SKILL.md` in a directory, with frontmatter `name:` and
 `description:`. A lone slash-command `.md` is rejected: with no name and no

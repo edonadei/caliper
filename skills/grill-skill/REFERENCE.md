@@ -80,7 +80,9 @@ validation.
   and nothing else, `[]` means silence. Names are the frontmatter `name:`, not
   filenames. By default the user's own skills are installed too, and one that
   fires fails the match; isolate the run to install only the declared skills.
-  If yours delegates to another, declare it and list the whole chain.
+  Skills the CLI ships itself (Claude Code's `claude-api`) never fail it: they
+  show as `Built-in skills`, unscored. If yours delegates to another, declare it and
+  list the whole chain.
 - **Single-shot.** Each attempt is one prompt; nobody answers the agent's
   questions. For a skill that asks before acting, judge the first turn:
   `expect:` the question, `assert:` that nothing was done yet.
