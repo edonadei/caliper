@@ -338,6 +338,36 @@ tasks:
 
 When both `expect` and `assert` are present, both must pass.
 
+#### Checking how the agent worked
+
+An `assert:` can also check the transcript: which tools the agent called, how
+often, in what order. That needs no paid, noisy judge call. The script gets
+`CALIPER_TRANSCRIPT`, the path to a JSON list of the attempt's turns, in the
+same shape as `transcript` in the [results JSON](results.md#usage-and-transcript-fields):
+`role` (`user`, `assistant`, `tool_use`, `tool_result`), `content`, and
+`tool_name`/`tool_input`/`tool_output` when present. It works on every backend,
+but tool names are the backend's own (`Bash` on claude-code, `shell` on codex).
+
+`caliper.assertions` reads it for you. `tool_calls(name=None, match=None)`
+returns the `tool_use` turns in order, keeping calls to `name` and, with
+`match`, those where the regex matches some string in the call's input:
+
+```yaml
+tasks:
+  - name: Runs the tests, carefully
+    prompt: "The test suite fails. Fix it."
+    assert: |
+      from caliper.assertions import tool_calls
+      assert tool_calls("Bash", match=r"pytest"), "never ran the tests"
+      assert not tool_calls("Bash", match=r"rm -rf"), "ran rm -rf"
+      assert len(tool_calls("WebFetch")) <= 3, "fetched too much"
+```
+
+The file sits beside the workdir, not in it, and is written after the agent
+has exited, so the agent can't read or forge it. An attempt that read a file
+matching `sandbox.forbidden_files` is scored `cheat` before any check runs, so a
+transcript holding the answer key never reaches an `assert:`.
+
 ## Attempt workdir
 
 Every attempt gets a fresh, empty directory. `setup:`, the agent, `assert:`, the
@@ -346,12 +376,13 @@ each of them. It's deleted once the attempt is recorded.
 
 It's not your spec's directory and not a git repository: a task that needs files
 or a repo builds them in `setup:`. Hooks and assertions see two environment
-variables:
+variables, and `assert:` a third:
 
 | Variable | Value |
 |---|---|
 | `CALIPER_WORKDIR` | the attempt workdir |
 | `CALIPER_SPEC_DIR` | the directory holding the `.eval.yaml` |
+| `CALIPER_TRANSCRIPT` | `assert:` only: the attempt's transcript as JSON ([details](#checking-how-the-agent-worked)) |
 
 ```yaml
 tasks:

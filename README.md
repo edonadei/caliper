@@ -174,6 +174,9 @@ There are three kinds of check, and a task needs at least one:
 - `expect:` is graded by an LLM judge.
 - `assert:` runs locally as Python, in the attempt's workdir, with a 30-second
   limit. One that runs longer has no verdict, rather than failing the task.
+  It can check how the agent worked too, from the transcript in
+  `CALIPER_TRANSCRIPT` (`from caliper.assertions import tool_calls`), with no
+  judge call.
 - `activates:` asserts which skills the agent chose to load.
 
 The third task is the one you can't write any other way. Both skills read git

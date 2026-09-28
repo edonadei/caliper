@@ -4,6 +4,7 @@ import hashlib
 import json
 import time
 from collections.abc import Sequence
+from dataclasses import asdict
 from pathlib import Path
 
 from caliper.harness import get_harness
@@ -19,7 +20,7 @@ from caliper.schema.spec import (
     TaskSpec,
     assert_script_path,
 )
-from caliper.workdir import AttemptWorkdir, StepPhase
+from caliper.workdir import TRANSCRIPT_ENV, AttemptWorkdir, StepPhase
 
 _SYSTEM = """\
 You are an evaluation judge for an AI assistant. You will be shown a conversation \
@@ -125,14 +126,17 @@ JUDGE_PROMPT_VERSION = _prompt_version()
 
 
 def _run_inline_script(
-    code: str, workdir: AttemptWorkdir, phase: StepPhase
+    code: str,
+    workdir: AttemptWorkdir,
+    phase: StepPhase,
+    env: dict[str, str] | None = None,
 ) -> tuple[bool | None, str]:
     """Run an assertion in the attempt workdir, where the agent left its files.
 
     ``(None, evidence)`` when it timed out: a check that hung has no verdict,
     so it cannot count against the skill (docs/adr/0029).
     """
-    step = workdir.run_python(phase, code)
+    step = workdir.run_python(phase, code, env)
     if step.timed_out_after is not None:
         return None, f"{phase} timed out after {step.timed_out_after}s"
     if step.ok:
@@ -177,9 +181,16 @@ def _parse_rich_response(
 
 
 def _run_assert_from_task(
-    task: TaskSpec, workdir: AttemptWorkdir
+    task: TaskSpec, transcript: list[ConversationTurn], workdir: AttemptWorkdir
 ) -> tuple[bool | None, str] | None:
-    """Run the static assert field from the task spec, if present."""
+    """Run the static assert field from the task spec, if present.
+
+    The script gets the transcript as ``CALIPER_TRANSCRIPT``: a JSON list of
+    turns shaped like ``AttemptRecord.transcript`` in the results JSON, so a
+    check on *how* the agent worked needs no paid judge call. It reveals
+    nothing the author's own script could not already read: an attempt that
+    read a forbidden file is scored ``cheat`` before any check runs.
+    """
     if not task.assert_script:
         return None
 
@@ -191,7 +202,9 @@ def _run_assert_from_task(
             return False, f"assert script not found: {script_path}"
         code = script_path.read_text()
 
-    return _run_inline_script(code, workdir, "assert")
+    turns = json.dumps([asdict(t) for t in transcript], ensure_ascii=False)
+    env = {TRANSCRIPT_ENV: workdir.stage(".json", turns)}
+    return _run_inline_script(code, workdir, "assert", env)
 
 
 class EvalJudge(Judge):
@@ -233,7 +246,7 @@ class EvalJudge(Judge):
         autorater_reasoning: str | None = None
         autorater_errored = False
 
-        static_result = _run_assert_from_task(task, workdir)
+        static_result = _run_assert_from_task(task, transcript, workdir)
         if static_result is not None:
             assert_passed, assert_evidence = static_result
 

@@ -95,6 +95,11 @@ validation.
   Fixed `/tmp` paths collide across attempts running in parallel. A failed
   `setup:`, or one running past 600 seconds, records an unusable `infra_error`.
   An `assert:` is killed after 30 seconds and gives no verdict.
+- **Process checks belong in `assert:`.** "Did it run the tests? Did it avoid
+  `rm -rf`?" reads the transcript for free: `assert:` gets
+  `CALIPER_TRANSCRIPT` (a JSON list of turns, as in the results JSON), and
+  `from caliper.assertions import tool_calls` filters its tool calls by name
+  and by a regex over their input. Keep `expect:` for what needs judgment.
 - **`expect:` is a pass/fail criterion.** Say what evidence the judge should
   look for and what counts as failure:
 

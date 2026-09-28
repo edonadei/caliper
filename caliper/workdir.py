@@ -30,6 +30,9 @@ from caliper import cancel
 WORKDIR_ENV = "CALIPER_WORKDIR"
 #: The spec's own directory, where an author keeps fixtures to copy in.
 SPEC_DIR_ENV = "CALIPER_SPEC_DIR"
+#: The attempt's transcript as a JSON file, for ``assert:`` alone: the other
+#: steps run before the agent or have no verdict to give.
+TRANSCRIPT_ENV = "CALIPER_TRANSCRIPT"
 
 StepPhase = Literal["setup", "assert", "check", "cleanup"]
 
@@ -119,23 +122,43 @@ class AttemptWorkdir:
         """
         return self._run(phase, cmd, shell=True)
 
-    def run_python(self, phase: StepPhase, code: str) -> StepResult:
+    def run_python(
+        self, phase: StepPhase, code: str, env: dict[str, str] | None = None
+    ) -> StepResult:
         """Run Python source in the workdir with this interpreter.
 
-        The source is staged in the attempt's temp dir, beside the workdir
-        rather than in it, so the step sees only what the agent left.
+        The source is staged beside the workdir rather than in it, so the step
+        sees only what the agent left. ``env`` adds variables for this step.
         """
-        with tempfile.NamedTemporaryFile(
-            suffix=".py", mode="w", dir=self._require_root(), delete=False
-        ) as f:
-            f.write(code)
-            script = f.name
+        script = self.stage(".py", code)
         try:
-            return self._run(phase, [sys.executable, script], shell=False)
+            return self._run(phase, [sys.executable, script], shell=False, env=env)
         finally:
             Path(script).unlink(missing_ok=True)
 
-    def _run(self, phase: StepPhase, args: str | list[str], shell: bool) -> StepResult:
+    def stage(self, suffix: str, text: str) -> str:
+        """Write ``text`` to a new file in the attempt's temp dir; its path.
+
+        Beside the workdir rather than in it, so it is not among what the agent
+        left, and it goes when the attempt does.
+        """
+        with tempfile.NamedTemporaryFile(
+            suffix=suffix,
+            mode="w",
+            encoding="utf-8",
+            dir=self._require_root(),
+            delete=False,
+        ) as f:
+            f.write(text)
+            return f.name
+
+    def _run(
+        self,
+        phase: StepPhase,
+        args: str | list[str],
+        shell: bool,
+        env: dict[str, str] | None = None,
+    ) -> StepResult:
         limit = _STEP_TIMEOUTS[phase]
         # Tagged like an agent CLI, so a kill reaches descendants that left
         # its process group or outlived it.
@@ -145,6 +168,7 @@ class AttemptWorkdir:
         # test, and have always run with the developer's ``HOME`` and ``PATH``.
         env = {
             **os.environ,
+            **(env or {}),
             WORKDIR_ENV: self.path,
             SPEC_DIR_ENV: self.spec_dir,
             cancel.PROCESS_TAG: process_tag,

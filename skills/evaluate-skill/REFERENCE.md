@@ -108,7 +108,14 @@ checks before its first attempt):
   spec's directory and not a git repo: build what the task needs in `setup:`
   (`cp -R "$CALIPER_SPEC_DIR/fixture/." .`, `git init`). Hooks and assertions
   get `CALIPER_WORKDIR` and `CALIPER_SPEC_DIR`. `assert: ./check.py` resolves
-  against the spec's directory. Fixed `/tmp` paths collide across attempts
+  against the spec's directory.
+- **Check how the agent worked with `assert:`, not `expect:`.** `assert:` also
+  gets `CALIPER_TRANSCRIPT`, a JSON list of the attempt's turns (`role`,
+  `content`, `tool_name`, `tool_input`, `tool_output`), shaped like `transcript`
+  in the results JSON. `from caliper.assertions import tool_calls` then
+  `tool_calls("Bash", match=r"pytest")` lists matching tool calls in order,
+  so which tools, how many and in what order cost no judge call. Tool names
+  are the backend's own (`Bash` on claude-code, `shell` on codex). Fixed `/tmp` paths collide across attempts
   running in parallel.
 - **Hooks and asserts are time-limited.** A failed `setup:`, or one still
   running after 600 seconds, records an unusable `infra_error` and skips the

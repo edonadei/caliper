@@ -284,7 +284,8 @@ time, and it only appears when a judge ran.
 - Each `AttemptRecord` also has an optional `transcript` array of ordered turns
   (`role`, `content`, and `tool_name`/`tool_input`/`tool_output` when present).
   It preserves the full tool-call trace for later inspection. Older JSON without
-  the field still loads (`transcript` is `null`).
+  the field still loads (`transcript` is `null`). An `assert:` script sees the
+  same list, as the JSON file `CALIPER_TRANSCRIPT` names.
 - Each `SkillSnapshot` records `source_kind` (`"path"` or `"git"`) alongside
   `git_repo`/`git_sha`, so a saved run says how each member of the neighbourhood
   was obtained and, for a git source, the exact commit. Older JSON without the

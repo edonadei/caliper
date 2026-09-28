@@ -764,6 +764,40 @@ def test_agent_setup_and_assert_share_one_attempt_workdir(
     assert harness.workdir is not None and not Path(harness.workdir).exists()
 
 
+def test_assert_reads_the_transcript_from_caliper_transcript(tmp_path) -> None:
+    # Issue #215: a check on which tools the agent used needed a paid judge.
+    task = TaskSpec(
+        id="task-001",
+        name="Reads the wiki",
+        prompt="Look it up",
+        assert_script=(
+            "import json, os\n"
+            "from pathlib import Path\n"
+            "from caliper.assertions import tool_calls\n"
+            "path = Path(os.environ['CALIPER_TRANSCRIPT'])\n"
+            "assert path.parent != Path.cwd()\n"
+            "turns = json.loads(path.read_text())\n"
+            "assert [t['role'] for t in turns] == "
+            "['assistant', 'tool_use', 'tool_result']\n"
+            "assert len(tool_calls('mcp__wiki__read', match='^home$')) == 1\n"
+            "assert tool_calls(match='away') == []\n"
+            "assert tool_calls('Bash') == []\n"
+        ),
+    )
+
+    results = run(
+        EvalSpec(tasks=[task]),
+        tmp_path / "transcript.eval.yaml",
+        ScriptedHarness(_TOOL_CALL_RESULT),
+        EvalJudge(),
+        k=1,
+        workers=1,
+    )
+
+    record = results.task_results[0].attempts[0]
+    assert record.outcome is Outcome.PASS, record.assert_evidence
+
+
 def test_hooks_see_the_workdir_and_spec_dir_env(tmp_path) -> None:
     seen = tmp_path / "seen"
     task = TaskSpec(
