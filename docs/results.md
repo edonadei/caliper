@@ -266,11 +266,12 @@ time, and it only appears when a judge ran.
   `git_repo`/`git_sha`, so a saved run says how each member of the neighbourhood
   was obtained and, for a git source, the exact commit. Older JSON without the
   field still loads and reads as `"path"`.
+
 ### Judge input fields
 
-What the LLM judge saw and ran is kept in the JSON for inspection. None of it
-appears in the terminal report, even with `--verbose`, which shows only the
-judge's reasoning.
+What the LLM judge saw and ran is kept in the JSON for inspection. The default
+report shows only the judge's reasoning. `--verbose` adds each task's `expect`
+and any script the judge wrote.
 
 - `TaskResult.expect` is the task's `expect:` as it read when the run was
   judged, so the judge's input survives a later edit to the spec.

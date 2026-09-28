@@ -218,21 +218,24 @@ def test_failed_task_output_shown_by_default() -> None:
     assert "the agent said this" in out
 
 
-def test_judge_input_stays_in_the_json_not_the_report() -> None:
-    """The judge's expectation and script are for inspecting the saved run."""
+def test_judge_input_shows_only_under_verbose() -> None:
+    """The judge's expectation and script are for inspecting, not the default."""
     task = _make_task("task-001", passed=False, autorater_reasoning="no file")
-    task.expect = "writes the MARKER file"
-    task.attempts[0].autorater_script = "assert open('MARKER').read()"
+    task.expect = "writes the EXPECTED file"
+    task.attempts[0].autorater_script = "assert open('SCRIPTED').read()"
     results = _make_results([task])
 
-    out = _render(results, verbose=True)
+    default = _render(results)
+    verbose = _render(results, verbose=True)
 
-    assert "no file" in out
-    assert "MARKER" not in out
+    assert "no file" in default
+    assert "EXPECTED" not in default and "SCRIPTED" not in default
+    assert "writes the EXPECTED file" in verbose
+    assert "assert open('SCRIPTED').read()" in verbose
     saved = RunResults.model_validate_json(results.model_dump_json())
-    assert saved.task_results[0].expect == "writes the MARKER file"
+    assert saved.task_results[0].expect == "writes the EXPECTED file"
     assert saved.task_results[0].attempts[0].autorater_script == (
-        "assert open('MARKER').read()"
+        "assert open('SCRIPTED').read()"
     )
 
 
