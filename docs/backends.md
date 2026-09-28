@@ -70,9 +70,9 @@ failures from the CLI's error output, not from an agent discussing authenticatio
 The CLI ships skills of its own (`claude-api`, `debug` and others) that stay
 discoverable even in an isolated run. Caliper reads which ones the CLI exposed
 from its `init` event, and reports any the agent reaches for as
-**auto-bundled**: shown in the report and in `bundled_activated`, never scored
-against `activates:`. The other backends don't list their bundled skills yet,
-so they record `bundled_activated: null`.
+**built-in skills**: shown in the report and in `builtin_activated`, never scored
+against `activates:`. The other backends don't list their built-in skills yet,
+so they record `builtin_activated: null`.
 
 ## Codex
 

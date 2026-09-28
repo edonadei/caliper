@@ -227,9 +227,9 @@ means the `description` is wrong; a green activation column with a low score
 means the body is. Per skill, the report shows how often it fires when wanted
 and when not wanted. A task without `activates:` renders *skipped*, never `0%`.
 A skill the agent CLI ships itself (Claude Code's `claude-api`, say) can still
-fire. It shows as `Auto-bundled` under the activation table and is never scored,
+fire. It shows as `Built-in skills` under the activation table and is never scored,
 so it never fails `activates:`. If one shows up on a prompt your skill should
-have taken, the bundled skill won that prompt.
+have taken, the built-in skill won that prompt.
 
 **Ablation.** `--ablate NAME` removes a declared skill, or an `mcp:` server,
 from the run. Qualify it as `skill:<name>` or `mcp:<name>` when both declare the

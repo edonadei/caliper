@@ -315,7 +315,7 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     # table would then be a second, unscored view of the same attempts.
     if results.run.ablated_skills:
         _print_observed_activations(results)
-    _print_bundled_activations(results)
+    _print_builtin_activations(results)
     _print_unusable_summary(results)
     console.print()
     _print_usage_summary(results.usage)
@@ -354,18 +354,18 @@ def _print_observed_activations(results: RunResults) -> None:
     console.print(table)
 
 
-def _print_bundled_activations(results: RunResults) -> None:
+def _print_builtin_activations(results: RunResults) -> None:
     """The CLI's own skills the agent reached for, shown whether or not
-    anything was asserted and never scored (docs/CONTEXT.md → Auto-bundled
-    skill). Without it, a bundled skill winning the prompt reads the same as
+    anything was asserted and never scored (docs/CONTEXT.md → Built-in
+    skill). Without it, a built-in skill winning the prompt reads the same as
     nothing firing."""
-    rows = ObservedActivation.bundled_from_task_results(results.task_results)
+    rows = ObservedActivation.builtin_from_task_results(results.task_results)
     if not rows:
         return
     fired = ", ".join(f"{row.skill} {row.fired}/{row.observed}" for row in rows)
     console.print(
-        f" [bold]Auto-bundled[/bold]  {escape(fired)}"
-        f"  [dim](the CLI's own skills; shown, not scored)[/dim]"
+        f" [bold]Built-in skills[/bold]  {escape(fired)}"
+        f"  [dim](ship with {escape(results.run.backend)}; not scored)[/dim]"
     )
 
 
@@ -741,10 +741,10 @@ def _print_task_detail(tr: TaskResult, k: int) -> None:
                 "    [dim]activated so far[/dim]",
                 f"[dim]{escape(reached)}[/dim]",
             )
-        if attempt.bundled_activated:
+        if attempt.builtin_activated:
             grid.add_row(
-                "    [dim]auto-bundled[/dim]",
-                f"[dim]{escape(', '.join(attempt.bundled_activated))}[/dim]",
+                "    [dim]built-in[/dim]",
+                f"[dim]{escape(', '.join(attempt.builtin_activated))}[/dim]",
             )
         grid.add_row("    [dim]output[/dim]", _format_output(attempt.output))
         if attempt.assert_evidence:

@@ -296,12 +296,12 @@ def _skill_call(name: str) -> ConversationTurn:
     )
 
 
-def test_an_auto_bundled_skill_is_shown_but_does_not_fail_silence():
+def test_a_built_in_skill_is_shown_but_does_not_fail_silence():
     # The CLI's own claude-api fired on a task asserting nothing should (#220).
     assembled = _assemble(
         _result(
             transcript=[_skill_call("claude-api")],
-            bundled_skill_names=["claude-api", "debug"],
+            builtin_skill_names=["claude-api", "debug"],
         ),
         activation=_detector(),
         expected_activation=[],
@@ -309,15 +309,15 @@ def test_an_auto_bundled_skill_is_shown_but_does_not_fail_silence():
 
     assert assembled.record.activated == []
     assert assembled.record.activation_passed is True
-    assert assembled.record.bundled_activated == ["claude-api"]
+    assert assembled.record.builtin_activated == ["claude-api"]
 
 
-def test_a_plugin_skill_read_is_not_credited_to_a_bundled_namesake():
+def test_a_plugin_skill_read_is_not_credited_to_a_built_in_namesake():
     plugin_path = "plugins/cache/0/review/skills/debug/SKILL.md"
     assembled = _assemble(
         _result(
             transcript=[_read_turn(f"/home/.claude/{plugin_path}")],
-            bundled_skill_names=["debug"],
+            builtin_skill_names=["debug"],
             user_skill_names=["review:debug"],
             user_skill_paths={"review:debug": plugin_path},
         ),
@@ -326,17 +326,17 @@ def test_a_plugin_skill_read_is_not_credited_to_a_bundled_namesake():
     )
 
     assert assembled.record.activated == ["review:debug"]
-    assert assembled.record.bundled_activated == []
+    assert assembled.record.builtin_activated == []
 
 
-def test_bundled_activation_is_unobserved_when_the_backend_cannot_list_them():
+def test_built_in_activation_is_unobserved_when_the_backend_cannot_list_them():
     assembled = _assemble(
         _result(transcript=[_skill_call("claude-api")]),
         activation=_detector(),
         expected_activation=[],
     )
 
-    assert assembled.record.bundled_activated is None
+    assert assembled.record.builtin_activated is None
 
 
 def test_activation_rides_on_a_cheat_too():

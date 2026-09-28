@@ -94,8 +94,8 @@ assertable.
 The one exception is the skills an agent CLI ships inside its own binary, such
 as Claude Code's `claude-api`. They stay discoverable in every run, isolated or
 not, because they're part of the engine. When one fires, the report shows it as
-**auto-bundled**, and it never counts against `activates:`. Seeing one there
-next to a skill of yours that didn't fire means the bundled skill won that
+a **built-in skill**, and it never counts against `activates:`. Seeing one there
+next to a skill of yours that didn't fire means the built-in skill won that
 prompt.
 
 A skill must be a `SKILL.md` in a directory, with frontmatter `name:` and

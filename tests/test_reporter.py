@@ -490,7 +490,7 @@ def test_trigger_probe_attempt_shows_its_activation_verdict() -> None:
     assert "✓ Attempt 2" in out
 
 
-def test_auto_bundled_activations_are_shown_without_being_scored() -> None:
+def test_built_in_activations_are_shown_without_being_scored() -> None:
     attempts = [
         AttemptRecord(
             attempt=n,
@@ -499,9 +499,9 @@ def test_auto_bundled_activations_are_shown_without_being_scored() -> None:
             outcome=Outcome.NOT_CHECKED,
             activated=[],
             activation_passed=True,
-            bundled_activated=bundled,
+            builtin_activated=builtin,
         )
-        for n, bundled in ((1, ["claude-api"]), (2, []))
+        for n, builtin in ((1, ["claude-api"]), (2, []))
     ]
     task = TaskResult(
         task_id="probe",
@@ -523,7 +523,7 @@ def test_auto_bundled_activations_are_shown_without_being_scored() -> None:
     out = _render_markup(results)
 
     assert "Activation  100.0%" in out
-    assert "Auto-bundled  claude-api 1/2" in out
+    assert "Built-in skills  claude-api 1/2  (ship with claude-code; not scored)" in out
 
 
 def test_truncating_escaped_markup_cannot_expose_a_tag() -> None:

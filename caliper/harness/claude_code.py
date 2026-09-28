@@ -545,7 +545,7 @@ class ClaudeCodeHarness(CliHarness):
         ]
 
     def _exposed_skills(self, proc: ProcessResult) -> list[str] | None:
-        """The ``init`` event's ``skills``: declared, user and CLI-bundled alike."""
+        """The ``init`` event's ``skills``: declared, user and built-in alike."""
         skills = _init_event(proc.stdout).get("skills")
         if not isinstance(skills, list):
             return None

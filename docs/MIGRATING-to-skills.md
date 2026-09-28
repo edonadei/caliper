@@ -94,7 +94,7 @@ tasks:
 declare that other skill in `skills:` and enumerate the chain
 (`activates: [mine, helper]`). An undeclared skill is never installed, and
 `validate` rejects an `activates:` that names one. A skill the agent CLI ships
-itself can still fire; the report shows it as auto-bundled, never scored.
+itself can still fire; the report shows it as a built-in skill, never scored.
 
 A task with `activates:` and no `expect:`/`assert:` is a **trigger probe**: it
 skips the judge entirely (much cheaper) and reports as `trigger only`, not a

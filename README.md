@@ -251,8 +251,8 @@ fresh empty working directory. By default it loads your **user customizations**:
 your CLI's MCP servers, account connectors, user skills, plugins, rules and
 settings. Declared skills and servers win name clashes, even when ablated.
 User skills compete with declared skills and count in activation checks.
-Skills the CLI ships itself (Claude Code's `claude-api`) show as auto-bundled
-and are never scored.
+Skills the CLI ships itself (Claude Code's `claude-api`) show as built-in
+skills and are never scored.
 Hermes keeps its neutral memory/persona policy; see [backend details](docs/backends.md#loading-your-user-customizations).
 Hooks run as part of the attempt, subject to its timeout.
 Results are saved as JSON you can inspect and diff later, including which user

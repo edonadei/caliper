@@ -344,7 +344,7 @@ enumerated (`activates: [a, b, c]`), which makes "did it actually delegate?"
 assertable. This is affordable only because the [[skill neighbourhood]] is
 closed: an undeclared skill is not installed and never counts, so the
 enumeration is bounded by a list the author wrote. The CLI's own
-[[auto-bundled skill|auto-bundled skills]] can still fire, and are shown
+[[built-in skill|built-in skills]] can still fire, and are shown
 beside the score rather than in it.
 
 Alongside it, per-skill **recall** and **precision**, counted over attempts:
@@ -405,15 +405,16 @@ _Avoid_: unusable activation (an attempt that is [[usable / unusable
 attempt|unusable]] for the [[success rate|score]] may still be
 activation-admissible — a `judge_error` is).
 
-## Auto-bundled skill
+## Built-in skill
 
 A skill the agent CLI ships inside its own binary (Claude Code's `claude-api`,
 say), so it is discoverable in every run, isolated or not. It is neither
 declared nor a user customization: it is part of the engine, like a built-in
-tool. Its [[activation]] is **shown, never scored**. It never fails an
-`activates:`, but the report lists it, because otherwise "my `description`
-didn't trigger" and "a bundled skill won the prompt" would look the same.
-_Avoid_: system skill, built-in skill (when you mean the CLI shipped it).
+tool; Claude Code itself calls it a bundled skill. Its [[activation]] is
+**shown, never scored**. It never fails an `activates:`, but the report lists
+it, because otherwise "my `description` didn't trigger" and "a built-in skill
+won the prompt" would look the same.
+_Avoid_: bundled or auto-bundled skill (in anything a user reads), system skill.
 
 ## Skill neighbourhood
 

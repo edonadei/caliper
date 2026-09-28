@@ -438,7 +438,7 @@ def test_claude_harness_user_customizations_merge_with_the_spec_winning(
     assert result.loaded_user_customizations == ["mcp:claude.ai Gmail", "mcp:personal"]
 
 
-def test_claude_harness_reports_the_cli_bundled_skills_apart_from_declared(
+def test_claude_harness_reports_the_cli_built_in_skills_apart_from_declared(
     monkeypatch, tmp_path
 ) -> None:
     skill_dir = tmp_path / "src"
@@ -465,10 +465,10 @@ def test_claude_harness_reports_the_cli_bundled_skills_apart_from_declared(
         run_context(skill_refs=refs, isolated_home=str(tmp_path / "home"))
     )
 
-    assert result.bundled_skill_names == ["claude-api", "debug"]
+    assert result.builtin_skill_names == ["claude-api", "debug"]
 
 
-def test_claude_harness_cannot_list_bundled_skills_without_an_init_event() -> None:
+def test_claude_harness_cannot_list_built_in_skills_without_an_init_event() -> None:
     proc = ProcessResult(
         stdout='{"type": "result"}', stderr="", returncode=0, timed_out=False
     )

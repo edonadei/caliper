@@ -89,9 +89,9 @@ class AttemptResult:
     user_skill_names: list[str] = field(default_factory=list)
     user_skill_paths: dict[str, str] = field(default_factory=dict)
     # Skills the CLI ships and exposes on its own, beyond the declared and user
-    # ones: shown as auto-bundled, never scored. ``None`` when the backend
-    # cannot list them (see docs/CONTEXT.md → Auto-bundled skill).
-    bundled_skill_names: list[str] | None = None
+    # ones: shown as built-in, never scored. ``None`` when the backend
+    # cannot list them (see docs/CONTEXT.md → Built-in skill).
+    builtin_skill_names: list[str] | None = None
 
 
 @dataclass
@@ -449,12 +449,12 @@ class CliHarness(HarnessBackend):
             ),
             user_skill_paths=plugin_skills,
             user_skill_names=sorted(set(user_skills) | set(plugin_skills)),
-            bundled_skill_names=self._bundled_skills(
+            builtin_skill_names=self._builtin_skills(
                 proc, ctx, set(user_skills) | set(plugin_skills)
             ),
         )
 
-    def _bundled_skills(
+    def _builtin_skills(
         self, proc: ProcessResult, ctx: RunContext, user_skills: set[str]
     ) -> list[str] | None:
         """The exposed skills that are neither declared nor the user's own."""
@@ -579,7 +579,7 @@ class CliHarness(HarnessBackend):
     def _exposed_skills(self, proc: ProcessResult) -> list[str] | None:
         """Every skill the CLI said it exposed to the attempt, whatever its source.
 
-        ``None`` when this backend's CLI does not list them, so an auto-bundled
+        ``None`` when this backend's CLI does not list them, so a built-in
         activation reads as unobserved rather than as "none fired".
         """
         return None
