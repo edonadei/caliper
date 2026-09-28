@@ -85,45 +85,36 @@ Claude Code, Codex, Pi, Hermes. One spec, pick the engine at run time.
 
 <table>
 <tr>
-<th width="50%">🤖 Let your agent drive</th>
-<th width="50%">⌨️ Run the CLI yourself</th>
+<th width="50%">🤖 In your agent</th>
+<th width="50%">⌨️ In your terminal</th>
 </tr>
 <tr>
 <td valign="top">
 
 ```bash
 npx skills@latest add edonadei/caliper
-```
 
-Then, in your agent:
-
-```text
+# then, in your agent:
 /grill-skill ./inbox-triage/SKILL.md
-/evaluate-skill run ./inbox-triage/inbox-triage.eval.yaml --k 3
 ```
+
+<sub><code>grill-skill</code> interviews you, writes the spec, and runs it with and without your skill.</sub>
 
 </td>
 <td valign="top">
 
 ```bash
-pipx install caliper-eval   # Python 3.10+
-```
+pipx install caliper-eval
+SPEC=inbox-triage/inbox-triage.eval.yaml
 
-Then:
-
-```bash
-# Without the skill first, then with it.
-caliper run inbox-triage/inbox-triage.eval.yaml \
-  --k 3 --ablate inbox-triage
-caliper run inbox-triage/inbox-triage.eval.yaml --k 3
-
-# Diff the ablated run (its ID is in
-# `caliper list`) against the latest one.
-caliper list inbox-triage
+caliper run $SPEC --ablate inbox-triage
+caliper run $SPEC
 caliper compare \
   .caliper/results/inbox-triage/RUN_ID.json \
   inbox-triage
 ```
+
+<sub>Get <code>RUN_ID</code> (the ablated run) from <code>caliper list inbox-triage</code>.</sub>
 
 </td>
 </tr>
@@ -222,7 +213,7 @@ pick one with `--judge-model` (see [Choosing an engine](#choosing-an-engine)).
 ### Read the output
 
 ```bash
-caliper run inbox-triage.eval.yaml --k 3
+caliper run inbox-triage.eval.yaml
 ```
 
 <p align="center">
