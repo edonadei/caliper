@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import pytest
 from caliper.harness.base import HarnessConfigurationError
 from caliper.harness.base import ProcessResult
 from caliper.harness.claude_code import ClaudeCodeHarness
+from caliper.sandbox import SpecSandbox
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
 
@@ -88,6 +90,69 @@ def test_claude_harness_accepts_runner_contract_with_extra_path(
     assert "--dangerously-skip-permissions" in cmd
     assert cmd[cmd.index("--model") + 1] == "claude-test"
     assert kwargs["env"]["PATH"].startswith(str(tmp_path / "bin"))
+
+
+def test_claude_harness_attempt_can_read_a_file_its_skill_references(
+    monkeypatch, tmp_path
+) -> None:
+    # Progressive disclosure is only measured in full if the agent can follow
+    # SKILL.md's pointer during the attempt (#217): the file has to be at the
+    # linked path under the HOME the CLI runs with, and reading it is not a cheat.
+    skill_dir = tmp_path / "src"
+    (skill_dir / "references").mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: unit-normalizer\ndescription: Converts units.\n---\n\n"
+        "Read [the table](references/table.md) before answering."
+    )
+    (skill_dir / "references" / "table.md").write_text("1 inch = 2.54 cm")
+    refs = resolve_skills([str(skill_dir / "SKILL.md")], tmp_path)
+    read_path = None
+
+    def fake_run(cmd, **kwargs):
+        nonlocal read_path
+        if cmd[:2] != ["claude", "-p"]:
+            return _ok_stream(cmd)
+        # Act as the agent: open the installed skill, follow its link.
+        skill = Path(kwargs["env"]["HOME"]) / ".claude/skills/unit-normalizer/SKILL.md"
+        link = re.search(r"\]\(([^)]+)\)", skill.read_text()).group(1)
+        read_path = skill.parent / link
+        stdout = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_use",
+                                    "name": "Read",
+                                    "input": {"file_path": str(read_path)},
+                                }
+                            ]
+                        },
+                    }
+                ),
+                json.dumps({"type": "result", "result": read_path.read_text()}),
+            ]
+        )
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+    patch_cli_calls(monkeypatch, fake_run)
+
+    result = ClaudeCodeHarness().run(
+        run_context(
+            skill_refs=refs,
+            isolated_home=str(tmp_path / "home"),
+            workdir=str(tmp_path),
+        )
+    )
+
+    assert result.final_output == "1 inch = 2.54 cm"
+    assert read_path.is_relative_to(tmp_path / "home")
+    assert (
+        SpecSandbox(auto=[str(tmp_path / "x.eval.yaml")]).violations(result.transcript)
+        == []
+    )
 
 
 def test_claude_harness_reports_cli_startup_crash_before_auth(
