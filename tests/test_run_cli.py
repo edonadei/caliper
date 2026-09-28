@@ -596,10 +596,26 @@ def test_run_refuses_an_expect_spec_when_the_judge_cli_is_missing(
     # CliRunner's capture crops the panel to its first line; the full wording is
     # asserted on the message itself.
     assert "--judge-model pi" in result.output
-    message = run_module._judge_cli_missing("pi", "codex")
+    message = run_module._judge_cli_missing("pi", "codex", named=True)
     assert "the pi CLI isn't installed" in message
     # Names the way out: without --judge-model the judge is the --model backend.
     assert "remove --judge-model and codex (your --model) will grade" in message
+
+
+def test_the_missing_judge_message_matches_how_the_judge_was_chosen() -> None:
+    import caliper.commands.run as run_module
+
+    # --judge-model named the same missing CLI as --model: neither removing the
+    # flag nor changing --model alone would help.
+    same = run_module._judge_cli_missing("codex", "codex", named=True)
+    assert "--judge-model codex asks codex" in same
+    assert "point --judge-model at an installed backend" in same
+    assert "with no --judge-model" not in same
+
+    # No --judge-model: the judge follows --model, so --model is the way out.
+    default = run_module._judge_cli_missing("codex", "codex", named=False)
+    assert "with no --judge-model" in default
+    assert "pick an installed one with --model" in default
 
 
 @pytest.mark.parametrize(

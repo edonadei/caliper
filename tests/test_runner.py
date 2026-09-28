@@ -457,6 +457,30 @@ def test_runmeta_fills_default_judge_model_from_autorater(tmp_path) -> None:
     assert results.run.judge_model == "claude-opus-4-8"
 
 
+def test_runmeta_records_the_model_a_named_judge_resolved_to(tmp_path) -> None:
+    """`--judge-model claude-code:opus` records the id opus resolved to.
+
+    Recording the alias would make `compare` read it and the same model reached
+    by default as two different judges.
+    """
+    spec_path = tmp_path / "prov.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+
+    results = run(
+        spec=_one_task_spec(),
+        spec_path=spec_path,
+        harness=ScriptedHarness(agent_result(resolved_model="some/model")),
+        judge=ModelReportingJudge(
+            "claude-opus-5-5", backend="claude-code", model="opus"
+        ),
+        k=1,
+        workers=1,
+        timeout=30,
+    )
+
+    assert results.run.judge_model == "claude-opus-5-5"
+
+
 def test_runmeta_records_no_judge_model_when_no_autorater_ran(tmp_path) -> None:
     """An assert-only run names no judge model: nothing graded it but a script.
 

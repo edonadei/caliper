@@ -221,11 +221,13 @@ def run(
             backend=harness.name,
             model=_recorded_model(harness.model, env.resolved_models, on_warning),
             judge_backend=judge.backend,
-            # Prefer the judge's own model; else the concrete model an autorater
-            # reported (e.g. claude-code). Stays None for assert-only runs, where
-            # no LLM judge ran.
-            judge_model=judge.model
-            or (env.judge_models[0] if env.judge_models else None),
+            # Prefer the concrete model an autorater reported (claude-code
+            # resolves an alias like `opus`), else the model the judge was asked
+            # for, so `compare` never reads an alias and the id it resolved to as
+            # two judges. None when neither exists: an assert-only run with no
+            # --judge-model model.
+            judge_model=(env.judge_models[0] if env.judge_models else None)
+            or judge.model,
             era=ERA_INSTALL_AND_DISCOVER,
             ablated=environment.ablated,
             # What the run's tool environment actually held, so a saved run

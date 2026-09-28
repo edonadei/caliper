@@ -58,8 +58,10 @@ stay traceable even though the spec doesn't pin an engine.
 - If the backend reports a different model than `--model` named, the run records
   what actually ran and prints a warning. If attempts report different models,
   the run records the most common one and warns.
-- The `judge_model` likewise comes from the `claude-code` judge's JSON output
-  when you don't name one.
+- The `judge_model` likewise comes from the judge's own output when it reports
+  one (the `claude-code` judge's JSON does), even when you named a model, so
+  `--judge-model claude-code:opus` records the id `opus` resolved to.
+  Otherwise it's the model you named.
 - `judge_model` stays empty for an `assert:`-only run, where no LLM judge ran.
 - When `--judge-model` names no model, the judge uses its CLI's own default
   model, like the skill does.

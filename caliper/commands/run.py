@@ -199,7 +199,14 @@ def run_cmd(
 
     judge_harness = get_harness(judge_backend, judge_model_name)
     if any(t.expect for t in spec.tasks) and judge_harness.prompt_cli_missing():
-        fail(CannotRun(_judge_cli_missing(judge_backend, backend), title="No judge"))
+        fail(
+            CannotRun(
+                _judge_cli_missing(
+                    judge_backend, backend, named=judge_model is not None
+                ),
+                title="No judge",
+            )
+        )
 
     name = spec_name(spec_file)
     print_banner(name, k, backend, skill_model)
@@ -328,15 +335,16 @@ def run_cmd(
         raise typer.Exit(ExitCode.CANNOT_RUN)
 
 
-def _judge_cli_missing(judge_backend: str, skill_backend: str) -> str:
+def _judge_cli_missing(judge_backend: str, skill_backend: str, *, named: bool) -> str:
     """Why an ``expect:`` spec cannot be graded here, and the ways out.
 
     Refused before the first attempt: otherwise every graded attempt pays for the
-    agent and then lands as a ``judge_error``. With no --judge-model the judge
-    shares the skill's CLI, so this mostly catches an explicit --judge-model
-    naming a CLI that isn't installed.
+    agent and then lands as a ``judge_error``. ``named`` is whether
+    --judge-model chose the judge: only then does changing --model leave it
+    where it is, and only then is removing the flag a way out — unless the
+    --model backend is the same missing CLI.
     """
-    if judge_backend == skill_backend:
+    if not named:
         return (
             f"The {judge_backend} CLI isn't installed. It would run the agent "
             f"(--model) and, with no --judge-model, grade the `expect:` checks "
@@ -344,11 +352,15 @@ def _judge_cli_missing(judge_backend: str, skill_backend: str) -> str:
             f"Install and sign in to the {judge_backend} CLI, or pick an "
             "installed one with --model."
         )
+    way_out = (
+        "point --judge-model at an installed backend"
+        if judge_backend == skill_backend
+        else f"remove --judge-model and {skill_backend} (your --model) will grade too"
+    )
     return (
         f"--judge-model {judge_backend} asks {judge_backend} to grade the "
         f"`expect:` checks, but the {judge_backend} CLI isn't installed.\n\n"
-        f"Install and sign in to the {judge_backend} CLI, or remove "
-        f"--judge-model and {skill_backend} (your --model) will grade too."
+        f"Install and sign in to the {judge_backend} CLI, or {way_out}."
     )
 
 
