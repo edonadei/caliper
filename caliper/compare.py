@@ -165,18 +165,37 @@ def _cross_backend_user_customizations_warning(a: RunMeta, b: RunMeta) -> str | 
     )
 
 
-def _judge_warning(a: RunMeta, b: RunMeta) -> str | None:
+def _autorater_ran(results: RunResults) -> bool:
+    """Whether an LLM judge graded any attempt of this run.
+
+    Read from ``judge_seconds``, which is set only when the autorater's model
+    call ran (docs/adr/0033), not from ``RunMeta.judge_model``: that is ``None``
+    for a codex, pi or hermes judge on its CLI's default model, and set for an
+    ``assert:``-only run given an explicit --judge-model that never ran.
+    """
+    return any(
+        attempt.judge_seconds is not None
+        for task in results.task_results
+        for attempt in task.attempts
+    )
+
+
+def _judge_warning(a: RunResults, b: RunResults) -> str | None:
     """Why the two runs were graded by different judges, or ``None``.
 
-    Only when both recorded the model that graded them: an ``assert:``-only run,
-    or one saved before judge provenance, had no autorater to disagree with. The
-    model counts, not just the backend — a judge that follows its CLI's own
-    default can change between machines or over time.
+    Only when an autorater graded both: an ``assert:``-only run, or one saved
+    before judge time was recorded, has no grader to disagree with. The model
+    counts, not just the backend, so a judge on its CLI's default can differ from
+    one that named a model; two unnamed defaults on one backend cannot be told
+    apart and pass.
     """
-    if a.judge_model is None or b.judge_model is None:
+    if not (_autorater_ran(a) and _autorater_ran(b)):
         return None
-    a_judge = _judge_label(a.judge_backend, a.judge_model)
-    b_judge = _judge_label(b.judge_backend, b.judge_model)
+    a_meta, b_meta = a.run, b.run
+    if a_meta.judge_backend is None or b_meta.judge_backend is None:
+        return None
+    a_judge = _judge_label(a_meta.judge_backend, a_meta.judge_model)
+    b_judge = _judge_label(b_meta.judge_backend, b_meta.judge_model)
     if a_judge == b_judge:
         return None
     return (
@@ -186,8 +205,8 @@ def _judge_warning(a: RunMeta, b: RunMeta) -> str | None:
     )
 
 
-def _judge_label(backend: str | None, model: str) -> str:
-    return f"{backend}:{model}" if backend else model
+def _judge_label(backend: str, model: str | None) -> str:
+    return f"{backend}:{model}" if model else f"{backend} (default model)"
 
 
 def _group_by_name(tasks: list[TaskResult]) -> dict[str, list[TaskResult]]:
@@ -409,7 +428,7 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
     skill_drift = _drift(a, b)
     warnings += [r.message for r in skill_drift if r.source_kind == "git"]
 
-    judge_warning = _judge_warning(a_run, b_run)
+    judge_warning = _judge_warning(a, b)
     if judge_warning:
         warnings.append(judge_warning)
 
