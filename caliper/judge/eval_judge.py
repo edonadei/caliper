@@ -55,12 +55,6 @@ _USER_TMPL = """\
 Evaluate the transcript. Respond with JSON.
 """
 
-# Names the prompt templates a run was judged with, so a saved run's judge input
-# can be rebuilt with confidence: ``render_judge_prompt`` on a later release
-# reproduces it only while this matches ``RunMeta.judge_prompt_version``.
-# Derived from the templates, so an edit to them cannot forget to bump it.
-JUDGE_PROMPT_VERSION = hashlib.sha256((_SYSTEM + _USER_TMPL).encode()).hexdigest()[:12]
-
 
 def _strip_markdown_fence(raw: str) -> str:
     raw = raw.strip()
@@ -98,6 +92,36 @@ def render_judge_prompt(
         expect=expect, transcript=_format_transcript(transcript)
     )
     return f"{_SYSTEM}\n\n{user_msg}"
+
+
+# A transcript exercising every branch of the renderer: each role it formats,
+# one it drops, a tool input, and a tool result far past any plausible cut.
+_VERSION_PROBE = [
+    TranscriptTurn(role="user", content="question"),
+    TranscriptTurn(role="assistant", content="answer"),
+    TranscriptTurn(
+        role="tool_use", content="", tool_name="Write", tool_input={"path": "é"}
+    ),
+    TranscriptTurn(role="tool_result", content="", tool_output="x" * 100_000),
+    TranscriptTurn(role="tool_result", content=""),
+]
+
+
+def _prompt_version() -> str:
+    """Hash what the renderer *produces* for fixed inputs, not its source.
+
+    A change to the templates or to the transcript formatting (a new truncation
+    limit, say) moves the hash without anyone remembering to bump it.
+    """
+    rendered = render_judge_prompt("expectation", _VERSION_PROBE)
+    rendered += render_judge_prompt("expectation", [])
+    return hashlib.sha256(rendered.encode()).hexdigest()[:12]
+
+
+# Names the renderer a run was judged with, so a saved run's judge input can be
+# rebuilt with confidence: ``render_judge_prompt`` on a later release reproduces
+# it only while this matches ``RunMeta.judge_prompt_version``.
+JUDGE_PROMPT_VERSION = _prompt_version()
 
 
 def _run_inline_script(

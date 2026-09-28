@@ -215,7 +215,7 @@ class RunMeta(BaseModel):
     # judge provenance was recorded still load (they render as an unknown judge).
     judge_backend: str | None = None
     judge_model: str | None = None
-    # Which autorater prompt templates graded this run (``JUDGE_PROMPT_VERSION``).
+    # How the autorater rendered its prompt for this run (``JUDGE_PROMPT_VERSION``).
     # With ``TaskResult.expect`` and each attempt's transcript, it lets the exact
     # judge input be rebuilt by ``render_judge_prompt`` — faithfully only while
     # the versions match. ``None`` when no task had an ``expect:``, or for runs

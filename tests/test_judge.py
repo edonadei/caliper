@@ -124,6 +124,21 @@ def test_judge_input_can_be_rebuilt_from_the_saved_transcript(attempt_workdir) -
     assert backend.prompts == [render_judge_prompt("writes a.txt", saved)]
 
 
+def test_prompt_version_moves_when_transcript_formatting_changes(monkeypatch) -> None:
+    """Not only the templates: the formatting decides the judge's input too."""
+    from caliper.judge import eval_judge
+
+    assert eval_judge._prompt_version() == eval_judge.JUDGE_PROMPT_VERSION
+    original = eval_judge._format_transcript
+
+    def longer_cut(turns):
+        return original(turns) + "x" * 1000
+
+    monkeypatch.setattr(eval_judge, "_format_transcript", longer_cut)
+
+    assert eval_judge._prompt_version() != eval_judge.JUDGE_PROMPT_VERSION
+
+
 def _script(code: str) -> ScriptedPrompt:
     text = json.dumps({"mode": "script", "code": code, "reasoning": "check the file"})
     return ScriptedPrompt(PromptResult(text=text))

@@ -274,9 +274,9 @@ judge's reasoning.
 
 - `TaskResult.expect` is the task's `expect:` as it read when the run was
   judged, so the judge's input survives a later edit to the spec.
-- `RunMeta.judge_prompt_version` names the judge's prompt templates. With
-  `expect` and an attempt's `transcript`,
-  `caliper.judge.eval_judge.render_judge_prompt(expect, transcript)` rebuilds
+- `RunMeta.judge_prompt_version` names how the judge renders its prompt: its
+  templates and its transcript formatting. With `expect` and an attempt's
+  `transcript`, `caliper.judge.eval_judge.render_judge_prompt(expect, transcript)` rebuilds
   the exact prompt the judge was sent, as long as the version matches the
   installed `JUDGE_PROMPT_VERSION`. It's `null` when no task had an `expect:`.
 - `AttemptRecord.autorater_script` is the Python the judge wrote when it chose
