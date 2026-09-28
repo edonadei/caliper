@@ -34,8 +34,9 @@ caliper run my-skill.eval.yaml --model codex --judge-model claude-code:claude-ha
 Accepted backends: `claude-code`, `codex`, `pi`, `hermes` (alias: `claude` →
 `claude-code`).
 
-With no `--judge-model` the judge runs on the skill's backend, on that CLI's
-default model (not the skill's `--model` model). `--judge-model` picks any other
+With no `--judge-model` the judge runs on the backend of the model being
+evaluated (`--model`), on that CLI's default model rather than the `--model`
+model itself. `--judge-model` picks any other
 pairing, such as a Codex skill with a Claude judge. To compare engines fairly,
 pass the same `--judge-model` to each run; otherwise each engine grades itself,
 and `caliper compare` warns that the judges differ

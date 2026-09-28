@@ -333,8 +333,8 @@ instead of starting from scratch.
 
 The engine (backend + model) is picked at run time, not in the spec. The spec
 describes *what* is tested and *how* success is judged; you pick the agent that
-runs and grades it when you invoke Caliper. The skill defaults to `claude-code`,
-and the judge to the skill's backend:
+runs and grades it when you invoke Caliper. The model being evaluated (`--model`)
+defaults to `claude-code`, and the judge to the same backend:
 
 ```bash
 caliper run my-skill.eval.yaml                          # claude-code runs and grades
@@ -350,7 +350,8 @@ caliper run my-skill.eval.yaml --model pi --judge-model claude-code
 | `pi` | pi CLI (`npm install -g @earendil-works/pi-coding-agent`), authenticated |
 | `hermes` | Hermes Agent CLI (Nous Research), authenticated, with a default model set |
 
-The judge follows the skill's backend (on that CLI's default model) unless
+The judge uses the backend of the model being evaluated (`--model`), on that
+CLI's default model, unless
 `--judge-model` names one, so you can still test a Codex skill with a Claude
 judge. When comparing engines, pass the same `--judge-model` to every run:
 otherwise each engine grades itself, and `caliper compare` warns that the judges

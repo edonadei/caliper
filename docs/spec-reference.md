@@ -302,8 +302,8 @@ The judge engine reads the full attempt transcript and decides whether the
 judge sees them, so it can verify things like "the agent used tool X" without
 relying on the final text alone.
 
-The judge engine is chosen at run time and defaults to the skill's backend
-(`--model`), on that CLI's default model. Point it at a different agent with
+The judge engine is chosen at run time and defaults to the backend of the
+model being evaluated (`--model`), on that CLI's default model. Point it at a different agent with
 `--judge-model` (for example `--judge-model claude-code`); pass the same one to
 runs you mean to compare across engines. If the judge's CLI isn't installed, a
 spec with `expect:` is refused before the first attempt rather than recording a

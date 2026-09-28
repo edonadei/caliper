@@ -170,7 +170,8 @@ and warns on a mismatch. An unknown backend name is refused before any attempt;
 an unavailable judge model, an unavailable `claude-code` skill model, or an
 unknown `hermes:<model>` stops the run with exit `2`. So does a spec with
 `expect:` when the judge's CLI isn't installed: install it, or drop
-`--judge-model` to grade with the skill's engine.
+`--judge-model` so the backend of the model being evaluated (`--model`)
+grades too.
 
 ## User customizations
 
