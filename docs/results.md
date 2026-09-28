@@ -206,6 +206,22 @@ How to read the diff:
   can fire even when neither run named one. `assert:`-only runs and runs saved
   before judge provenance record no judge model and never trigger it.
 
+  Two engines run without `--judge-model`, so each graded itself:
+
+  ```console
+  $ caliper run hello.eval.yaml                  # claude-code runs and grades
+  $ caliper run hello.eval.yaml --model codex    # codex runs and grades
+  $ caliper compare <claude-code run> <codex run>
+  ──────────────────────── CALIPER  —  compare  —  hello ────────────────────────
+      2026-09-27T10-00-00Z (claude-code) → 2026-09-27T11-00-00Z (codex)   ·   k=3
+   ⚠ different judges: claude-code:claude-opus-5-5 vs codex:gpt-5-codex — part of
+  the delta may be a stricter or looser grader rather than the agent; re-run with
+  the same --judge-model for a like-for-like comparison
+  ```
+
+  Pass the same judge to both runs, for example `--judge-model claude-code`, and
+  the warning goes away.
+
 `--format json` serializes the full comparison (per-task scores, deltas,
 regression flags, unmatched lists, warnings, `skill_drift`, and per-side usage)
 for scripting. Each `skill_drift` entry carries the member's `name`,
