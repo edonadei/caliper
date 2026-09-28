@@ -55,6 +55,12 @@ stay traceable even though the spec doesn't pin an engine.
 - `judge_model` stays empty for an `assert:`-only run, where no LLM judge ran.
 - When `--judge-model` names no model, the judge uses its CLI's own default
   model, like the skill does.
+- The judge doesn't follow `--model`: with no `--judge-model` it runs on
+  `claude-code` whatever the skill engine, so cross-engine runs share one grader
+  ([ADR 0004](adr/0004-engine-is-a-runtime-axis-not-a-spec-field.md)). A spec
+  with `expect:` stops before its first attempt if the judge's CLI isn't
+  installed. On a machine without the `claude` CLI, pass `--judge-model codex`
+  (or `pi`, `hermes`).
 
 ## Claude Code
 

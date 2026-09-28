@@ -837,3 +837,25 @@ def test_claude_harness_skips_a_stream_line_that_is_json_but_not_an_event(
 
     assert result.final_output == "done"
     assert result.usage.total_tokens == 7
+
+
+def test_prompt_cli_missing_looks_up_claude_on_the_prompt_path(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The judge preflight asks the same PATH the judge's prompt call will get."""
+    import caliper.harness.claude_code as claude_code
+
+    monkeypatch.setattr(claude_code, "preferred_nvm_node_bin", lambda: None)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    harness = ClaudeCodeHarness()
+
+    assert harness.prompt_cli_missing()
+
+    # A .cmd shim is what Windows resolves through PATHEXT; the bare name,
+    # made executable, is what POSIX does.
+    for name in ("claude", "claude.cmd"):
+        cli = tmp_path / name
+        cli.write_text("")
+        cli.chmod(0o755)
+
+    assert not harness.prompt_cli_missing()

@@ -133,7 +133,7 @@ def test_run_cli_resolves_backend_and_judge_model_targets(
         harness_args["backend"], harness_args["model"] = backend, model
         return ScriptedHarness()
 
-    def fake_eval_judge(backend, model):
+    def fake_eval_judge(backend, model, **_):
         judge_args["backend"], judge_args["model"] = backend, model
         return object()
 
@@ -565,6 +565,72 @@ def test_run_cli_refuses_unknown_backends_before_any_attempt(
         # Names what is wrong and what would be right.
         assert "Unknown backend" in result.output
         assert "claude-code" in result.output and "codex" in result.output
+
+
+class _NoPromptCli(ScriptedHarness):
+    """A judge backend whose CLI is not installed on this machine."""
+
+    def prompt_cli_missing(self) -> bool:
+        return True
+
+
+def test_run_refuses_an_expect_spec_when_the_judge_cli_is_missing(
+    monkeypatch, tmp_path
+) -> None:
+    """Every graded attempt would pay for the agent and land as a judge_error."""
+    import caliper.commands.run as run_module
+
+    def never_run(**_: object):
+        raise AssertionError("run() should not be reached")
+
+    monkeypatch.setattr(run_module, "get_harness", lambda *a, **k: _NoPromptCli())
+    monkeypatch.setattr(run_module, "run", never_run)
+    spec = tmp_path / "s.eval.yaml"
+    spec.write_text("tasks:\n  - {name: t, prompt: p, expect: it worked}\n")
+
+    result = runner.invoke(app, ["run", str(spec), "--model", "codex"])
+
+    assert result.exit_code == 2, result.output
+    assert "CLI was not found" in result.output
+    # Names the way out: the skill's own engine, never switched to silently.
+    assert "--judge-model codex" in result.output
+
+
+def test_run_ignores_a_missing_judge_cli_when_no_task_has_expect(
+    monkeypatch, tmp_path
+) -> None:
+    """An assert-only spec never calls the judge's CLI, so it need not exist."""
+    import caliper.commands.run as run_module
+
+    ran = []
+
+    def fake_run(**kwargs):
+        ran.append(True)
+        return RunResults(
+            run=RunMeta(
+                spec="s",
+                timestamp=datetime(2026, 7, 3, tzinfo=timezone.utc),
+                k=kwargs["k"],
+                backend="scripted",
+            ),
+            skill_snapshots=[],
+            task_results=[],
+            aggregate=AggregateScore(avg_score=0.0, per_task=[]),
+        )
+
+    monkeypatch.setattr(run_module, "get_harness", lambda *a, **k: _NoPromptCli())
+    monkeypatch.setattr(run_module, "EvalJudge", lambda *a, **k: object())
+    monkeypatch.setattr(run_module, "make_progress", lambda *a, **k: (_Progress(), {}))
+    monkeypatch.setattr(run_module, "print_banner", lambda *a, **k: None)
+    monkeypatch.setattr(run_module, "print_results", lambda *a, **k: None)
+    monkeypatch.setattr(run_module, "run", fake_run)
+    monkeypatch.chdir(tmp_path)
+    spec = tmp_path / "s.eval.yaml"
+    spec.write_text("tasks:\n  - {name: t, prompt: p, assert: 'assert True'}\n")
+
+    result = runner.invoke(app, ["run", str(spec)])
+
+    assert ran, result.output
 
 
 @pytest.mark.parametrize(

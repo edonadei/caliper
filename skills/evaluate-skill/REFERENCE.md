@@ -166,7 +166,9 @@ model, like the skill does.
 A run records the model the backend reported running, not the one requested,
 and warns on a mismatch. An unknown backend name is refused before any attempt;
 an unavailable judge model, an unavailable `claude-code` skill model, or an
-unknown `hermes:<model>` stops the run with exit `2`.
+unknown `hermes:<model>` stops the run with exit `2`. So does a spec with
+`expect:` when the judge's CLI isn't installed: install it or pass
+`--judge-model codex` (the judge never follows `--model` on its own).
 
 ## User customizations
 
@@ -246,6 +248,7 @@ cheaper, and are never a regression. `compare` also warns when:
 - the declared skills or `mcp:` servers differ outside an ablation pair;
 - the runs loaded user customizations differently, or compare two backends with
   user customizations loaded;
+- the runs were graded by different judges (backend or model);
 - a skill's text drifted. A drifted **git source** warns, because the delta is
   confounded: pin `ref:`. A drifted **path source** is shown without alarm,
   because that edit is usually what you are measuring.

@@ -190,11 +190,15 @@ def run_cmd(
                 )
             )
 
+    judge_harness = get_harness(judge_backend, judge_model_name)
+    if any(t.expect for t in spec.tasks) and judge_harness.prompt_cli_missing():
+        fail(CannotRun(_judge_cli_missing(judge_backend, backend), title="No judge"))
+
     name = spec_name(spec_file)
     print_banner(name, k, backend, skill_model)
 
     harness = get_harness(backend, skill_model)
-    judge = EvalJudge(judge_backend, judge_model_name)
+    judge = EvalJudge(judge_backend, judge_model_name, harness=judge_harness)
 
     # A notice, not a prompt: an attempt's isolation was never a security
     # boundary (docs/adr/0027, docs/adr/0028), and a run must stay usable
@@ -315,6 +319,27 @@ def run_cmd(
         fail(CannotRun(nothing_measured))
     if results.run.hook_failures:
         raise typer.Exit(ExitCode.CANNOT_RUN)
+
+
+def _judge_cli_missing(judge_backend: str, skill_backend: str) -> str:
+    """Why an ``expect:`` spec cannot be graded here, and the two ways out.
+
+    Refused before the first attempt: otherwise every graded attempt pays for the
+    agent and then lands as a ``judge_error``. The judge does not silently fall
+    back to the skill's engine — an independent grader is what keeps
+    cross-engine comparisons fair (docs/adr/0004) — so switching is left to the
+    user, and named.
+    """
+    other = skill_backend if skill_backend != judge_backend else "codex"
+    if other == judge_backend:
+        other = DEFAULT_BACKEND
+    return (
+        f"The judge runs on {judge_backend}, but its CLI was not found, so no "
+        "`expect:` check could be graded.\n\n"
+        f"Install and sign in to the {judge_backend} CLI, or grade with another "
+        f"engine: --judge-model {other}. Keep the same judge across runs you "
+        "mean to compare."
+    )
 
 
 def _nothing_measured(results: RunResults) -> str | None:

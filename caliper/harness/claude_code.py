@@ -456,6 +456,13 @@ class ClaudeCodeHarness(CliHarness):
             cmd += ["--model", model]
         return PromptCall(cmd)
 
+    def prompt_cli_missing(self) -> bool:
+        # `claude` is spawned by name, so look it up on the PATH the prompt call
+        # will actually get (with the nvm prefix), not the bare parent PATH.
+        return (
+            shutil.which("claude", path=self._prompt_environment().get("PATH")) is None
+        )
+
     def _prompt_environment(self) -> dict[str, str]:
         env = dict(os.environ)
         nvm_bin = preferred_nvm_node_bin()

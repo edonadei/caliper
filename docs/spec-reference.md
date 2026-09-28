@@ -303,7 +303,9 @@ relying on the final text alone.
 
 The judge engine is chosen at run time and defaults to `claude-code`. Point it at
 a different agent with `--judge-model` (for example `--judge-model codex`),
-independently of the skill's `--model`.
+independently of the skill's `--model`. If the judge's CLI isn't installed, a
+spec with `expect:` is refused before the first attempt rather than recording a
+`judge_error` on every one.
 
 ### Deterministic assertions (`assert:`)
 

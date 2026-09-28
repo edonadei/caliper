@@ -165,6 +165,31 @@ def _cross_backend_user_customizations_warning(a: RunMeta, b: RunMeta) -> str | 
     )
 
 
+def _judge_warning(a: RunMeta, b: RunMeta) -> str | None:
+    """Why the two runs were graded by different judges, or ``None``.
+
+    Only when both recorded the model that graded them: an ``assert:``-only run,
+    or one saved before judge provenance, had no autorater to disagree with. The
+    model counts, not just the backend — a judge that follows its CLI's own
+    default can change between machines or over time.
+    """
+    if a.judge_model is None or b.judge_model is None:
+        return None
+    a_judge = _judge_label(a.judge_backend, a.judge_model)
+    b_judge = _judge_label(b.judge_backend, b.judge_model)
+    if a_judge == b_judge:
+        return None
+    return (
+        f"different judges: {a_judge} vs {b_judge} — part of the delta may be a "
+        "stricter or looser grader rather than the agent; re-run with the same "
+        "--judge-model for a like-for-like comparison"
+    )
+
+
+def _judge_label(backend: str | None, model: str) -> str:
+    return f"{backend}:{model}" if backend else model
+
+
 def _group_by_name(tasks: list[TaskResult]) -> dict[str, list[TaskResult]]:
     """Tasks keyed by their stable identity, ``task_name``, preserving order.
 
@@ -384,6 +409,10 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
     skill_drift = _drift(a, b)
     warnings += [r.message for r in skill_drift if r.source_kind == "git"]
 
+    judge_warning = _judge_warning(a_run, b_run)
+    if judge_warning:
+        warnings.append(judge_warning)
+
     return RunComparison(
         a=a_run,
         b=b_run,
@@ -403,6 +432,7 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         mcp_mismatch=mcp_mismatch,
         user_customizations_mismatch=customizations_warning is not None,
         cross_backend_user_customizations=cross_backend_warning is not None,
+        judge_mismatch=judge_warning is not None,
         skill_drift=skill_drift,
         warnings=warnings,
         # Token/wall totals over each whole run. Shown alongside pass@k but never

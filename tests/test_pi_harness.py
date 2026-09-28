@@ -35,7 +35,7 @@ def test_pi_installs_the_skill_and_passes_no_preload_flag(
             return _version(cmd)
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "pi")
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n, **_: "pi")
     patch_cli_calls(monkeypatch, fake_run)
 
     PiHarness().run(
@@ -78,7 +78,7 @@ def test_pi_omits_model_and_skill_when_unspecified(monkeypatch, tmp_path) -> Non
             return _version(cmd)
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "pi")
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n, **_: "pi")
     patch_cli_calls(monkeypatch, fake_run)
 
     PiHarness().run(
@@ -136,7 +136,7 @@ def test_pi_json_stream_captures_tool_calls(monkeypatch, tmp_path) -> None:
         stdout = "\n".join(json.dumps(e) for e in events)
         return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "pi")
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n, **_: "pi")
     patch_cli_calls(monkeypatch, fake_run)
 
     result = PiHarness().run(
@@ -205,7 +205,7 @@ def test_pi_run_captures_token_usage_end_to_end(monkeypatch, tmp_path) -> None:
         stdout = "\n".join(json.dumps(e) for e in events)
         return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "pi")
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n, **_: "pi")
     patch_cli_calls(monkeypatch, fake_run)
 
     result = PiHarness().run(
@@ -250,7 +250,7 @@ def test_pi_auth_failure_raises_configuration_error(monkeypatch, tmp_path) -> No
             cmd, 1, stdout="", stderr="Error: not authenticated. Please run /login."
         )
 
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "pi")
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n, **_: "pi")
     patch_cli_calls(monkeypatch, fake_run)
 
     with pytest.raises(HarnessConfigurationError, match="authentication"):
@@ -278,7 +278,7 @@ def _run_with_stream(monkeypatch, tmp_path, stdout: str):
             return _version(cmd)
         return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "pi")
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n, **_: "pi")
     patch_cli_calls(monkeypatch, fake_run)
     return PiHarness().run(
         run_context(
@@ -315,7 +315,7 @@ def test_pi_expired_oauth_stops_the_run_and_saves_nothing(
             cmd, 0, stdout=_OAUTH_EXPIRED.read_text(), stderr=""
         )
 
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "pi")
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n, **_: "pi")
     patch_cli_calls(monkeypatch, fake_run)
     # Never let the test copy a real ~/.pi login into the attempt home.
     monkeypatch.setenv("HOME", str(tmp_path / "home"))

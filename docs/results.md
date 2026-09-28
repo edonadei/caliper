@@ -199,6 +199,12 @@ How to read the diff:
   availability can move the score for reasons unrelated to the skill. Two
   different backends with user customizations warn too, since each CLI loads its
   own setup; isolate both runs (`--no-user-customizations`) for a harness comparison.
+- **A different judge warns** (`judge_mismatch`). When both runs recorded the
+  model that graded them and the judge backend or model differs, part of the
+  delta may be a stricter or looser grader. Re-run with the same `--judge-model`.
+  A judge left on its CLI's default model can change between machines, so this
+  can fire even when neither run named one. `assert:`-only runs and runs saved
+  before judge provenance record no judge model and never trigger it.
 
 `--format json` serializes the full comparison (per-task scores, deltas,
 regression flags, unmatched lists, warnings, `skill_drift`, and per-side usage)

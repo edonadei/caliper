@@ -489,6 +489,11 @@ passing `--judge-model <backend[:model]>` to pick an available judge. Example:
 - An authentication failure or a rate limit stays a per-attempt `judge_error`.
 - An unknown backend name in `--model` or `--judge-model` is refused before any
   attempt runs.
+- A spec with `expect:` is refused before any attempt runs (exit `2`) when the
+  judge's CLI isn't installed, for example no `claude` CLI on a Codex-only
+  machine. Install it, or pass `--judge-model codex` (or another backend). The
+  judge never switches engines on its own, and `caliper compare` warns when two
+  runs were graded by different judges.
 
 **A task passes only because of `assert:`**
 When a task has only `assert:`, no LLM judge runs. Add `expect:` if you also want

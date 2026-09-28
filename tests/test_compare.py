@@ -203,6 +203,46 @@ def test_matching_specs_and_k_produce_no_warnings() -> None:
     assert comp.warnings == []
 
 
+def _judged(run: RunResults, backend: str | None, model: str | None) -> RunResults:
+    run.run.judge_backend, run.run.judge_model = backend, model
+    return run
+
+
+def test_different_judges_raise_a_warning() -> None:
+    # The model counts, not just the backend: a judge on its CLI's own default
+    # can change between machines.
+    a = _judged(_run([_task("alpha", [P, P])]), "claude-code", "claude-opus-5-5")
+    b = _judged(_run([_task("alpha", [P, P])]), "claude-code", "claude-sonnet-5")
+
+    comp = diff_runs(a, b)
+
+    assert comp.judge_mismatch
+    assert any(
+        "different judges" in w
+        and "claude-code:claude-opus-5-5" in w
+        and "claude-code:claude-sonnet-5" in w
+        for w in comp.warnings
+    )
+
+
+def test_the_same_judge_raises_no_warning() -> None:
+    a = _judged(_run([_task("alpha", [P, P])]), "codex", "gpt-5-codex")
+    b = _judged(_run([_task("alpha", [P, P])]), "codex", "gpt-5-codex")
+
+    comp = diff_runs(a, b)
+
+    assert not comp.judge_mismatch
+    assert comp.warnings == []
+
+
+def test_a_run_with_no_recorded_judge_model_raises_no_judge_warning() -> None:
+    """An assert-only or legacy run had no autorater to disagree with."""
+    a = _judged(_run([_task("alpha", [P, P])]), "claude-code", None)
+    b = _judged(_run([_task("alpha", [P, P])]), "codex", "gpt-5-codex")
+
+    assert not diff_runs(a, b).judge_mismatch
+
+
 # --- the verbose columns ------------------------------------------------------
 
 
