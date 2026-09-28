@@ -327,6 +327,7 @@ def test_timeout_keeps_the_agents_partial_transcript_and_activation(tmp_path) ->
     class UnusedJudge:
         backend = "test"
         model = None
+        prompt_version = None
 
         def evaluate(self, **kwargs):
             raise AssertionError("a timed-out attempt must not reach the judge")

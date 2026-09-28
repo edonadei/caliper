@@ -297,6 +297,11 @@ The judge engine is chosen at run time and defaults to `claude-code`. Point it a
 a different agent with `--judge-model` (for example `--judge-model codex`),
 independently of the skill's `--model`.
 
+The judge either gives a direct verdict or writes a Python assertion script that
+runs in the attempt workdir. A saved run keeps what you need to debug a verdict:
+the `expect` text, the prompt template version, and any script the judge wrote.
+See [Judge input fields](results.md#judge-input-fields).
+
 ### Deterministic assertions (`assert:`)
 
 Python assertions run locally, in the [attempt workdir](#attempt-workdir). Use

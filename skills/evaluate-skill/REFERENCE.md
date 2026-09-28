@@ -262,7 +262,10 @@ the nearest `.caliper/` at or above the working directory, bounded by the git
 repo, so `caliper report <spec-name>` finds a run from anywhere in the project.
 Each run records a snapshot of every declared skill's files, the engine used for
 the skill and the judge, what was ablated, and per attempt the outcome, token
-usage, wall time, judge time, and the transcript.
+usage, wall time, judge time, and the transcript. It also keeps the judge's input
+for debugging a verdict: each task's `expect`, the judge prompt version, and any
+assertion script the judge wrote (`autorater_script`). These are in the JSON
+only, never in the report.
 
 ## Designing evals
 

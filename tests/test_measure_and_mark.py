@@ -44,6 +44,7 @@ class TimedJudge:
 
     backend = "test"
     model = None
+    prompt_version = None
 
     def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
         return JudgeResult(
