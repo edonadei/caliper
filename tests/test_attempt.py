@@ -312,6 +312,23 @@ def test_an_auto_bundled_skill_is_shown_but_does_not_fail_silence():
     assert assembled.record.bundled_activated == ["claude-api"]
 
 
+def test_a_plugin_skill_read_is_not_credited_to_a_bundled_namesake():
+    plugin_path = "plugins/cache/0/review/skills/debug/SKILL.md"
+    assembled = _assemble(
+        _result(
+            transcript=[_read_turn(f"/home/.claude/{plugin_path}")],
+            bundled_skill_names=["debug"],
+            user_skill_names=["review:debug"],
+            user_skill_paths={"review:debug": plugin_path},
+        ),
+        activation=_detector(),
+        expected_activation=None,
+    )
+
+    assert assembled.record.activated == ["review:debug"]
+    assert assembled.record.bundled_activated == []
+
+
 def test_bundled_activation_is_unobserved_when_the_backend_cannot_list_them():
     assembled = _assemble(
         _result(transcript=[_skill_call("claude-api")]),

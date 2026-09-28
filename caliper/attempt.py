@@ -122,7 +122,11 @@ def assemble_attempt(
         additional_names=result.user_skill_names,
         additional_paths=result.user_skill_paths,
     )
-    bundled = activation.detect_bundled(result.transcript, result.bundled_skill_names)
+    bundled = activation.detect_bundled(
+        result.transcript,
+        result.bundled_skill_names,
+        plugin_paths=result.user_skill_paths,
+    )
     if pre_judge is None:
         activated = observed
         activation_passed = check_activation(activated, expected_activation)

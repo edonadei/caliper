@@ -100,17 +100,27 @@ class ActivationDetector:
         return sorted(found)
 
     def detect_bundled(
-        self, transcript: list[ConversationTurn], names: list[str] | None
+        self,
+        transcript: list[ConversationTurn],
+        names: list[str] | None,
+        *,
+        plugin_paths: dict[str, str] | None = None,
     ) -> list[str] | None:
         """Which of the CLI's own skills the agent reached for, by the same rule.
 
         Kept apart from :meth:`detect` so an auto-bundled skill is shown but
         never scored against ``activates:``. ``None`` when the backend could not
         list its bundled skills; ``[]`` when it could and none fired.
+
+        ``plugin_paths`` are stripped first, as in :meth:`detect`, so a plugin
+        skill sharing a bundled skill's basename is not credited to it.
         """
         if names is None:
             return None
-        return ActivationDetector(names, self._tool_names).detect(transcript) or []
+        detector = ActivationDetector(names, self._tool_names)
+        for name, path in (plugin_paths or {}).items():
+            detector._path_patterns[name] = _path_pattern(path)
+        return [name for name in detector.detect(transcript) or [] if name in names]
 
     def _named_skill(self, tool_input: dict) -> str | None:
         for key in _SKILL_NAME_KEYS:
