@@ -535,23 +535,21 @@ class ClaudeCodeHarness(CliHarness):
         The record is what the attempt was given, not what happened to connect.
         ``None`` when no ``init`` event arrived.
         """
-        for event in stream_events(proc.stdout):
-            if (
-                event.get("type"),
-                event.get("subtype"),
-            ) == (
-                "system",
-                "init",
-            ):
-                servers = event.get("mcp_servers")
-                if not isinstance(servers, list):
-                    return None
-                return [
-                    s["name"]
-                    for s in servers
-                    if isinstance(s, dict) and isinstance(s.get("name"), str)
-                ]
-        return None
+        servers = _init_event(proc.stdout).get("mcp_servers")
+        if not isinstance(servers, list):
+            return None
+        return [
+            s["name"]
+            for s in servers
+            if isinstance(s, dict) and isinstance(s.get("name"), str)
+        ]
+
+    def _exposed_skills(self, proc: ProcessResult) -> list[str] | None:
+        """The ``init`` event's ``skills``: declared, user and CLI-bundled alike."""
+        skills = _init_event(proc.stdout).get("skills")
+        if not isinstance(skills, list):
+            return None
+        return [s for s in skills if isinstance(s, str)]
 
     def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
         """Read the ``result`` event's ``usage``. Claude's ``input_tokens`` is
@@ -618,6 +616,14 @@ class ClaudeCodeHarness(CliHarness):
                 final_output = event.get("result", "")
 
         return transcript, final_output
+
+
+def _init_event(stdout: str) -> dict:
+    """The CLI's ``system``/``init`` event, or ``{}`` when none arrived."""
+    for event in stream_events(stdout):
+        if (event.get("type"), event.get("subtype")) == ("system", "init"):
+            return event
+    return {}
 
 
 def _tool_result_text(content: object) -> str:

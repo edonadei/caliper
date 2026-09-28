@@ -287,6 +287,41 @@ def test_activation_is_observed_but_not_scored_when_nothing_was_expected():
     assert assembled.record.activation_passed is None
 
 
+def _skill_call(name: str) -> ConversationTurn:
+    return ConversationTurn(
+        role="tool_use",
+        content="[tool: Skill]",
+        tool_name="Skill",
+        tool_input={"skill": name},
+    )
+
+
+def test_an_auto_bundled_skill_is_shown_but_does_not_fail_silence():
+    # The CLI's own claude-api fired on a task asserting nothing should (#220).
+    assembled = _assemble(
+        _result(
+            transcript=[_skill_call("claude-api")],
+            bundled_skill_names=["claude-api", "debug"],
+        ),
+        activation=_detector(),
+        expected_activation=[],
+    )
+
+    assert assembled.record.activated == []
+    assert assembled.record.activation_passed is True
+    assert assembled.record.bundled_activated == ["claude-api"]
+
+
+def test_bundled_activation_is_unobserved_when_the_backend_cannot_list_them():
+    assembled = _assemble(
+        _result(transcript=[_skill_call("claude-api")]),
+        activation=_detector(),
+        expected_activation=[],
+    )
+
+    assert assembled.record.bundled_activated is None
+
+
 def test_activation_rides_on_a_cheat_too():
     assembled = _assemble(
         _result(transcript=[_read_turn("/skills/tdd/SKILL.md")]),

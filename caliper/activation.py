@@ -99,6 +99,19 @@ class ActivationDetector:
                         found.add(name)
         return sorted(found)
 
+    def detect_bundled(
+        self, transcript: list[ConversationTurn], names: list[str] | None
+    ) -> list[str] | None:
+        """Which of the CLI's own skills the agent reached for, by the same rule.
+
+        Kept apart from :meth:`detect` so an auto-bundled skill is shown but
+        never scored against ``activates:``. ``None`` when the backend could not
+        list its bundled skills; ``[]`` when it could and none fired.
+        """
+        if names is None:
+            return None
+        return ActivationDetector(names, self._tool_names).detect(transcript) or []
+
     def _named_skill(self, tool_input: dict) -> str | None:
         for key in _SKILL_NAME_KEYS:
             value = tool_input.get(key)

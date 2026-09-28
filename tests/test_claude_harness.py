@@ -438,6 +438,43 @@ def test_claude_harness_user_customizations_merge_with_the_spec_winning(
     assert result.loaded_user_customizations == ["mcp:claude.ai Gmail", "mcp:personal"]
 
 
+def test_claude_harness_reports_the_cli_bundled_skills_apart_from_declared(
+    monkeypatch, tmp_path
+) -> None:
+    skill_dir = tmp_path / "src"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: reviewer\ndescription: Reviews code.\n---\n\nReview."
+    )
+    refs = resolve_skills([str(skill_dir / "SKILL.md")], tmp_path)
+
+    def fake_run(cmd, **kwargs):
+        ok = _ok_stream(cmd)
+        if cmd[:2] == ["claude", "-p"]:
+            init = {
+                "type": "system",
+                "subtype": "init",
+                "skills": ["debug", "reviewer", "claude-api"],
+            }
+            ok.stdout = json.dumps(init) + "\n" + ok.stdout
+        return ok
+
+    patch_cli_calls(monkeypatch, fake_run)
+
+    result = ClaudeCodeHarness().run(
+        run_context(skill_refs=refs, isolated_home=str(tmp_path / "home"))
+    )
+
+    assert result.bundled_skill_names == ["claude-api", "debug"]
+
+
+def test_claude_harness_cannot_list_bundled_skills_without_an_init_event() -> None:
+    proc = ProcessResult(
+        stdout='{"type": "result"}', stderr="", returncode=0, timed_out=False
+    )
+    assert ClaudeCodeHarness()._exposed_skills(proc) is None
+
+
 def test_claude_harness_records_unknown_without_an_init_event() -> None:
     proc = ProcessResult(
         stdout='{"type": "result"}', stderr="", returncode=0, timed_out=False

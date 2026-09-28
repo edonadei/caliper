@@ -122,11 +122,13 @@ def assemble_attempt(
         additional_names=result.user_skill_names,
         additional_paths=result.user_skill_paths,
     )
+    bundled = activation.detect_bundled(result.transcript, result.bundled_skill_names)
     if pre_judge is None:
         activated = observed
         activation_passed = check_activation(activated, expected_activation)
     else:
         activated = observed or None
+        bundled = bundled or None
         activation_passed = None
 
     def with_outcome(
@@ -150,6 +152,7 @@ def assemble_attempt(
                 transcript=_persist_transcript(result.transcript),
                 activated=activated,
                 activation_passed=activation_passed,
+                bundled_activated=bundled,
                 judge_seconds=judge_seconds,
                 # A lifecycle fact the runner hands in: how many invocations it
                 # took to produce this one result. Nothing here re-derives it.

@@ -67,6 +67,13 @@ An expired OAuth session or invalid API key stops the run as a configuration
 error. Run `claude`, then `/login`, and retry the eval. Caliper reads these
 failures from the CLI's error output, not from an agent discussing authentication.
 
+The CLI ships skills of its own (`claude-api`, `debug` and others) that stay
+discoverable even in an isolated run. Caliper reads which ones the CLI exposed
+from its `init` event, and reports any the agent reaches for as
+**auto-bundled**: shown in the report and in `bundled_activated`, never scored
+against `activates:`. The other backends don't list their bundled skills yet,
+so they record `bundled_activated: null`.
+
 ## Codex
 
 ```bash
