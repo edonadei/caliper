@@ -129,6 +129,7 @@ class ScriptedJudge:
 
     backend = "test"
     model = None
+    prompt_version = None
 
     def __init__(self, result: JudgeResult | None = None) -> None:
         self.result = result or JudgeResult(passed=True, reasoning="ok")

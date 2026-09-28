@@ -289,6 +289,29 @@ time, and it only appears when a judge ran.
   `git_repo`/`git_sha`, so a saved run says how each member of the neighbourhood
   was obtained and, for a git source, the exact commit. Older JSON without the
   field still loads and reads as `"path"`.
+
+### Judge input fields
+
+What the LLM judge saw and ran is kept in the JSON for inspection. The default
+report shows only the judge's reasoning. `--verbose` adds each task's `expect`
+and any script the judge wrote.
+
+- `TaskResult.expect` is the task's `expect:` as it read when the run was
+  judged, so the judge's input survives a later edit to the spec.
+- `RunMeta.judge_prompt_version` names how the judge renders its prompt: its
+  templates and its transcript formatting. With `expect` and an attempt's
+  `transcript`, `caliper.judge.eval_judge.render_judge_prompt(expect, transcript)` rebuilds
+  the exact prompt the judge was sent, as long as the version matches the
+  installed `JUDGE_PROMPT_VERSION`. It's `null` when no task had an `expect:`.
+- `AttemptRecord.autorater_script` is the Python the judge wrote when it chose
+  to check with a script instead of giving a direct verdict. It's saved whether
+  the script passed, failed or timed out, because the workdir it ran in is
+  deleted once the attempt ends. It's `null` for a direct verdict.
+
+All three are `null` on runs saved before they were recorded.
+
+### Derived totals
+
 - `report --format json` adds a derived `usage_totals` block. The saved JSON
   keeps the raw per-attempt `usage`; totals are always derived, never persisted.
 

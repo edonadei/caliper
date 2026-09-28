@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
 from caliper.harness import get_harness
@@ -11,6 +13,7 @@ from caliper.harness.base import (
 )
 from caliper.harness.prompt_failure import PromptFailureKind, format_judge_failure
 from caliper.judge.base import Judge, JudgeResult, PromptBackend
+from caliper.schema.results import TranscriptTurn
 from caliper.schema.spec import (
     DEFAULT_BACKEND,
     TaskSpec,
@@ -61,7 +64,7 @@ def _strip_markdown_fence(raw: str) -> str:
     return "\n".join(line for line in lines if not line.startswith("```")).strip()
 
 
-def _format_transcript(turns: list[ConversationTurn]) -> str:
+def _format_transcript(turns: Sequence[ConversationTurn | TranscriptTurn]) -> str:
     lines: list[str] = []
     for t in turns:
         if t.role == "assistant":
@@ -73,6 +76,52 @@ def _format_transcript(turns: list[ConversationTurn]) -> str:
             out = (t.tool_output or "")[:2000]
             lines.append(f"[tool_result] {out}")
     return "\n".join(lines) or "(empty transcript)"
+
+
+def render_judge_prompt(
+    expect: str, transcript: Sequence[ConversationTurn | TranscriptTurn]
+) -> str:
+    """The exact prompt the autorater is sent for one attempt.
+
+    Public so a saved run's judge input can be rebuilt from what the run already
+    stores — ``TaskResult.expect`` and ``AttemptRecord.transcript`` — rather
+    than saving the prompt a second time. Faithful only while
+    ``JUDGE_PROMPT_VERSION`` matches the run's ``judge_prompt_version``.
+    """
+    user_msg = _USER_TMPL.format(
+        expect=expect, transcript=_format_transcript(transcript)
+    )
+    return f"{_SYSTEM}\n\n{user_msg}"
+
+
+# A transcript exercising every branch of the renderer: each role it formats,
+# one it drops, a tool input, and a tool result far past any plausible cut.
+_VERSION_PROBE = [
+    TranscriptTurn(role="user", content="question"),
+    TranscriptTurn(role="assistant", content="answer"),
+    TranscriptTurn(
+        role="tool_use", content="", tool_name="Write", tool_input={"path": "é"}
+    ),
+    TranscriptTurn(role="tool_result", content="", tool_output="x" * 100_000),
+    TranscriptTurn(role="tool_result", content=""),
+]
+
+
+def _prompt_version() -> str:
+    """Hash what the renderer *produces* for fixed inputs, not its source.
+
+    A change to the templates or to the transcript formatting (a new truncation
+    limit, say) moves the hash without anyone remembering to bump it.
+    """
+    rendered = render_judge_prompt("expectation", _VERSION_PROBE)
+    rendered += render_judge_prompt("expectation", [])
+    return hashlib.sha256(rendered.encode()).hexdigest()[:12]
+
+
+# Names the renderer a run was judged with, so a saved run's judge input can be
+# rebuilt with confidence: ``render_judge_prompt`` on a later release reproduces
+# it only while this matches ``RunMeta.judge_prompt_version``.
+JUDGE_PROMPT_VERSION = _prompt_version()
 
 
 def _run_inline_script(
@@ -92,17 +141,24 @@ def _run_inline_script(
     return False, step.output[-500:]
 
 
-def _parse_rich_response(raw: str, workdir: AttemptWorkdir) -> tuple[bool, str, bool]:
-    """Parse an autorater response into (passed, reasoning, errored).
+def _parse_rich_response(
+    raw: str, workdir: AttemptWorkdir
+) -> tuple[bool, str, bool, str | None]:
+    """Parse an autorater response into (passed, reasoning, errored, script).
 
     ``errored`` is True when the autorater failed to yield a usable verdict at
     all (unparseable JSON, or a malformed verdict object). It is distinct from a
     verdict of ``passed=False`` — a real judgment that the task failed.
+
+    ``script`` is the code the autorater wrote in script mode, returned whether
+    it passed, failed or hung: the workdir it asserted on is gone once the
+    attempt ends, so the code is all that is left to debug the verdict with.
+    ``None`` for a direct verdict.
     """
     try:
         verdict = json.loads(raw)
     except json.JSONDecodeError:
-        return False, f"Judge returned unparseable response: {raw[:200]}", True
+        return False, f"Judge returned unparseable response: {raw[:200]}", True, None
 
     mode = verdict.get("mode", "verdict")
     reasoning = str(verdict.get("reasoning", ""))
@@ -110,14 +166,14 @@ def _parse_rich_response(raw: str, workdir: AttemptWorkdir) -> tuple[bool, str, 
     if mode == "script":
         code = verdict.get("code", "")
         if not code:
-            return False, "Judge returned empty script", True
+            return False, "Judge returned empty script", True, None
         passed, evidence = _run_inline_script(code, workdir, "check")
         detail = f"{reasoning} | script: {'ok' if passed else evidence}"
         if passed is None:
-            return False, detail, True
-        return passed, detail, False
+            return False, detail, True, code
+        return passed, detail, False, code
 
-    return bool(verdict.get("passed", False)), reasoning, False
+    return bool(verdict.get("passed", False)), reasoning, False, None
 
 
 def _run_assert_from_task(
@@ -140,6 +196,8 @@ def _run_assert_from_task(
 
 class EvalJudge(Judge):
     """Universal judge: runs the static assert script and/or calls an LLM to evaluate."""
+
+    prompt_version = JUDGE_PROMPT_VERSION
 
     def __init__(
         self,
@@ -181,6 +239,7 @@ class EvalJudge(Judge):
 
         autorater_model: str | None = None
         autorater_seconds: float | None = None
+        autorater_script: str | None = None
         if task.expect:
             (
                 llm_passed,
@@ -188,6 +247,7 @@ class EvalJudge(Judge):
                 autorater_errored,
                 autorater_model,
                 autorater_seconds,
+                autorater_script,
             ) = self._llm_evaluate(task, transcript, workdir)
             autorater_reasoning = llm_reasoning
             # An errored autorater yields no verdict: leave autorater_passed None
@@ -217,6 +277,7 @@ class EvalJudge(Judge):
             errored=errored,
             resolved_model=autorater_model,
             autorater_seconds=autorater_seconds,
+            autorater_script=autorater_script,
         )
 
     def _llm_evaluate(
@@ -224,7 +285,7 @@ class EvalJudge(Judge):
         task: TaskSpec,
         transcript: list[ConversationTurn],
         workdir: AttemptWorkdir,
-    ) -> tuple[bool, str, bool, str | None, float | None]:
+    ) -> tuple[bool, str, bool, str | None, float | None, str | None]:
         # An autorater is one bare prompt through a CLI agent — the same
         # backend adapters that run attempts also answer the judge, via the
         # ``run_prompt`` half of the backend seam.
@@ -238,14 +299,11 @@ class EvalJudge(Judge):
                     True,
                     None,
                     None,
+                    None,
                 )
         harness = self._harness
 
-        user_msg = _USER_TMPL.format(
-            expect=task.expect,
-            transcript=_format_transcript(transcript),
-        )
-        prompt = f"{_SYSTEM}\n\n{user_msg}"
+        prompt = render_judge_prompt(task.expect or "", transcript)
 
         # In the workdir, not the spec dir: the judge grades what the agent left
         # there, and must not sit beside the answer key or write into the
@@ -264,10 +322,10 @@ class EvalJudge(Judge):
                 # per-attempt judge_error would pay for each agent run only to
                 # discard it. Stop the run instead (issue #139).
                 raise HarnessConfigurationError(reasoning)
-            return False, reasoning, True, result.resolved_model, seconds
+            return False, reasoning, True, result.resolved_model, seconds, None
         if result.error:
-            return False, result.error, True, result.resolved_model, seconds
-        passed, reasoning, errored = _parse_rich_response(
+            return False, result.error, True, result.resolved_model, seconds, None
+        passed, reasoning, errored, script = _parse_rich_response(
             _strip_markdown_fence(result.text), workdir
         )
-        return passed, reasoning, errored, result.resolved_model, seconds
+        return passed, reasoning, errored, result.resolved_model, seconds, script

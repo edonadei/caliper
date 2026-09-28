@@ -12,7 +12,7 @@ caliper run spec.eval.yaml --k 3                  # attempts per task (default 3
 caliper run spec.eval.yaml --k 3 --ablate my-skill   # the control: that skill removed
 caliper run spec.eval.yaml --ablate a --ablate mcp:srv --no-user-customizations  # every skill and server, isolated: the bare agent
 caliper run spec.eval.yaml --no-user-customizations  # isolated: only the spec's mcp: servers
-caliper run spec.eval.yaml --verbose              # per-attempt judge reasoning, pass@k, pass^k
+caliper run spec.eval.yaml --verbose              # expect, judge reasoning and script, pass@k, pass^k
 
 caliper list                                      # every spec with its latest score
 caliper list my-skill                             # one spec's runs, ablated ones marked
@@ -272,7 +272,10 @@ the nearest `.caliper/` at or above the working directory, bounded by the git
 repo, so `caliper report <spec-name>` finds a run from anywhere in the project.
 Each run records a snapshot of every declared skill's files, the engine used for
 the skill and the judge, what was ablated, and per attempt the outcome, token
-usage, wall time, judge time, and the transcript.
+usage, wall time, judge time, and the transcript. It also keeps the judge's input
+for debugging a verdict: each task's `expect`, the judge prompt version, and any
+assertion script the judge wrote (`autorater_script`). `caliper report --verbose`
+shows the `expect` and the script; the default report does not.
 
 ## Designing evals
 

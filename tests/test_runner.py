@@ -13,10 +13,12 @@ from caliper.harness.base import (
     AttemptResult,
     ConversationTurn,
     HarnessBackend,
+    PromptResult,
     RunContext,
 )
 from caliper.judge import EvalJudge
 from caliper.judge.base import JudgeResult
+from caliper.judge.eval_judge import JUDGE_PROMPT_VERSION
 from caliper.reporter import print_results
 from caliper.runner import run
 from caliper.workdir import _STEP_TIMEOUTS
@@ -250,6 +252,7 @@ def test_cleanup_runs_after_failed_timed_out_or_cancelled_agent(
 class JudgeErrorThenPass:
     backend = "test"
     model = None
+    prompt_version = None
 
     def __init__(self) -> None:
         self.calls = 0
@@ -405,6 +408,7 @@ class ModelReportingJudge:
         self._resolved = resolved_model
         self.backend = backend
         self.model = model
+        self.prompt_version = None
 
     def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
         return JudgeResult(passed=True, reasoning="ok", resolved_model=self._resolved)
@@ -503,6 +507,36 @@ def test_runmeta_records_no_judge_model_when_no_autorater_ran(tmp_path) -> None:
 
     assert results.run.judge_backend == "claude-code"
     assert results.run.judge_model is None
+    assert results.run.judge_prompt_version is None
+
+
+class _VerdictPrompt:
+    def run_prompt(self, prompt, *, model=None, cwd, timeout=60) -> PromptResult:
+        return PromptResult(
+            text='{"mode": "verdict", "passed": true, "reasoning": "ok"}'
+        )
+
+
+def test_run_records_what_rebuilds_the_judge_input(tmp_path) -> None:
+    """A saved run carries the expectation and template version the judge used."""
+    spec_path = tmp_path / "prov.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    spec = EvalSpec(
+        tasks=[TaskSpec(id="t1", name="t", prompt="p", expect="says hello")]
+    )
+
+    results = run(
+        spec=spec,
+        spec_path=spec_path,
+        harness=ScriptedHarness(agent_result()),
+        judge=EvalJudge(backend="claude-code", harness=_VerdictPrompt()),
+        k=1,
+        workers=1,
+        timeout=30,
+    )
+
+    assert results.run.judge_prompt_version == JUDGE_PROMPT_VERSION
+    assert results.task_results[0].expect == "says hello"
 
 
 def test_runmeta_records_resolved_model_over_requested_and_warns(tmp_path) -> None:

@@ -309,6 +309,11 @@ runs you mean to compare across engines. If the judge's CLI isn't installed, a
 spec with `expect:` is refused before the first attempt rather than recording a
 `judge_error` on every one.
 
+The judge either gives a direct verdict or writes a Python assertion script that
+runs in the attempt workdir. A saved run keeps what you need to debug a verdict:
+the `expect` text, the prompt template version, and any script the judge wrote.
+See [Judge input fields](results.md#judge-input-fields).
+
 ### Deterministic assertions (`assert:`)
 
 Python assertions run locally, in the [attempt workdir](#attempt-workdir). Use

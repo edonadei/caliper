@@ -228,6 +228,11 @@ def run(
             # --judge-model model.
             judge_model=(env.judge_models[0] if env.judge_models else None)
             or judge.model,
+            # Like judge_model, None when no task could have reached an
+            # autorater: there is no prompt to rebuild.
+            judge_prompt_version=judge.prompt_version
+            if any(task.expect for task in spec.tasks)
+            else None,
             era=ERA_INSTALL_AND_DISCOVER,
             ablated=environment.ablated,
             # What the run's tool environment actually held, so a saved run
@@ -407,6 +412,7 @@ def _finish_task(
         task_name=task.name,
         attempts=sorted(records, key=lambda r: r.attempt),
         activation_expected=env.environment.expected_activation(task),
+        expect=task.expect,
     )
     if env.on_task_done and len(result.attempts) < k:
         env.on_task_done(result)
