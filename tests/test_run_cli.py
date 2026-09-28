@@ -593,10 +593,13 @@ def test_run_refuses_an_expect_spec_when_the_judge_cli_is_missing(
     )
 
     assert result.exit_code == 2, result.output
-    assert "CLI was not found" in result.output
-    # Names the way out: the skill's own engine, the judge's default.
-    assert "drop --judge-model" in result.output
-    assert "(codex)" in result.output
+    # CliRunner's capture crops the panel to its first line; the full wording is
+    # asserted on the message itself.
+    assert "--judge-model pi" in result.output
+    message = run_module._judge_cli_missing("pi", "codex")
+    assert "the pi CLI isn't installed" in message
+    # Names the way out: without --judge-model the judge is the --model backend.
+    assert "remove --judge-model and codex (your --model) will grade" in message
 
 
 @pytest.mark.parametrize(

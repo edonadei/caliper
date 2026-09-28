@@ -494,23 +494,23 @@ passing `--judge-model <backend[:model]>` to pick an available judge. Example:
 - An unknown backend name in `--model` or `--judge-model` is refused before any
   attempt runs.
 
-**`The judge runs on ... but its CLI was not found`**
+**`--judge-model ... but the ... CLI isn't installed`**
 A spec with `expect:` needs the judge's CLI, so the run stops before any attempt
 (exit `2`) instead of recording `judge_error` on each one:
 
 ```console
 $ caliper run hello.eval.yaml --model codex --judge-model hermes
 ┌──────────────────────────────── No judge ─────────────────────────────────┐
-│ The judge runs on hermes (--judge-model), but its CLI was not found, so   │
-│ no `expect:` check could be graded.                                       │
+│ --judge-model hermes asks hermes to grade the `expect:` checks, but the   │
+│ hermes CLI isn't installed.                                               │
 │                                                                           │
-│ Install and sign in to the hermes CLI, or drop --judge-model to grade     │
-│ with the skill's engine (codex).                                          │
+│ Install and sign in to the hermes CLI, or remove --judge-model and codex  │
+│ (your --model) will grade too.                                            │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
-Install that CLI, or drop `--judge-model` so the judge uses the `--model`
-backend.
+Install that CLI, or remove `--judge-model` so the `--model` backend grades
+too.
 
 **A task passes only because of `assert:`**
 When a task has only `assert:`, no LLM judge runs. Add `expect:` if you also want

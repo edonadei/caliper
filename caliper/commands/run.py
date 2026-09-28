@@ -338,16 +338,17 @@ def _judge_cli_missing(judge_backend: str, skill_backend: str) -> str:
     """
     if judge_backend == skill_backend:
         return (
-            f"The {judge_backend} CLI was not found. It runs the skill and, with "
-            "no --judge-model, the judge too.\n\n"
-            f"Install and sign in to the {judge_backend} CLI, or pick installed "
-            "engines with --model / --judge-model."
+            f"The {judge_backend} CLI isn't installed. It would run the agent "
+            f"(--model) and, with no --judge-model, grade the `expect:` checks "
+            "too.\n\n"
+            f"Install and sign in to the {judge_backend} CLI, or pick an "
+            "installed one with --model."
         )
     return (
-        f"The judge runs on {judge_backend} (--judge-model), but its CLI was not "
-        "found, so no `expect:` check could be graded.\n\n"
-        f"Install and sign in to the {judge_backend} CLI, or drop --judge-model "
-        f"to grade with the skill's engine ({skill_backend})."
+        f"--judge-model {judge_backend} asks {judge_backend} to grade the "
+        f"`expect:` checks, but the {judge_backend} CLI isn't installed.\n\n"
+        f"Install and sign in to the {judge_backend} CLI, or remove "
+        f"--judge-model and {skill_backend} (your --model) will grade too."
     )
 
 
