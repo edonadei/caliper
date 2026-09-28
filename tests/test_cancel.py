@@ -278,6 +278,7 @@ class UnavailableModelJudge:
 
     backend = "claude-code"
     model = "claude-bogus"
+    prompt_version = None
 
     def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
         raise HarnessConfigurationError("Judge model 'claude-bogus' is unavailable")

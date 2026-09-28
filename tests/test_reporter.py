@@ -218,6 +218,27 @@ def test_failed_task_output_shown_by_default() -> None:
     assert "the agent said this" in out
 
 
+def test_judge_input_shows_only_under_verbose() -> None:
+    """The judge's expectation and script are for inspecting, not the default."""
+    task = _make_task("task-001", passed=False, autorater_reasoning="no file")
+    task.expect = "writes the EXPECTED file"
+    task.attempts[0].autorater_script = "assert open('SCRIPTED').read()"
+    results = _make_results([task])
+
+    default = _render(results)
+    verbose = _render(results, verbose=True)
+
+    assert "no file" in default
+    assert "EXPECTED" not in default and "SCRIPTED" not in default
+    assert "writes the EXPECTED file" in verbose
+    assert "assert open('SCRIPTED').read()" in verbose
+    saved = RunResults.model_validate_json(results.model_dump_json())
+    assert saved.task_results[0].expect == "writes the EXPECTED file"
+    assert saved.task_results[0].attempts[0].autorater_script == (
+        "assert open('SCRIPTED').read()"
+    )
+
+
 def test_passing_task_detail_not_shown_by_default() -> None:
     results = _make_results(
         [_make_task("task-001", passed=True, output="passing output")]

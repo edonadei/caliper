@@ -376,7 +376,7 @@ def _print_task_details(task_results: list[TaskResult], k: int, verbose: bool) -
         task_results if verbose else [tr for tr in task_results if _needs_detail(tr)]
     )
     for tr in tasks_to_detail:
-        _print_task_detail(tr, k)
+        _print_task_detail(tr, k, verbose)
 
 
 def _needs_detail(tr: TaskResult) -> bool:
@@ -693,7 +693,7 @@ def _attempt_glyph(attempt) -> str:
     return _OUTCOME_GLYPH.get(attempt.outcome, f"[red]{_CROSS}[/red]")
 
 
-def _print_task_detail(tr: TaskResult, k: int) -> None:
+def _print_task_detail(tr: TaskResult, k: int, verbose: bool = False) -> None:
     # A two-column grid rather than pre-indented lines, so a long output or
     # judge note wraps under its own column instead of back at the border.
     grid = Table.grid(padding=(0, 2))
@@ -703,6 +703,10 @@ def _print_task_detail(tr: TaskResult, k: int) -> None:
         grid.add_row(
             "[yellow]ABORTED[/yellow]", f"after {len(tr.attempts)}/{k} attempts"
         )
+    # What the judge was asked, for debugging a verdict. Only under --verbose:
+    # the default panel is for spotting a failure, not re-reading the spec.
+    if verbose and tr.expect:
+        grid.add_row("[dim]expect[/dim]", escape(tr.expect))
     # A red activation row is unreadable without the claim it broke, so say what
     # the task expected before listing what each attempt actually reached for.
     if tr.activation_expected is not None:
@@ -759,6 +763,11 @@ def _print_task_detail(tr: TaskResult, k: int) -> None:
             grid.add_row(
                 "    [dim]judge[/dim]",
                 f"[dim]{escape(attempt.autorater_reasoning)}[/dim]",
+            )
+        if verbose and attempt.autorater_script:
+            grid.add_row(
+                "    [dim]judge script[/dim]",
+                f"[dim]{escape(attempt.autorater_script)}[/dim]",
             )
 
     title = Text(tr.task_name, style="bold")

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -23,7 +24,8 @@ from caliper.harness.prompt_failure import PromptFailure, PromptFailureKind
 from caliper.harness.codex import _extract_codex_error, CodexHarness
 from caliper.harness.hermes import HermesHarness
 from caliper.harness.pi import PiHarness
-from caliper.judge.eval_judge import EvalJudge
+from caliper.judge.eval_judge import EvalJudge, render_judge_prompt
+from caliper.schema.results import TranscriptTurn
 from caliper.schema.spec import TaskSpec
 from caliper.workdir import _STEP_TIMEOUTS
 
@@ -56,9 +58,11 @@ class ScriptedPrompt:
     def __init__(self, result: PromptResult) -> None:
         self.result = result
         self.calls = 0
+        self.prompts: list[str] = []
 
     def run_prompt(self, prompt, *, model=None, cwd, timeout=60) -> PromptResult:
         self.calls += 1
+        self.prompts.append(prompt)
         return self.result
 
 
@@ -95,6 +99,67 @@ def test_eval_judge_expect_only_calls_llm(attempt_workdir) -> None:
     assert result.assert_passed is None
     assert result.autorater_passed is True
     assert result.resolved_model == "test-model"
+
+
+def test_judge_input_can_be_rebuilt_from_the_saved_transcript(attempt_workdir) -> None:
+    """The prompt a saved run's judge saw is re-renderable from what it stores."""
+    turns = [
+        ConversationTurn(role="assistant", content="writing it"),
+        ConversationTurn(
+            role="tool_use", content="", tool_name="Write", tool_input={"path": "a.txt"}
+        ),
+        ConversationTurn(role="tool_result", content="", tool_output="x" * 3000),
+        ConversationTurn(role="assistant", content="done"),
+    ]
+    backend = _verdict(True)
+
+    EvalJudge(backend="codex", harness=backend).evaluate(
+        task=_task(expect="writes a.txt"),
+        transcript=turns,
+        final_output="done",
+        workdir=attempt_workdir,
+    )
+
+    saved = [TranscriptTurn(**asdict(t)) for t in turns]
+    assert backend.prompts == [render_judge_prompt("writes a.txt", saved)]
+
+
+def test_prompt_version_moves_when_transcript_formatting_changes(monkeypatch) -> None:
+    """Not only the templates: the formatting decides the judge's input too."""
+    from caliper.judge import eval_judge
+
+    assert eval_judge._prompt_version() == eval_judge.JUDGE_PROMPT_VERSION
+    original = eval_judge._format_transcript
+
+    def longer_cut(turns):
+        return original(turns) + "x" * 1000
+
+    monkeypatch.setattr(eval_judge, "_format_transcript", longer_cut)
+
+    assert eval_judge._prompt_version() != eval_judge.JUDGE_PROMPT_VERSION
+
+
+def _script(code: str) -> ScriptedPrompt:
+    text = json.dumps({"mode": "script", "code": code, "reasoning": "check the file"})
+    return ScriptedPrompt(PromptResult(text=text))
+
+
+@pytest.mark.parametrize("code", ["assert True", "assert False, 'missing'"])
+def test_script_mode_keeps_the_autorater_script(code, attempt_workdir) -> None:
+    """Kept pass or fail: the workdir it asserted on does not outlive the attempt."""
+    result = EvalJudge(backend="codex", harness=_script(code)).evaluate(
+        task=_task(), transcript=[], final_output="", workdir=attempt_workdir
+    )
+
+    assert result.autorater_script == code
+
+
+def test_direct_verdict_has_no_autorater_script(attempt_workdir) -> None:
+    result = EvalJudge(backend="codex", harness=_verdict(True)).evaluate(
+        task=_task(), transcript=[], final_output="", workdir=attempt_workdir
+    )
+
+    assert result.autorater_script is None
 
 
 def test_eval_judge_assert_only_runs_script_no_llm(tmp_path, attempt_workdir) -> None:

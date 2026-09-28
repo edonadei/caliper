@@ -202,7 +202,8 @@ body problem.
 The report ends with a panel for each failed attempt: the output, plus the
 assertion or judge reason *why*. Full results are saved as JSON under
 `.caliper/results/<spec>/`, for you to inspect or `caliper compare` later.
-`--verbose` adds `pass@k` and `pass^k` columns and a panel for every task.
+`--verbose` adds `pass@k` and `pass^k` columns and a panel for every task, with
+each task's `expect` and any assertion script the judge wrote.
 
 ### Not sure what to put in a spec?
 
@@ -411,7 +412,7 @@ run Caliper, inside the git repository. See
 | `--model TARGET` | `claude-code` | Skill engine: `backend`, `model`, or `backend:model` ([syntax](docs/backends.md#selecting-an-engine)) |
 | `--judge-model TARGET` | `claude-code` | Judge engine, same syntax |
 | `--user-customizations` / `--no-user-customizations` | the spec's `user_customizations`, else on | Load your user skills, plugins, rules, settings and connectors into attempts, or isolate. See [Portable scores](#portable-scores) |
-| `--verbose` | off | Show per-attempt judge reasoning |
+| `--verbose` | off | Show every task with its `expect`, and per attempt the judge reasoning and any judge script |
 | `--output PATH` | none | Also save results JSON to a specific path |
 
 ### Exit codes

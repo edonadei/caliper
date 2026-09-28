@@ -215,6 +215,12 @@ class RunMeta(BaseModel):
     # judge provenance was recorded still load (they render as an unknown judge).
     judge_backend: str | None = None
     judge_model: str | None = None
+    # How the autorater rendered its prompt for this run (``JUDGE_PROMPT_VERSION``).
+    # With ``TaskResult.expect`` and each attempt's transcript, it lets the exact
+    # judge input be rebuilt by ``render_judge_prompt`` — faithfully only while
+    # the versions match. ``None`` when no task had an ``expect:``, or for runs
+    # saved before it was recorded.
+    judge_prompt_version: str | None = None
     # True when the run stopped before every attempt ran — Ctrl-C, or a fatal
     # error diagnosed mid-run. The attempts that *did* run are saved and scored
     # normally (every denominator is usable attempts, not k), so this is the
@@ -302,6 +308,13 @@ class AttemptRecord(BaseModel):
     assert_evidence: str | None = None
     autorater_passed: bool | None = None
     autorater_reasoning: str | None = None
+    # The assertion code the autorater wrote when it chose script mode — the
+    # one part of the judge's work nothing else in a saved run can rebuild,
+    # since the workdir it ran against is deleted with the attempt. For
+    # inspection: the report shows it only under ``--verbose``. ``None`` for a
+    # direct verdict, when no autorater ran, or for runs saved before it was
+    # recorded.
+    autorater_script: str | None = None
     # Wall-clock seconds the judge spent grading this attempt. Deliberately a
     # *sibling* of ``duration_seconds`` rather than folded into it: that field is
     # pinned to the harness spawn (docs/CONTEXT.md → Wall-clock time), and
@@ -461,6 +474,10 @@ class TaskResult(BaseModel):
     # recall/precision and the report can say *what* was expected when a row
     # fails. ``None`` = the task asserted nothing.
     activation_expected: list[str] | None = None
+    # The task's `expect:` as it read when this run was judged, so the judge's
+    # input survives a later edit to the spec (``render_judge_prompt``).
+    # ``None`` = no `expect:`, or a run saved before it was recorded.
+    expect: str | None = None
 
     @property
     def counts(self) -> OutcomeCounts:

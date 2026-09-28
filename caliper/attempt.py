@@ -200,6 +200,7 @@ def assemble_attempt(
         assert_evidence=judge_result.assert_evidence,
         autorater_passed=judge_result.autorater_passed,
         autorater_reasoning=judge_result.autorater_reasoning,
+        autorater_script=judge_result.autorater_script,
     )
 
 

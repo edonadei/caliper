@@ -28,6 +28,10 @@ class JudgeResult:
     # is the difference between "the judge was fast" and "no judge ran"
     # (docs/CONTEXT.md → Judge time).
     autorater_seconds: float | None = None
+    # The assertion code the autorater wrote when it chose script mode, kept
+    # because the workdir it ran against is gone once the attempt ends. ``None``
+    # for a direct verdict, or when no autorater ran.
+    autorater_script: str | None = None
 
 
 class PromptBackend(Protocol):
@@ -52,6 +56,9 @@ class Judge(Protocol):
     ``backend`` and ``model`` are the judge engine as configured — what
     ``RunMeta`` records, asked of the judge rather than passed in beside it.
     ``model`` is ``None`` when the judge lets its CLI pick.
+    ``prompt_version`` names how the autorater renders its prompt, so a saved run
+    can tell whether ``render_judge_prompt`` still reproduces what its judge
+    saw; ``None`` for a judge with no templates (a test double).
 
     ``workdir`` is the attempt workdir, where every assertion *runs*. An
     ``assert: ./check.py`` path still resolves from the spec's directory, which
@@ -61,6 +68,7 @@ class Judge(Protocol):
 
     backend: str
     model: str | None
+    prompt_version: str | None
 
     def evaluate(
         self,
