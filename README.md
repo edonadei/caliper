@@ -99,7 +99,7 @@ Then, in your agent:
 
 ```text
 /grill-skill ./inbox-triage/SKILL.md
-/evaluate-skill run inbox-triage.eval.yaml --k 3
+/evaluate-skill run ./inbox-triage/inbox-triage.eval.yaml --k 3
 ```
 
 </td>
@@ -112,10 +112,17 @@ pipx install caliper-eval   # Python 3.10+
 Then:
 
 ```bash
-caliper run inbox-triage.eval.yaml --k 3
-caliper run inbox-triage.eval.yaml --k 3 \
-  --ablate inbox-triage
-caliper compare <ablated-run> <full-run>
+# Without the skill first, then with it.
+caliper run inbox-triage/inbox-triage.eval.yaml \
+  --k 3 --ablate inbox-triage
+caliper run inbox-triage/inbox-triage.eval.yaml --k 3
+
+# Diff the ablated run (its ID is in
+# `caliper list`) against the latest one.
+caliper list inbox-triage
+caliper compare \
+  .caliper/results/inbox-triage/RUN_ID.json \
+  inbox-triage
 ```
 
 </td>
