@@ -1,5 +1,9 @@
 # Backend/model are a runtime axis, removed from the `.eval.yaml` spec
 
+> The judge's `claude-code` default is superseded by
+> [ADR 0034](0034-the-judge-follows-the-skill-backend-by-default.md): the judge
+> now follows the `--model` backend.
+
 We remove `skill.backend`, `skill.model`, and the entire `judge:` block
 (`JudgeConfig`) from the eval spec. The spec now describes only *what* is tested
 and *how success is judged* (`skill.path`, task prompts, `expect:`/`assert:`,

@@ -118,7 +118,10 @@ def run_cmd(
     judge_model: Optional[str] = typer.Option(
         None,
         "--judge-model",
-        help="Override judge backend/model (e.g. claude-code:claude-haiku-4-5-20251001)",
+        help=(
+            "Judge backend/model (e.g. claude-code:claude-haiku-4-5-20251001). "
+            "Default: the --model backend, on its CLI's default model"
+        ),
     ),
     user_customizations: Optional[bool] = typer.Option(
         None,
@@ -161,18 +164,22 @@ def run_cmd(
         fail(BadInput(f"Invalid spec: {exc}"))
 
     # The engine is a runtime axis, not a spec field (ADR 0004): resolve it here
-    # from the flags, defaulting to claude-code. The resolved (backend, model)
-    # is what gets recorded in RunMeta.
+    # from the flags, defaulting to claude-code. The judge follows the skill's
+    # backend unless --judge-model names one (docs/adr/0034). The resolved
+    # (backend, model) pairs are what get recorded in RunMeta.
     backend, skill_model = DEFAULT_BACKEND, None
     if model:
         b, m = parse_target(model)
         backend = b or backend
         skill_model = m
 
-    judge_backend, judge_model_name = DEFAULT_BACKEND, None
+    # Only the backend is followed, not the skill's model: a judge on its CLI's
+    # own default grades --model codex:<cheap model> as well as --model codex. A
+    # bare --judge-model reads like a bare --model: a claude-code model.
+    judge_backend, judge_model_name = backend, None
     if judge_model:
         jb, jm = parse_target(judge_model)
-        judge_backend = jb or judge_backend
+        judge_backend = jb or DEFAULT_BACKEND
         judge_model_name = jm
 
     # Before the banner and before any attempt: a misspelt backend would
@@ -322,23 +329,25 @@ def run_cmd(
 
 
 def _judge_cli_missing(judge_backend: str, skill_backend: str) -> str:
-    """Why an ``expect:`` spec cannot be graded here, and the two ways out.
+    """Why an ``expect:`` spec cannot be graded here, and the ways out.
 
     Refused before the first attempt: otherwise every graded attempt pays for the
-    agent and then lands as a ``judge_error``. The judge does not silently fall
-    back to the skill's engine — an independent grader is what keeps
-    cross-engine comparisons fair (docs/adr/0004) — so switching is left to the
-    user, and named.
+    agent and then lands as a ``judge_error``. With no --judge-model the judge
+    shares the skill's CLI, so this mostly catches an explicit --judge-model
+    naming a CLI that isn't installed.
     """
-    other = skill_backend if skill_backend != judge_backend else "codex"
-    if other == judge_backend:
-        other = DEFAULT_BACKEND
+    if judge_backend == skill_backend:
+        return (
+            f"The {judge_backend} CLI was not found. It runs the skill and, with "
+            "no --judge-model, the judge too.\n\n"
+            f"Install and sign in to the {judge_backend} CLI, or pick installed "
+            "engines with --model / --judge-model."
+        )
     return (
-        f"The judge runs on {judge_backend}, but its CLI was not found, so no "
-        "`expect:` check could be graded.\n\n"
-        f"Install and sign in to the {judge_backend} CLI, or grade with another "
-        f"engine: --judge-model {other}. Keep the same judge across runs you "
-        "mean to compare."
+        f"The judge runs on {judge_backend} (--judge-model), but its CLI was not "
+        "found, so no `expect:` check could be graded.\n\n"
+        f"Install and sign in to the {judge_backend} CLI, or drop --judge-model "
+        f"to grade with the skill's engine ({skill_backend})."
     )
 
 

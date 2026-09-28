@@ -181,9 +181,9 @@ history, so a release-notes request is exactly where `commit-writer` might grab
 work that belongs to `changelog-writer`. A task like that needs no `expect:`, so
 it skips the judge and costs a fraction of a graded task.
 
-The spec never names an engine. Both the skill and the judge run on
-`claude-code` unless you pick another with `--model` / `--judge-model` (see
-[Choosing an engine](#choosing-an-engine)).
+The spec never names an engine. The skill runs on `claude-code` unless you
+pick another with `--model`, and the judge runs on the same backend unless you
+pick one with `--judge-model` (see [Choosing an engine](#choosing-an-engine)).
 
 **3. Run it**
 
@@ -333,11 +333,12 @@ instead of starting from scratch.
 
 The engine (backend + model) is picked at run time, not in the spec. The spec
 describes *what* is tested and *how* success is judged; you pick the agent that
-runs and grades it when you invoke Caliper. Both default to `claude-code`:
+runs and grades it when you invoke Caliper. The skill defaults to `claude-code`,
+and the judge to the skill's backend:
 
 ```bash
-caliper run my-skill.eval.yaml                          # claude-code (default)
-caliper run my-skill.eval.yaml --model codex            # codex, its default model
+caliper run my-skill.eval.yaml                          # claude-code runs and grades
+caliper run my-skill.eval.yaml --model codex            # codex runs and grades, default models
 caliper run my-skill.eval.yaml --model codex:gpt-5.6-sol
 caliper run my-skill.eval.yaml --model pi --judge-model claude-code
 ```
@@ -349,8 +350,11 @@ caliper run my-skill.eval.yaml --model pi --judge-model claude-code
 | `pi` | pi CLI (`npm install -g @earendil-works/pi-coding-agent`), authenticated |
 | `hermes` | Hermes Agent CLI (Nous Research), authenticated, with a default model set |
 
-The skill engine and judge engine are independent, so you can test a Codex skill
-with a Claude judge. There's no direct-API backend: to use API billing, configure
+The judge follows the skill's backend (on that CLI's default model) unless
+`--judge-model` names one, so you can still test a Codex skill with a Claude
+judge. When comparing engines, pass the same `--judge-model` to every run:
+otherwise each engine grades itself, and `caliper compare` warns that the judges
+differ ([ADR 0034](docs/adr/0034-the-judge-follows-the-skill-backend-by-default.md)). There's no direct-API backend: to use API billing, configure
 one of these CLIs with an API key.
 
 Setup details for each backend, the full `--model` syntax, and MCP support by
@@ -409,7 +413,7 @@ run Caliper, inside the git repository. See
 | `--timeout INT` | `120` | Seconds per attempt |
 | `--fail-fast INT` | `0` | Stop a task after N consecutive `infra_error`/`timeout` attempts (`0` disables; counts attempts, not invocations) |
 | `--model TARGET` | `claude-code` | Skill engine: `backend`, `model`, or `backend:model` ([syntax](docs/backends.md#selecting-an-engine)) |
-| `--judge-model TARGET` | `claude-code` | Judge engine, same syntax |
+| `--judge-model TARGET` | the `--model` backend | Judge engine, same syntax |
 | `--user-customizations` / `--no-user-customizations` | the spec's `user_customizations`, else on | Load your user skills, plugins, rules, settings and connectors into attempts, or isolate. See [Portable scores](#portable-scores) |
 | `--verbose` | off | Show per-attempt judge reasoning |
 | `--output PATH` | none | Also save results JSON to a specific path |
@@ -490,10 +494,9 @@ passing `--judge-model <backend[:model]>` to pick an available judge. Example:
 - An unknown backend name in `--model` or `--judge-model` is refused before any
   attempt runs.
 - A spec with `expect:` is refused before any attempt runs (exit `2`) when the
-  judge's CLI isn't installed, for example no `claude` CLI on a Codex-only
-  machine. Install it, or pass `--judge-model codex` (or another backend). The
-  judge never switches engines on its own, and `caliper compare` warns when two
-  runs were graded by different judges.
+  judge's CLI isn't installed, for example `--judge-model claude-code` on a
+  machine without `claude`. Install it, or drop `--judge-model` to grade with
+  the skill's engine.
 
 **A task passes only because of `assert:`**
 When a task has only `assert:`, no LLM judge runs. Add `expect:` if you also want

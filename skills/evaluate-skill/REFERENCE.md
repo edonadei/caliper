@@ -160,15 +160,17 @@ An MCP tool call appears in the transcript as `mcp__<server>__<tool>` on
 runs on more than one engine, word `expect:` around the behaviour rather than
 one backend's spelling.
 
-When `--judge-model` names no model, the judge uses its CLI's own default
-model, like the skill does.
+With no `--judge-model`, the judge runs on the `--model` backend, on its CLI's
+default model. When `--judge-model` names no model, the judge likewise uses its
+CLI's own default. To compare engines, pass the same `--judge-model` to each
+run; otherwise each engine grades itself and `compare` warns.
 
 A run records the model the backend reported running, not the one requested,
 and warns on a mismatch. An unknown backend name is refused before any attempt;
 an unavailable judge model, an unavailable `claude-code` skill model, or an
 unknown `hermes:<model>` stops the run with exit `2`. So does a spec with
-`expect:` when the judge's CLI isn't installed: install it or pass
-`--judge-model codex` (the judge never follows `--model` on its own).
+`expect:` when the judge's CLI isn't installed: install it, or drop
+`--judge-model` to grade with the skill's engine.
 
 ## User customizations
 

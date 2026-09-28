@@ -588,12 +588,51 @@ def test_run_refuses_an_expect_spec_when_the_judge_cli_is_missing(
     spec = tmp_path / "s.eval.yaml"
     spec.write_text("tasks:\n  - {name: t, prompt: p, expect: it worked}\n")
 
-    result = runner.invoke(app, ["run", str(spec), "--model", "codex"])
+    result = runner.invoke(
+        app, ["run", str(spec), "--model", "codex", "--judge-model", "pi"]
+    )
 
     assert result.exit_code == 2, result.output
     assert "CLI was not found" in result.output
-    # Names the way out: the skill's own engine, never switched to silently.
-    assert "--judge-model codex" in result.output
+    # Names the way out: the skill's own engine, the judge's default.
+    assert "drop --judge-model" in result.output
+    assert "(codex)" in result.output
+
+
+@pytest.mark.parametrize(
+    "flags, judge",
+    [
+        ([], ("claude-code", None)),
+        # The backend is followed, the skill's model is not.
+        (["--model", "codex:gpt-5-codex"], ("codex", None)),
+        (["--model", "codex", "--judge-model", "pi:m"], ("pi", "m")),
+        # A bare --judge-model reads like a bare --model: a claude-code model.
+        (["--model", "codex", "--judge-model", "opus"], ("claude-code", "opus")),
+    ],
+)
+def test_the_judge_follows_the_skill_backend_unless_named(
+    monkeypatch, tmp_path, flags, judge
+) -> None:
+    import caliper.commands.run as run_module
+
+    judged = []
+
+    def fake_eval_judge(backend, model, **_):
+        judged.append((backend, model))
+        return object()
+
+    def stop_here(**_: object):
+        raise AssertionError("resolved; nothing further to check")
+
+    monkeypatch.setattr(run_module, "get_harness", lambda *a, **k: ScriptedHarness())
+    monkeypatch.setattr(run_module, "EvalJudge", fake_eval_judge)
+    monkeypatch.setattr(run_module, "run", stop_here)
+    spec = tmp_path / "s.eval.yaml"
+    spec.write_text("tasks:\n  - {name: t, prompt: p, expect: it worked}\n")
+
+    runner.invoke(app, ["run", str(spec), *flags])
+
+    assert judged == [judge]
 
 
 def test_run_ignores_a_missing_judge_cli_when_no_task_has_expect(
