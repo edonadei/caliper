@@ -490,6 +490,42 @@ def test_trigger_probe_attempt_shows_its_activation_verdict() -> None:
     assert "✓ Attempt 2" in out
 
 
+def test_built_in_activations_are_shown_without_being_scored() -> None:
+    attempts = [
+        AttemptRecord(
+            attempt=n,
+            output="",
+            duration_seconds=1.0,
+            outcome=Outcome.NOT_CHECKED,
+            activated=[],
+            activation_passed=True,
+            builtin_activated=builtin,
+        )
+        for n, builtin in ((1, ["claude-api"]), (2, []))
+    ]
+    task = TaskResult(
+        task_id="probe",
+        task_name="Probe",
+        attempts=attempts,
+        activation_expected=[],
+    )
+    results = RunResults(
+        run=RunMeta(
+            spec="test-spec",
+            timestamp=datetime(2026, 6, 21, 12, 0, 0, tzinfo=timezone.utc),
+            k=2,
+            backend="claude-code",
+        ),
+        task_results=[task],
+        aggregate=AggregateScore.from_task_results([task], k=2),
+    )
+
+    out = _render_markup(results)
+
+    assert "Activation  100.0%" in out
+    assert "Built-in skills  claude-api 1/2  (ship with claude-code; not scored)" in out
+
+
 def test_truncating_escaped_markup_cannot_expose_a_tag() -> None:
     # 501 chars: the cut lands right after "x", where escaping would have put
     # the backslash that shields "[/dim]".

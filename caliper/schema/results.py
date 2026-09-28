@@ -274,6 +274,10 @@ class AttemptRecord(BaseModel):
     # ``None``, which means *not asserted* (the ``assert_passed`` idiom).
     activated: list[str] | None = None
     activation_passed: bool | None = None
+    # Skills the CLI ships that the agent reached for: shown, never scored
+    # (docs/CONTEXT.md → Built-in skill). ``None`` means not observed, as
+    # for ``activated``.
+    builtin_activated: list[str] | None = None
 
     @property
     def activation_scored(self) -> bool:
@@ -972,6 +976,32 @@ class ObservedActivation:
         return [
             cls(skill=name, fired=fired.get(name, 0), observed=observed)
             for name in rows_in_spec_order(declared, set(fired))
+        ]
+
+    @classmethod
+    def builtin_from_task_results(
+        cls, task_results: list[TaskResult]
+    ) -> list[ObservedActivation]:
+        """How often each built-in skill fired, most often first.
+
+        Over the activation-usable attempts whose backend could list its built-in
+        skills. Only skills that fired get a row: the CLI ships dozens.
+        """
+        fired: dict[str, int] = {}
+        observed = 0
+        for task in task_results:
+            for att in task.attempts:
+                if (
+                    not att.outcome.is_activation_usable
+                    or att.builtin_activated is None
+                ):
+                    continue
+                observed += 1
+                for name in att.builtin_activated:
+                    fired[name] = fired.get(name, 0) + 1
+        return [
+            cls(skill=name, fired=count, observed=observed)
+            for name, count in sorted(fired.items(), key=lambda kv: (-kv[1], kv[0]))
         ]
 
 
