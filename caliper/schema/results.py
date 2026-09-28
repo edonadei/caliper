@@ -310,9 +310,10 @@ class AttemptRecord(BaseModel):
     autorater_reasoning: str | None = None
     # The assertion code the autorater wrote when it chose script mode — the
     # one part of the judge's work nothing else in a saved run can rebuild,
-    # since the workdir it ran against is deleted with the attempt. Kept in the
-    # JSON for inspection, not shown in the report. ``None`` for a direct
-    # verdict, when no autorater ran, or for runs saved before it was recorded.
+    # since the workdir it ran against is deleted with the attempt. For
+    # inspection: the report shows it only under ``--verbose``. ``None`` for a
+    # direct verdict, when no autorater ran, or for runs saved before it was
+    # recorded.
     autorater_script: str | None = None
     # Wall-clock seconds the judge spent grading this attempt. Deliberately a
     # *sibling* of ``duration_seconds`` rather than folded into it: that field is
