@@ -109,6 +109,9 @@ its `score` stays `null` and it's skipped in the aggregate.
 
 ## Parallelism and stopping a run
 
+Each attempt is one agent session, so a 3-task spec at `--k 3` costs 9 sessions,
+run 4 at a time by default.
+
 `--workers` counts **attempts**, not tasks. Every (task, attempt) pair is
 scheduled independently, so `--k 10 --workers 4` on a one-task spec runs four
 attempts at a time. They're ordered round-robin (attempt 1 of every task, then

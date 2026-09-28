@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <rect x="2" y="2" width="124" height="124" rx="28" fill="#ffffff" stroke="#d0d7de" stroke-width="2"/>
+  <!-- beam -->
+  <rect x="18" y="30" width="92" height="14" rx="3" fill="#1f2328"/>
+  <g stroke="#ffffff" stroke-width="2" stroke-linecap="round">
+    <line x1="50" y1="30" x2="50" y2="37"/><line x1="58" y1="30" x2="58" y2="35"/>
+    <line x1="66" y1="30" x2="66" y2="37"/><line x1="74" y1="30" x2="74" y2="35"/>
+    <line x1="98" y1="30" x2="98" y2="37"/><line x1="106" y1="30" x2="106" y2="35"/>
+  </g>
+  <!-- fixed jaw -->
+  <path d="M18 44 H36 V88 L27 100 L18 88 Z" fill="#1f2328"/>
+  <!-- sliding jaw -->
+  <rect x="80" y="24" width="20" height="26" rx="4" fill="none" stroke="#1f2328" stroke-width="4"/>
+  <path d="M80 50 H98 V80 L89 92 L80 80 Z" fill="#1f2328"/>
+  <!-- the measured thing: a pass -->
+  <path d="M45 72 L54 81 L71 61" fill="none" stroke="#1a7f37" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
