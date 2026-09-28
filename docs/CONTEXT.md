@@ -80,12 +80,13 @@ default MCP ("default" is the engine), extensions (misses rules and settings).
 
 The **backend + model** used to run the skill-under-test (or to grade it) is a
 *swept axis of an invocation*, not a property of the [[eval spec]]. It comes from
-`--model` / `--judge-model` (or their default, `claude-code`), and the actual
+`--model` / `--judge-model` (defaulting to `claude-code`, and the judge to the
+backend of the model being evaluated), and the actual
 engine that produced a result is recorded per run in `RunMeta` — both the skill
 `backend`/`model` **and** the `judge_backend`/`judge_model` that graded it. The
 skill `model` is the one the backend reported running (hermes' session export),
-not the one requested, and the `judge_model` of a default-judge run is the one
-the claude-code judge's JSON reports — a concrete model rather than a bare
+not the one requested, and the `judge_model` is the one the judge reports when it
+reports one (the claude-code judge's JSON) — a concrete model rather than a bare
 "default" — so de-pinning never costs reproducibility. Corollary: a spec cannot express "this is meant for
 `codex`/`pi`"; a non-default backend must be named at every invocation until a
 project-level default lands (the unified-harness-config direction).

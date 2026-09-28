@@ -118,7 +118,10 @@ def run_cmd(
     judge_model: Optional[str] = typer.Option(
         None,
         "--judge-model",
-        help="Override judge backend/model (e.g. claude-code:claude-haiku-4-5-20251001)",
+        help=(
+            "Judge backend/model (e.g. claude-code:claude-haiku-4-5-20251001). "
+            "Default: the --model backend, on its CLI's default model"
+        ),
     ),
     user_customizations: Optional[bool] = typer.Option(
         None,
@@ -161,18 +164,22 @@ def run_cmd(
         fail(BadInput(f"Invalid spec: {exc}"))
 
     # The engine is a runtime axis, not a spec field (ADR 0004): resolve it here
-    # from the flags, defaulting to claude-code. The resolved (backend, model)
-    # is what gets recorded in RunMeta.
+    # from the flags, defaulting to claude-code. The judge follows the skill's
+    # backend unless --judge-model names one (docs/adr/0034). The resolved
+    # (backend, model) pairs are what get recorded in RunMeta.
     backend, skill_model = DEFAULT_BACKEND, None
     if model:
         b, m = parse_target(model)
         backend = b or backend
         skill_model = m
 
-    judge_backend, judge_model_name = DEFAULT_BACKEND, None
+    # Only the backend is followed, not the skill's model: a judge on its CLI's
+    # own default grades --model codex:<cheap model> as well as --model codex. A
+    # bare --judge-model reads like a bare --model: a claude-code model.
+    judge_backend, judge_model_name = backend, None
     if judge_model:
         jb, jm = parse_target(judge_model)
-        judge_backend = jb or judge_backend
+        judge_backend = jb or DEFAULT_BACKEND
         judge_model_name = jm
 
     # Before the banner and before any attempt: a misspelt backend would
@@ -190,11 +197,27 @@ def run_cmd(
                 )
             )
 
+    judge_harness = get_harness(judge_backend, judge_model_name)
+
+    def check_judge_cli() -> None:
+        # Called by the runner once the spec's skills and servers resolved: a
+        # bad skill source keeps its own diagnosis (exit 1) rather than being
+        # masked by a missing judge CLI, and no attempt has been paid for yet.
+        if any(t.expect for t in spec.tasks) and judge_harness.prompt_cli_missing():
+            fail(
+                CannotRun(
+                    _judge_cli_missing(
+                        judge_backend, backend, named=judge_model is not None
+                    ),
+                    title="No judge",
+                )
+            )
+
     name = spec_name(spec_file)
     print_banner(name, k, backend, skill_model)
 
     harness = get_harness(backend, skill_model)
-    judge = EvalJudge(judge_backend, judge_model_name)
+    judge = EvalJudge(judge_backend, judge_model_name, harness=judge_harness)
 
     # A notice, not a prompt: an attempt's isolation was never a security
     # boundary (docs/adr/0027, docs/adr/0028), and a run must stay usable
@@ -293,6 +316,7 @@ def run_cmd(
                 on_attempt_done=on_attempt_done,
                 on_task_done=on_task_done,
                 user_customizations=user_customizations,
+                before_attempts=check_judge_cli,
             )
         except (SkillResolutionError, HarnessConfigurationError) as exc:
             fail(exc)
@@ -315,6 +339,35 @@ def run_cmd(
         fail(CannotRun(nothing_measured))
     if results.run.hook_failures:
         raise typer.Exit(ExitCode.CANNOT_RUN)
+
+
+def _judge_cli_missing(judge_backend: str, skill_backend: str, *, named: bool) -> str:
+    """Why an ``expect:`` spec cannot be graded here, and the ways out.
+
+    Refused before the first attempt: otherwise every graded attempt pays for the
+    agent and then lands as a ``judge_error``. ``named`` is whether
+    --judge-model chose the judge: only then does changing --model leave it
+    where it is, and only then is removing the flag a way out — unless the
+    --model backend is the same missing CLI.
+    """
+    if not named:
+        return (
+            f"The {judge_backend} CLI isn't installed. It would run the agent "
+            f"(--model) and, with no --judge-model, grade the `expect:` checks "
+            "too.\n\n"
+            f"Install and sign in to the {judge_backend} CLI, or pick an "
+            "installed one with --model."
+        )
+    way_out = (
+        "point --judge-model at an installed backend"
+        if judge_backend == skill_backend
+        else f"remove --judge-model and {skill_backend} (your --model) will grade too"
+    )
+    return (
+        f"--judge-model {judge_backend} asks {judge_backend} to grade the "
+        f"`expect:` checks, but the {judge_backend} CLI isn't installed.\n\n"
+        f"Install and sign in to the {judge_backend} CLI, or {way_out}."
+    )
 
 
 def _nothing_measured(results: RunResults) -> str | None:

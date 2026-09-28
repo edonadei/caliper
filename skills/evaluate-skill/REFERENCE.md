@@ -160,13 +160,18 @@ An MCP tool call appears in the transcript as `mcp__<server>__<tool>` on
 runs on more than one engine, word `expect:` around the behaviour rather than
 one backend's spelling.
 
-When `--judge-model` names no model, the judge uses its CLI's own default
-model, like the skill does.
+With no `--judge-model`, the judge runs on the `--model` backend, on its CLI's
+default model. When `--judge-model` names no model, the judge likewise uses its
+CLI's own default. To compare engines, pass the same `--judge-model` to each
+run; otherwise each engine grades itself and `compare` warns.
 
 A run records the model the backend reported running, not the one requested,
 and warns on a mismatch. An unknown backend name is refused before any attempt;
 an unavailable judge model, an unavailable `claude-code` skill model, or an
-unknown `hermes:<model>` stops the run with exit `2`.
+unknown `hermes:<model>` stops the run with exit `2`. So does a spec with
+`expect:` when the judge's CLI isn't installed: install it, or drop
+`--judge-model` so the backend of the model being evaluated (`--model`)
+grades too.
 
 ## User customizations
 
@@ -246,6 +251,7 @@ cheaper, and are never a regression. `compare` also warns when:
 - the declared skills or `mcp:` servers differ outside an ablation pair;
 - the runs loaded user customizations differently, or compare two backends with
   user customizations loaded;
+- the runs were graded by different judges (backend or model);
 - a skill's text drifted. A drifted **git source** warns, because the delta is
   confounded: pin `ref:`. A drifted **path source** is shown without alarm,
   because that edit is usually what you are measuring.

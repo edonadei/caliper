@@ -199,6 +199,29 @@ How to read the diff:
   availability can move the score for reasons unrelated to the skill. Two
   different backends with user customizations warn too, since each CLI loads its
   own setup; isolate both runs (`--no-user-customizations`) for a harness comparison.
+- **A different judge warns** (`judge_mismatch`). When an LLM judge graded
+  both runs and the judge backend or model differs, part of the delta may be a
+  stricter or looser grader. Re-run with the same `--judge-model`. A judge left
+  on its CLI's default model shows as `<backend> (default model)`; when the CLI
+  reports the model it ran (claude-code does), that model is compared, so the
+  warning can fire even when neither run named one. Runs where no LLM judge ran
+  (`assert:`-only, or saved before `judge_seconds`) never trigger it.
+
+  Two engines run without `--judge-model`, so each graded itself:
+
+  ```console
+  $ caliper run hello.eval.yaml                  # claude-code runs and grades
+  $ caliper run hello.eval.yaml --model codex    # codex runs and grades
+  $ caliper compare <claude-code run> <codex run>
+  ──────────────────────── CALIPER  —  compare  —  hello ────────────────────────
+      2026-09-27T10-00-00Z (claude-code) → 2026-09-27T11-00-00Z (codex)   ·   k=3
+   ⚠ different judges: claude-code:claude-opus-5-5 vs codex:gpt-5-codex — part of
+  the delta may be a stricter or looser grader rather than the agent; re-run with
+  the same --judge-model for a like-for-like comparison
+  ```
+
+  Pass the same judge to both runs, for example `--judge-model claude-code`, and
+  the warning goes away.
 
 `--format json` serializes the full comparison (per-task scores, deltas,
 regression flags, unmatched lists, warnings, `skill_drift`, and per-side usage)

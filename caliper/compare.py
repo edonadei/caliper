@@ -165,6 +165,50 @@ def _cross_backend_user_customizations_warning(a: RunMeta, b: RunMeta) -> str | 
     )
 
 
+def _autorater_ran(results: RunResults) -> bool:
+    """Whether an LLM judge graded any attempt of this run.
+
+    Read from ``judge_seconds``, which is set only when the autorater's model
+    call ran (docs/adr/0033), not from ``RunMeta.judge_model``: that is ``None``
+    for a codex, pi or hermes judge on its CLI's default model, and set for an
+    ``assert:``-only run given an explicit --judge-model that never ran.
+    """
+    return any(
+        attempt.judge_seconds is not None
+        for task in results.task_results
+        for attempt in task.attempts
+    )
+
+
+def _judge_warning(a: RunResults, b: RunResults) -> str | None:
+    """Why the two runs were graded by different judges, or ``None``.
+
+    Only when an autorater graded both: an ``assert:``-only run, or one saved
+    before judge time was recorded, has no grader to disagree with. The model
+    counts, not just the backend, so a judge on its CLI's default can differ from
+    one that named a model; two unnamed defaults on one backend cannot be told
+    apart and pass.
+    """
+    if not (_autorater_ran(a) and _autorater_ran(b)):
+        return None
+    a_meta, b_meta = a.run, b.run
+    if a_meta.judge_backend is None or b_meta.judge_backend is None:
+        return None
+    a_judge = _judge_label(a_meta.judge_backend, a_meta.judge_model)
+    b_judge = _judge_label(b_meta.judge_backend, b_meta.judge_model)
+    if a_judge == b_judge:
+        return None
+    return (
+        f"different judges: {a_judge} vs {b_judge} — part of the delta may be a "
+        "stricter or looser grader rather than the agent; re-run with the same "
+        "--judge-model for a like-for-like comparison"
+    )
+
+
+def _judge_label(backend: str, model: str | None) -> str:
+    return f"{backend}:{model}" if model else f"{backend} (default model)"
+
+
 def _group_by_name(tasks: list[TaskResult]) -> dict[str, list[TaskResult]]:
     """Tasks keyed by their stable identity, ``task_name``, preserving order.
 
@@ -384,6 +428,10 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
     skill_drift = _drift(a, b)
     warnings += [r.message for r in skill_drift if r.source_kind == "git"]
 
+    judge_warning = _judge_warning(a, b)
+    if judge_warning:
+        warnings.append(judge_warning)
+
     return RunComparison(
         a=a_run,
         b=b_run,
@@ -403,6 +451,7 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         mcp_mismatch=mcp_mismatch,
         user_customizations_mismatch=customizations_warning is not None,
         cross_backend_user_customizations=cross_backend_warning is not None,
+        judge_mismatch=judge_warning is not None,
         skill_drift=skill_drift,
         warnings=warnings,
         # Token/wall totals over each whole run. Shown alongside pass@k but never

@@ -133,7 +133,7 @@ def test_run_cli_resolves_backend_and_judge_model_targets(
         harness_args["backend"], harness_args["model"] = backend, model
         return ScriptedHarness()
 
-    def fake_eval_judge(backend, model):
+    def fake_eval_judge(backend, model, **_):
         judge_args["backend"], judge_args["model"] = backend, model
         return object()
 
@@ -565,6 +565,133 @@ def test_run_cli_refuses_unknown_backends_before_any_attempt(
         # Names what is wrong and what would be right.
         assert "Unknown backend" in result.output
         assert "claude-code" in result.output and "codex" in result.output
+
+
+class _NoPromptCli(ScriptedHarness):
+    """A judge backend whose CLI is not installed on this machine."""
+
+    def prompt_cli_missing(self) -> bool:
+        return True
+
+
+def test_run_refuses_an_expect_spec_when_the_judge_cli_is_missing(
+    monkeypatch, tmp_path
+) -> None:
+    """Every graded attempt would pay for the agent and land as a judge_error."""
+    import caliper.commands.run as run_module
+
+    def refuse_before_any_attempt(**kwargs):
+        kwargs["before_attempts"]()
+        raise AssertionError("no attempt should be scheduled")
+
+    monkeypatch.setattr(run_module, "get_harness", lambda *a, **k: _NoPromptCli())
+    monkeypatch.setattr(run_module, "make_progress", lambda *a, **k: (_Progress(), {}))
+    monkeypatch.setattr(run_module, "run", refuse_before_any_attempt)
+    spec = tmp_path / "s.eval.yaml"
+    spec.write_text("tasks:\n  - {name: t, prompt: p, expect: it worked}\n")
+
+    result = runner.invoke(
+        app, ["run", str(spec), "--model", "codex", "--judge-model", "pi"]
+    )
+
+    assert result.exit_code == 2, result.output
+    # CliRunner's capture crops the panel to its first line; the full wording is
+    # asserted on the message itself.
+    assert "--judge-model pi" in result.output
+    message = run_module._judge_cli_missing("pi", "codex", named=True)
+    assert "the pi CLI isn't installed" in message
+    # Names the way out: without --judge-model the judge is the --model backend.
+    assert "remove --judge-model and codex (your --model) will grade" in message
+
+
+def test_the_missing_judge_message_matches_how_the_judge_was_chosen() -> None:
+    import caliper.commands.run as run_module
+
+    # --judge-model named the same missing CLI as --model: neither removing the
+    # flag nor changing --model alone would help.
+    same = run_module._judge_cli_missing("codex", "codex", named=True)
+    assert "--judge-model codex asks codex" in same
+    assert "point --judge-model at an installed backend" in same
+    assert "with no --judge-model" not in same
+
+    # No --judge-model: the judge follows --model, so --model is the way out.
+    default = run_module._judge_cli_missing("codex", "codex", named=False)
+    assert "with no --judge-model" in default
+    assert "pick an installed one with --model" in default
+
+
+@pytest.mark.parametrize(
+    "flags, judge",
+    [
+        ([], ("claude-code", None)),
+        # The backend is followed, the skill's model is not.
+        (["--model", "codex:gpt-5-codex"], ("codex", None)),
+        (["--model", "codex", "--judge-model", "pi:m"], ("pi", "m")),
+        # A bare --judge-model reads like a bare --model: a claude-code model.
+        (["--model", "codex", "--judge-model", "opus"], ("claude-code", "opus")),
+    ],
+)
+def test_the_judge_follows_the_skill_backend_unless_named(
+    monkeypatch, tmp_path, flags, judge
+) -> None:
+    import caliper.commands.run as run_module
+
+    judged = []
+
+    def fake_eval_judge(backend, model, **_):
+        judged.append((backend, model))
+        return object()
+
+    def stop_here(**_: object):
+        raise AssertionError("resolved; nothing further to check")
+
+    monkeypatch.setattr(run_module, "get_harness", lambda *a, **k: ScriptedHarness())
+    monkeypatch.setattr(run_module, "EvalJudge", fake_eval_judge)
+    monkeypatch.setattr(run_module, "run", stop_here)
+    spec = tmp_path / "s.eval.yaml"
+    spec.write_text("tasks:\n  - {name: t, prompt: p, expect: it worked}\n")
+
+    runner.invoke(app, ["run", str(spec), *flags])
+
+    assert judged == [judge]
+
+
+def test_run_ignores_a_missing_judge_cli_when_no_task_has_expect(
+    monkeypatch, tmp_path
+) -> None:
+    """An assert-only spec never calls the judge's CLI, so it need not exist."""
+    import caliper.commands.run as run_module
+
+    ran = []
+
+    def fake_run(**kwargs):
+        kwargs["before_attempts"]()
+        ran.append(True)
+        return RunResults(
+            run=RunMeta(
+                spec="s",
+                timestamp=datetime(2026, 7, 3, tzinfo=timezone.utc),
+                k=kwargs["k"],
+                backend="scripted",
+            ),
+            skill_snapshots=[],
+            task_results=[],
+            aggregate=AggregateScore(avg_score=0.0, per_task=[]),
+        )
+
+    monkeypatch.setattr(run_module, "get_harness", lambda *a, **k: _NoPromptCli())
+    monkeypatch.setattr(run_module, "EvalJudge", lambda *a, **k: object())
+    monkeypatch.setattr(run_module, "make_progress", lambda *a, **k: (_Progress(), {}))
+    monkeypatch.setattr(run_module, "print_banner", lambda *a, **k: None)
+    monkeypatch.setattr(run_module, "print_results", lambda *a, **k: None)
+    monkeypatch.setattr(run_module, "run", fake_run)
+    monkeypatch.chdir(tmp_path)
+    spec = tmp_path / "s.eval.yaml"
+    spec.write_text("tasks:\n  - {name: t, prompt: p, assert: 'assert True'}\n")
+
+    result = runner.invoke(app, ["run", str(spec)])
+
+    assert ran, result.output
 
 
 @pytest.mark.parametrize(

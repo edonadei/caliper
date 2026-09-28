@@ -16,9 +16,10 @@ from pydantic import (
 VALID_BACKENDS: frozenset[str] = frozenset({"claude-code", "codex", "pi", "hermes"})
 
 # The engine (backend + model) is a runtime axis, not a spec field: it is chosen
-# at invocation via --model / --judge-model and defaults to this. A saved run
-# still records the actual engine in RunMeta, so de-pinning costs no
-# reproducibility. See docs/adr/0004-engine-is-a-runtime-axis-not-a-spec-field.md.
+# at invocation via --model / --judge-model. The skill defaults to this, and the
+# judge to the skill's backend (docs/adr/0034). A saved run still records the
+# actual engine in RunMeta, so de-pinning costs no reproducibility. See
+# docs/adr/0004-engine-is-a-runtime-axis-not-a-spec-field.md.
 DEFAULT_BACKEND: str = "claude-code"
 # Runs load the user's customizations unless the invocation or the spec says
 # otherwise: most runs test a skill in the user's own agent (docs/adr/0028).

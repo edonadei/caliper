@@ -203,6 +203,60 @@ def test_matching_specs_and_k_produce_no_warnings() -> None:
     assert comp.warnings == []
 
 
+def _judged(
+    backend: str | None, model: str | None, *, graded: bool = True
+) -> RunResults:
+    """A run whose judge is recorded, and whose attempts it graded or not."""
+    run = _run([_task("alpha", [P, P])])
+    run.run.judge_backend, run.run.judge_model = backend, model
+    for attempt in run.task_results[0].attempts:
+        attempt.judge_seconds = 1.0 if graded else None
+    return run
+
+
+def test_different_judges_raise_a_warning() -> None:
+    # The model counts, not just the backend: a judge on its CLI's own default
+    # can change between machines.
+    a = _judged("claude-code", "claude-opus-5-5")
+    b = _judged("claude-code", "claude-sonnet-5")
+
+    comp = diff_runs(a, b)
+
+    assert comp.judge_mismatch
+    assert any(
+        "different judges" in w
+        and "claude-code:claude-opus-5-5" in w
+        and "claude-code:claude-sonnet-5" in w
+        for w in comp.warnings
+    )
+
+
+def test_default_model_judges_on_different_backends_warn() -> None:
+    """codex, pi and hermes report no model for a default judge; the backend still differs."""
+    comp = diff_runs(_judged("codex", None), _judged("pi", None))
+
+    assert comp.judge_mismatch
+    assert any(
+        "codex (default model)" in w and "pi (default model)" in w
+        for w in comp.warnings
+    )
+
+
+def test_the_same_judge_raises_no_warning() -> None:
+    comp = diff_runs(_judged("codex", "gpt-5-codex"), _judged("codex", "gpt-5-codex"))
+
+    assert not comp.judge_mismatch
+    assert comp.warnings == []
+
+
+def test_a_judge_that_never_graded_raises_no_warning() -> None:
+    """An assert-only run keeps a requested --judge-model, but no autorater ran."""
+    a = _judged("claude-code", "claude-opus-5-5", graded=False)
+    b = _judged("codex", "gpt-5-codex")
+
+    assert not diff_runs(a, b).judge_mismatch
+
+
 # --- the verbose columns ------------------------------------------------------
 
 

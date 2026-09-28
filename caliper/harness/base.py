@@ -353,6 +353,16 @@ class HarnessBackend(ABC):
             error=f"backend {self.name!r} cannot run a bare prompt",
         )
 
+    def prompt_cli_missing(self) -> bool:
+        """True when the CLI a bare prompt would spawn is not installed here.
+
+        Presence only — no ``--version`` probe, no auth check: a run asks this
+        once, before its first attempt, so a missing judge CLI stops the run
+        instead of turning every graded attempt into a ``judge_error``. Default
+        ``False``: a backend with nothing to locate is never missing.
+        """
+        return False
+
 
 class CliHarness(HarnessBackend):
     """Deep base owning the CLI-agent run lifecycle; backends fill in what varies.
@@ -877,6 +887,9 @@ class CliHarness(HarnessBackend):
             if candidate.exists():
                 return str(candidate)
         return shutil.which(self.cli_name) if self.cli_name else None
+
+    def prompt_cli_missing(self) -> bool:
+        return self.cli_name is not None and self.cli_path() is None
 
     def _ensure_ready(self, ctx: RunContext) -> None:
         """Raise ``HarnessConfigurationError`` unless the CLI is found and runs.

@@ -23,7 +23,9 @@ caliper report <spec> --run 2026-06-21T14-53-12Z --verbose
 The engine is chosen at run time, never in the spec: `--model` for the skill
 and `--judge-model` for the judge, each `backend`, `backend:model` or a bare
 model (`--model codex`, `--model codex:gpt-5-codex`). Backends are
-`claude-code` (default), `codex`, `pi`, and `hermes`.
+`claude-code` (default), `codex`, `pi`, and `hermes`. The judge defaults to the
+`--model` backend; pass the same `--judge-model` to runs you compare across
+engines.
 
 ## Spec skeleton
 
@@ -134,7 +136,8 @@ Failed tasks are shown automatically with their output and `assert_evidence`.
 - `compare` shows `Δ = b − a` per task; any drop is flagged. Token and wall-time
   deltas are shown too, and are never a regression. It warns when a git-sourced
   skill's text drifted between the runs (pin `ref:`), when the declared skills
-  differ, or when the runs loaded user customizations differently.
+  differ, when the runs loaded user customizations differently, or when they
+  were graded by different judges.
 
 ## Naming convention
 

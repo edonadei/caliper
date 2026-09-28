@@ -10,8 +10,8 @@ in the README.
 ## Selecting an engine
 
 The engine is not stored in the spec. `--model` picks the engine that runs the
-skill, `--judge-model` picks the one that grades it, and both default to
-`claude-code`. Each flag accepts a `backend:model` pair, a bare backend name, or
+skill, `--judge-model` picks the one that grades it. `--model` defaults to
+`claude-code`, and `--judge-model` to the `--model` backend. Each flag accepts a `backend:model` pair, a bare backend name, or
 a bare model name:
 
 ```bash
@@ -24,6 +24,9 @@ caliper run my-skill.eval.yaml --model codex
 # Model only (backend stays claude-code)
 caliper run my-skill.eval.yaml --model claude-fable-5
 
+# Codex runs and grades (no --judge-model)
+caliper run my-skill.eval.yaml --model codex
+
 # Select the judge engine independently
 caliper run my-skill.eval.yaml --model codex --judge-model claude-code:claude-haiku-4-5-20251001
 ```
@@ -31,8 +34,13 @@ caliper run my-skill.eval.yaml --model codex --judge-model claude-code:claude-ha
 Accepted backends: `claude-code`, `codex`, `pi`, `hermes` (alias: `claude` →
 `claude-code`).
 
-The skill engine and judge engine are independent: you can test a Codex skill
-with a Claude judge, or any other pairing.
+With no `--judge-model` the judge runs on the backend of the model being
+evaluated (`--model`), on that CLI's default model rather than the `--model`
+model itself. `--judge-model` picks any other
+pairing, such as a Codex skill with a Claude judge. To compare engines fairly,
+pass the same `--judge-model` to each run; otherwise each engine grades itself,
+and `caliper compare` warns that the judges differ
+([ADR 0034](adr/0034-the-judge-follows-the-skill-backend-by-default.md)).
 
 There is no direct-API backend. To run against API-priced billing, configure one
 of these CLIs with an API key (for example `ANTHROPIC_API_KEY` or
@@ -50,11 +58,15 @@ stay traceable even though the spec doesn't pin an engine.
 - If the backend reports a different model than `--model` named, the run records
   what actually ran and prints a warning. If attempts report different models,
   the run records the most common one and warns.
-- The `judge_model` likewise comes from the `claude-code` judge's JSON output
-  when you don't name one.
+- The `judge_model` likewise comes from the judge's own output when it reports
+  one (the `claude-code` judge's JSON does), even when you named a model, so
+  `--judge-model claude-code:opus` records the id `opus` resolved to.
+  Otherwise it's the model you named.
 - `judge_model` stays empty for an `assert:`-only run, where no LLM judge ran.
 - When `--judge-model` names no model, the judge uses its CLI's own default
   model, like the skill does.
+- A spec with `expect:` stops before its first attempt if the judge's CLI
+  isn't installed, rather than recording a `judge_error` on every attempt.
 
 ## Claude Code
 

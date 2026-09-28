@@ -1167,6 +1167,11 @@ class RunComparison(BaseModel):
     # Different backends with user customizations: part of the delta is each
     # CLI's own setup. An isolated pair is the harness comparison.
     cross_backend_user_customizations: bool = False
+    # The two runs' autoraters were different engines (backend or model). A
+    # warning: a stricter or looser grader moves the score without the agent
+    # changing. Only when an autorater graded both runs (an attempt recorded
+    # judge time) — an assert-only or legacy run had none to compare.
+    judge_mismatch: bool = False
     # Members installed by both runs whose *text* differs — the complement of
     # ``neighbourhood_mismatch``, which is a change in *membership*. Every
     # drifted member is recorded here; only the git-sourced ones also raise a

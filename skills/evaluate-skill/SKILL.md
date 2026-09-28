@@ -48,7 +48,7 @@ tasks:
 
 When you write a spec, every task with `expect:` or `assert:` also asserts `activates:`, refusals included: the skill, plus any declared skill it delegates to on that task, and every prompt reads like a real user's request with the skill left unnamed.
 
-The spec has no `backend`/`model` or `judge:` block. The engine is chosen at run time, independently for the skill and the judge: `caliper run <spec> --model codex --judge-model codex`. Backends are `claude-code` (default), `codex`, `pi`, and `hermes`. Each attempt runs in a fresh, empty workdir, so `setup:` builds fixtures there with relative paths.
+The spec has no `backend`/`model` or `judge:` block. The engine is chosen at run time, independently for the skill and the judge: `caliper run <spec> --model codex` runs and grades on codex, and `--judge-model` picks a different judge. Backends are `claude-code` (default), `codex`, `pi`, and `hermes`. Each attempt runs in a fresh, empty workdir, so `setup:` builds fixtures there with relative paths.
 
 ## Running
 
