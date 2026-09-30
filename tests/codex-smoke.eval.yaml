@@ -6,12 +6,10 @@ user_customizations: false
 
 tasks:
   - name: Write hello to a file
-    setup: rm -f /tmp/caliper-e2e-smoke-codex.txt
-    cleanup: rm -f /tmp/caliper-e2e-smoke-codex.txt
-    prompt: Write the text "hello" to /tmp/caliper-e2e-smoke-codex.txt using a shell command.
+    prompt: Write the text "hello" to caliper-e2e-smoke-codex.txt in the current directory using a shell command.
     assert: |
       from pathlib import Path
-      p = Path("/tmp/caliper-e2e-smoke-codex.txt")
+      p = Path("caliper-e2e-smoke-codex.txt")
       assert p.exists(), "file was not created"
       assert "hello" in p.read_text(), "file does not contain hello"
   # Leak probe (#129): with no mcp: block the attempt must see no MCP tools, so
