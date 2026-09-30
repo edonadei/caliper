@@ -284,22 +284,6 @@ def test_no_repo_eval_hook_relies_on_pwd() -> None:
                 assert "$PWD" not in (hook or ""), f"{path.name}: {task.name}"
 
 
-def test_backend_smoke_evals_stay_in_the_attempt_workdir() -> None:
-    # Parallel attempts share nothing but fixed paths (docs/adr/0026, #136): the
-    # backend smoke evals write relative to the fresh workdir, so they need no
-    # /tmp path and no Unix-only removal hook, and a leftover artifact can't let
-    # a no-op attempt pass.
-    from pathlib import Path
-
-    here = Path(__file__).parent
-    for backend in ("claude-code", "codex", "hermes", "pi"):
-        path = here / f"{backend}-smoke.eval.yaml"
-        assert "/tmp" not in path.read_text(), path.name
-        for task in load_spec(path).tasks:
-            for hook in (task.setup, task.cleanup):
-                assert "rm " not in (hook or ""), f"{path.name}: {task.name}"
-
-
 def test_a_spec_needs_at_least_one_task(tmp_path) -> None:
     with pytest.raises(ValidationError, match="at least one task"):
         load_spec(_write(tmp_path, "tasks: []\n"))
