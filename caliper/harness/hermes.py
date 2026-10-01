@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
@@ -39,7 +40,8 @@ class HermesHarness(CliHarness):
     autoraters) is recovered in a second step: after the run we `hermes sessions
     export` the single session persisted in the isolated home, whose JSONL is a
     standard OpenAI-style transcript. Both steps run in one shell invocation so
-    the template's single timeout covers the expensive oneshot.
+    the template's single timeout covers the expensive oneshot. If that shell
+    times out, a separate bounded export recovers the persisted partial session.
 
     Hermes is normalized to a neutral agent on every attempt: an isolated
     ``HERMES_HOME`` seeded with auth/config only (no persona/memory) and
@@ -219,6 +221,43 @@ class HermesHarness(CliHarness):
         if ctx.model:
             extra["CALIPER_MODEL"] = ctx.model
         return self._isolated_env(ctx, extra=extra)
+
+    def _execute(
+        self,
+        cmd: list[str],
+        *,
+        env: dict[str, str],
+        cwd: str,
+        timeout: int,
+        stdin: str | None,
+    ) -> ProcessResult:
+        proc = super()._execute(cmd, env=env, cwd=cwd, timeout=timeout, stdin=stdin)
+        # Only the attempt uses the shell wrapper; bare judge calls must never
+        # export sessions from the user's home.
+        if not (
+            proc.timed_out
+            and cmd[:2] == ["/bin/sh", "-c"]
+            and "CALIPER_HERMES" in env
+            and "HERMES_HOME" in env
+        ):
+            return proc
+        try:
+            exported = super()._execute(
+                [env["CALIPER_HERMES"], "sessions", "export", "-"],
+                env=env,
+                cwd=cwd,
+                timeout=5,
+                stdin=None,
+            )
+            if exported.returncode != 0 or exported.timed_out or exported.cancelled:
+                return proc
+            transcript, _ = self._parse_stream(exported.stdout)
+            if transcript:
+                return replace(proc, stdout=exported.stdout)
+        except Exception:
+            # Best-effort recovery must never replace the original timeout.
+            pass
+        return proc
 
     # --- bare prompt call (the judge's half of the seam) -------------------
 
