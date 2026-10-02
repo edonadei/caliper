@@ -292,10 +292,11 @@ def _render(results: RunResults) -> str:
 def test_the_report_header_says_what_was_loaded(loads, loaded, shown):
     out = _render(_saved(loads=loads, loaded=loaded))
     if shown:
-        assert re.search(rf"setup\s+user customizations\s+{shown}", out)
+        assert re.search(rf"setup\s+with user customizations\s+{shown}", out)
 
     else:
-        assert "user customizations" not in out
+        assert re.search(r"setup\s+without user customizations", out)
+        assert "with user customizations" not in out
 
 
 def test_kind_prefixed_inventory_survives_saved_run_and_report():

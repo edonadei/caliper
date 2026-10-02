@@ -308,10 +308,12 @@ def _names(names: list[str], removed: list[str] = ()) -> Text:
 
 
 def _setup_text(run: RunMeta) -> Text:
-    """Isolated, or what the user's own setup brought in (docs/adr/0028)."""
+    """Whether the attempts loaded the user's own setup, and what it brought
+    in (docs/adr/0028). Said in full both ways: "isolated" alone left a reader
+    asking isolated from what."""
     if not run.user_customizations:
-        return Text("isolated", style="dim")
-    text = Text("user customizations", style="yellow")
+        return Text("without user customizations", style="dim")
+    text = Text("with user customizations", style="yellow")
     loaded = run.loaded_user_customizations
     if loaded is None:
         text.append("  not listed by this backend", style="dim")
