@@ -191,9 +191,8 @@ How to read the diff:
   engine in a harness comparison) is cyan; one that confounds the result is
   yellow and has a warning below the table.
 - **The two runs are the column headers**: `before` is A, `after` is B. An
-  ablation pair is titled `without <subject>` and `with <subject>` (or
-  `without any skills or servers` and `with all skills and servers` for the bare
-  agent).
+  ablation pair is titled `without <subject>` and `with <subject>`; when the
+  removed side is the bare agent, it reads `without any skills or servers`.
 - **Each cell is a rate and the attempts behind it**: `60%  ✓ ✗ ✓ ✗ ✓`. Above
   k=5 the marks collapse to a tally (`✓9 ✗1`). `⊘` is an unusable attempt and
   `·` one that never ran.

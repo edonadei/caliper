@@ -617,3 +617,126 @@ def test_a_finished_task_counts_like_its_attempts_did_live():
     )
 
     assert result.counts == OutcomeCounts(outcomes)
+
+
+# ---------------------------------------------------------------------------
+# Review fixes: live order, usable-only costs, MCP attribution, hook output
+# ---------------------------------------------------------------------------
+
+
+def test_live_marks_sit_in_their_attempt_slot_whatever_the_finish_order() -> None:
+    progress, task_ids = make_progress(["Task one"], k=3)
+
+    # Attempt 2 finished first; it must not take attempt 1's slot.
+    update_progress(
+        progress,
+        task_ids,
+        "Task one",
+        k=3,
+        counts=OutcomeCounts([Outcome.TASK_FAIL]),
+        by_attempt={2: Outcome.TASK_FAIL},
+    )
+
+    marks = progress.tasks[task_ids["Task one"]].fields["marks"]
+    assert marks.plain == "· ✗ ·"
+
+
+def _usage_attempt(n: int, outcome: Outcome, tokens: int, **kw) -> AttemptRecord:
+    from caliper.schema.results import TokenUsage
+
+    return AttemptRecord(
+        attempt=n,
+        output="",
+        duration_seconds=10.0,
+        outcome=outcome,
+        usage=TokenUsage(input_tokens=tokens),
+        **kw,
+    )
+
+
+def test_per_attempt_cost_excludes_unusable_spend() -> None:
+    # 100 tokens on the pass, 900 wasted on the timeout: one usable attempt
+    # costs 100, not the 500 an all-attempts average would claim.
+    task = TaskResult(
+        task_id="task-001",
+        task_name="Task task-001",
+        attempts=[
+            _usage_attempt(1, Outcome.PASS, 1_000),
+            _usage_attempt(2, Outcome.TIMEOUT, 9_000),
+        ],
+    )
+    out = _render(_make_results([task]))
+
+    per_attempt = next(ln for ln in out.splitlines() if "per attempt" in ln)
+    assert "1K" in per_attempt
+    assert "5K" not in per_attempt
+
+
+def _mcp_run(transcript, servers) -> RunResults:
+    from caliper.schema.results import TranscriptTurn
+
+    task = TaskResult(
+        task_id="task-001",
+        task_name="t",
+        attempts=[
+            AttemptRecord(
+                attempt=1,
+                output="",
+                duration_seconds=1.0,
+                outcome=Outcome.PASS,
+                transcript=[
+                    TranscriptTurn(role=role, content="", tool_name=name)
+                    for role, name in transcript
+                ],
+            )
+        ],
+    )
+    results = _make_results([task])
+    results.run.mcp_servers = servers
+    return results
+
+
+def test_a_hermes_tool_result_is_not_counted_as_a_second_call() -> None:
+    from caliper.reporter import _mcp_calls
+
+    results = _mcp_run(
+        [("tool_use", "mcp_mail_read"), ("tool_result", "mcp_mail_read")], ["mail"]
+    )
+    assert _mcp_calls(results)["mail"] == (1, 1, 1)
+
+
+def test_a_hermes_call_is_credited_to_the_longest_matching_server() -> None:
+    from caliper.reporter import _mcp_calls
+
+    results = _mcp_run(
+        [("tool_use", "mcp_mail_archive_read")], ["mail", "mail_archive"]
+    )
+    stats = _mcp_calls(results)
+    assert stats["mail_archive"] == (1, 1, 1)
+    assert stats["mail"] == (0, 1, 0)
+
+
+def test_a_hook_failure_without_an_attempt_record_shows_its_output() -> None:
+    # A cancelled attempt leaves no record, so no panel can carry the output.
+    results = _make_results([_make_task("task-001", passed=True)])
+    results.run.hook_failures = [
+        HookFailure(
+            task_id="task-001",
+            attempt=2,
+            phase="cleanup",
+            exit_code=9,
+            output="database teardown failed",
+        )
+    ]
+    out = _render(results)
+
+    assert "cleanup hook exited 9" in out
+    assert "database teardown failed" in out
+    assert "output in the task's panel" not in out
+
+
+def test_a_cost_from_a_zero_baseline_is_shown_absolute() -> None:
+    from caliper.reporter import _fmt_tokens, _relative
+
+    assert _relative(0, 500, lambda n: _fmt_tokens(int(n))).plain == "+500"
+    assert _relative(0, 0, _fmt_tokens).plain == "—"

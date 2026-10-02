@@ -296,14 +296,13 @@ def _ablation_labels(
     # "without ..." is the honest label for it. So does a run that may have
     # loaded user customizations (docs/adr/0028).
     bare = not cut_nb and cut_mcp == [] and not _may_have_loaded_customizations(cut_run)
-    # Symmetric labels that name the subject on both sides, so a reader needs
-    # neither "ablation" nor "neighbourhood" to know what differs.
+    # Labels that name the subject, so a reader needs neither "ablation" nor
+    # "neighbourhood" to know what differs. The full side names exactly what
+    # was removed, never a kind (a server) the pair may not have had.
     subject = ", ".join(sorted(cut_run.ablated))
-    cut_label, full_label = (
-        ("without any skills or servers", "with all skills and servers")
-        if bare
-        else (f"without {subject}", f"with {subject}")
-    )
+    cut_label = "without any skills or servers" if bare else f"without {subject}"
+    full_label = f"with {subject}"
+
     return (cut_label, full_label) if a_run.ablated else (full_label, cut_label)
 
 

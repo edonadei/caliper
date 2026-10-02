@@ -392,7 +392,7 @@ def test_a_bare_agent_pair_is_labelled_as_such():
     b = _saved(skills=["keeper", "subject"], ablated=[])
     comp = diff_runs(a, b)
     assert comp.a_label == "without any skills or servers"
-    assert comp.b_label == "with all skills and servers"
+    assert comp.b_label == "with keeper, subject"
     assert comp.neighbourhood_mismatch is False
 
 

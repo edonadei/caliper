@@ -153,12 +153,23 @@ def _pp(delta: float | None, regression: bool | None = None) -> Text:
     return Text(f"{num} pp", style="red" if worse else "green")
 
 
-def _relative(before: float, after: float) -> Text:
+def _relative(
+    before: float, after: float, fmt: Callable[[float], str] | None = None
+) -> Text:
     """A cost delta, relative: green when cheaper, red when costlier. This
-    NEVER flips has_regression (docs/CONTEXT.md → Regression)."""
+    NEVER flips has_regression (docs/CONTEXT.md → Regression).
+
+    From a zero baseline there is no percentage, but a new cost is still a
+    cost: it is shown absolute (`+500`) through ``fmt`` rather than as the
+    dash that means "unchanged".
+    """
     delta = after - before
-    if before == 0 or abs(delta) < 1e-9:
+    if abs(delta) < 1e-9:
         return Text(_RULE, style="dim")
+    if before == 0:
+        if fmt is None:
+            return Text(_RULE, style="dim")
+        return Text(f"+{fmt(after)}", style="red")
     sign = "+" if delta > 0 else "-"
     return Text(
         f"{sign}{abs(delta / before) * 100:.0f}%",
@@ -538,7 +549,15 @@ def update_progress(
     k: int,
     counts: OutcomeCounts,
     finished: bool = False,
+    by_attempt: dict[int, Outcome] | None = None,
 ) -> None:
+    """Advance one task's row.
+
+    ``by_attempt`` places each outcome at its attempt number. Attempts finish
+    in parallel and out of order, and without it a fast attempt 2 would take
+    attempt 1's slot — so the live marks would disagree with the numbered
+    report. Without it, marks are in completion order.
+    """
     tid = task_ids.get(task_name)
     if tid is None:
         return
@@ -546,11 +565,22 @@ def update_progress(
     # and the completed count must come from the same outcomes.
     outcomes = list(counts.outcomes)
     completed = len(outcomes)
+    if by_attempt is not None:
+        placed = dict(by_attempt)
+        items = [
+            _OUTCOME_MARK.get(placed[n], (_CROSS, "bold red"))
+            if n in placed
+            else (_PENDING, "dim")
+            for n in range(1, k + 1)
+        ]
+        marks = _marks(items, k)
+    else:
+        marks = _outcome_marks(outcomes, k)
     progress.update(
         tid,
         total=k,
         completed=k if finished and completed < k else completed,
-        marks=_outcome_marks(outcomes, k),
+        marks=marks,
     )
 
 
@@ -695,15 +725,15 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
             "bold",
         )
     )
-    # Per attempt over the usable ones: an unusable attempt's spend is reported
-    # on its own line, not averaged in.
-    usable = max(usage.usable_attempts, 1)
+    # Per attempt over the usable ones, tokens and wall alike: an unusable
+    # attempt's spend is reported in its own note, not averaged in.
+    usable = usage.usable_attempts
     per_attempt.append(
         _cost_cell(
-            usage.total_tokens / max(usage.attempts, 1)
-            if usage.tokens_reported
+            (usage.total_tokens - usage.unusable_tokens) / usable
+            if usage.tokens_reported and usable
             else None,
-            f"{usage.usable_wall_seconds / usable:.1f}s",
+            f"{usage.usable_wall_seconds / usable:.1f}s" if usable else _RULE,
             "dim",
         )
     )
@@ -852,20 +882,38 @@ def _mcp_calls(results: RunResults) -> dict[str, tuple[int, int, int]]:
             # server went unused.
             if attempt.transcript is None or not attempt.outcome.is_activation_usable:
                 continue
+            calls: dict[str, int] = {}
+            for turn in attempt.transcript:
+                # The invocation only: hermes also names the tool on its result
+                # turn, which would count one call twice.
+                if turn.role != "tool_use" or not turn.tool_name:
+                    continue
+                server = _mcp_server(turn.tool_name, servers)
+                if server is not None:
+                    calls[server] = calls.get(server, 0) + 1
             for server in servers:
                 stats[server][1] += 1
-                calls = sum(
-                    1
-                    for turn in attempt.transcript
-                    if turn.tool_name
-                    and turn.tool_name.startswith(
-                        (f"mcp__{server}__", f"mcp_{server}_")
-                    )
-                )
-                if calls:
+                if calls.get(server):
                     stats[server][0] += 1
-                    stats[server][2] += calls
+                    stats[server][2] += calls[server]
     return {server: tuple(counts) for server, counts in stats.items()}
+
+
+def _mcp_server(tool_name: str, servers: list[str]) -> str | None:
+    """The one known server a tool call belongs to, or ``None``.
+
+    The doubled-underscore form delimits the server unambiguously. Hermes'
+    single underscore does not — ``mcp_mail_archive_read`` starts with both
+    ``mail_`` and ``mail_archive_`` — so the longest known server wins.
+    """
+    if tool_name.startswith("mcp__"):
+        server = tool_name[len("mcp__") :].split("__", 1)[0]
+        return server if server in servers else None
+    if tool_name.startswith("mcp_"):
+        rest = tool_name[len("mcp_") :]
+        matches = [s for s in servers if rest.startswith(f"{s}_")]
+        return max(matches, key=len) if matches else None
+    return None
 
 
 def _print_mcp(results: RunResults) -> None:
@@ -912,6 +960,17 @@ def _run_notes(results: RunResults) -> list[_Note]:
     notes: list[_Note] = []
     names = {t.task_id: t.task_name for t in results.task_results}
     for failure in run.hook_failures:
+        # A cancelled attempt has no record, so its hook failure lives only at
+        # run level and no panel will show its output: the note carries it.
+        in_panel = any(
+            failure in attempt.hook_failures
+            for task in results.task_results
+            if task.task_id == failure.task_id
+            for attempt in task.attempts
+        )
+        output = failure.output.strip()
+        if len(output) > _OUTPUT_TRUNCATE_AT:
+            output = "…" + output[-_OUTPUT_TRUNCATE_AT:]
         notes.append(
             _Note(
                 0,
@@ -919,7 +978,7 @@ def _run_notes(results: RunResults) -> list[_Note]:
                 f"{failure.phase} hook exited {failure.exit_code}",
                 f"{names.get(failure.task_id, failure.task_id)} {_SEP} "
                 f"attempt {failure.attempt}",
-                "output in the task's panel",
+                "output in the task's panel" if in_panel else output or "no output",
             )
         )
     cheats = [t.task_name for t in results.task_results if t.any_cheat]
@@ -1462,7 +1521,10 @@ def _cost_rows(table: Table, a: UsageTotals, b: UsageTotals) -> None:
         return text
 
     def tokens_each(u: UsageTotals) -> str | None:
-        return _fmt_tokens(u.total_tokens // u.attempts) if u.attempts else None
+        # Over the usable attempts, like wall: unusable spend is its own line.
+        if not u.usable_attempts:
+            return None
+        return _fmt_tokens((u.total_tokens - u.unusable_tokens) // u.usable_attempts)
 
     def wall_each(u: UsageTotals) -> str | None:
         # Over the usable attempts: unusable spend is reported on its own line.
@@ -1475,13 +1537,13 @@ def _cost_rows(table: Table, a: UsageTotals, b: UsageTotals) -> None:
             Text("Tokens", style="bold"),
             cell(_fmt_tokens(a.total_tokens), tokens_each(a)),
             cell(_fmt_tokens(b.total_tokens), tokens_each(b)),
-            _relative(a.total_tokens, b.total_tokens),
+            _relative(a.total_tokens, b.total_tokens, lambda n: _fmt_tokens(int(n))),
         )
     table.add_row(
         Text("Wall", style="bold"),
         cell(_fmt_duration(a.wall_seconds), wall_each(a)),
         cell(_fmt_duration(b.wall_seconds), wall_each(b)),
-        _relative(a.wall_seconds, b.wall_seconds),
+        _relative(a.wall_seconds, b.wall_seconds, _fmt_duration),
     )
 
 

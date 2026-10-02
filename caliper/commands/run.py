@@ -29,7 +29,8 @@ from caliper.reporter import (
 from caliper.runstore import RunStore
 from caliper.environment import choose_user_customizations
 from caliper.runner import run, AttemptEvent, RunAborted
-from caliper.schema.results import OutcomeCounts, RunResults, TaskResult
+from caliper.schema.results import Outcome, OutcomeCounts, RunResults, TaskResult
+
 from caliper.schema.spec import (
     DEFAULT_BACKEND,
     VALID_BACKENDS,
@@ -269,6 +270,9 @@ def run_cmd(
     # task that stops short of k gets its final row from its result instead.
     names = {t.id: t.name for t in spec.tasks}
     task_counts = {t.id: OutcomeCounts() for t in spec.tasks}
+    # The same outcomes keyed by attempt number: attempts finish out of order,
+    # and the live marks sit in the slot the report will number them by.
+    task_attempts: dict[str, dict[int, Outcome]] = {t.id: {} for t in spec.tasks}
 
     def on_attempt_done(event: AttemptEvent) -> None:
         name = names.get(event.task_id)
@@ -276,6 +280,7 @@ def run_cmd(
             return
         counts = task_counts[event.task_id]
         counts.add(event.outcome)
+        task_attempts[event.task_id][event.attempt] = event.outcome
         # `is_execution_noise`, not `not is_usable`: a NOT_CHECKED trigger probe
         # is a healthy attempt, and flagging it live as yellow ⊘ told a watching
         # agent to stop for a run in which nothing had gone wrong.
@@ -288,7 +293,14 @@ def run_cmd(
                 f"[dim]{SEP_GLYPH} attempt {event.attempt} {SEP_GLYPH}[/dim] "
                 f"[yellow]{event.outcome.value}[/yellow]"
             )
-        update_progress(progress, task_ids, name, k, counts=counts)
+        update_progress(
+            progress,
+            task_ids,
+            name,
+            k,
+            counts=counts,
+            by_attempt=task_attempts[event.task_id],
+        )
 
     def on_task_done(result: TaskResult) -> None:
         if len(result.attempts) >= k:
@@ -300,6 +312,7 @@ def run_cmd(
             k,
             counts=result.counts,
             finished=True,
+            by_attempt={a.attempt: a.outcome for a in result.attempts},
         )
 
     aborted: RunAborted | None = None
