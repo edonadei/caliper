@@ -547,7 +547,7 @@ def update_progress(
     task_ids: dict[str, TaskID],
     task_name: str,
     k: int,
-    counts: OutcomeCounts,
+    counts: OutcomeCounts | None = None,
     finished: bool = False,
     by_attempt: dict[int, Outcome] | None = None,
 ) -> None:
@@ -556,17 +556,18 @@ def update_progress(
     ``by_attempt`` places each outcome at its attempt number. Attempts finish
     in parallel and out of order, and without it a fast attempt 2 would take
     attempt 1's slot — so the live marks would disagree with the numbered
-    report. Without it, marks are in completion order.
+    report. When given it is the only source: the completed count is read from
+    the same snapshot as the marks, so the two cannot disagree. Without it,
+    ``counts`` gives marks in completion order.
     """
     tid = task_ids.get(task_name)
     if tid is None:
         return
-    # A snapshot: worker threads keep adding to the live counts, and the marks
-    # and the completed count must come from the same outcomes.
-    outcomes = list(counts.outcomes)
-    completed = len(outcomes)
+    # One snapshot: worker threads keep adding outcomes, and the marks and the
+    # completed count must come from the same ones.
     if by_attempt is not None:
         placed = dict(by_attempt)
+        completed = len(placed)
         items = [
             _OUTCOME_MARK.get(placed[n], (_CROSS, "bold red"))
             if n in placed
@@ -575,6 +576,8 @@ def update_progress(
         ]
         marks = _marks(items, k)
     else:
+        outcomes = list(counts.outcomes) if counts is not None else []
+        completed = len(outcomes)
         marks = _outcome_marks(outcomes, k)
     progress.update(
         tid,
@@ -888,7 +891,7 @@ def _mcp_calls(results: RunResults) -> dict[str, tuple[int, int, int]]:
                 # turn, which would count one call twice.
                 if turn.role != "tool_use" or not turn.tool_name:
                     continue
-                server = _mcp_server(turn.tool_name, servers)
+                server = _mcp_server(turn.tool_name, servers, results.run.backend)
                 if server is not None:
                     calls[server] = calls.get(server, 0) + 1
             for server in servers:
@@ -899,21 +902,20 @@ def _mcp_calls(results: RunResults) -> dict[str, tuple[int, int, int]]:
     return {server: tuple(counts) for server, counts in stats.items()}
 
 
-def _mcp_server(tool_name: str, servers: list[str]) -> str | None:
+def _mcp_server(tool_name: str, servers: list[str], backend: str) -> str | None:
     """The one known server a tool call belongs to, or ``None``.
 
-    The doubled-underscore form delimits the server unambiguously. Hermes'
-    single underscore does not — ``mcp_mail_archive_read`` starts with both
-    ``mail_`` and ``mail_archive_`` — so the longest known server wins.
+    The separator is the producing backend's, never guessed from the name:
+    hermes writes ``mcp_<server>_<tool>``, claude-code and codex
+    ``mcp__<server>__<tool>`` (docs/CONTEXT.md → MCP server (declared)), and a
+    server name may itself contain ``_`` or ``__`` — so ``mcp__mail_read`` is
+    hermes calling ``_mail``, or claude-code calling ``mail_read``'s server.
+    Within one form the longest known server wins: ``mcp_mail_archive_read``
+    starts with both ``mail_`` and ``mail_archive_``.
     """
-    if tool_name.startswith("mcp__"):
-        server = tool_name[len("mcp__") :].split("__", 1)[0]
-        return server if server in servers else None
-    if tool_name.startswith("mcp_"):
-        rest = tool_name[len("mcp_") :]
-        matches = [s for s in servers if rest.startswith(f"{s}_")]
-        return max(matches, key=len) if matches else None
-    return None
+    sep = "_" if backend == "hermes" else "__"
+    matches = [s for s in servers if tool_name.startswith(f"mcp{sep}{s}{sep}")]
+    return max(matches, key=len) if matches else None
 
 
 def _print_mcp(results: RunResults) -> None:

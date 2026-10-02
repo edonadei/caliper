@@ -637,8 +637,10 @@ def test_live_marks_sit_in_their_attempt_slot_whatever_the_finish_order() -> Non
         by_attempt={2: Outcome.TASK_FAIL},
     )
 
-    marks = progress.tasks[task_ids["Task one"]].fields["marks"]
-    assert marks.plain == "· ✗ ·"
+    task = progress.tasks[task_ids["Task one"]]
+    assert task.fields["marks"].plain == "· ✗ ·"
+    # The count comes from the same snapshot as the marks.
+    assert task.completed == 1
 
 
 def _usage_attempt(n: int, outcome: Outcome, tokens: int, **kw) -> AttemptRecord:
@@ -672,7 +674,7 @@ def test_per_attempt_cost_excludes_unusable_spend() -> None:
     assert "5K" not in per_attempt
 
 
-def _mcp_run(transcript, servers) -> RunResults:
+def _mcp_run(transcript, servers, backend="claude-code") -> RunResults:
     from caliper.schema.results import TranscriptTurn
 
     task = TaskResult(
@@ -693,6 +695,7 @@ def _mcp_run(transcript, servers) -> RunResults:
     )
     results = _make_results([task])
     results.run.mcp_servers = servers
+    results.run.backend = backend
     return results
 
 
@@ -700,7 +703,9 @@ def test_a_hermes_tool_result_is_not_counted_as_a_second_call() -> None:
     from caliper.reporter import _mcp_calls
 
     results = _mcp_run(
-        [("tool_use", "mcp_mail_read"), ("tool_result", "mcp_mail_read")], ["mail"]
+        [("tool_use", "mcp_mail_read"), ("tool_result", "mcp_mail_read")],
+        ["mail"],
+        backend="hermes",
     )
     assert _mcp_calls(results)["mail"] == (1, 1, 1)
 
@@ -709,7 +714,9 @@ def test_a_hermes_call_is_credited_to_the_longest_matching_server() -> None:
     from caliper.reporter import _mcp_calls
 
     results = _mcp_run(
-        [("tool_use", "mcp_mail_archive_read")], ["mail", "mail_archive"]
+        [("tool_use", "mcp_mail_archive_read")],
+        ["mail", "mail_archive"],
+        backend="hermes",
     )
     stats = _mcp_calls(results)
     assert stats["mail_archive"] == (1, 1, 1)
@@ -740,3 +747,25 @@ def test_a_cost_from_a_zero_baseline_is_shown_absolute() -> None:
 
     assert _relative(0, 500, lambda n: _fmt_tokens(int(n))).plain == "+500"
     assert _relative(0, 0, _fmt_tokens).plain == "—"
+
+
+def test_a_server_name_containing_the_separator_is_matched_whole() -> None:
+    from caliper.reporter import _mcp_calls
+
+    # Server names may contain "__": split on the first one and this call
+    # would land on `mail`.
+    results = _mcp_run(
+        [("tool_use", "mcp__mail__archive__read")], ["mail", "mail__archive"]
+    )
+    stats = _mcp_calls(results)
+    assert stats["mail__archive"] == (1, 1, 1)
+    assert stats["mail"] == (0, 1, 0)
+
+
+def test_a_hermes_server_with_a_leading_underscore_is_counted() -> None:
+    from caliper.reporter import _mcp_calls
+
+    # `mcp__mail_read` is hermes' single-underscore form for server `_mail`;
+    # the backend, not the name, says which form it is.
+    results = _mcp_run([("tool_use", "mcp__mail_read")], ["_mail"], backend="hermes")
+    assert _mcp_calls(results)["_mail"] == (1, 1, 1)

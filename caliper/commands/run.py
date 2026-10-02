@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import signal
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
@@ -29,7 +30,8 @@ from caliper.reporter import (
 from caliper.runstore import RunStore
 from caliper.environment import choose_user_customizations
 from caliper.runner import run, AttemptEvent, RunAborted
-from caliper.schema.results import Outcome, OutcomeCounts, RunResults, TaskResult
+from caliper.schema.results import Outcome, RunResults, TaskResult
+
 
 from caliper.schema.spec import (
     DEFAULT_BACKEND,
@@ -266,21 +268,21 @@ def run_cmd(
 
     fetcher = SkillFetcher(on_warning=warn)
 
-    # Each task's outcome counts, keyed by id, that the live view renders. A
-    # task that stops short of k gets its final row from its result instead.
+    # Each task's outcomes keyed by attempt number, the one source the live view
+    # renders: attempts finish out of order, and each mark sits in the slot the
+    # report will number it by. A task that stops short of k gets its final row
+    # from its result instead.
     names = {t.id: t.name for t in spec.tasks}
-    task_counts = {t.id: OutcomeCounts() for t in spec.tasks}
-    # The same outcomes keyed by attempt number: attempts finish out of order,
-    # and the live marks sit in the slot the report will number them by.
     task_attempts: dict[str, dict[int, Outcome]] = {t.id: {} for t in spec.tasks}
+    # Attempts complete on worker threads. Recording an outcome and rendering
+    # the row happen under one lock, so a row is never rendered from a snapshot
+    # older than one already shown.
+    live = threading.Lock()
 
     def on_attempt_done(event: AttemptEvent) -> None:
         name = names.get(event.task_id)
         if name is None:
             return
-        counts = task_counts[event.task_id]
-        counts.add(event.outcome)
-        task_attempts[event.task_id][event.attempt] = event.outcome
         # `is_execution_noise`, not `not is_usable`: a NOT_CHECKED trigger probe
         # is a healthy attempt, and flagging it live as yellow ⊘ told a watching
         # agent to stop for a run in which nothing had gone wrong.
@@ -293,27 +295,28 @@ def run_cmd(
                 f"[dim]{SEP_GLYPH} attempt {event.attempt} {SEP_GLYPH}[/dim] "
                 f"[yellow]{event.outcome.value}[/yellow]"
             )
-        update_progress(
-            progress,
-            task_ids,
-            name,
-            k,
-            counts=counts,
-            by_attempt=task_attempts[event.task_id],
-        )
+        with live:
+            task_attempts[event.task_id][event.attempt] = event.outcome
+            update_progress(
+                progress,
+                task_ids,
+                name,
+                k,
+                by_attempt=task_attempts[event.task_id],
+            )
 
     def on_task_done(result: TaskResult) -> None:
         if len(result.attempts) >= k:
             return
-        update_progress(
-            progress,
-            task_ids,
-            result.task_name,
-            k,
-            counts=result.counts,
-            finished=True,
-            by_attempt={a.attempt: a.outcome for a in result.attempts},
-        )
+        with live:
+            update_progress(
+                progress,
+                task_ids,
+                result.task_name,
+                k,
+                finished=True,
+                by_attempt={a.attempt: a.outcome for a in result.attempts},
+            )
 
     aborted: RunAborted | None = None
     with progress, _interrupt_guard(progress.console):
