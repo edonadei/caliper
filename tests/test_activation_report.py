@@ -54,10 +54,17 @@ def render(results: RunResults) -> str:
     return cap.get()
 
 
-# --- the activated column -------------------------------------------------
+# --- the activation column ------------------------------------------------
 
 
-def test_column_is_a_verdict_not_a_list_of_names():
+def _style_of(cell, fragment: str) -> str:
+    """The style a cell gives the first occurrence of ``fragment``."""
+    start = cell.plain.index(fragment)
+    styles = [str(s.style) for s in cell.spans if s.start <= start < s.end]
+    return " ".join(styles) or str(cell.style)
+
+
+def test_column_is_a_verdict_per_attempt_not_a_list_of_names():
     t = task(
         [
             attempt(1, activated=["mine"], activation_passed=True),
@@ -66,17 +73,22 @@ def test_column_is_a_verdict_not_a_list_of_names():
         ],
         expected=["mine"],
     )
-    # Names and counts moved to the per-skill table; this is pass/fail only.
-    assert _activation_cell(t).plain == "✗"
+    # Names and counts live on the per-skill table; this is the rate and one
+    # verdict per attempt.
+    cell = _activation_cell(t, k=3)
+    assert cell.plain.split() == ["66.7%", "✓", "✗", "✓"]
+    assert "mine" not in cell.plain
 
 
 def test_column_fails_when_the_agent_reached_for_nothing():
     t = task([attempt(1, activated=[], activation_passed=False)], expected=["mine"])
-    assert _activation_cell(t).plain == "✗"
+    cell = _activation_cell(t, k=1)
+    assert cell.plain.split() == ["0%", "✗"]
+    assert "red" in _style_of(cell, "0%")
 
 
 def test_a_fully_timed_out_task_shows_no_claim_about_the_skill():
-    # `(none) 5/5` here would be a confident "the description never fires",
+    # "0%" here would be a confident "the description never fires",
     # manufactured from an infrastructure failure.
     t = task(
         [
@@ -85,19 +97,23 @@ def test_a_fully_timed_out_task_shows_no_claim_about_the_skill():
         ],
         expected=["mine"],
     )
-    assert _activation_cell(t).plain == "—"
+    assert _activation_cell(t, k=2).plain.split() == ["—", "⊘", "⊘"]
 
 
 def test_column_is_dim_when_nothing_was_asserted():
     t = task([attempt(1, activated=["mine"])], expected=None)
-    assert _activation_cell(t).style == "dim"
+    cell = _activation_cell(t, k=1)
+    assert cell.plain.strip() == "—"
+    assert cell.style == "dim"
 
 
-def test_column_is_green_when_the_assertion_held():
+def test_a_held_assertion_is_marked_green():
     t = task(
         [attempt(1, activated=["mine"], activation_passed=True)], expected=["mine"]
     )
-    assert _activation_cell(t).style == "green"
+    cell = _activation_cell(t, k=1)
+    assert "red" not in _style_of(cell, "100%")
+    assert "green" in _style_of(cell, "✓")
 
 
 def test_column_is_red_when_a_neighbour_hijacked():
@@ -105,14 +121,14 @@ def test_column_is_red_when_a_neighbour_hijacked():
         [attempt(1, activated=["other"], activation_passed=False)],
         expected=["mine"],
     )
-    cell = _activation_cell(t)
-    assert cell.style == "red"
-    assert cell.plain == "✗"
+    cell = _activation_cell(t, k=1)
+    assert cell.plain.split() == ["0%", "✗"]
+    assert "red" in _style_of(cell, "✗")
 
 
 def test_unobserved_activation_renders_as_a_dash():
     t = task([attempt(1, activated=None)], expected=None)
-    assert _activation_cell(t).plain == "—"
+    assert _activation_cell(t, k=1).plain.strip() == "—"
 
 
 # --- the aggregate block --------------------------------------------------
@@ -140,6 +156,7 @@ def test_report_prints_both_scoreboards_separately():
             tasks,
             AggregateScore(
                 avg_score=1.0,
+                scored_tasks=1,
                 per_task=[],
                 avg_activation_score=0.733,
                 activation_tasks=3,
@@ -151,14 +168,13 @@ def test_report_prints_both_scoreboards_separately():
             ),
         )
     )
-    assert "Score" in out
-    assert "Activation" in out
-    assert "73.3%" in out
-    assert "3 asserted tasks" in out
-    # Per-skill diagnostic: recall 2/2, precision 2/4.
-    assert "mine" in out
-    assert "100.0%" in out
-    assert "50.0%" in out
+    # Two columns, two footers: never one blended number.
+    header = next(ln for ln in out.splitlines() if "Task" in ln)
+    assert "success" in header and "activation" in header
+    overall = next(ln for ln in out.splitlines() if "Overall" in ln)
+    assert "100%" in overall and "73.3%" in overall
+    # Per-skill diagnostic: fires when wanted 2/2, when not wanted 2/4.
+    assert re.search(r"mine\s.*100%\s+2/2\s.*50%\s+2/4", out)
 
 
 def test_a_timed_out_attempt_shows_what_it_activated_and_its_error():
@@ -176,8 +192,8 @@ def test_a_timed_out_attempt_shows_what_it_activated_and_its_error():
 def test_activation_line_is_absent_when_nothing_was_asserted():
     tasks = [task([attempt(1, activated=["mine"])], None)]
     out = render(_results(tasks, AggregateScore(avg_score=1.0, per_task=[])))
-    assert "Score" in out
-    assert "Activation" not in out
+    assert "success" in out
+    assert "activation" not in out.lower()
 
 
 # --- compare guards -------------------------------------------------------
@@ -331,19 +347,42 @@ def test_execution_headline_is_skipped_when_nothing_was_measured():
             ),
         )
     )
-    execution_line = next(ln for ln in out.splitlines() if "Score" in ln)
-    assert "%" not in execution_line
-    assert "no execution checks" in execution_line
+    assert "no execution checks" in out
+    # No success column at all, so no 0% anywhere to misread.
+    assert "success" not in out
     # The activation scoreboard is unaffected and still reports.
-    assert "Activation" in out
+    assert "activation" in out
 
 
-def test_execution_headline_reports_its_task_count():
-    tasks = [task([attempt(1, activated=["mine"], activation_passed=True)], ["mine"])]
-    out = render(
-        _results(tasks, AggregateScore(avg_score=1.0, scored_tasks=2, per_task=[]))
+def _scored(name, outcomes):
+    return TaskResult(
+        task_id=name,
+        task_name=name,
+        attempts=[attempt(n, o) for n, o in enumerate(outcomes, start=1)],
     )
-    assert "2 tasks" in out
+
+
+def test_overall_shows_the_pooled_count_when_it_agrees_with_the_average():
+    tasks = [
+        _scored("a", [Outcome.PASS, Outcome.PASS]),
+        _scored("b", [Outcome.PASS, Outcome.TASK_FAIL]),
+    ]
+    out = render(_results(tasks, AggregateScore.from_task_results(tasks, k=2)))
+    overall = next(ln for ln in out.splitlines() if "Overall" in ln)
+    assert re.search(r"75%\s+3/4 ✓", overall)
+
+
+def test_overall_names_what_it_averages_when_the_count_would_disagree():
+    # 1/1 and 1/3 average to 66.7% but pool to 2/4 = 50%. Showing both would
+    # make the reader pick one; the score is a mean of rates (docs/adr/0007).
+    tasks = [
+        _scored("a", [Outcome.PASS, Outcome.TIMEOUT, Outcome.TIMEOUT]),
+        _scored("b", [Outcome.PASS, Outcome.TASK_FAIL, Outcome.TASK_FAIL]),
+    ]
+    out = render(_results(tasks, AggregateScore.from_task_results(tasks, k=3)))
+    overall = next(ln for ln in out.splitlines() if "Overall" in ln)
+    assert re.search(r"66.7%\s+avg of 2", overall)
+    assert "2/4" not in overall
 
 
 def test_a_finished_attempt_does_not_claim_it_stopped():
@@ -352,5 +391,5 @@ def test_a_finished_attempt_does_not_claim_it_stopped():
 
     out = render(_results(tasks, AggregateScore(avg_score=0.0, per_task=[])))
 
-    assert "Attempt 1" in out
+    assert "attempt 1" in out
     assert "activated so far" not in out

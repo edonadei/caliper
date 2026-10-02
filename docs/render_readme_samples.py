@@ -42,10 +42,9 @@ from caliper.schema.results import (
     UsageTotals,
 )
 
-# Terminal-emulator width for the exported SVG. Wide enough for the longest
-# header line (the two ISO timestamps + engine in the plain-compare example)
-# without wrapping.
-_WIDTH = 92
+# Terminal-emulator width for the exported SVG: the width the views are
+# designed for, at which no sample row wraps.
+_WIDTH = 100
 
 _ASSETS = Path(__file__).resolve().parent / "assets"
 
@@ -112,13 +111,17 @@ def _ablation_example() -> RunComparison:
     b_avg = sum(tc.b_score for tc in matched) / len(matched)
     a_usage = _tokens(612_000)
     a_usage.wall_seconds = 262.0
+    a_usage.attempts = 20
     b_usage = _tokens(431_000)
     b_usage.wall_seconds = 188.0
+    b_usage.attempts = 20
     return RunComparison(
         a=ablated_run,
         b=full_run,
         a_label="without inbox-triage",
         b_label="full neighbourhood",
+        a_skills=["calendar-scheduler"],
+        b_skills=["inbox-triage", "calendar-scheduler"],
         matched=matched,
         unmatched_a=[],
         unmatched_b=[],
@@ -161,13 +164,18 @@ def _compare_example() -> RunComparison:
     b_avg = sum(tc.b_score for tc in comparable) / len(comparable)
     a_usage = _tokens(1_200_000)
     a_usage.wall_seconds = 378.0
+    a_usage.attempts = 20
     b_usage = _tokens(700_000)
     b_usage.wall_seconds = 220.0
+    b_usage.attempts = 20
+
     return RunComparison(
         a=a_run,
         b=b_run,
         a_label=None,
         b_label=None,
+        a_skills=["commit-simple"],
+        b_skills=["commit-simple"],
         matched=matched,
         unmatched_a=["flaky task"],
         unmatched_b=["new task"],
@@ -343,7 +351,7 @@ def _record_svg(render, out_name: str, title: str) -> Path:
         reporter.console = original
     _ASSETS.mkdir(parents=True, exist_ok=True)
     out = _ASSETS / out_name
-    out.write_text(rec.export_svg(title=title))
+    out.write_text(rec.export_svg(title=title), encoding="utf-8")
     return out
 
 

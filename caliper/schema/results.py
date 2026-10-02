@@ -1129,6 +1129,10 @@ class RunComparison(BaseModel):
     # did that was worth keeping.
     a_label: str | None = None
     b_label: str | None = None
+    # The skills each side installed, in snapshot order: the neighbourhood the
+    # header shows side by side. Empty on a comparison saved before the field.
+    a_skills: list[str] = Field(default_factory=list)
+    b_skills: list[str] = Field(default_factory=list)
     matched: list[TaskComparison]
     unmatched_a: list[str]
     unmatched_b: list[str]

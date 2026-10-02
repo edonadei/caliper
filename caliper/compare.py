@@ -437,6 +437,8 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         b=b_run,
         a_label=a_label,
         b_label=b_label,
+        a_skills=[s.name for s in a.skill_snapshots if s.name],
+        b_skills=[s.name for s in b.skill_snapshots if s.name],
         matched=matched,
         unmatched_a=unmatched_a,
         unmatched_b=unmatched_b,

@@ -97,7 +97,7 @@ declare that other skill in `skills:` and enumerate the chain
 itself can still fire; the report shows it as a built-in skill, never scored.
 
 A task with `activates:` and no `expect:`/`assert:` is a **trigger probe**: it
-skips the judge entirely (much cheaper) and reports as `trigger only`, not a
+skips the judge entirely (much cheaper) and reports as a `probe`, not a
 zero.
 
 ---

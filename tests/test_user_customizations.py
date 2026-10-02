@@ -9,6 +9,7 @@ See docs/adr/0028-runs-load-user-customizations-by-default.md.
 from __future__ import annotations
 
 import io
+import re
 from datetime import datetime, timezone
 
 import pytest
@@ -291,7 +292,8 @@ def _render(results: RunResults) -> str:
 def test_the_report_header_says_what_was_loaded(loads, loaded, shown):
     out = _render(_saved(loads=loads, loaded=loaded))
     if shown:
-        assert "user customizations:" in out and shown in out
+        assert re.search(rf"setup\s+user customizations\s+{shown}", out)
+
     else:
         assert "user customizations" not in out
 

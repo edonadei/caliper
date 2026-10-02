@@ -104,7 +104,8 @@ from interrupted attempts that have no attempt record.
 
 `--fail-fast N` stops scheduling new attempts for a task after N consecutive
 `infra_error` or `timeout` outcomes (the default, `0`, runs all k). An
-early-stopped task shows as `ABORTED`. If every completed attempt was unusable,
+early-stopped task is tagged `aborted`, with `·` marks for the attempts that never
+ran. If every completed attempt was unusable,
 its `score` stays `null` and it's skipped in the aggregate.
 
 ## Parallelism and stopping a run
@@ -147,7 +148,7 @@ cause.
 **Ctrl-C stops a run without losing it.** The first interrupt kills the agents in
 flight, skips attempts that hadn't started, and saves everything that already
 ran as an ordinary run file. It's scored over the attempts it has, with
-`interrupted: true` in `RunMeta` and an `interrupted:` line on the report. The
+`interrupted: true` in `RunMeta` and an `interrupted` status row in the report header. The
 exit code is `130`. Attempts the interrupt itself killed are dropped rather than
 recorded as failures. Press Ctrl-C again to quit immediately without saving. A
 fatal backend error mid-run (an expired credential, say) saves the same way
@@ -179,33 +180,47 @@ what it ablated.
 <!-- Terminal output of `caliper compare`, rendered to SVG so the box-drawing
      table stays aligned on every screen. Regenerate with:
        python docs/render_readme_samples.py -->
-![caliper compare of two commit-simple runs: commits cleanly holds at 100%, handles conflict regresses 100.0% to 20.0% (-80.0%), pushes upstream becomes unmeasured; 1 regression, 1 unmeasured, and unmatched tasks on each side](assets/compare-runs.svg)
+![caliper compare of two commit-simple runs: commits cleanly holds at 100%, handles conflict regresses 100% to 20% (-80 pp), pushes upstream becomes unmeasured; success 100% (10/10) to 60% (6/10), -40 pp; 1 regression, 1 unmeasured, and unmatched tasks on each side](assets/compare-runs.svg)
 
 How to read the diff:
 
-- **Each row reads `before → after`.** The runs are named once in the header (an
-  ablation pair is titled `without <subject> → full neighbourhood`), so there's
-  no A/B legend.
+- **The header compares the two environments.** Each row (engine, judge,
+  skills, MCP servers, setup) shows A and B side by side, and collapses to
+  `same` when they match, so the rows that differ are the ones you read. A
+  difference that is the experiment (the subject of an ablation pair, or the
+  engine in a harness comparison) is cyan; one that confounds the result is
+  yellow and has a warning below the table.
+- **The two runs are the column headers**: `before` is A, `after` is B. An
+  ablation pair is titled `without <subject>` and `full neighbourhood`.
+- **Each cell is a rate and the attempts behind it**: `60%  ✓ ✗ ✓ ✗ ✓`. Above
+  k=5 the marks collapse to a tally (`✓9 ✗1`). `⊘` is an unusable attempt and
+  `·` one that never ran.
 - **Tasks are matched by name**, so reordering doesn't matter. A task in only one
   run is listed as **unmatched** and left out of the delta.
-- **`Δ` is `after − before`.** The headline `Δ (matched)` averages only the tasks
-  measured on both sides, so it stays like-for-like. A negative Δ renders red and
-  flags a **regression**.
+- **`Δ` is `after − before`, in percentage points** (60% → 100% is `+40 pp`).
+  The `Success` footer averages only the tasks measured on both sides, so it
+  stays like-for-like, and shows the pooled pass count (`16/20 ✓`) when that
+  count agrees with the average. A negative Δ renders red and flags a
+  **regression**.
 - **Unusable attempts can't fake a loss.** A side with no usable attempts (rate
   limit, timeout, judge error) shows `—` and never counts as a regression.
-- **Token and wall-clock deltas are secondary** and never a regression: a drop is
-  green (cheaper), a rise red (a trade-off to weigh). Only the score feeds
+- **Token and wall-clock deltas are secondary** and relative (`-30%`), never a
+  regression: a drop is green (cheaper), a rise red (a trade-off to weigh). Each
+  side also shows the cost of one attempt. Only the score feeds
   `has_regression`.
+- **Activation is its own table**, shown when a task's activation moved, and a
+  single line when nothing did. `--verbose` adds a table of pass@k and pass^k.
 - **A different tool environment warns.** Two runs configured with different
   `mcp:` servers, where only one loaded your user customizations, or both did on
-  different setups, get a warning in the header saying how to match them: tool
+  different setups, get a warning below the table saying how to match them: tool
   availability can move the score for reasons unrelated to the skill. Two
   different backends with user customizations warn too, since each CLI loads its
   own setup; isolate both runs (`--no-user-customizations`) for a harness comparison.
 - **A different judge warns** (`judge_mismatch`). When an LLM judge graded
   both runs and the judge backend or model differs, part of the delta may be a
   stricter or looser grader. Re-run with the same `--judge-model`. A judge left
-  on its CLI's default model shows as `<backend> (default model)`; when the CLI
+  on its CLI's default model shows as `<backend> · default model` in the header
+  (`<backend> (default model)` in the warning); when the CLI
   reports the model it ran (claude-code does), that model is compared, so the
   warning can fire even when neither run named one. Runs where no LLM judge ran
   (`assert:`-only, or saved before `judge_seconds`) never trigger it.
@@ -216,12 +231,23 @@ How to read the diff:
   $ caliper run hello.eval.yaml                  # claude-code runs and grades
   $ caliper run hello.eval.yaml --model codex    # codex runs and grades
   $ caliper compare <claude-code run> <codex run>
-  ──────────────────────── CALIPER  —  compare  —  hello ────────────────────────
-      2026-09-27T10-00-00Z (claude-code) → 2026-09-27T11-00-00Z (codex)   ·   k=3
-   ⚠ different judges: claude-code:claude-opus-5-5 vs codex:gpt-5-codex — part of
-  the delta may be a stricter or looser grader rather than the agent; re-run with
-  the same --judge-model for a like-for-like comparison
+
+   CALIPER   compare  hello   k=3
+            A                                B
+  run       2026-09-27T10-00-00Z             2026-09-27T11-00-00Z
+  engine    claude-code · claude-opus-5-5    codex · gpt-5-codex
+  judge     claude-code · claude-opus-5-5    codex · gpt-5-codex
+  skills    hello                            same
+  setup     isolated                         same
+  …
+   ⚠ judges differ  part of the delta may be a stricter or looser grader rather
+     than the agent; re-run with the same --judge-model for a like-for-like
+     comparison
   ```
+
+  The judge row turns yellow, and the note keeps the why. `--format json` keeps
+  caliper's full warning sentence.
+
 
   Pass the same judge to both runs, for example `--judge-model claude-code`, and
   the warning goes away.
@@ -243,20 +269,25 @@ The success rate tells you *whether* a skill works; usage tells you what it
 **costs**. Two runs can score the same while one burns twice the tokens. Caliper
 records **token volume** and **wall-clock time** per attempt and rolls them up
 per run. Judge latency is recorded separately as `judge_seconds` and summarized
-on its own `Judge` line. It isn't part of `Wall`, which stays the agent's own
-time, and it only appears when a judge ran.
+in its own `judge time` note. It isn't part of wall time, which stays the
+agent's own time, and it only appears when a judge ran.
+
+The footer of the results table, then the notes under it:
 
 ```
- With skill    100.0%  ████████████████████
+ Overall          100%  28/28 ✓     1.5M  6m 18s
+ per attempt                         51K   12.0s
 
- Tokens   1.2M in / 340K out
- Wall     6m 18s  12.6s per attempt
- ⊘ unusable spend: 180K tokens, 42s  (2 attempts, not counted in the average)
+ ⊘ 2 unusable
+  2 timeout  excluded from the score · spent 180K tokens, 42s
+ · tokens  1.2M in / 340K out
+ · judge time  1m 2s · 3.1s per graded attempt  not in wall
 ```
 
-- The results table has per-task `Tokens` and `Wall` columns, so you can spot the
-  expensive task at a glance. The summary line aggregates the whole run.
-- In the summary, **`in` = input + cache_read + cache_creation** and **`out` =
+- The results table has a per-task `cost` column (tokens, then wall time), so you
+  can spot the expensive task at a glance. Its footer totals the run and gives
+  the cost of one attempt.
+- In the `tokens` note, **`in` = input + cache_read + cache_creation** and **`out` =
   output**. The **unusable** slice (timeout, infra error, judge error) is broken
   out separately, so wasted spend stays visible without distorting the
   per-attempt average.
@@ -268,7 +299,7 @@ time, and it only appears when a judge ran.
   backends. Tokens are the volume signal; derive a dollar figure downstream if
   you need one.
 - **An ablated run is an ordinary saved run**, so the ablated-vs-full view is
-  `caliper compare` like any other diff: same table, attempt strips, and
+  `caliper compare` like any other diff: same table, attempt marks, and
   token/wall deltas.
 
 ## Results JSON
@@ -336,7 +367,7 @@ All three are `null` on runs saved before they were recorded.
 - `builtin_activated` lists the **built-in** skills the agent reached for:
   skills the agent CLI ships itself (Claude Code's `claude-api`, say), neither
   declared nor the user's own. They are shown in the report
-  (`Built-in skills  claude-api 2/4  (ship with claude-code; not scored)`) and never scored, so they never fail an
+  (`built-in skills  claude-api 2/4  ship with claude-code · shown, not scored`) and never scored, so they never fail an
   `activates:`. It's `[]` when the CLI listed its skills and none of those
   fired, and `null` when it couldn't be observed: a backend that doesn't list
   them (only `claude-code` does, from its `init` event), or a timeout or
@@ -384,3 +415,7 @@ All three are `null` on runs saved before they were recorded.
 - `TaskComparison` has `a_activation`/`b_activation`/`activation_delta`/
   `activation_regression`, and `RunComparison` has `has_activation_regression`,
   kept strictly separate from `has_regression`.
+- `RunComparison` has `a_skills`/`b_skills`: the names of the skills each side
+  installed, in snapshot order. They are what the compare header's `skills` row
+  shows. A comparison serialized before the fields existed reads them as `[]`.
+

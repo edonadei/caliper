@@ -8,6 +8,7 @@ from typing import Iterator, Optional
 import typer
 from pydantic import ValidationError
 from rich.console import Console
+from rich.markup import escape
 
 from caliper import cancel
 from caliper.commands.diagnosis import BadInput, CannotRun, ExitCode, fail
@@ -280,8 +281,11 @@ def run_cmd(
         # agent to stop for a run in which nothing had gone wrong.
         if event.outcome.is_execution_noise:
             # Surface noise the moment it lands so a watching agent/human can stop.
+            # The glyph sits in the spinner's column, so the task name lines up
+            # with the name in the progress row below it.
             progress.console.print(
-                f"[yellow]{UNUSABLE_GLYPH}[/yellow] {name} {SEP_GLYPH} attempt {event.attempt}: "
+                f"[yellow]{UNUSABLE_GLYPH}[/yellow] {escape(name)} "
+                f"[dim]{SEP_GLYPH} attempt {event.attempt} {SEP_GLYPH}[/dim] "
                 f"[yellow]{event.outcome.value}[/yellow]"
             )
         update_progress(progress, task_ids, name, k, counts=counts)

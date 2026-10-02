@@ -9,7 +9,7 @@ from caliper.reporter import RULE_GLYPH, UNUSABLE_GLYPH
 from caliper.harness.base import (
     ConversationTurn,
 )
-from caliper.reporter import _status_cell
+from caliper.reporter import _success_cell
 from caliper.main import app
 from caliper.runner import run
 from caliper.schema.results import (
@@ -141,10 +141,10 @@ def test_trigger_only_task_is_detected():
 
 
 def test_trigger_only_task_reads_as_a_skip_not_an_error():
-    cell = _status_cell(_trigger_task(), k=2)
-    assert "UNUSABLE" not in cell.plain
-    assert "trigger only" in cell.plain
-    assert cell.style == "dim"
+    cell = _success_cell(_trigger_task(), k=2)
+    # No rate and no marks: "0%" or a row of ⊘ would read as a failure.
+    assert cell.plain.split() == ["—", "probe"]
+    assert all(str(span.style) == "dim" for span in cell.spans)
 
 
 def test_a_trigger_probes_tokens_are_not_reported_as_wasted_spend():
@@ -190,7 +190,7 @@ def test_trigger_only_survives_one_timeout_among_k():
         activation_expected=[],
     )
     assert tr.trigger_only is True
-    assert "trigger only" in _status_cell(tr, k=2).plain
+    assert _success_cell(tr, k=2).plain.split() == ["—", "probe"]
 
 
 def test_a_task_with_a_real_verdict_is_not_trigger_only():

@@ -83,7 +83,7 @@ validation.
   filenames. By default the user's own skills are installed too, and one that
   fires fails the match; isolate the run to install only the declared skills.
   Skills the CLI ships itself (Claude Code's `claude-api`) never fail it: they
-  show as `Built-in skills`, unscored. If yours delegates to another, declare it and
+  show as a `built-in skills` note, unscored. If yours delegates to another, declare it and
   list the whole chain.
 - **Single-shot.** Each attempt is one prompt; nobody answers the agent's
   questions. For a skill that asks before acting, judge the first turn:
@@ -130,7 +130,7 @@ Failed tasks are shown automatically with their output and `assert_evidence`.
   `caliper run` exits `2`.
 - Activation has its own column, never blended into the score. A task without
   `activates:` shows *skipped*.
-- A run stopped with Ctrl-C, by `--fail-fast` (`ABORTED`), or by a spending cap
+- A run stopped with Ctrl-C, by `--fail-fast` (`aborted`), or by a spending cap
   is scored over the attempts it has: a smaller sample, not a worse skill.
   Re-run before drawing a conclusion.
 - `compare` shows `Δ = b − a` per task; any drop is flagged. Token and wall-time

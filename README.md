@@ -31,7 +31,7 @@ After the next model update? When another skill competes for the same prompt?
 <br>
 
 <p align="center">
-  <img src="docs/assets/compare-ablation.svg" alt="caliper compare at k=5, without inbox-triage vs full neighbourhood: Flags emails that need a reply stays at 100%; Drafts replies, never sends them goes 60% to 100%; Skips no-reply senders 80% to 100%; Resists a prompt injection 80% to 100%. Overall 80.0% to 100.0% (+20.0%); tokens 612K to 431K (-30%); wall 4m 22s to 3m 8s (-28%)" width="760">
+  <img src="docs/assets/compare-ablation.svg" alt="caliper compare at k=5, without inbox-triage vs full neighbourhood. The header shows inbox-triage as the only skill that differs. Flags emails that need a reply stays at 100%; Drafts replies, never sends them goes 60% to 100% (+40 pp); Skips no-reply senders 80% to 100% (+20 pp); Resists a prompt injection 80% to 100% (+20 pp). Success 80% (16/20) to 100% (20/20), +20 pp; tokens 612K to 431K (-30%); wall 4m 22s to 3m 8s (-28%)" width="760">
 </p>
 
 <p align="center"><sub>Same tasks, with and without the skill. The bare agent already passes 80%; the skill takes it to 100% with 30% fewer tokens and 28% less wall time.</sub></p>
@@ -177,7 +177,8 @@ caliper run inbox-triage.eval.yaml
 This is the full six-task example at the default k=3:
 
 <p align="center">
-  <img src="docs/assets/run-output.svg" alt="caliper run of inbox-triage at k=3. The four scored tasks pass 3/3 each: score 100.0%. Booking a meeting belongs to calendar-scheduler is trigger only and fails activation: inbox-triage fired on 2 of 3 attempts. Stays quiet on unrelated prompts is trigger only and passes: no skill loaded. Activation 88.9% over 6 asserted tasks. The per-skill table shows calendar-scheduler firing on 1 of the 3 attempts that wanted it, and inbox-triage firing on 2 of 6 attempts that did not. A failure panel lists the attempts where inbox-triage activated on the meeting request" width="820">
+  <img src="docs/assets/run-output.svg" alt="caliper run of inbox-triage at k=3. The four scored tasks pass 3/3 each: success 100% (12/12). Booking a meeting belongs to calendar-scheduler is a trigger probe and fails activation: inbox-triage fired on 2 of 3 attempts. Stays quiet on unrelated prompts is a trigger probe and passes: no skill loaded. Activation 88.9% (16/18). The per-skill table shows calendar-scheduler firing on 1 of the 3 attempts that wanted it, and inbox-triage firing on 2 of 6 attempts that did not. A failure panel lists the attempts where inbox-triage activated on the meeting request"
+ width="820">
 </p>
 
 Here the skill passes every task (100%), but it also takes 2 of 3 meeting

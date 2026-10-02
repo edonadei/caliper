@@ -8,7 +8,6 @@ from rich.console import Console
 from caliper.reporter import (
     _OUTPUT_TRUNCATE_AT,
     _format_output,
-    _status_cell,
     make_progress,
     print_results,
     update_progress,
@@ -48,7 +47,8 @@ def test_update_progress_marks_early_stopped_task_finished() -> None:
 
     task = progress.tasks[task_ids["Task one"]]
     assert task.completed == 3
-    assert task.fields["status"] == "[yellow]⊘1[/yellow]"
+    # The attempts that never ran stay visible as such, not as failures.
+    assert task.fields["marks"].plain == "⊘ · ·"
 
 
 def test_cheat_remains_visible_when_cleanup_fails() -> None:
@@ -73,7 +73,12 @@ def test_cheat_remains_visible_when_cleanup_fails() -> None:
         ],
     )
 
-    assert "CHEAT" in str(_status_cell(task, k=1))
+    out = _render(_make_results([task]))
+
+    # The cleanup failure is reported, and the cheat is still named beside it.
+    assert "cleanup hook" in out
+    assert "1 cheat" in out
+    assert "⚠" in next(ln for ln in out.splitlines() if "Cheat" in ln)
 
 
 # ---------------------------------------------------------------------------
@@ -349,8 +354,8 @@ def test_aborted_unusable_task_is_reported_as_aborted() -> None:
 
     out = _render(results)
 
-    assert "ABORTED" in out
-    assert "1/3 attempts" in out
+    assert "aborted" in out
+    assert "after 1 of 3 attempts" in out
 
 
 def test_early_stopped_task_with_usable_pass_is_not_reported_as_aborted() -> None:
@@ -405,8 +410,8 @@ def test_early_stopped_task_with_usable_pass_is_not_reported_as_aborted() -> Non
 
     out = _render(results, verbose=True)
 
-    assert "ABORTED" not in out
-    assert "PASS" in out
+    assert "aborted" not in out
+    assert "100%" in next(ln for ln in out.splitlines() if "Task task-001" in ln)
 
 
 # ---------------------------------------------------------------------------
@@ -427,14 +432,24 @@ def test_autorater_reasoning_shown_for_failed_task() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_update_progress_shows_a_running_tally_rather_than_the_count() -> None:
+def test_update_progress_fills_the_marks_the_report_will_show() -> None:
     progress, task_ids = make_progress(["Task one"], k=5)
 
     counts = OutcomeCounts([Outcome.PASS, Outcome.TASK_FAIL, Outcome.PASS])
     update_progress(progress, task_ids, "Task one", k=5, counts=counts)
 
-    status = progress.tasks[task_ids["Task one"]].fields["status"]
-    assert status == "[green]✓2[/green] [red]✗1[/red]"
+    marks = progress.tasks[task_ids["Task one"]].fields["marks"]
+    assert marks.plain == "✓ ✗ ✓ · ·"
+
+
+def test_update_progress_tallies_above_five_attempts() -> None:
+    progress, task_ids = make_progress(["Task one"], k=10)
+
+    counts = OutcomeCounts([Outcome.PASS] * 6 + [Outcome.TASK_FAIL])
+    update_progress(progress, task_ids, "Task one", k=10, counts=counts)
+
+    marks = progress.tasks[task_ids["Task one"]].fields["marks"]
+    assert marks.plain == "✓6 ✗1 ·3"
 
 
 def test_update_progress_keeps_a_finished_trigger_probe_neutral() -> None:
@@ -449,7 +464,9 @@ def test_update_progress_keeps_a_finished_trigger_probe_neutral() -> None:
     )
 
     # Not a red ✗: a trigger probe asked no execution question.
-    assert progress.tasks[task_ids["Probe"]].fields["status"] == "[dim]—[/dim]"
+    marks = progress.tasks[task_ids["Probe"]].fields["marks"]
+    assert marks.plain == "— — —"
+    assert all("red" not in str(span.style) for span in marks.spans)
 
 
 def _render_markup(results: RunResults) -> str:
@@ -507,8 +524,8 @@ def test_trigger_probe_attempt_shows_its_activation_verdict() -> None:
 
     out = _render_markup(results)
 
-    assert "✗ Attempt 1" in out
-    assert "✓ Attempt 2" in out
+    assert "✗ attempt 1" in out
+    assert "✓ attempt 2" in out
 
 
 def test_built_in_activations_are_shown_without_being_scored() -> None:
@@ -543,8 +560,11 @@ def test_built_in_activations_are_shown_without_being_scored() -> None:
 
     out = _render_markup(results)
 
-    assert "Activation  100.0%" in out
-    assert "Built-in skills  claude-api 1/2  (ship with claude-code; not scored)" in out
+    assert "100%  2/2 ✓" in next(ln for ln in out.splitlines() if "Overall" in ln)
+    assert (
+        "built-in skills  claude-api 1/2  ship with claude-code · shown, not scored"
+        in out
+    )
 
 
 def test_truncating_escaped_markup_cannot_expose_a_tag() -> None:

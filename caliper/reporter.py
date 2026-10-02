@@ -1,5 +1,31 @@
+"""Terminal rendering for `caliper run`, `caliper report` and `caliper compare`.
+
+Both commands share one visual system, so a reader who learns one view can read
+the other:
+
+* **Header.** A CALIPER badge, the command, the spec and k, then an aligned
+  key/value block describing the environment (engine, judge, skills, MCP
+  servers, setup, status). In ``compare`` the block has an A and a B column,
+  and a row whose two sides are equal collapses to "same", so a difference is
+  the thing that stands out.
+* **One table per axis.** Tasks (execution), skills (activation), MCP servers
+  (tool use). The two scoreboards are never blended (docs/adr/0014). Totals are
+  each table's footer, never loose lines below it.
+* **One rate cell.** The rate right-aligned in a fixed slot, then its evidence:
+  the per-attempt marks at small k, a tally (``✓9 ✗1``) above that, so a row
+  never outgrows its column. The live view fills the same marks in.
+* **Deltas say what they are.** A rate delta is in percentage points (pp); a
+  cost delta is relative, and never a regression (docs/CONTEXT.md →
+  Regression).
+* **Colour carries meaning only.** Green good, red bad, yellow "read this
+  before trusting the number", cyan the thing under test, dim the rest.
+* **Notes close every view** in one shape — glyph, bold label, detail, dim
+  aside — sorted red, then yellow, then dim.
+"""
+
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Callable
 
 from rich import box
@@ -7,15 +33,15 @@ from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
 from rich.progress import (
-    BarColumn,
     Progress,
+    ProgressColumn,
     SpinnerColumn,
+    Task,
     TaskID,
     TextColumn,
     TimeElapsedColumn,
 )
-from rich.table import Table
-from rich.table import Column
+from rich.table import Column, Table
 from rich.text import Text
 
 from caliper.schema.results import (
@@ -23,8 +49,8 @@ from caliper.schema.results import (
     Outcome,
     OutcomeCounts,
     RunComparison,
+    RunMeta,
     RunResults,
-    TaskComparison,
     TaskResult,
     UsageTotals,
     pass_at_k,
@@ -59,33 +85,16 @@ def _fmt_duration(seconds: float) -> str:
 
 
 _UNICODE = _supports_unicode()
-_BANNER = "[bold cyan]CALIPER[/bold cyan]"
 _SEP = "·" if _UNICODE else "-"
 _RULE = "—" if _UNICODE else "-"
 _WARN = "⚠" if _UNICODE else "!"
-_CHECK = "✓" if _UNICODE else "OK"
-_CROSS = "✗" if _UNICODE else "X"
-
-
-def _engine_label(backend: str | None, model: str | None) -> str:
-    """`backend · model` when a model is known, else just the backend."""
-    label = backend or "?"
-    return f"{label} {_SEP} {model}" if model else label
-
-
-def _judge_suffix(backend: str | None, model: str | None) -> str:
-    """A ` · judge <engine>` fragment, or empty when the judge is unrecorded."""
-    if not backend:
-        return ""
-    return f"  {_SEP}  judge {_engine_label(backend, model)}"
-
-
-_UP = "↑" if _UNICODE else "up"
-_DOWN = "↓" if _UNICODE else "down"
+_CHECK = "✓" if _UNICODE else "+"
+_CROSS = "✗" if _UNICODE else "x"
 _TO = "→" if _UNICODE else "->"
-_BAR_FULL = "█" if _UNICODE else "#"
-_BAR_EMPTY = "░" if _UNICODE else "-"
 _UNUSABLE = "⊘" if _UNICODE else "o"
+_PENDING = "·" if _UNICODE else "."
+_DOWN = "▼" if _UNICODE else "v"
+_DELTA = "Δ" if _UNICODE else "delta"
 # Re-exported: `list` marks an interrupted run with the same glyph, and a
 # second literal would be a second thing to forget the ASCII fallback on.
 UNUSABLE_GLYPH = _UNUSABLE
@@ -96,71 +105,424 @@ RULE_GLYPH = _RULE
 WARN_GLYPH = _WARN
 SEP_GLYPH = _SEP
 
-# Per-outcome glyph and style. Usable failures read as failures; the three noise
-# outcomes get the distinct ⊘ marker; a trigger probe is dim, not yellow:
-# nothing was asked, so nothing went wrong. As (glyph, style) for the attempt
-# strips, built as rich Text so colour survives regardless of markup mode.
-_OUTCOME_STYLE = {
+# Per-outcome mark and style. Usable failures read as failures; the three noise
+# outcomes share the distinct ⊘; a trigger probe is dim, not yellow: nothing was
+# asked, so nothing went wrong.
+_OUTCOME_MARK = {
     Outcome.PASS: (_CHECK, "green"),
-    Outcome.TASK_FAIL: (_CROSS, "red"),
-    Outcome.CHEAT: (_WARN, "yellow"),
+    Outcome.TASK_FAIL: (_CROSS, "bold red"),
+    Outcome.CHEAT: (_WARN, "bold yellow"),
     Outcome.INFRA_ERROR: (_UNUSABLE, "yellow"),
     Outcome.TIMEOUT: (_UNUSABLE, "yellow"),
     Outcome.JUDGE_ERROR: (_UNUSABLE, "yellow"),
     Outcome.NOT_CHECKED: (_RULE, "dim"),
 }
-# The same, as markup, for the per-attempt detail view.
-_OUTCOME_GLYPH = {
-    outcome: f"[{style}]{glyph}[/{style}]"
-    for outcome, (glyph, style) in _OUTCOME_STYLE.items()
-}
+_HARNESS_FAILURES = frozenset({Outcome.TIMEOUT, Outcome.INFRA_ERROR})
+
+# Above this k the per-attempt marks collapse to a tally: ten spaced marks are
+# wider than every other cell in the row put together.
+_STRIP_MAX = 5
+_TALLY_ORDER = [_CHECK, _CROSS, _WARN, _UNUSABLE, _RULE, _PENDING]
+# The widest rate, "100.0%". Every rate is right-aligned in this slot so a
+# column of them lines up on the percent sign.
+_RATE_W = len("100.0%")
+
+
+# ── small formatters ────────────────────────────────────────────────────────
+
+
+def _fmt_score(score: float | None) -> str:
+    """A rate with no false precision: `80%`, `66.7%`, or `—` when unmeasured."""
+    if score is None:
+        return _RULE
+    pct = score * 100
+    return f"{pct:.0f}%" if abs(pct - round(pct)) < 0.05 else f"{pct:.1f}%"
+
+
+def _pp(delta: float | None, regression: bool | None = None) -> Text:
+    """A rate delta in percentage points: 60% → 100% is +40 pp, not +40%.
+
+    Red when it is a regression. Unmeasured (None) and unchanged (0) both read
+    "—"; the JSON keeps them distinct.
+    """
+    if delta is None or abs(delta) < 1e-9:
+        return Text(_RULE, style="dim")
+    pct = delta * 100
+    num = f"{pct:+.0f}" if abs(pct - round(pct)) < 0.05 else f"{pct:+.1f}"
+    worse = delta < 0 if regression is None else regression
+    return Text(f"{num} pp", style="red" if worse else "green")
+
+
+def _relative(before: float, after: float) -> Text:
+    """A cost delta, relative: green when cheaper, red when costlier. This
+    NEVER flips has_regression (docs/CONTEXT.md → Regression)."""
+    delta = after - before
+    if before == 0 or abs(delta) < 1e-9:
+        return Text(_RULE, style="dim")
+    sign = "+" if delta > 0 else "-"
+    return Text(
+        f"{sign}{abs(delta / before) * 100:.0f}%",
+        style="red" if delta > 0 else "green",
+    )
+
+
+def _rate_style(score: float | None) -> str:
+    """One colour rule for every per-task rate: full is plain, partial yellow,
+    zero red."""
+    if score is None or score >= 0.99:
+        return ""
+    return "bold red" if score == 0 else "yellow"
+
+
+def _engine_label(backend: str | None, model: str | None) -> str:
+    """`backend · model` when a model is known, else just the backend."""
+    label = backend or "?"
+    return f"{label} {_SEP} {model}" if model else label
+
+
+def _engine_text(backend: str | None, model: str | None) -> Text:
+    return Text(_engine_label(backend, model), style="cyan")
+
+
+# ── marks: one attempt, one glyph ───────────────────────────────────────────
+
+
+def _marks(items: list[tuple[str, str]], k: int) -> Text:
+    """Per-attempt marks for k <= 5, padded with `·` for attempts that never ran;
+    a tally (`✓7 ✗3`) above that.
+
+    Marks are spaced so a glyph drawn wider than its cell (notably ⊘, in some
+    fonts) cannot collide with its neighbour. Passes are dimmed in the strip so
+    the failures are what the eye lands on.
+    """
+    items = list(items) + [(_PENDING, "dim")] * max(0, k - len(items))
+    text = Text()
+    if k <= _STRIP_MAX:
+        for i, (glyph, style) in enumerate(items):
+            if i:
+                text.append(" ")
+            text.append(glyph, style="dim green" if glyph == _CHECK else style)
+        return text
+    counts: dict[str, tuple[int, str]] = {}
+    for glyph, style in items:
+        n, _ = counts.get(glyph, (0, style))
+        counts[glyph] = (n + 1, style)
+    for glyph in _TALLY_ORDER:
+        if glyph in counts:
+            n, style = counts[glyph]
+            if len(text):
+                text.append(" ")
+            text.append(f"{glyph}{n}", style=style)
+    return text
+
+
+def _outcome_marks(outcomes: list[Outcome], k: int) -> Text:
+    return _marks([_OUTCOME_MARK.get(o, (_CROSS, "bold red")) for o in outcomes], k)
+
+
+def _activation_marks(tr: TaskResult, k: int) -> Text:
+    """The activation verdict of each attempt. An inadmissible attempt (a
+    truncated transcript) is ⊘, never a fabricated miss (docs/CONTEXT.md →
+    Activation admissibility)."""
+    items = []
+    for attempt in tr.attempts:
+        if not attempt.outcome.is_activation_usable:
+            items.append((_UNUSABLE, "yellow"))
+        elif attempt.activation_passed is True:
+            items.append((_CHECK, "green"))
+        elif attempt.activation_passed is False:
+            items.append((_CROSS, "bold red"))
+        else:
+            items.append((_RULE, "dim"))
+    return _marks(items, k)
+
+
+def _rate_cell(score: float | None, evidence: Text | str, style: str = "") -> Text:
+    """The one rate cell: the rate in its fixed slot, then what it rests on."""
+    cell = Text(
+        _fmt_score(score).rjust(_RATE_W),
+        style=style or ("dim" if score is None else ""),
+    )
+    cell.append("  ")
+    if isinstance(evidence, Text):
+        cell.append_text(evidence)
+    else:
+        cell.append(evidence, style="dim")
+    return cell
+
+
+def _empty_rate(label: str = "") -> Text:
+    cell = Text(_RULE.rjust(_RATE_W), style="dim")
+    if label:
+        cell.append(f"  {label}", style="dim")
+    return cell
+
+
+def _avg_detail(avg: float, successes: int, usable: int, tasks: int) -> str:
+    """`16/20 ✓` when the pooled count says the same thing as the average.
+
+    The average is a mean of per-task rates (docs/adr/0007), so with unequal
+    denominators the pooled count can disagree with it. Two numbers that
+    disagree make the reader pick one, so the detail then names what was
+    averaged instead.
+    """
+    if usable and abs(successes / usable - avg) < 0.0005:
+        return f"{successes}/{usable} {_CHECK}"
+    return f"avg of {tasks}"
+
+
+def _two_line(top: str, bottom: str) -> Text:
+    return Text.assemble((f"{top}\n", "dim"), bottom)
+
+
+# ── header ──────────────────────────────────────────────────────────────────
+
+
+def _badge(command: str, spec: Text, k: Text, when: str = "") -> Text:
+    line = Text.assemble(
+        (" CALIPER ", "bold black on cyan"), "  ", (command, "bold"), "  "
+    )
+    line.append_text(spec)
+    line.append("   k=", style="dim")
+    line.append_text(k)
+    if when:
+        line.append(f"   {when}", style="dim")
+    return line
+
+
+def _names(names: list[str], removed: list[str] = ()) -> Text:
+    """A comma list, with removed members struck through and marked."""
+    text = Text()
+    for name in names:
+        if len(text):
+            text.append(", ", style="dim")
+        text.append(name)
+    for name in removed:
+        if len(text):
+            text.append(", ", style="dim")
+        text.append(name, style="dim strike")
+        text.append(" removed", style="yellow")
+    if not len(text):
+        text.append("none", style="dim")
+    return text
+
+
+def _setup_text(run: RunMeta) -> Text:
+    """Isolated, or what the user's own setup brought in (docs/adr/0028)."""
+    if not run.user_customizations:
+        return Text("isolated", style="dim")
+    text = Text("user customizations", style="yellow")
+    loaded = run.loaded_user_customizations
+    if loaded is None:
+        text.append("  not listed by this backend", style="dim")
+    elif not loaded:
+        text.append("  none found", style="dim")
+    else:
+        text.append(f"  {', '.join(loaded)}")
+    return text
+
+
+def _env_grid() -> Table:
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style="dim", no_wrap=True)
+    grid.add_column()
+    return grid
+
+
+def _judged(results: RunResults) -> bool:
+    """Whether an LLM judge graded any attempt (docs/adr/0033)."""
+    return any(
+        attempt.judge_seconds is not None
+        for task in results.task_results
+        for attempt in task.attempts
+    )
 
 
 def print_banner(
     spec_name: str, k: int, backend: str, model: str | None = None
 ) -> None:
-    target = f"[cyan]{backend}[/cyan]" + (
-        f" [dim]{_SEP} {model}[/dim]" if model else ""
-    )
+    """The line `run` prints before its first attempt.
+
+    Only what is known before the environment resolves. The full header —
+    skills, servers, setup — comes with the report, once they are facts.
+    """
+    console.print()
     console.print(
-        Panel(
-            f"{_BANNER}  {_SEP}  [bold]{spec_name}[/bold]  {_SEP}  k=[cyan]{k}[/cyan]  {_SEP}  {target}",
-            border_style="cyan",
-            padding=(0, 2),
+        _badge("run", Text(spec_name, style="bold"), Text(str(k), style="cyan"))
+        .append("   ")
+        .append_text(_engine_text(backend, model))
+    )
+
+
+def _print_run_header(results: RunResults) -> None:
+    run = results.run
+    console.print()
+    console.print(
+        _badge(
+            "run",
+            Text(run.spec, style="bold"),
+            Text(str(run.k), style="cyan"),
+            run.timestamp.strftime("%Y-%m-%d %H:%M"),
         )
     )
+    grid = _env_grid()
+    grid.add_row("engine", _engine_text(run.backend, run.model))
+    # Only when a judge actually ran: an assert-only run would otherwise name a
+    # grader that never graded anything.
+    if _judged(results) and run.judge_backend:
+        same = run.judge_backend == run.backend and run.judge_model in (
+            None,
+            run.model,
+        )
+        grid.add_row(
+            "judge",
+            Text("same as engine", style="dim")
+            if same
+            else _engine_text(run.judge_backend, run.judge_model or "default model"),
+        )
+    skills = [s.name for s in results.skill_snapshots if s.name]
+    if skills or run.ablated_skills:
+        grid.add_row("skills", _names(skills, run.ablated_skills))
+    if run.mcp_servers or run.ablated_servers:
+        grid.add_row("mcp", _names(list(run.mcp_servers or []), run.ablated_servers))
+    grid.add_row("setup", _setup_text(run))
+
+    # Status rows: what a reader must know before believing a single number.
+    status: list[Text] = []
+    # An ablated run's numbers are only readable next to what was removed, named
+    # as the invocation named it. When a skill was removed its activation column
+    # is skipped by design — said once, up front, rather than leaving a reader
+    # to wonder why the verdicts went blank. A removed server leaves the
+    # verdicts intact, so it gets the marker without that note.
+    if run.ablated:
+        line = Text.assemble(("ablated", "yellow"), "  ", ", ".join(run.ablated))
+        if run.ablated_skills:
+            line.append(f"  {_SEP} activation observed, not scored", style="dim")
+        status.append(line)
+    if results.task_results and all(t.trigger_only for t in results.task_results):
+        status.append(
+            Text.assemble(
+                ("trigger probes only", "cyan"),
+                ("  no execution checks · activation is the score", "dim"),
+            )
+        )
+    # A short sample is the one thing a reader must not mistake for a full one.
+    if run.interrupted:
+        ran = sum(len(t.attempts) for t in results.task_results)
+        asked = run.k * len(results.task_results)
+        status.append(
+            Text.assemble(
+                ("interrupted", "yellow"),
+                (f"  {ran} of {asked} attempts ran · scored over those", "dim"),
+            )
+        )
+    if run.hook_failures:
+        n = len(run.hook_failures)
+        status.append(
+            Text.assemble(
+                (f"{n} lifecycle hook{'s' if n > 1 else ''} failed", "bold red"),
+                ("  see notes", "dim"),
+            )
+        )
+    for i, line in enumerate(status):
+        grid.add_row("status" if i == 0 else "", line)
+    console.print(grid)
+
+
+# ── notes ───────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class _Note:
+    """One closing line. ``level`` sorts and styles it: 0 red, 1 yellow, 2 dim."""
+
+    level: int
+    glyph: str
+    label: str
+    body: str | Text = ""
+    aside: str = ""
+
+
+_NOTE_STYLES = {
+    0: ("bold red", "bold red"),
+    1: ("yellow", "bold yellow"),
+    2: ("dim", "bold"),
+}
+
+
+def _print_notes(notes: list[_Note]) -> None:
+    if not notes:
+        return
+    console.print()
+    for note in sorted(notes, key=lambda n: n.level):
+        glyph_style, label_style = _NOTE_STYLES[note.level]
+        # A grid, so a long note wraps under its own text rather than under the
+        # glyph.
+        grid = Table.grid(padding=(0, 1))
+        grid.add_column(no_wrap=True)
+        grid.add_column(ratio=1)
+        # Styled as a span, not as the line's base style, which the body
+        # would inherit.
+        line = Text.assemble((note.label, label_style))
+        if note.body:
+            line.append("  ")
+            line.append_text(
+                note.body if isinstance(note.body, Text) else Text(note.body)
+            )
+        if note.aside:
+            line.append(f"  {note.aside}", style="dim")
+        grid.add_row(Text(f" {note.glyph}", style=glyph_style), line)
+        console.print(grid)
+
+
+# Each caliper warning is one sentence, `what — why/fix`, mirrored into the
+# JSON. The header already shows *what* differs, so where it does, the note
+# leads with a short name and keeps the why. Display only: --format json keeps
+# the full sentence.
+_WARNING_HEADS = (
+    ("different skill neighbourhoods", "skills differ"),
+    ("different MCP servers", "MCP servers differ"),
+    ("different judges", "judges differ"),
+    ("different user customizations", "setups differ"),
+    ("comparing different specs", "specs differ"),
+)
+
+
+def _warning_note(warning: str) -> _Note:
+    head, _, tail = warning.partition(" — ")
+    for prefix, short in _WARNING_HEADS:
+        if head.startswith(prefix):
+            head = short
+    return _Note(1, _WARN, head, "", tail)
+
+
+# ── caliper run (live) ──────────────────────────────────────────────────────
+
+
+class _MarksColumn(ProgressColumn):
+    """The task's marks so far, in the glyphs the final table uses."""
+
+    def render(self, task: Task) -> Text:
+        return task.fields.get("marks") or Text("")
 
 
 def make_progress(tasks: list[str], k: int) -> tuple[Progress, dict[str, TaskID]]:
     progress = Progress(
         SpinnerColumn(finished_text=" "),
         TextColumn(
-            "[bold]{task.description}",
+            "{task.description}",
             justify="left",
             table_column=Column(width=40, overflow="ellipsis", no_wrap=True),
         ),
-        BarColumn(
-            bar_width=min(max(k, 6), 20),
-            style="dim",
-            complete_style="cyan",
-            finished_style="cyan",
-        ),
-        TextColumn(
-            "[cyan]{task.completed}/{task.total}",
-            table_column=Column(width=5, no_wrap=True),
-        ),
+        _MarksColumn(table_column=Column(no_wrap=True)),
         TimeElapsedColumn(),
-        TextColumn(
-            "{task.fields[status]}", table_column=Column(width=12, no_wrap=True)
-        ),
         console=console,
         expand=False,
         transient=True,
     )
     task_ids: dict[str, TaskID] = {}
     for name in tasks:
-        tid = progress.add_task(name, total=k, status="")
-        task_ids[name] = tid
+        task_ids[name] = progress.add_task(name, total=k, marks=_marks([], k))
     return progress, task_ids
 
 
@@ -175,379 +537,185 @@ def update_progress(
     tid = task_ids.get(task_name)
     if tid is None:
         return
-    # A snapshot: worker threads keep adding to the live counts, and every count
-    # below must come from the same outcomes.
-    counts = OutcomeCounts(list(counts.outcomes))
-    completed = counts.completed
-    terminal = completed == k or finished
-    if counts.cheated:
-        status = f"[bold yellow]{_WARN} cheat[/bold yellow]"
-    elif terminal and counts.successes == k:
-        status = f"[bold green]{_CHECK}[/bold green]"
-    elif terminal and completed and counts.unchecked == completed:
-        # A trigger probe asked no execution question; its activation verdict
-        # is the report's to give, so the live view stays neutral.
-        status = f"[dim]{_RULE}[/dim]"
-    else:
-        # The tally, not the count again: the bar and `n/k` beside it already
-        # say how far along the task is, not how it is going.
-        status = _tally(counts.successes, counts.failed, counts.unusable)
-    rendered_completed = k if finished and completed < k else completed
-    progress.update(tid, total=k, completed=rendered_completed, status=status)
-
-
-def _tally(passed: int, failed: int, unusable: int) -> str:
-    """`✓2 ✗1 ⊘1`, each part only when non-zero."""
-    parts = []
-    if passed:
-        parts.append(f"[green]{_CHECK}{passed}[/green]")
-    if failed:
-        parts.append(f"[red]{_CROSS}{failed}[/red]")
-    if unusable:
-        parts.append(f"[yellow]{_UNUSABLE}{unusable}[/yellow]")
-    return " ".join(parts)
-
-
-def print_results(results: RunResults, verbose: bool = False) -> None:
-    spec = results.run.spec
-    backend = results.run.backend
-    model = results.run.model or ""
-    ts = results.run.timestamp.strftime("%Y-%m-%d %H:%M")
-    k = results.run.k
-
-    judge_suffix = _judge_suffix(results.run.judge_backend, results.run.judge_model)
-    console.print()
-    console.rule(
-        f"{_BANNER}  {_RULE}  [bold]{spec}[/bold]  ([cyan]{backend}[/cyan]"
-        + (f" {_SEP} [dim]{model}[/dim]" if model else "")
-        + f"){judge_suffix}  {_RULE}  {ts}",
-        style="cyan",
-    )
-    # An ablated run's numbers are only readable next to what was removed. When
-    # a skill was removed its activation column is *skipped* by design — say so
-    # once, up front, rather than leaving a reader to wonder why the verdicts
-    # went blank. A removed server leaves the activation verdicts intact, so it
-    # gets the marker without that note.
-    if results.run.ablated:
-        note = (
-            f"   {_SEP}   [dim]activation observed, not scored[/dim]"
-            if results.run.ablated_skills
-            else ""
-        )
-        console.print(
-            f"    [yellow]ablated:[/yellow] {', '.join(results.run.ablated)}{note}"
-        )
-    # A score measured with the machine's own customizations reads exactly like
-    # an isolated one unless it says so (docs/adr/0028).
-    if results.run.user_customizations:
-        loaded = results.run.loaded_user_customizations
-        listed = (
-            escape(", ".join(loaded))
-            if loaded
-            else ("none found" if loaded == [] else "not listed by this backend")
-        )
-        console.print(
-            f"    [yellow]user customizations:[/yellow] {listed}"
-            f"   {_SEP}   [dim]score depends on this machine's setup[/dim]"
-        )
-    # A short sample is the one thing a reader must not mistake for a full one:
-    # the rates below are computed over the attempts that ran, which is fewer
-    # than the invocation asked for. Said once, up front, next to the ablation
-    # marker it rhymes with.
-    if results.run.interrupted:
-        console.print(
-            f"    [yellow]interrupted:[/yellow] stopped early"
-            f"   {_SEP}   [dim]scored over the attempts that ran[/dim]"
-        )
-    if results.run.hook_failures:
-        console.print(
-            f"    [bold red]lifecycle hooks failed:[/bold red] "
-            f"{len(results.run.hook_failures)}"
-        )
-        for failure in results.run.hook_failures:
-            console.print(
-                f"    [red]{escape(failure.task_id)} attempt {failure.attempt} "
-                f"{failure.phase} exited {failure.exit_code}[/red]"
-            )
-            if failure.output:
-                console.print(f"      {_format_output(failure.output)}")
-    console.print()
-
-    _print_score(results)
-    console.print()
-
-    table = Table(
-        box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False
-    )
-    table.add_column("Task")
-    # Count and rate in one cell, the way the per-skill table shows its rates:
-    # a separate `k` column restated the denominator on every row.
-    table.add_column(f"success (k={k})", justify="right")
-    if verbose:
-        table.add_column("pass@k", justify="right", style="dim")
-        table.add_column("pass^k", justify="right", style="dim")
-    # A verdict, not a list of names: the counts live on the per-skill table.
-    # Dim "—" when the task asserted nothing.
-    table.add_column("act", justify="center")
-    table.add_column("Tokens", justify="right", style="dim")
-    table.add_column("Wall", justify="right", style="dim")
-    table.add_column("", justify="center")
-
-    for tr in results.task_results:
-        status_text = _status_cell(tr, k)
-        totals = tr.usage
-        tokens_cell = (
-            _fmt_tokens(totals.total_tokens) if totals.tokens_reported else _RULE
-        )
-        wall_cell = _fmt_duration(totals.wall_seconds)
-        row = [tr.task_name, _success_cell(tr, k)]
-        if verbose:
-            row += [_fmt_score(tr.pass_at_k), _fmt_score(tr.pass_hat_k)]
-        row += [_activation_cell(tr), tokens_cell, wall_cell, status_text]
-        table.add_row(*row)
-
-    console.print(table)
-    console.print()
-
-    _print_activation_aggregate(results)
-    # Only a removed *skill* empties the scored table; a run that removed a
-    # server asserted and scored its activations normally, and this observation
-    # table would then be a second, unscored view of the same attempts.
-    if results.run.ablated_skills:
-        _print_observed_activations(results)
-    _print_builtin_activations(results)
-    _print_unusable_summary(results)
-    console.print()
-    _print_usage_summary(results.usage)
-    console.print()
-    _print_task_details(results.task_results, k, verbose)
-
-
-def _print_observed_activations(results: RunResults) -> None:
-    """What the surviving skills reached for on a skill-ablated run.
-
-    A skill-ablated run withholds the activation *verdict* but keeps the
-    observation (docs/adr/0015-ablation-names-its-subject-at-the-invocation.md),
-    and the scored table above renders nothing because no task asserted. Without
-    this, "with the parent removed, did its neighbours pick up the work?" — the
-    whole reason a partial ablation is interesting — would be invisible. A run
-    that removed only a server is not here: its activation verdicts still apply.
-    """
-    rows = ObservedActivation.from_task_results(
-        results.task_results, [s.name for s in results.skill_snapshots if s.name]
-    )
-    if not rows or not rows[0].observed:
-        return
-    console.print(
-        f" [bold]Observed activations[/bold]  "
-        f"[dim](over {rows[0].observed} attempts; nothing asserted)[/dim]"
-    )
-    table = Table(box=box.SIMPLE, show_header=True, header_style="dim", expand=False)
-    table.add_column("Skill")
-    table.add_column("fired", justify="right")
-    for row in rows:
-        style = "dim" if not row.fired else ""
-        table.add_row(
-            Text(row.skill, style=style),
-            Text(f"{row.fired}/{row.observed}", style=style),
-        )
-    console.print(table)
-
-
-def _print_builtin_activations(results: RunResults) -> None:
-    """The CLI's own skills the agent reached for, shown whether or not
-    anything was asserted and never scored (docs/CONTEXT.md → Built-in
-    skill). Without it, a built-in skill winning the prompt reads the same as
-    nothing firing."""
-    rows = ObservedActivation.builtin_from_task_results(results.task_results)
-    if not rows:
-        return
-    fired = ", ".join(f"{row.skill} {row.fired}/{row.observed}" for row in rows)
-    console.print(
-        f" [bold]Built-in skills[/bold]  {escape(fired)}"
-        f"  [dim](ship with {escape(results.run.backend)}; not scored)[/dim]"
+    # A snapshot: worker threads keep adding to the live counts, and the marks
+    # and the completed count must come from the same outcomes.
+    outcomes = list(counts.outcomes)
+    completed = len(outcomes)
+    progress.update(
+        tid,
+        total=k,
+        completed=k if finished and completed < k else completed,
+        marks=_outcome_marks(outcomes, k),
     )
 
 
-def _print_task_details(task_results: list[TaskResult], k: int, verbose: bool) -> None:
-    """Per-task failure panels: all tasks under ``--verbose``, else only the ones
-    that did not fully pass."""
-    tasks_to_detail = (
-        task_results if verbose else [tr for tr in task_results if _needs_detail(tr)]
+# ── caliper run (report) ────────────────────────────────────────────────────
+
+
+def _task_name_cell(tr: TaskResult, k: int) -> Text:
+    name = Text(
+        tr.task_name,
+        style="dim" if tr.score is None and not tr.trigger_only else "",
     )
-    for tr in tasks_to_detail:
-        _print_task_detail(tr, k, verbose)
-
-
-def _needs_detail(tr: TaskResult) -> bool:
-    """Whether a task earns a failure panel: either scoreboard came up short.
-
-    A trigger-only task is judged solely on activation — its ``score`` is
-    ``None`` by construction, and treating that as "didn't fully pass" would
-    print a panel for every correct trigger probe.
-    """
     if any(attempt.hook_failures for attempt in tr.attempts):
-        return True
-    activation_short = tr.activation_score is not None and tr.activation_score < 1.0
-    if tr.trigger_only:
-        return activation_short
-    return tr.score is None or tr.score < 1.0 or activation_short
-
-
-def _activation_cell(tr: TaskResult) -> Text:
-    """Did this task's activation claim hold? A three-state verdict, 3 chars wide.
-
-    Deliberately not the skill names: the *counts* live on the per-skill table,
-    which is the axis they belong to. Spelling them out here forced a skill name
-    into a per-task row and wrapped the whole table, and it degraded with every
-    extra skill. What a reader needs while scanning for failures is narrower —
-    a ``✗`` beside a 0% row says the description is the suspect, not the body.
-
-    Counted over **activation-usable** attempts only, so a task whose every
-    attempt timed out renders "—" rather than a confident verdict manufactured
-    from an infrastructure failure.
-    """
-    score = tr.activation_score
-    if score is None:
-        return Text(_RULE, style="dim")
-    if score >= 0.99:
-        return Text(_CHECK, style="green")
-    return Text(_CROSS, style="red")
+        name.append(f"  {_UNUSABLE} hook", style="bold red")
+    if tr.aborted(k):
+        name.append("  aborted", style="yellow")
+    return name
 
 
 def _success_cell(tr: TaskResult, k: int) -> Text:
-    """`2/3   66.7%`, or a dim "—" for a trigger-only task.
-
-    A trigger-only task has no execution numbers to show; "0/3" would read as
-    three failures rather than three questions never asked.
-    """
+    # A trigger probe has no execution numbers: "0/3" would read as three
+    # failures rather than three questions never asked.
     if tr.trigger_only:
-        return Text(_RULE, style="dim")
-    cell = Text(f"{tr.successes}/{k}".rjust(5), style="dim")
-    cell.append(f"  {_fmt_score(tr.score):>{_SCORE_W}}")
-    return cell
-
-
-def _status_cell(tr: TaskResult, k: int) -> Text:
-    if tr.any_cheat:
-        return Text(f"{_WARN} CHEAT", style="bold yellow")
-    if any(attempt.hook_failures for attempt in tr.attempts):
-        return Text(f"{_UNUSABLE} HOOK ERROR", style="bold red")
-    # An activates:-only task asked no execution question. Its silence is the
-    # correct answer, so it reads as a dim skip — never a yellow error.
-    if tr.trigger_only:
-        return Text(f"{_RULE} trigger only", style="dim")
-    if tr.aborted(k):
-        return Text(f"{_UNUSABLE} ABORTED", style="bold yellow")
-    if tr.score is None:
-        return Text(f"{_UNUSABLE} UNUSABLE", style="bold yellow")
-    suffix = f" ({tr.unusable} {_UNUSABLE})" if tr.unusable else ""
-    if tr.score >= 0.99:
-        return Text(f"{_CHECK} PASS{suffix}", style="bold green")
-    elif tr.successes == 0:
-        return Text(f"{_CROSS} FAIL{suffix}", style="bold red")
-    else:
-        return Text(f"~ PARTIAL{suffix}", style="bold yellow")
-
-
-def _score_bar(score: float, width: int = 20) -> str:
-    filled = round(score * width)
-    return (
-        "[green]"
-        + _BAR_FULL * filled
-        + "[/green][dim]"
-        + _BAR_EMPTY * (width - filled)
-        + "[/dim]"
+        return _empty_rate("probe")
+    return _rate_cell(
+        tr.score,
+        _outcome_marks([a.outcome for a in tr.attempts], k),
+        _rate_style(tr.score),
     )
 
 
-def _print_score(results: RunResults) -> None:
-    """The execution headline, printed *above* the per-task table it sums up."""
-    agg = results.aggregate
-
-    if agg.measured:
-        plural = "s" if agg.scored_tasks != 1 else ""
-        console.print(
-            f" [bold]Score[/bold]       [cyan]{agg.avg_score * 100:.1f}%[/cyan]"
-            f"  {_score_bar(agg.avg_score)}"
-            f"  [dim]({agg.scored_tasks} task{plural} scored)[/dim]"
-        )
-    else:
-        # Nothing was measured — an all-trigger-probe spec. "0.0%" with an empty
-        # bar would read as total failure of a run where nothing failed.
-        console.print(
-            f" [bold]Score[/bold]       [dim]{_RULE}  no execution checks[/dim]"
-        )
+def _activation_cell(tr: TaskResult, k: int) -> Text:
+    """Did this task's activation claim hold, attempt by attempt? Dim "—" when it
+    claimed nothing. Counted over activation-usable attempts only, so a task
+    whose attempts all timed out reads "—", not a confident 0%."""
+    if tr.activation_expected is None:
+        return _empty_rate()
+    score = tr.activation_score
+    return _rate_cell(score, _activation_marks(tr, k), _rate_style(score))
 
 
-def _print_activation_aggregate(results: RunResults) -> None:
-    """The activation half: one headline line, then a table on the *skill* axis.
+def _cost_cell(tokens: float | None, wall: str, style: str) -> Text:
+    """Tokens and wall in one column, both right-aligned."""
+    shown = _fmt_tokens(int(tokens)) if tokens is not None else _RULE
+    return Text(shown.rjust(5) + wall.rjust(8), style=style)
 
-    Rendered only when the spec asserted ``activates:`` somewhere. A spec that
-    never makes an activation claim should not grow a table of empty rows.
-    """
-    agg = results.aggregate
-    if agg.avg_activation_score is None:
-        return
 
-    asserted = agg.activation_asserted or agg.activation_tasks
-    plural = "s" if asserted != 1 else ""
-    scope = (
-        f"{asserted} asserted task{plural}"
-        if agg.activation_tasks == asserted
-        else f"{agg.activation_tasks} of {asserted} asserted task{plural} measured"
+def print_results(results: RunResults, verbose: bool = False) -> None:
+    run, k, agg = results.run, results.run.k, results.aggregate
+    tasks = results.task_results
+    usage = results.usage
+    _print_run_header(results)
+    console.print()
+
+    show_success = not tasks or not all(t.trigger_only for t in tasks)
+    # A removed *skill* drops every expectation (docs/adr/0015), so the column
+    # would be all dashes; the skills table shows what was observed instead.
+    show_activation = (
+        any(t.activation_expected is not None for t in tasks) and not run.ablated_skills
     )
-    console.print(
-        f" [bold]Activation[/bold]  "
-        f"[cyan]{agg.avg_activation_score * 100:.1f}%[/cyan]"
-        f"  {_score_bar(agg.avg_activation_score)}"
-        f"  [dim]({scope})[/dim]"
-    )
-    if not agg.activation_per_skill:
-        return
 
-    # A skill never wanted and never seen had no chance to succeed or fail, so
-    # it carries no measurement — only the fact that it was installed. At two
-    # skills a row is fine; at ten it is eight identical rows burying the two
-    # that matter, so those collapse to a single line below the table.
-    measured = [s for s in agg.activation_per_skill if s.expected or s.fired]
-    dormant = [s for s in agg.activation_per_skill if not (s.expected or s.fired)]
+    table = Table(box=box.ROUNDED, header_style="bold cyan")
+    table.add_column("Task")
+    # Only the task name may wrap: a wrapped rate cell splits its marks.
+    if show_success:
+        table.add_column("success", no_wrap=True)
+    if verbose:
+        table.add_column("pass@k", justify="right", no_wrap=True)
+        table.add_column("pass^k", justify="right", no_wrap=True)
+    if show_activation:
+        table.add_column("activation", no_wrap=True)
+    table.add_column("cost", justify="right", no_wrap=True)
 
-    if measured:
-        console.print()
-        table = Table(
-            box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False
-        )
-        table.add_column("Skill")
-        table.add_column("wanted", justify="right")
-        # The same verb on both sides, so the pair reads as one behaviour
-        # measured over two populations. The second is good-when-*low*, which
-        # the cell colouring carries: a high hijack rate renders red.
-        table.add_column("fires when wanted", justify="right")
-        table.add_column("fires when not wanted", justify="right")
-        # Worst first: the skill needing attention is the top row, not wherever
-        # it happened to sit in the spec (peers have no meaningful order anyway).
-        for stats in sorted(measured, key=_activation_severity):
-            table.add_row(
-                stats.skill,
-                Text(f"{stats.expected} of {stats.total}", style="dim"),
-                _rate_cell(stats.hits, stats.expected, stats.recall),
-                _rate_cell(
-                    stats.unwanted,
-                    stats.opportunities,
-                    stats.unwanted_rate,
-                    higher_is_better=False,
-                ),
+    for tr in tasks:
+        row: list[Text] = [_task_name_cell(tr, k)]
+        if show_success:
+            row.append(_success_cell(tr, k))
+        if verbose:
+            row += [
+                Text(_fmt_score(tr.pass_at_k), style="dim"),
+                Text(_fmt_score(tr.pass_hat_k), style="dim"),
+            ]
+        if show_activation:
+            row.append(_activation_cell(tr, k))
+        own = tr.usage
+        row.append(
+            _cost_cell(
+                own.total_tokens if own.tokens_reported else None,
+                _fmt_duration(own.wall_seconds),
+                "dim",
             )
-        console.print(table)
-
-    if dormant:
-        names = ", ".join(s.skill for s in dormant)
-        plural = "s were" if len(dormant) > 1 else " was"
-        console.print(
-            f" [dim]{len(dormant)} more declared skill{plural} never wanted and "
-            f"never fired: {names}[/dim]"
         )
+        table.add_row(*row)
+
+    table.add_section()
+    overall: list[Text] = [Text("Overall", style="bold")]
+    per_attempt: list[Text] = [Text("per attempt", style="dim")]
+    if show_success:
+        if agg.measured:
+            scored = [t for t in tasks if t.score is not None]
+            overall.append(
+                _rate_cell(
+                    agg.avg_score,
+                    _avg_detail(
+                        agg.avg_score,
+                        sum(t.successes for t in scored),
+                        sum(t.usable for t in scored),
+                        agg.scored_tasks,
+                    ),
+                    "bold green" if agg.avg_score >= 0.99 else "bold",
+                )
+            )
+        else:
+            # Nothing measured: "0%" would read as total failure of a run where
+            # nothing failed.
+            overall.append(_empty_rate("no execution checks"))
+        per_attempt.append(Text(""))
+    if verbose:
+        overall += [Text(""), Text("")]
+        per_attempt += [Text(""), Text("")]
+    if show_activation:
+        if agg.avg_activation_score is None:
+            overall.append(_empty_rate())
+        else:
+            asserted = [t for t in tasks if t.activation_score is not None]
+            overall.append(
+                _rate_cell(
+                    agg.avg_activation_score,
+                    _avg_detail(
+                        agg.avg_activation_score,
+                        sum(t.activation_successes for t in asserted),
+                        sum(t.activation_usable for t in asserted),
+                        len(asserted),
+                    ),
+                    "bold green" if agg.avg_activation_score >= 0.99 else "bold",
+                )
+            )
+        per_attempt.append(Text(""))
+    overall.append(
+        _cost_cell(
+            usage.total_tokens if usage.tokens_reported else None,
+            _fmt_duration(usage.wall_seconds),
+            "bold",
+        )
+    )
+    # Per attempt over the usable ones: an unusable attempt's spend is reported
+    # on its own line, not averaged in.
+    usable = max(usage.usable_attempts, 1)
+    per_attempt.append(
+        _cost_cell(
+            usage.total_tokens / max(usage.attempts, 1)
+            if usage.tokens_reported
+            else None,
+            f"{usage.usable_wall_seconds / usable:.1f}s",
+            "dim",
+        )
+    )
+    table.add_row(*overall)
+    table.add_row(*per_attempt)
+    console.print(table)
+
+    _print_skills(results)
+    _print_mcp(results)
+    _print_notes(_run_notes(results))
+
+    detailed = tasks if verbose else [t for t in tasks if _needs_detail(t)]
+    if detailed:
+        console.print()
+    for tr in detailed:
+        console.print(_task_panel(tr, k, verbose, ablated=bool(run.ablated_skills)))
+    console.print()
 
 
 def _activation_severity(stats) -> float:
@@ -562,99 +730,285 @@ def _activation_severity(stats) -> float:
     return -max(missed, over)
 
 
-def _rate_cell(
-    numerator: int,
-    denominator: int,
-    rate: float | None,
-    *,
-    higher_is_better: bool = True,
+def _skill_rate_cell(
+    numerator: int, denominator: int, rate: float | None, *, higher_is_better=True
 ) -> Text:
-    """``n/m   xx.x%``, dim "—" when the case never arose.
+    """`75%  3/4`, dim "—" when the case never arose.
 
     A skill nothing ever expected has no fire-when-wanted rate, and one that
-    never faced a prompt it should skip has no chance to over-fire. Neither is a
-    zero. ``higher_is_better`` flips the colouring for the over-firing column,
-    where the good value is 0%.
+    never faced a prompt it should skip has no chance to over-fire. Neither is
+    a zero. ``higher_is_better`` flips the colouring for the over-firing
+    column, where the good value is 0%.
     """
     if rate is None or denominator <= 0:
-        return Text(_RULE, style="dim")
-    cell = Text(f"{numerator}/{denominator}".rjust(6))
+        return _empty_rate()
     good = rate >= 0.99 if higher_is_better else rate <= 0.01
-    cell.append(f"  {rate * 100:5.1f}%", style="green" if good else "red")
-    return cell
-
-
-def _print_unusable_summary(results: RunResults) -> None:
-    """One line, only when there is noise to report, so a clean run is unchanged."""
-    counts = results.noise_counts
-    total = sum(counts.values())
-    if not total:
-        return
-    breakdown = " · ".join(f"{n} {o.value}" for o, n in counts.items())
-    console.print(
-        f" [yellow]{_UNUSABLE} {total} unusable[/yellow]  [dim]({breakdown}) "
-        f"— excluded from the score[/dim]"
+    return _rate_cell(
+        rate, f"{numerator}/{denominator}", "green" if good else "bold red"
     )
 
 
-def _print_usage_summary(totals: UsageTotals) -> None:
-    """The cost block for a single run: tokens + wall time as an aligned grid.
-    (Token/wall *deltas* between two runs are `compare`'s job.) Cost/latency is a
-    first-class axis (docs/CONTEXT.md → Run usage totals); dollar cost is
-    deliberately out of scope."""
-    if totals.attempts == 0:
+def _print_skills(results: RunResults) -> None:
+    """The activation half, on the *skill* axis (docs/CONTEXT.md → Activation
+    score). Rendered only when the spec asserted ``activates:``, or as the
+    observation of a skill-ablated run."""
+    run, agg = results.run, results.aggregate
+    if run.ablated_skills:
+        _print_observed_skills(results)
         return
-
-    grid = Table.grid(padding=(0, 3))
-    grid.add_column(style="bold")  # metric
-    grid.add_column()  # value
-
-    if totals.tokens_reported:
-        tokens_val = (
-            f"{_fmt_tokens(totals.prompt_tokens)} in / "
-            f"{_fmt_tokens(totals.output_tokens)} out"
+    if agg.avg_activation_score is None:
+        return
+    # A skill never wanted and never seen carries no measurement, only the fact
+    # that it was installed: it gets a note, not an empty row.
+    measured = [s for s in agg.activation_per_skill if s.expected or s.fired]
+    if not measured:
+        return
+    console.print()
+    console.print(
+        Text.assemble(
+            (" Skills", "bold"), ("  activation per skill · worst first", "dim")
         )
-    else:
-        tokens_val = f"[dim]{_RULE}[/dim]"
+    )
+    table = Table(box=box.ROUNDED, header_style="bold cyan")
+    table.add_column("Skill")
+    table.add_column("wanted", justify="right")
+    # The same verb on both sides, so the pair reads as one behaviour measured
+    # over two populations. The second is good-when-*low*.
+    table.add_column("fires when wanted")
+    table.add_column("fires when not wanted")
+    for stats in sorted(measured, key=_activation_severity):
+        table.add_row(
+            stats.skill,
+            Text(f"{stats.expected} of {stats.total}", style="dim"),
+            _skill_rate_cell(stats.hits, stats.expected, stats.recall),
+            _skill_rate_cell(
+                stats.unwanted,
+                stats.opportunities,
+                stats.unwanted_rate,
+                higher_is_better=False,
+            ),
+        )
+    console.print(table)
 
-    wall_val = _fmt_duration(totals.wall_seconds)
-    if totals.usable_attempts > 0:
-        avg = totals.usable_wall_seconds / totals.usable_attempts
-        wall_val += f"  [dim]{avg:.1f}s per attempt[/dim]"
 
-    grid.add_row(" Tokens", tokens_val)
-    grid.add_row(" Wall", wall_val)
-    # Only when a judge actually ran: an assert-only run would otherwise print a
+def _print_observed_skills(results: RunResults) -> None:
+    """What the surviving skills reached for on a skill-ablated run.
+
+    The run withholds the activation *verdict* but keeps the observation
+    (docs/adr/0015-ablation-names-its-subject-at-the-invocation.md). Without
+    this, "with the parent removed, did its neighbours pick up the work?" — the
+    whole reason a partial ablation is interesting — would be invisible.
+    """
+    rows = ObservedActivation.from_task_results(
+        results.task_results, [s.name for s in results.skill_snapshots if s.name]
+    )
+    if not rows or not rows[0].observed:
+        return
+    console.print()
+    console.print(
+        Text.assemble(
+            (" Skills", "bold"),
+            ("  observed only · nothing is asserted on an ablated run", "dim"),
+        )
+    )
+    table = Table(box=box.ROUNDED, header_style="bold cyan")
+    table.add_column("Skill")
+    table.add_column("fired")
+    for row in rows:
+        style = "" if row.fired else "dim"
+        table.add_row(
+            Text(row.skill, style=style),
+            _rate_cell(row.fired / row.observed, f"{row.fired}/{row.observed}", style),
+        )
+    for name in results.run.ablated_skills:
+        table.add_row(
+            Text(name, style="dim strike"),
+            Text("removed".rjust(_RATE_W + 2), style="yellow"),
+        )
+    console.print(table)
+
+
+def _mcp_calls(results: RunResults) -> dict[str, tuple[int, int, int]]:
+    """Per server: (attempts that called it, attempts observed, total calls).
+
+    Read from the saved transcripts. claude-code and codex name a call
+    ``mcp__<server>__<tool>``, hermes ``mcp_<server>_<tool>``
+    (docs/CONTEXT.md → MCP server (declared)). A server loaded from the user's
+    own setup is counted too: it competes for the same work.
+    """
+    declared = list(results.run.mcp_servers or [])
+    loaded = results.run.loaded_user_customizations or []
+    user = [n.split(":", 1)[1] for n in loaded if n.startswith("mcp:")]
+    servers = declared + [s for s in user if s not in declared]
+    stats = {server: [0, 0, 0] for server in servers}
+    for task in results.task_results:
+        for attempt in task.attempts:
+            # An attempt with no transcript, or a truncated one, can't say a
+            # server went unused.
+            if attempt.transcript is None or not attempt.outcome.is_activation_usable:
+                continue
+            for server in servers:
+                stats[server][1] += 1
+                calls = sum(
+                    1
+                    for turn in attempt.transcript
+                    if turn.tool_name
+                    and turn.tool_name.startswith(
+                        (f"mcp__{server}__", f"mcp_{server}_")
+                    )
+                )
+                if calls:
+                    stats[server][0] += 1
+                    stats[server][2] += calls
+    return {server: tuple(counts) for server, counts in stats.items()}
+
+
+def _print_mcp(results: RunResults) -> None:
+    """Which servers the agent actually used. Shown, never scored."""
+    stats = _mcp_calls(results)
+    removed = results.run.ablated_servers
+    if not any(observed for _, observed, _ in stats.values()) and not removed:
+        return
+    declared = set(results.run.mcp_servers or [])
+    console.print()
+    console.print(
+        Text.assemble(
+            (" MCP servers", "bold"), ("  tool calls, from transcripts", "dim")
+        )
+    )
+    table = Table(box=box.ROUNDED, header_style="bold cyan")
+    table.add_column("Server")
+    table.add_column("called in")
+    table.add_column("calls", justify="right")
+    for server, (used, observed, calls) in stats.items():
+        name = Text(server, style="" if used else "dim")
+        if server not in declared:
+            name.append("  user", style="yellow")
+        table.add_row(
+            name,
+            _rate_cell(
+                used / observed if observed else None,
+                f"{used}/{observed} attempts",
+                "" if used else "dim",
+            ),
+            Text(str(calls), style="" if calls else "dim"),
+        )
+    for server in removed:
+        table.add_row(
+            Text(server, style="dim strike"),
+            Text("removed".rjust(_RATE_W + 2), style="yellow"),
+            Text(""),
+        )
+    console.print(table)
+
+
+def _run_notes(results: RunResults) -> list[_Note]:
+    run, agg, usage = results.run, results.aggregate, results.usage
+    notes: list[_Note] = []
+    names = {t.task_id: t.task_name for t in results.task_results}
+    for failure in run.hook_failures:
+        notes.append(
+            _Note(
+                0,
+                _UNUSABLE,
+                f"{failure.phase} hook exited {failure.exit_code}",
+                f"{names.get(failure.task_id, failure.task_id)} {_SEP} "
+                f"attempt {failure.attempt}",
+                "output in the task's panel",
+            )
+        )
+    cheats = [t.task_name for t in results.task_results if t.any_cheat]
+    if cheats:
+        notes.append(
+            _Note(
+                0,
+                _WARN,
+                f"{len(cheats)} cheat{'s' if len(cheats) > 1 else ''}",
+                ", ".join(cheats),
+                "a forbidden file was read · counted as a failure",
+            )
+        )
+    noise = results.noise_counts
+    if noise:
+        breakdown = f" {_SEP} ".join(f"{n} {o.value}" for o, n in noise.items())
+        spend = []
+        if usage.unusable_tokens:
+            spend.append(f"{_fmt_tokens(usage.unusable_tokens)} tokens")
+        spend.append(_fmt_duration(usage.unusable_wall_seconds))
+        notes.append(
+            _Note(
+                1,
+                _UNUSABLE,
+                f"{sum(noise.values())} unusable",
+                breakdown,
+                f"excluded from the score {_SEP} spent {', '.join(spend)}",
+            )
+        )
+    # Only when something was actually retried: the common case stays quiet.
+    if usage.retried_attempts:
+        plural = "s" if usage.retried_attempts > 1 else ""
+        notes.append(
+            _Note(
+                1,
+                _WARN,
+                "throttled",
+                f"{usage.retries} retries across {usage.retried_attempts} attempt{plural}",
+                "wall excludes the waiting",
+            )
+        )
+    # Shown whether or not anything was asserted, and never scored
+    # (docs/CONTEXT.md → Built-in skill): without it, a built-in skill winning
+    # the prompt reads the same as nothing firing.
+    builtin = ObservedActivation.builtin_from_task_results(results.task_results)
+    if builtin:
+        notes.append(
+            _Note(
+                2,
+                _SEP,
+                "built-in skills",
+                ", ".join(f"{b.skill} {b.fired}/{b.observed}" for b in builtin),
+                f"ship with {run.backend} {_SEP} shown, not scored",
+            )
+        )
+    # A dormant neighbour is itself an answer: the probes never exercised it.
+    if agg.avg_activation_score is not None and not run.ablated_skills:
+        dormant = [
+            s.skill for s in agg.activation_per_skill if not (s.expected or s.fired)
+        ]
+        if dormant:
+            notes.append(
+                _Note(
+                    2,
+                    _SEP,
+                    "never wanted, never fired",
+                    ", ".join(dormant),
+                    "no probe exercises them",
+                )
+            )
+    if usage.tokens_reported:
+        notes.append(
+            _Note(
+                2,
+                _SEP,
+                "tokens",
+                f"{_fmt_tokens(usage.prompt_tokens)} in / "
+                f"{_fmt_tokens(usage.output_tokens)} out",
+            )
+        )
+    # Only when a judge ran: an assert-only run would otherwise print a
     # confident "0s", which reads as a free judge rather than no judge.
-    if totals.judged_attempts > 0:
-        judge_val = _fmt_duration(totals.judge_seconds)
-        avg_judge = totals.judge_seconds / totals.judged_attempts
-        judge_val += f"  [dim]{avg_judge:.1f}s per graded attempt[/dim]"
-        grid.add_row(" Judge", judge_val)
-    console.print(grid)
-
-    # Only when something was actually retried. A run that never met a throttle
-    # says nothing, which is the common case and the quiet one.
-    if totals.retried_attempts > 0:
-        plural = "s" if totals.retried_attempts > 1 else ""
-        console.print(
-            f" [yellow]{_WARN} throttled:[/yellow] [dim]{totals.retries} retries "
-            f"across {totals.retried_attempts} attempt{plural} "
-            f"(wall excludes the waiting)[/dim]"
+    if usage.judged_attempts:
+        per = usage.judge_seconds / usage.judged_attempts
+        notes.append(
+            _Note(
+                2,
+                _SEP,
+                "judge time",
+                f"{_fmt_duration(usage.judge_seconds)} {_SEP} {per:.1f}s per graded attempt",
+                "not in wall",
+            )
         )
-
-    if totals.unusable_attempts > 0:
-        pieces = []
-        if totals.tokens_reported:
-            pieces.append(f"{_fmt_tokens(totals.unusable_tokens)} tokens")
-        pieces.append(_fmt_duration(totals.unusable_wall_seconds))
-        detail = ", ".join(pieces)
-        plural = "s" if totals.unusable_attempts > 1 else ""
-        console.print(
-            f" [yellow]{_UNUSABLE} unusable spend:[/yellow] [dim]{detail}  "
-            f"({totals.unusable_attempts} attempt{plural}, not counted in the "
-            f"average)[/dim]"
-        )
+    return notes
 
 
 _OUTPUT_TRUNCATE_AT = 500
@@ -677,401 +1031,597 @@ def _format_output(output: str) -> str:
     return escape(output)
 
 
-_HARNESS_FAILURES = frozenset({Outcome.TIMEOUT, Outcome.INFRA_ERROR})
+def _needs_detail(tr: TaskResult) -> bool:
+    """Whether a task earns a panel: either scoreboard came up short.
 
-
-def _attempt_glyph(attempt) -> str:
-    """The attempt's verdict glyph.
-
-    A trigger probe's attempt checked nothing but activation, so that verdict is
-    the one to show — a bare "—" hid which attempts reached for the wrong skill.
+    A trigger-only task is judged solely on activation — its ``score`` is
+    ``None`` by construction, and treating that as "didn't fully pass" would
+    print a panel for every correct trigger probe.
     """
+    if any(attempt.hook_failures for attempt in tr.attempts):
+        return True
+    activation_short = tr.activation_score is not None and tr.activation_score < 1.0
+    if tr.trigger_only:
+        return activation_short
+    return tr.score is None or tr.score < 1.0 or activation_short
+
+
+def _attempt_mark(attempt) -> tuple[str, str]:
+    """The attempt's verdict mark. A trigger probe's attempt checked nothing but
+    activation, so that verdict is the one to show."""
     if attempt.outcome == Outcome.NOT_CHECKED and attempt.activation_passed is not None:
-        return _OUTCOME_GLYPH[
+        return _OUTCOME_MARK[
             Outcome.PASS if attempt.activation_passed else Outcome.TASK_FAIL
         ]
-    return _OUTCOME_GLYPH.get(attempt.outcome, f"[red]{_CROSS}[/red]")
+    return _OUTCOME_MARK.get(attempt.outcome, (_CROSS, "bold red"))
 
 
-def _print_task_detail(tr: TaskResult, k: int, verbose: bool = False) -> None:
-    # A two-column grid rather than pre-indented lines, so a long output or
-    # judge note wraps under its own column instead of back at the border.
+def _task_panel(tr: TaskResult, k: int, verbose: bool, ablated: bool) -> Panel:
+    """Every attempt of one task; the detail only where something went wrong.
+
+    A two-column grid rather than pre-indented lines, so a long output or judge
+    note wraps under its own column instead of back at the border.
+    """
     grid = Table.grid(padding=(0, 2))
     grid.add_column(no_wrap=True)
     grid.add_column(overflow="fold")
     if tr.aborted(k):
         grid.add_row(
-            "[yellow]ABORTED[/yellow]", f"after {len(tr.attempts)}/{k} attempts"
+            Text("aborted", style="yellow"), f"after {len(tr.attempts)} of {k} attempts"
         )
     # What the judge was asked, for debugging a verdict. Only under --verbose:
     # the default panel is for spotting a failure, not re-reading the spec.
     if verbose and tr.expect:
-        grid.add_row("[dim]expect[/dim]", escape(tr.expect))
-    # A red activation row is unreadable without the claim it broke, so say what
-    # the task expected before listing what each attempt actually reached for.
-    if tr.activation_expected is not None:
-        expected = ", ".join(tr.activation_expected) or "(nothing — silence)"
-        grid.add_row("[dim]should activate[/dim]", escape(expected))
+        grid.add_row(Text("expect", style="dim"), Text(tr.expect))
+    # A red activation row is unreadable without the claim it broke. An ablated
+    # run dropped the claim (docs/adr/0015), so it is not repeated there.
+    if tr.activation_expected is not None and not ablated:
+        expected = ", ".join(tr.activation_expected) or "nothing (silence)"
+        grid.add_row(Text("should activate", style="dim"), Text(expected))
     for attempt in tr.attempts:
-        label = (
-            ""
-            if attempt.outcome.is_usable or attempt.outcome == Outcome.NOT_CHECKED
-            else f"[yellow]{attempt.outcome.value}[/yellow]  "
+        glyph, style = _attempt_mark(attempt)
+        meta = Text(f"{attempt.duration_seconds:.1f}s", style="dim")
+        if attempt.usage is not None and attempt.usage.total_tokens:
+            meta.append(
+                f" {_SEP} {_fmt_tokens(attempt.usage.total_tokens)} tokens", style="dim"
+            )
+        if not (attempt.outcome.is_usable or attempt.outcome == Outcome.NOT_CHECKED):
+            meta = Text.assemble((attempt.outcome.value, "yellow"), "  ", meta)
+        grid.add_row(Text.assemble((glyph, style), f" attempt {attempt.attempt}"), meta)
+
+        # A clean attempt is one line: its output is what passing looks like,
+        # and repeating it k times buries the attempt that failed.
+        clean = (
+            attempt.outcome in (Outcome.PASS, Outcome.NOT_CHECKED)
+            and attempt.activation_passed is not False
+            and not attempt.hook_failures
         )
-        meta = f"{attempt.duration_seconds:.1f}s"
-        if attempt.usage is not None and attempt.usage.total_tokens is not None:
-            meta += f" {_SEP} {_fmt_tokens(attempt.usage.total_tokens)} tok"
-        grid.add_row(
-            f"{_attempt_glyph(attempt)} Attempt {attempt.attempt}",
-            f"{label}[dim]{meta}[/dim]",
-        )
-        if attempt.cheated:
-            for ev in attempt.cheat_evidence:
-                grid.add_row("    [yellow]cheat[/yellow]", escape(ev))
+        if clean and not verbose:
+            continue
+        for evidence in attempt.cheat_evidence:
+            grid.add_row(Text("    cheat", style="yellow"), Text(evidence))
+        for failure in attempt.hook_failures:
+            detail = Text(f"exited {failure.exit_code}")
+            if failure.output.strip():
+                detail.append(f" {_SEP} ")
+                detail.append_text(Text.from_markup(_format_output(failure.output)))
+            grid.add_row(Text(f"    {failure.phase} hook", style="red"), detail)
         if attempt.activation_passed is False:
-            reached = ", ".join(attempt.activated or []) or "(nothing)"
-            grid.add_row("    [red]activated[/red]", escape(reached))
+            reached = ", ".join(attempt.activated or []) or "nothing"
+            grid.add_row(Text("    activated", style="red"), Text(reached))
         elif attempt.activation_observed and attempt.activation_passed is None:
-            # Nothing was asserted, so this is informational only — but it is
-            # the one place the observation still surfaces now that the task
-            # column carries a verdict rather than the skill names.
-            reached = ", ".join(attempt.activated or []) or "(nothing)"
-            grid.add_row("    [dim]activated[/dim]", f"[dim]{escape(reached)}[/dim]")
+            # Nothing was asserted, so this is informational only.
+            reached = ", ".join(attempt.activated or []) or "nothing"
+            grid.add_row(Text("    activated", style="dim"), Text(reached, style="dim"))
         elif attempt.activated and attempt.outcome in _HARNESS_FAILURES:
             # A timed-out or failed attempt keeps what it saw load before it
             # stopped. Not graded, but it is the first thing to look at.
-            reached = ", ".join(attempt.activated)
             grid.add_row(
-                "    [dim]activated so far[/dim]",
-                f"[dim]{escape(reached)}[/dim]",
+                Text("    activated so far", style="dim"),
+                Text(", ".join(attempt.activated), style="dim"),
             )
         if attempt.builtin_activated:
             grid.add_row(
-                "    [dim]built-in[/dim]",
-                f"[dim]{escape(', '.join(attempt.builtin_activated))}[/dim]",
+                Text("    built-in", style="dim"),
+                Text(", ".join(attempt.builtin_activated), style="dim"),
             )
-        grid.add_row("    [dim]output[/dim]", _format_output(attempt.output))
+        grid.add_row(
+            Text("    output", style="dim"),
+            Text.from_markup(_format_output(attempt.output)),
+        )
         if attempt.assert_evidence:
             # A timeout or infra failure stores the harness's error here, not an
             # assertion's.
             label = "error" if attempt.outcome in _HARNESS_FAILURES else "assert"
             grid.add_row(
-                f"    [dim]{label}[/dim]",
-                f"[dim]{escape(attempt.assert_evidence)}[/dim]",
+                Text(f"    {label}", style="dim"),
+                Text(attempt.assert_evidence, style="dim"),
             )
         if attempt.autorater_reasoning:
             grid.add_row(
-                "    [dim]judge[/dim]",
-                f"[dim]{escape(attempt.autorater_reasoning)}[/dim]",
+                Text("    judge", style="dim"),
+                Text(attempt.autorater_reasoning, style="dim"),
             )
         if verbose and attempt.autorater_script:
             grid.add_row(
-                "    [dim]judge script[/dim]",
-                f"[dim]{escape(attempt.autorater_script)}[/dim]",
+                Text("    judge script", style="dim"),
+                Text(attempt.autorater_script, style="dim"),
             )
 
-    title = Text(tr.task_name, style="bold")
-    title.append("  ")
-    title.append_text(_status_cell(tr, k))
-    console.print(Panel(grid, title=title, title_align="left", border_style="dim"))
+    if tr.trigger_only:
+        score, marks, border = (
+            tr.activation_score,
+            _activation_marks(tr, k),
+            "bright_black",
+        )
+    else:
+        score = tr.score
+        marks = _outcome_marks([a.outcome for a in tr.attempts], k)
+        hooks = any(a.hook_failures for a in tr.attempts)
+        if score == 0 or hooks or tr.any_cheat:
+            border = "red"
+        elif score is None or score < 0.99 or tr.unusable:
+            border = "yellow"
+        else:
+            border = "bright_black"
+    title = Text.assemble((f" {tr.task_name} ", "bold"), (f" {_fmt_score(score)} ", ""))
+    title.append_text(marks)
+    title.append(" ")
+    if tr.trigger_only:
+        title.append("  trigger probe ", style="dim")
+    return Panel(
+        grid, title=title, title_align="left", border_style=border, padding=(0, 1)
+    )
 
 
-def _fmt_score(score: float | None) -> str:
-    return _RULE if score is None else f"{score * 100:.1f}%"
+# ── caliper compare ─────────────────────────────────────────────────────────
 
 
-# Width of the widest score string ("100.0%"). The two operands of a `before →
-# after` cell are padded to this so the arrows form a clean vertical column and
-# the before/after values align across rows — the before-value left-aligned, the
-# after-value right-aligned (a missing "—" then sits at the right, under the
-# after column). A rate never exceeds 1.0, so 6 always fits.
-_SCORE_W = len("100.0%")
+def _side_heads(comp: RunComparison) -> tuple[str, str]:
+    """An ablation pair is titled from the marker; two plain runs are A and B."""
+    if comp.a_label or comp.b_label:
+        return comp.a_label or "A", comp.b_label or "B"
+    return "A", "B"
 
 
-def _score_pair(left: str, right: str, left_style: str, right_style: str) -> Text:
-    """`left → right` with each side padded into a fixed sub-column so a stack of
-    these cells aligns on the arrow and on both value columns."""
-    cell = Text()
-    cell.append(left.ljust(_SCORE_W), style=left_style)
-    cell.append(f" {_TO} ", style="dim")
-    cell.append(right.rjust(_SCORE_W), style=right_style)
-    return cell
+def _env_row(
+    grid: Table, key: str, a: Text, b: Text, differs: bool, style: str
+) -> None:
+    if not differs:
+        grid.add_row(key, a, Text("same", style="dim"))
+        return
+    b = b.copy()
+    b.stylize(style)
+    grid.add_row(Text(key, style=style), a, b)
 
 
-def _outcome_strip(outcomes: list[Outcome]) -> Text:
-    # A space between glyphs so a symbol drawn wider than its one-cell slot
-    # (notably ⊘) can't collide with its neighbour, and the strip stays legible.
-    strip = Text()
-    for i, oc in enumerate(outcomes):
-        if i:
-            strip.append(" ")
-        glyph, style = _OUTCOME_STYLE.get(oc, (_CROSS, "red"))
-        strip.append(glyph, style=style)
-    return strip
+def _side_names(mine: list[str], theirs: list[str], style: str) -> Text:
+    """A comma list whose members missing from the other side are highlighted."""
+    text = Text()
+    for name in mine:
+        if len(text):
+            text.append(", ", style="dim")
+        text.append(name, style=style if name not in theirs else "")
+    if not len(text):
+        text.append("none", style="dim")
+    return text
 
 
-def _delta_cell(tc: TaskComparison) -> Text:
-    # Unmeasured (None) and no-change (0.0) both read as "—"; JSON keeps them
-    # distinct. Only a real move shows a signed number.
-    if tc.delta is None or tc.delta == 0:
-        return Text(_RULE, style="dim")
-    sign = "+" if tc.delta > 0 else ""
-    style = "red" if tc.regression else "green"
-    return Text(f"{sign}{tc.delta * 100:.1f}%", style=style)
+def _print_compare_header(comp: RunComparison) -> None:
+    a, b = comp.a, comp.b
+    spec = Text(a.spec, style="bold")
+    if comp.spec_mismatch:
+        spec.append(f" {_TO} ", style="dim")
+        spec.append(b.spec, style="bold yellow")
+    k = Text(str(a.k), style="cyan")
+    if comp.k_mismatch:
+        k.append(f" {_TO} ", style="dim")
+        k.append(str(b.k), style="bold yellow")
+    console.print()
+    console.print(_badge("compare", spec, k))
+
+    a_head, b_head = _side_heads(comp)
+    # On a recognised ablation pair the differing environment *is* the
+    # experiment: cyan, never yellow.
+    ablation = bool(comp.a_label or comp.b_label)
+    grid = Table(
+        box=None,
+        show_header=True,
+        header_style="bold cyan",
+        padding=(0, 2),
+        pad_edge=False,
+    )
+    grid.add_column("", style="dim", no_wrap=True)
+    grid.add_column(a_head)
+    grid.add_column(b_head)
+
+    def run_id(meta: RunMeta) -> Text:
+        text = Text(meta.timestamp.strftime("%Y-%m-%dT%H-%M-%SZ"), style="dim")
+        if meta.interrupted:
+            text.append("  interrupted", style="yellow")
+        return text
+
+    grid.add_row("run", run_id(a), run_id(b))
+    # A different engine is the question a harness comparison asks, not a
+    # mistake: caliper warns on none of it, so it is cyan.
+    ea, eb = _engine_text(a.backend, a.model), _engine_text(b.backend, b.model)
+    _env_row(grid, "engine", ea, eb, ea.plain != eb.plain, "bold cyan")
+    if a.judge_backend or b.judge_backend:
+        ja = _engine_text(a.judge_backend, a.judge_model or "default model")
+        jb = _engine_text(b.judge_backend, b.judge_model or "default model")
+        _env_row(
+            grid,
+            "judge",
+            ja,
+            jb,
+            ja.plain != jb.plain,
+            "yellow" if comp.judge_mismatch else "bold cyan",
+        )
+    sa, sb = comp.a_skills, comp.b_skills
+    if sa or sb:
+        style = "bold cyan" if ablation else "yellow"
+        edited = Text()
+        for record in comp.skill_drift:
+            edited.append(
+                f"  {record.name} edited",
+                style="yellow" if record.source_kind == "git" else "cyan",
+            )
+        if set(sa) == set(sb):
+            grid.add_row(
+                "skills", _side_names(sa, sb, style), Text("same", style="dim") + edited
+            )
+        else:
+            grid.add_row(
+                Text("skills", style=style),
+                _side_names(sa, sb, style),
+                _side_names(sb, sa, style) + edited,
+            )
+    ma, mb = a.mcp_servers, b.mcp_servers
+    if ma or mb or a.ablated_servers or b.ablated_servers:
+        style = "bold cyan" if ablation else "yellow"
+        ta = (
+            _side_names(ma or [], mb or [], style)
+            if ma is not None
+            else Text("not recorded", style="dim")
+        )
+        tb = (
+            _side_names(mb or [], ma or [], style)
+            if mb is not None
+            else Text("not recorded", style="dim")
+        )
+        _env_row(grid, "mcp", ta, tb, set(ma or []) != set(mb or []), style)
+    ua, ub = _setup_text(a), _setup_text(b)
+    _env_row(grid, "setup", ua, ub, ua.plain != ub.plain, "yellow")
+    console.print(grid)
 
 
-def _activation_score_cell(tc: TaskComparison) -> Text:
-    """`before → after` for the activation scoreboard, styled on its own flag."""
-    left = _fmt_score(tc.a_activation)
-    right = _fmt_score(tc.b_activation)
-    right_style = "red" if tc.activation_regression else ""
-    return _score_pair(left, right, "dim", right_style)
+def _is_probe(outcomes: list[Outcome]) -> bool:
+    """A trigger probe's side: unchecked attempts and no execution verdict."""
+    return any(o == Outcome.NOT_CHECKED for o in outcomes) and not any(
+        o in (Outcome.PASS, Outcome.TASK_FAIL) for o in outcomes
+    )
 
 
-def _activation_delta_cell(tc: TaskComparison) -> Text:
-    if tc.activation_delta is None or tc.activation_delta == 0:
-        return Text(_RULE, style="dim")
-    sign = "+" if tc.activation_delta > 0 else ""
-    style = "red" if tc.activation_regression else "green"
-    return Text(f"{sign}{tc.activation_delta * 100:.1f}%", style=style)
+def _pair_cell(before: float | None, after: float | None) -> Text:
+    """`x → y` for a secondary metric (pass@k / pass^k)."""
+    return Text(f"{_fmt_score(before)} {_TO} {_fmt_score(after)}", style="dim")
+
+
+def _alt_metric(outcomes: list[Outcome], formula: Callable[[int, int], float | None]):
+    """A secondary metric from the stored outcomes, through the same formulas
+    ``TaskResult`` uses, so it can never disagree with the run it came from."""
+    counts = OutcomeCounts(outcomes)
+    return formula(counts.successes, counts.usable)
 
 
 def print_comparison(comp: RunComparison, verbose: bool = False) -> None:
     """Render a two-run diff. A thin shell over ``diff_runs`` — no logic here."""
-    a_ts = comp.a.timestamp.strftime("%Y-%m-%dT%H-%M-%SZ")
-    b_ts = comp.b.timestamp.strftime("%Y-%m-%dT%H-%M-%SZ")
-
-    console.print()
-    console.rule(
-        f"{_BANNER}  {_RULE}  compare  {_RULE}  [bold]{comp.a.spec}[/bold]",
-        style="cyan",
-    )
-    # Each side is titled by its label — derived from ``RunMeta.ablated`` on a
-    # recognised ablation pair — or, for a plain compare, its timestamp + engine.
-    a_desc = (
-        comp.a_label
-        or f"{a_ts} ([cyan]{_engine_label(comp.a.backend, comp.a.model)}[/cyan])"
-    )
-    b_desc = (
-        comp.b_label
-        or f"{b_ts} ([cyan]{_engine_label(comp.b.backend, comp.b.model)}[/cyan])"
-    )
-    # The two sides read as a transition (`before → after`), named once here, so
-    # the table needs no A/B legend lookup.
-    console.print(
-        f"    {a_desc} {_TO} {b_desc}   {_SEP}"
-        f"   k=[cyan]{comp.a.k}[/cyan]"
-        + (f"/[cyan]{comp.b.k}[/cyan]" if comp.k_mismatch else "")
-    )
-    for warning in comp.warnings:
-        console.print(f" [bold yellow]{_WARN}[/bold yellow] [yellow]{warning}[/yellow]")
-    # Path-source drift is *shown*, not warned about: nothing was promised about
-    # a working file, and a warning on the everyday "edit skill, re-run" loop is
-    # one the reader learns to skip — taking the git-source warning above with
-    # it. The git-sourced records are already in `warnings`, so they are not
-    # repeated here. See docs/CONTEXT.md → Skill drift.
-    for record in comp.skill_drift:
-        if record.source_kind == "git":
-            continue
-        console.print(f"   [dim]{record.message}[/dim]")
+    _print_compare_header(comp)
+    a_head, b_head = _side_heads(comp)
     console.print()
 
-    table = Table(
-        box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False
-    )
-    table.add_column("Task")
-    # Cells are fixed-width `before → after` pairs (see _score_pair), so they
-    # already align internally; centering just sits the label over the block.
-    table.add_column("success", justify="center")
-    table.add_column(f"{_delta_symbol()}", justify="center")
-    if verbose:
-        table.add_column("pass@k", justify="center", style="dim")
-        table.add_column("pass^k", justify="center", style="dim")
-    # Only when at least one matched task asserted activation on both sides —
-    # otherwise every cell would be "—" and the table just gets wider.
-    show_activation = any(tc.activation_delta is not None for tc in comp.matched)
-    if show_activation:
-        table.add_column("activation", justify="center")
-        table.add_column(f"{_delta_symbol()}", justify="center")
-    table.add_column("attempts", justify="center")
+    # The two sides are the column headers, so no cell needs an arrow.
+    table = Table(box=box.ROUNDED, header_style="bold cyan")
+    table.add_column(_two_line("", "Task"))
+    # Only the task name may wrap: a wrapped rate cell splits its marks.
+    table.add_column(_two_line("before", a_head), no_wrap=True)
+    table.add_column(_two_line("after", b_head), no_wrap=True)
+    table.add_column(_two_line("", _DELTA), justify="right", no_wrap=True)
 
     for tc in comp.matched:
-        # A trigger-only task has no execution score by construction; dimming on
-        # that alone would grey out a row whose activation diff is the point.
-        unmeasured = (tc.a_score is None or tc.b_score is None) and (
-            tc.activation_delta is None
-        )
-        name = Text(tc.task_name, style="dim" if unmeasured else "")
-        row = [name, _score_cell(tc), _delta_cell(tc)]
-        if verbose:
-            row += [
-                _alt_metric_cell(tc, pass_at_k),
-                _alt_metric_cell(tc, pass_hat_k),
+        measured = tc.a_score is not None and tc.b_score is not None
+        name = Text(tc.task_name, style="" if measured else "dim")
+        if _is_probe(tc.a_outcomes) and _is_probe(tc.b_outcomes):
+            # A trigger probe has no execution score on either side by
+            # construction; its activation diff is below.
+            row = [
+                Text(tc.task_name),
+                _empty_rate("probe"),
+                _empty_rate("probe"),
+                Text(_RULE, style="dim"),
             ]
-        if show_activation:
-            row += [_activation_score_cell(tc), _activation_delta_cell(tc)]
-        row.append(_attempts_cell(tc))
+        else:
+            after = "dim"
+            if measured:
+                after = (
+                    "bold red"
+                    if tc.regression
+                    else "bold green"
+                    if tc.b_score > tc.a_score
+                    else ""
+                )
+            row = [
+                name,
+                _rate_cell(
+                    tc.a_score,
+                    _outcome_marks(tc.a_outcomes, comp.a.k),
+                    "" if measured else "dim",
+                ),
+                _rate_cell(tc.b_score, _outcome_marks(tc.b_outcomes, comp.b.k), after),
+                _pp(tc.delta, tc.regression),
+            ]
         table.add_row(*row)
 
-    console.print(table)
-    console.print()
-    _print_comparison_summary(comp)
-
-
-def _score_cell(tc: TaskComparison) -> Text:
-    """`a% → b%` raw success rate; the 'after' is green on improvement, red on
-    regression."""
-    unmeasured = tc.a_score is None or tc.b_score is None
-    after = "dim"
-    if not unmeasured:
-        after = "green" if tc.b_score > tc.a_score else "red" if tc.regression else ""
-    return _score_pair(
-        _fmt_score(tc.a_score),
-        _fmt_score(tc.b_score),
-        "dim" if unmeasured else "",
-        after,
-    )
-
-
-def _alt_metric_cell(
-    tc: TaskComparison, formula: Callable[[int, int], float | None]
-) -> Text:
-    """`x% → y%` for a secondary metric (pass@k / pass^k).
-
-    Derived from the stored per-attempt outcomes, so a comparison needs no extra
-    fields on the model — and through the same formulas ``TaskResult`` uses, so a
-    secondary column can never disagree with the run it came from.
-    """
-
-    def val(outcomes: list[Outcome]) -> float | None:
-        counts = OutcomeCounts(outcomes)
-        return formula(counts.successes, counts.usable)
-
-    return _score_pair(
-        _fmt_score(val(tc.a_outcomes)), _fmt_score(val(tc.b_outcomes)), "", ""
-    )
-
-
-def _attempts_cell(tc: TaskComparison) -> Text:
-    """`✓✗✗ → ✓✓✓`: the before-strip, an arrow, then the after-strip."""
-    cell = _outcome_strip(tc.a_outcomes)
-    cell.append(f" {_TO} ", style="dim")
-    cell.append_text(_outcome_strip(tc.b_outcomes))
-    return cell
-
-
-def _delta_symbol() -> str:
-    return "Δ" if _UNICODE else "delta"
-
-
-def _usage_cells(a_val: float, b_val: float, fmt) -> tuple[str, str, str]:
-    """The (before, after, `Δ …`) markup for one usage row. Green when the 'after'
-    is cheaper (a win), red when costlier — but this NEVER flips has_regression
-    (docs/CONTEXT.md → Regression). Dim when equal, or when the 'before' is zero
-    and there is nothing to take a percentage of."""
-    delta = b_val - a_val
-    before, after = fmt(a_val), fmt(b_val)
-    if delta == 0:
-        note = f"[dim]{_RULE}[/dim]"
-    else:
-        color = "green" if delta < 0 else "red"
-        sign = "+" if delta > 0 else "-"
-        abs_part = fmt(abs(delta))
-        if a_val > 0:
-            note = f"[{color}]{sign}{abs(delta / a_val * 100):.0f}% ({sign}{abs_part})[/{color}]"
-        else:
-            note = f"[{color}]{sign}{abs_part}[/{color}]"
-    return before, after, f"{_delta_symbol()} {note}"
-
-
-def _print_comparison_summary(comp: RunComparison) -> None:
-    delta = comp.aggregate_delta
-    arrow = _UP if delta >= 0 else _DOWN
-    sign = "+" if delta >= 0 else ""
-    color = "green" if delta >= 0 else "red"
-    after = "green" if delta > 0 else "red" if delta < 0 else "cyan"
-
-    # One aligned grid so the metric labels, the `before → after` transition, and
-    # the Δ notes each line up in a column instead of drifting with value length.
-    _to = f"[dim]{_TO}[/dim]"
-    grid = Table.grid(padding=(0, 1))
-    grid.add_column(style="bold")  # metric label (leading space = indent)
-    grid.add_column(justify="right")  # before
-    grid.add_column()  # arrow
-    grid.add_column(justify="left")  # after
-    grid.add_column()  # Δ note
-    # With no task measured on both sides the averages are empty, not 0%, and a
-    # "+0.0% ↑" would read as a comparison that held steady.
-    if any(tc.a_score is not None and tc.b_score is not None for tc in comp.matched):
-        grid.add_row(
-            " Overall",
-            f"[cyan]{comp.a_matched_avg * 100:.1f}%[/cyan]",
-            _to,
-            f"[{after}]{comp.b_matched_avg * 100:.1f}%[/{after}]",
-            f"[bold]{_delta_symbol()} (matched)[/bold] "
-            f"[{color}]{sign}{delta * 100:.1f}%[/{color}] {arrow}",
-        )
-    else:
-        grid.add_row(
-            " Overall",
-            "[dim]—[/dim]",
-            _to,
-            "[dim]—[/dim]",
-            f"[bold]{_delta_symbol()} (matched)[/bold] [dim]— no task measured "
-            "on both sides[/dim]",
-        )
-    a, b = comp.a_usage, comp.b_usage
-    if a.tokens_reported and b.tokens_reported:
-        tb, ta, td = _usage_cells(
-            a.total_tokens, b.total_tokens, lambda n: _fmt_tokens(int(n))
-        )
-        grid.add_row(" Tokens", tb, _to, ta, td)
-    wb, wa, wd = _usage_cells(a.wall_seconds, b.wall_seconds, _fmt_duration)
-    grid.add_row(" Wall", wb, _to, wa, wd)
-    console.print(grid)
-
-    # Reported on its own line, never merged into the execution regressions: a
-    # description that stopped firing and a body that stopped working are fixed
-    # in different places, so naming them together would hide which one moved.
-    activation_regressions = [
-        tc.task_name for tc in comp.matched if tc.activation_regression
+    table.add_section()
+    comparable = [
+        tc for tc in comp.matched if tc.a_score is not None and tc.b_score is not None
     ]
-    if activation_regressions:
-        n = len(activation_regressions)
-        console.print(
-            f" [bold yellow]{_WARN}[/bold yellow] [yellow]{n} activation "
-            f"regression{'s' if n > 1 else ''}:[/yellow] "
-            f"{', '.join(activation_regressions)} "
-            "[dim](the description stopped firing — not the body)[/dim]"
-        )
+    delta = comp.aggregate_delta
+    if comparable:
 
+        def pooled(side: str) -> tuple[int, int]:
+            counts = [
+                OutcomeCounts(tc.a_outcomes if side == "a" else tc.b_outcomes)
+                for tc in comparable
+            ]
+            return sum(c.successes for c in counts), sum(c.usable for c in counts)
+
+        (sa, ua), (sb, ub) = pooled("a"), pooled("b")
+        table.add_row(
+            Text("Success", style="bold"),
+            _rate_cell(
+                comp.a_matched_avg,
+                _avg_detail(comp.a_matched_avg, sa, ua, len(comparable)),
+                "bold",
+            ),
+            _rate_cell(
+                comp.b_matched_avg,
+                _avg_detail(comp.b_matched_avg, sb, ub, len(comparable)),
+                "bold green" if delta > 0 else "bold red" if delta < 0 else "bold",
+            ),
+            _pp(delta),
+        )
+    else:
+        # With no task measured on both sides the averages are empty, not 0%,
+        # and a "+0 pp" would read as a comparison that held steady.
+        table.add_row(
+            Text("Success", style="bold"),
+            _empty_rate(),
+            _empty_rate(),
+            Text("no task measured on both sides", style="dim"),
+        )
+    _cost_rows(table, comp.a_usage, comp.b_usage)
+    console.print(table)
+
+    if verbose:
+        _print_secondary_metrics(comp)
+    _print_activation_diff(comp)
+    _print_notes(_compare_notes(comp))
+    console.print()
+
+
+def _print_secondary_metrics(comp: RunComparison) -> None:
+    """pass@k and pass^k under --verbose, in a table of their own: as two more
+    columns they would squeeze the rate cells the main table is for."""
+    a_head, b_head = _side_heads(comp)
+    console.print()
+    console.print(
+        Text.assemble(
+            (" Secondary metrics", "bold"),
+            (f"  {a_head} {_TO} {b_head} · from the same outcomes", "dim"),
+        )
+    )
+    table = Table(box=box.ROUNDED, header_style="bold cyan")
+    table.add_column("Task")
+    table.add_column("pass@k", no_wrap=True)
+    table.add_column("pass^k", no_wrap=True)
+    for tc in comp.matched:
+        if _is_probe(tc.a_outcomes) and _is_probe(tc.b_outcomes):
+            continue
+        table.add_row(
+            Text(tc.task_name),
+            _pair_cell(
+                _alt_metric(tc.a_outcomes, pass_at_k),
+                _alt_metric(tc.b_outcomes, pass_at_k),
+            ),
+            _pair_cell(
+                _alt_metric(tc.a_outcomes, pass_hat_k),
+                _alt_metric(tc.b_outcomes, pass_hat_k),
+            ),
+        )
+    console.print(table)
+
+
+def _cost_rows(table: Table, a: UsageTotals, b: UsageTotals) -> None:
+    """Tokens and wall per side, each beside its per-attempt cost. Secondary:
+    green when the after side is cheaper, and never a regression."""
+
+    def cell(total: str, each: str | None) -> Text:
+        text = Text(total.rjust(_RATE_W))
+        # No attempt count, no per-attempt figure: dividing by a guessed 1
+        # would print the total twice.
+        if each is not None:
+            text.append(f"  {each} each", style="dim")
+        return text
+
+    def tokens_each(u: UsageTotals) -> str | None:
+        return _fmt_tokens(u.total_tokens // u.attempts) if u.attempts else None
+
+    def wall_each(u: UsageTotals) -> str | None:
+        # Over the usable attempts: unusable spend is reported on its own line.
+        if not u.usable_attempts:
+            return None
+        return f"{u.usable_wall_seconds / u.usable_attempts:.1f}s"
+
+    if a.tokens_reported and b.tokens_reported:
+        table.add_row(
+            Text("Tokens", style="bold"),
+            cell(_fmt_tokens(a.total_tokens), tokens_each(a)),
+            cell(_fmt_tokens(b.total_tokens), tokens_each(b)),
+            _relative(a.total_tokens, b.total_tokens),
+        )
+    table.add_row(
+        Text("Wall", style="bold"),
+        cell(_fmt_duration(a.wall_seconds), wall_each(a)),
+        cell(_fmt_duration(b.wall_seconds), wall_each(b)),
+        _relative(a.wall_seconds, b.wall_seconds),
+    )
+
+
+def _print_activation_diff(comp: RunComparison) -> None:
+    """The second scoreboard, never merged into the first (docs/adr/0014).
+
+    Only tasks measured on both sides: on a skill-ablation pair one side has no
+    verdicts at all, and a column of dashes would say nothing. When nothing
+    moved it is one line, not a table of equal numbers.
+    """
+    both = [
+        tc
+        for tc in comp.matched
+        if tc.a_activation is not None and tc.b_activation is not None
+    ]
+    if not both:
+        return
+    a_head, b_head = _side_heads(comp)
+    a_avg = sum(tc.a_activation for tc in both) / len(both)
+    b_avg = sum(tc.b_activation for tc in both) / len(both)
+    console.print()
+    if all(not tc.activation_delta for tc in both):
+        plural = "s" if len(both) > 1 else ""
+        console.print(
+            Text.assemble(
+                (" Activation", "bold"),
+                (
+                    f"  {_fmt_score(a_avg)} on both sides {_SEP} unchanged on {len(both)} task{plural}",
+                    "dim",
+                ),
+            )
+        )
+        return
+    console.print(
+        Text.assemble(
+            (" Activation", "bold"),
+            ("  per task · a separate scoreboard from success", "dim"),
+        )
+    )
+    table = Table(box=box.ROUNDED, header_style="bold cyan")
+    table.add_column("Task")
+    table.add_column(a_head, justify="right")
+    table.add_column(b_head, justify="right")
+    table.add_column(_DELTA, justify="right")
+    for tc in both:
+        after = (
+            "bold red"
+            if tc.activation_regression
+            else "bold green"
+            if (tc.activation_delta or 0) > 0
+            else ""
+        )
+        table.add_row(
+            Text(tc.task_name),
+            Text(_fmt_score(tc.a_activation)),
+            Text(_fmt_score(tc.b_activation), style=after),
+            _pp(tc.activation_delta, tc.activation_regression),
+        )
+    table.add_section()
+    table.add_row(
+        Text("Activation", style="bold"),
+        Text(_fmt_score(a_avg), style="bold"),
+        Text(
+            _fmt_score(b_avg),
+            style="bold green"
+            if b_avg > a_avg
+            else "bold red"
+            if b_avg < a_avg
+            else "bold",
+        ),
+        _pp(b_avg - a_avg),
+    )
+    console.print(table)
+
+
+def _compare_notes(comp: RunComparison) -> list[_Note]:
+    notes: list[_Note] = []
     regressions = [tc.task_name for tc in comp.matched if tc.regression]
     if regressions:
-        console.print(
-            f" [bold yellow]{_WARN}[/bold yellow] [yellow]{len(regressions)} "
-            f"regression{'s' if len(regressions) > 1 else ''}:[/yellow] "
-            f"{', '.join(regressions)}"
+        n = len(regressions)
+        notes.append(
+            _Note(
+                0,
+                _DOWN,
+                f"{n} regression{'s' if n > 1 else ''}",
+                ", ".join(regressions),
+            )
         )
-
+    # Its own line, never merged with the execution regressions: a description
+    # that stopped firing and a body that stopped working are fixed in different
+    # places, so naming them together would hide which one moved.
+    activation = [tc.task_name for tc in comp.matched if tc.activation_regression]
+    if activation:
+        n = len(activation)
+        notes.append(
+            _Note(
+                0,
+                _DOWN,
+                f"{n} activation regression{'s' if n > 1 else ''}",
+                ", ".join(activation),
+                "the description stopped firing, not the body",
+            )
+        )
+    notes += [_warning_note(w) for w in comp.warnings]
+    # Path-source drift is *shown*, not warned about: it is the everyday "edit
+    # skill, re-run" loop. The git-sourced records are already in `warnings`.
+    # See docs/CONTEXT.md → Skill drift.
+    for record in comp.skill_drift:
+        if record.source_kind != "git":
+            notes.append(
+                _Note(
+                    2,
+                    _SEP,
+                    f"{record.name} edited",
+                    f"{record.a_ref} {_TO} {record.b_ref}",
+                    "path source · the change under test",
+                )
+            )
     unmeasured = [
-        tc.task_name for tc in comp.matched if tc.a_score is None or tc.b_score is None
+        tc.task_name
+        for tc in comp.matched
+        if (tc.a_score is None or tc.b_score is None)
+        and not (_is_probe(tc.a_outcomes) and _is_probe(tc.b_outcomes))
     ]
     if unmeasured:
-        console.print(
-            f" [yellow]{_UNUSABLE}[/yellow] [dim]{len(unmeasured)} unmeasured "
-            f"(excluded from {_delta_symbol()}): {', '.join(unmeasured)}[/dim]"
+        notes.append(
+            _Note(
+                1,
+                _UNUSABLE,
+                f"{len(unmeasured)} unmeasured",
+                ", ".join(unmeasured),
+                "excluded from the success average",
+            )
         )
-
     if comp.unmatched_a or comp.unmatched_b:
-        a_name = comp.a_label or "A"
-        b_name = comp.b_label or "B"
-        only_a = ", ".join(comp.unmatched_a) or "—"
-        only_b = ", ".join(comp.unmatched_b) or "—"
-        console.print(
-            f" [dim]unmatched — only in {a_name}: {only_a}   "
-            f"only in {b_name}: {only_b}[/dim]"
-        )
-    console.print()
+        a_head, b_head = _side_heads(comp)
+        body = Text()
+        if comp.unmatched_a:
+            body.append(f"only in {a_head}: ", style="dim")
+            body.append(", ".join(comp.unmatched_a))
+        if comp.unmatched_b:
+            if len(body):
+                body.append("   ")
+            body.append(f"only in {b_head}: ", style="dim")
+            body.append(", ".join(comp.unmatched_b))
+        notes.append(_Note(2, _SEP, "unmatched", body))
+    return notes
 
 
 def comparison_to_json(comp: RunComparison) -> str:
