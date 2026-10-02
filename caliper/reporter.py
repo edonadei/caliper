@@ -397,9 +397,12 @@ def _print_run_header(results: RunResults) -> None:
     # to wonder why the verdicts went blank. A removed server leaves the
     # verdicts intact, so it gets the marker without that note.
     if run.ablated:
-        line = Text.assemble(("ablated", "yellow"), "  ", ", ".join(run.ablated))
+        line = Text.assemble(
+            (f"without {', '.join(run.ablated)}", "yellow"),
+            ("  via --ablate", "dim"),
+        )
         if run.ablated_skills:
-            line.append(f"  {_SEP} activation observed, not scored", style="dim")
+            line.append(f" {_SEP} activation observed, not scored", style="dim")
         status.append(line)
     if results.task_results and all(t.trigger_only for t in results.task_results):
         status.append(
@@ -1186,6 +1189,35 @@ def _side_heads(comp: RunComparison) -> tuple[str, str]:
     return "A", "B"
 
 
+def _ablation_line(comp: RunComparison) -> Text | None:
+    """What an ablation pair measures, in words a newcomer can read without
+    knowing "ablation": the subject, and which side ran without it."""
+    if not (comp.a_label or comp.b_label):
+        return None
+    cut_is_a = bool(comp.a.ablated)
+    cut = comp.a if cut_is_a else comp.b
+    # The label is diff_runs' verdict on whether this was the bare agent, which
+    # also weighs user customizations, so it is read rather than re-derived.
+    cut_label = comp.a_label if cut_is_a else comp.b_label
+    if cut_label and cut_label.startswith("without any"):
+        subject, plural = "the skills and servers", True
+    else:
+        names = sorted(cut.ablated)
+        subject, plural = ", ".join(names), len(names) > 1
+    it = "them" if plural else "it"
+    order = (
+        f"without {it} (A) and with {it} (B)"
+        if cut_is_a
+        else f"with {it} (A) and without {it} (B)"
+    )
+    return Text.assemble(
+        ("What ", "dim"),
+        (subject, "bold cyan"),
+        (" add: " if plural else " adds: ", "dim"),
+        (f"the same tasks, run {order}.", "dim"),
+    )
+
+
 def _env_row(
     grid: Table, key: str, a: Text, b: Text, differs: bool, style: str
 ) -> None:
@@ -1221,6 +1253,10 @@ def _print_compare_header(comp: RunComparison) -> None:
         k.append(str(b.k), style="bold yellow")
     console.print()
     console.print(_badge("compare", spec, k))
+    explained = _ablation_line(comp)
+    if explained is not None:
+        console.print(explained)
+        console.print()
 
     a_head, b_head = _side_heads(comp)
     # On a recognised ablation pair the differing environment *is* the
@@ -1234,8 +1270,8 @@ def _print_compare_header(comp: RunComparison) -> None:
         pad_edge=False,
     )
     grid.add_column("", style="dim", no_wrap=True)
-    grid.add_column(a_head)
-    grid.add_column(b_head)
+    grid.add_column(f"A {_SEP} {a_head}" if a_head != "A" else "A")
+    grid.add_column(f"B {_SEP} {b_head}" if b_head != "B" else "B")
 
     def run_id(meta: RunMeta) -> Text:
         text = Text(meta.timestamp.strftime("%Y-%m-%dT%H-%M-%SZ"), style="dim")
@@ -1326,8 +1362,10 @@ def print_comparison(comp: RunComparison, verbose: bool = False) -> None:
     table = Table(box=box.ROUNDED, header_style="bold cyan")
     table.add_column(_two_line("", "Task"))
     # Only the task name may wrap: a wrapped rate cell splits its marks.
-    table.add_column(_two_line("before", a_head), no_wrap=True)
-    table.add_column(_two_line("after", b_head), no_wrap=True)
+    # A labelled pair names its sides; two plain runs read as before → after.
+    labelled = bool(comp.a_label or comp.b_label)
+    table.add_column(_two_line("A" if labelled else "before", a_head), no_wrap=True)
+    table.add_column(_two_line("B" if labelled else "after", b_head), no_wrap=True)
     table.add_column(_two_line("", _DELTA), justify="right", no_wrap=True)
 
     for tc in comp.matched:
@@ -1612,8 +1650,10 @@ def _compare_notes(comp: RunComparison) -> list[_Note]:
             )
         )
     if comp.unmatched_a or comp.unmatched_b:
-        a_head, b_head = _side_heads(comp)
+        # A and B, which the header defines, read better than "only in with x".
+        a_head, b_head = "A", "B"
         body = Text()
+
         if comp.unmatched_a:
             body.append(f"only in {a_head}: ", style="dim")
             body.append(", ".join(comp.unmatched_a))

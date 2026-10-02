@@ -384,14 +384,15 @@ def test_an_ablation_pair_is_labelled_and_not_warned_about():
     assert comp.neighbourhood_mismatch is False
     assert comp.warnings == []
     assert comp.a_label == "without subject"
-    assert comp.b_label == "full neighbourhood"
+    assert comp.b_label == "with subject"
 
 
 def test_a_bare_agent_pair_is_labelled_as_such():
     a = _saved(skills=[], ablated=["subject", "keeper"])
     b = _saved(skills=["keeper", "subject"], ablated=[])
     comp = diff_runs(a, b)
-    assert comp.a_label == "bare agent"
+    assert comp.a_label == "without any skills or servers"
+    assert comp.b_label == "with all skills and servers"
     assert comp.neighbourhood_mismatch is False
 
 
@@ -399,7 +400,7 @@ def test_the_ablated_side_is_recognised_in_either_position():
     a = _saved(skills=["keeper", "subject"], ablated=[])
     b = _saved(skills=["keeper"], ablated=["subject"])
     comp = diff_runs(a, b)
-    assert comp.a_label == "full neighbourhood"
+    assert comp.a_label == "with subject"
     assert comp.b_label == "without subject"
     assert comp.neighbourhood_mismatch is False
 
@@ -414,7 +415,7 @@ def test_a_server_only_ablation_is_labelled_from_the_marker():
     assert comp.neighbourhood_mismatch is False
     assert comp.warnings == []
     assert comp.a_label == "without mcp:weather"
-    assert comp.b_label == "full neighbourhood"
+    assert comp.b_label == "with mcp:weather"
 
 
 def test_ablating_a_server_is_not_a_bare_agent_when_a_server_survives():
@@ -424,7 +425,7 @@ def test_ablating_a_server_is_not_a_bare_agent_when_a_server_survives():
     b = _saved(skills=[], ablated=[], mcp_servers=["first", "second"])
     comp = diff_runs(a, b)
     assert comp.a_label == "without mcp:first"
-    assert comp.b_label == "full neighbourhood"
+    assert comp.b_label == "with mcp:first"
 
 
 def test_ablating_every_skill_is_not_a_bare_agent_when_a_server_survives():
@@ -453,7 +454,7 @@ def test_a_legacy_run_without_recorded_servers_still_pairs():
     full.run.mcp_servers = None
     comp = diff_runs(cut, full)
     assert comp.a_label == "without subject"
-    assert comp.b_label == "full neighbourhood"
+    assert comp.b_label == "with subject"
 
 
 def test_a_server_marker_the_full_side_never_had_is_not_a_pair():

@@ -373,7 +373,7 @@ def test_an_ablated_run_names_what_was_removed(capsys) -> None:
     results.run.ablated = ["grilling"]
     print_results(results)
     out = capsys.readouterr().out
-    assert "ablated" in out and "grilling" in out
+    assert "without grilling" in out and "via --ablate" in out
     assert "observed, not scored" in out
 
 
@@ -430,7 +430,7 @@ def test_a_server_ablated_run_keeps_its_activation_verdicts(capsys) -> None:
     results.skill_snapshots = [SkillSnapshot(name="keeper", path="/x/keeper/SKILL.md")]
     print_results(results)
     out = capsys.readouterr().out
-    assert "ablated" in out and "mcp:weather" in out
+    assert "without mcp:weather" in out and "via --ablate" in out
     assert "observed, not scored" not in out
     assert "observed only" not in out
 

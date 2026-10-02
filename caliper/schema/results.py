@@ -1124,9 +1124,10 @@ class RunComparison(BaseModel):
     b: RunMeta
     # How each side is titled in the header. ``None`` → the run's timestamp+engine
     # (the default for two unrelated runs); a recognised ablation pair is titled
-    # from ``RunMeta.ablated`` instead ("without grilling" → "full
-    # neighbourhood"), which is the one thing the retired ``--baseline`` renderer
-    # did that was worth keeping.
+    # from ``RunMeta.ablated`` instead ("without grilling" → "with grilling"),
+    # which is the one thing the retired ``--baseline`` renderer did that was
+    # worth keeping.
+
     a_label: str | None = None
     b_label: str | None = None
     # The skills each side installed, in snapshot order: the neighbourhood the

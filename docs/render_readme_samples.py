@@ -119,7 +119,7 @@ def _ablation_example() -> RunComparison:
         a=ablated_run,
         b=full_run,
         a_label="without inbox-triage",
-        b_label="full neighbourhood",
+        b_label="with inbox-triage",
         a_skills=["calendar-scheduler"],
         b_skills=["inbox-triage", "calendar-scheduler"],
         matched=matched,

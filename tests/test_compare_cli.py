@@ -113,7 +113,7 @@ def test_an_ablation_pair_addressed_by_path_compares(monkeypatch, tmp_path) -> N
     result = runner.invoke(app, ["compare", str(ablated), "demo"])
     assert result.exit_code == 0, result.output
     assert "without my-skill" in result.output
-    assert "full neighbourhood" in result.output
+    assert "with my-skill" in result.output
 
 
 def test_two_distinct_runs_of_one_spec_still_compare(monkeypatch, tmp_path) -> None:

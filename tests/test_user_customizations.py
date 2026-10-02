@@ -258,7 +258,11 @@ def test_an_ablation_pair_needs_the_same_customizations(full, cut, label):
 
 @pytest.mark.parametrize(
     "loaded, label",
-    [(["gmail"], "without subject"), (None, "without subject"), ([], "bare agent")],
+    [
+        (["gmail"], "without subject"),
+        (None, "without subject"),
+        ([], "without any skills or servers"),
+    ],
 )
 def test_a_bare_agent_is_claimed_only_when_nothing_was_loaded(loaded, label):
     full = _saved(loads=True, loaded=loaded, skills=("subject",))
