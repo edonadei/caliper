@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
@@ -27,6 +28,10 @@ from caliper.schema.results import TokenUsage
 _SEED_FILES = ("auth.json", "config.yaml", ".env")
 
 
+# Seconds for the export that recovers a timed-out attempt's session. A warm
+# HERMES_HOME exports in about a second.
+_RECOVERY_EXPORT_TIMEOUT = 5
+
 # The assistant turn hermes v0.21 exports when it never reached the model.
 _NOT_PROCESSED = "your request was not processed"
 
@@ -39,7 +44,8 @@ class HermesHarness(CliHarness):
     autoraters) is recovered in a second step: after the run we `hermes sessions
     export` the single session persisted in the isolated home, whose JSONL is a
     standard OpenAI-style transcript. Both steps run in one shell invocation so
-    the template's single timeout covers the expensive oneshot.
+    the template's single timeout covers the expensive oneshot. If that shell
+    times out, ``_recover_timed_out`` exports the partial session on its own.
 
     Hermes is normalized to a neutral agent on every attempt: an isolated
     ``HERMES_HOME`` seeded with auth/config only (no persona/memory) and
@@ -219,6 +225,30 @@ class HermesHarness(CliHarness):
         if ctx.model:
             extra["CALIPER_MODEL"] = ctx.model
         return self._isolated_env(ctx, extra=extra)
+
+    def _recover_timed_out(
+        self, proc: ProcessResult, ctx: RunContext, env: dict[str, str]
+    ) -> ProcessResult:
+        # The timeout killed the shell before its own export ran, but hermes
+        # persists the session as the turns happen: export what reached disk.
+        # Best-effort, so a failed or unreadable export keeps the bare timeout.
+        try:
+            exported = self._execute(
+                [env["CALIPER_HERMES"], "sessions", "export", "-"],
+                env=env,
+                cwd=ctx.workdir,
+                timeout=_RECOVERY_EXPORT_TIMEOUT,
+                stdin=None,
+            )
+            if exported.cancelled:
+                # Interrupted mid-recovery: drop the attempt (docs/adr/0018).
+                return replace(proc, cancelled=True)
+            if exported.returncode != 0 or exported.timed_out:
+                return proc
+            transcript, _ = self._parse_stream(exported.stdout)
+        except Exception:
+            return proc
+        return replace(proc, stdout=exported.stdout) if transcript else proc
 
     # --- bare prompt call (the judge's half of the seam) -------------------
 

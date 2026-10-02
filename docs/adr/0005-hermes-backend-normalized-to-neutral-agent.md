@@ -42,7 +42,9 @@ for cross-backend consistency over per-backend realism.
 
 - **Two subprocesses per harness attempt** (`-z` run, then `sessions export`),
   versus one for the other backends — the price of full-fidelity trajectory from
-  a CLI whose non-interactive mode prints only final text.
+  a CLI whose non-interactive mode prints only final text. A timed-out attempt
+  spawns a third: the timeout kills the shell before its export, so a separate,
+  short export recovers the session hermes had already persisted.
 - **Auth seeding is verified, not a blocker.** Copying `auth.json` /
   `config.yaml` / `.env` into an isolated `HERMES_HOME` authenticates and runs
   end-to-end. The one requirement is that `config.yaml`'s default provider/model
