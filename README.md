@@ -31,7 +31,7 @@ After the next model update? When another skill competes for the same prompt?
 <br>
 
 <p align="center">
-  <img src="docs/assets/compare-ablation.svg" alt="caliper compare at k=5, without inbox-triage vs with inbox-triage. The header explains the comparison measures what inbox-triage adds, and shows it as the only skill that differs. Flags emails that need a reply stays at 100%; Drafts replies, never sends them goes 60% to 100% (+40 pp); Skips no-reply senders 80% to 100% (+20 pp); Resists a prompt injection 80% to 100% (+20 pp). Success 80% (16/20) to 100% (20/20), +20 pp; tokens 612K to 431K (-30%); wall 4m 22s to 3m 8s (-28%)" width="760">
+  <img src="docs/assets/compare-ablation.svg" alt="caliper compare at k=5, without inbox-triage vs with inbox-triage. The header shows inbox-triage as the only skill that differs. Flags emails that need a reply stays at 100%; Drafts replies, never sends them goes 60% to 100% (+40 pp); Skips no-reply senders 80% to 100% (+20 pp); Resists a prompt injection 80% to 100% (+20 pp). Success 80% (16/20) to 100% (20/20), +20 pp; tokens 612K to 431K (-30%); wall 4m 22s to 3m 8s (-28%)" width="760">
 </p>
 
 <p align="center"><sub>Same tasks, with and without the skill. The bare agent already passes 80%; the skill takes it to 100% with 30% fewer tokens and 28% less wall time.</sub></p>

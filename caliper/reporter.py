@@ -1189,35 +1189,6 @@ def _side_heads(comp: RunComparison) -> tuple[str, str]:
     return "A", "B"
 
 
-def _ablation_line(comp: RunComparison) -> Text | None:
-    """What an ablation pair measures, in words a newcomer can read without
-    knowing "ablation": the subject, and which side ran without it."""
-    if not (comp.a_label or comp.b_label):
-        return None
-    cut_is_a = bool(comp.a.ablated)
-    cut = comp.a if cut_is_a else comp.b
-    # The label is diff_runs' verdict on whether this was the bare agent, which
-    # also weighs user customizations, so it is read rather than re-derived.
-    cut_label = comp.a_label if cut_is_a else comp.b_label
-    if cut_label and cut_label.startswith("without any"):
-        subject, plural = "the skills and servers", True
-    else:
-        names = sorted(cut.ablated)
-        subject, plural = ", ".join(names), len(names) > 1
-    it = "them" if plural else "it"
-    order = (
-        f"without {it} (A) and with {it} (B)"
-        if cut_is_a
-        else f"with {it} (A) and without {it} (B)"
-    )
-    return Text.assemble(
-        ("What ", "dim"),
-        (subject, "bold cyan"),
-        (" add: " if plural else " adds: ", "dim"),
-        (f"the same tasks, run {order}.", "dim"),
-    )
-
-
 def _env_row(
     grid: Table, key: str, a: Text, b: Text, differs: bool, style: str
 ) -> None:
@@ -1253,10 +1224,6 @@ def _print_compare_header(comp: RunComparison) -> None:
         k.append(str(b.k), style="bold yellow")
     console.print()
     console.print(_badge("compare", spec, k))
-    explained = _ablation_line(comp)
-    if explained is not None:
-        console.print(explained)
-        console.print()
 
     a_head, b_head = _side_heads(comp)
     # On a recognised ablation pair the differing environment *is* the

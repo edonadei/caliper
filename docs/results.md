@@ -193,8 +193,7 @@ How to read the diff:
 - **The two runs are the column headers**: `before` is A, `after` is B. An
   ablation pair is titled `without <subject>` and `with <subject>` (or
   `without any skills or servers` and `with all skills and servers` for the bare
-  agent), under a line saying what the comparison measures: *What inbox-triage
-  adds: the same tasks, run without it (A) and with it (B).*
+  agent).
 - **Each cell is a rate and the attempts behind it**: `60%  ✓ ✗ ✓ ✗ ✓`. Above
   k=5 the marks collapse to a tally (`✓9 ✗1`). `⊘` is an unusable attempt and
   `·` one that never ran.
