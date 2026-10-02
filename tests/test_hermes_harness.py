@@ -1,113 +1,18 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
-import sys
-import textwrap
 
 import pytest
 import yaml
 
-from caliper.harness.base import HarnessConfigurationError
+from caliper.activation import ActivationDetector
+from caliper.harness.base import HarnessConfigurationError, ProcessResult
 from caliper.harness.hermes import HermesHarness
-from caliper.runner import run
-from caliper.schema.results import Outcome
-from caliper.schema.spec import EvalSpec, McpServer, TaskSpec
+from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
 
-from conftest import ScriptedJudge, patch_cli_calls, run_context
-
-
-@pytest.mark.skipif(os.name != "posix", reason="Hermes uses /bin/sh")
-@pytest.mark.parametrize("recovery", ["success", "failure", "invalid"])
-def test_hermes_timeout_recovers_persisted_session(monkeypatch, tmp_path, recovery):
-    home = _fake_home(tmp_path)
-    monkeypatch.setenv("HOME", str(home))
-    fake = tmp_path / "hermes"
-    exported = tmp_path / "exported"
-    fake.write_text(
-        f"#!{sys.executable}\n"
-        + textwrap.dedent(f"""\
-            import json
-            import os
-            import sys
-            import time
-            from pathlib import Path
-
-            if sys.argv[1:] == ['--version']:
-                print('Hermes Agent v0.21.4')
-                sys.exit(0)
-            session = Path(os.environ['HERMES_HOME']) / 'session.json'
-            if sys.argv[1:] == ['sessions', 'export', '-']:
-                record = json.loads(session.read_text())
-                assert record['cwd'] == os.getcwd()
-                assert record['cli'] == sys.argv[0]
-                Path({str(exported)!r}).write_text(str(session))
-                if {recovery!r} == 'failure':
-                    sys.exit(1)
-                if {recovery!r} == 'invalid':
-                    print('{{"messages": 42}}')
-                else:
-                    print(json.dumps(record))
-                sys.exit(0)
-            assert '-z' in sys.argv
-            session.write_text(json.dumps({{
-                'cwd': os.getcwd(),
-                'cli': sys.argv[0],
-                'messages': [{{
-                    'role': 'assistant',
-                    'content': 'Loaded slowpoke; waiting.',
-                    'tool_calls': [{{'function': {{
-                        'name': 'skill_view',
-                        'arguments': '{{"name": "slowpoke"}}',
-                    }}}}],
-                }}],
-            }}))
-            time.sleep(30)
-            """)
-    )
-    fake.chmod(0o755)
-    monkeypatch.setenv("HERMES_CLI_PATH", str(fake))
-    skill = tmp_path / "slowpoke"
-    skill.mkdir()
-    (skill / "SKILL.md").write_text(
-        "---\nname: slowpoke\ndescription: Waits forever\n---\nWait."
-    )
-    spec_path = tmp_path / "slowpoke.eval.yaml"
-    spec_path.write_text("tasks: []\n")
-
-    judge = ScriptedJudge()
-    results = run(
-        spec=EvalSpec(
-            skills=[str(skill / "SKILL.md")],
-            tasks=[
-                TaskSpec(name="hang", prompt="Load slowpoke", activates=["slowpoke"])
-            ],
-        ),
-        spec_path=spec_path,
-        harness=HermesHarness(),
-        judge=judge,
-        k=1,
-        workers=1,
-        timeout=1,
-    )
-    attempt = results.task_results[0].attempts[0]
-    assert judge.calls == 0
-    assert attempt.outcome is Outcome.TIMEOUT
-    assert attempt.assert_evidence == "timeout"
-    assert attempt.activation_passed is None
-    assert exported.exists()
-    assert str(home) not in exported.read_text()
-    if recovery == "success":
-        assert attempt.output == "Loaded slowpoke; waiting."
-        assert attempt.activated == ["slowpoke"]
-        assert [turn.role for turn in attempt.transcript] == ["assistant", "tool_use"]
-        assert attempt.transcript[1].tool_name == "skill_view"
-    else:
-        assert not attempt.transcript
-        assert attempt.output == ""
-        assert attempt.activated is None
+from conftest import patch_cli_calls, run_context
 
 
 def _version(cmd):
@@ -747,6 +652,90 @@ def test_hermes_parses_export_trajectory(monkeypatch, tmp_path) -> None:
     # The concrete model is recovered from the export's top-level `model` field,
     # so a default-model run still records what actually ran.
     assert result.resolved_model == "stepfun/step-3.7-flash:free"
+
+
+# What hermes had persisted when the timeout hit: a skill_view, then a hang.
+_PARTIAL_SESSION = {
+    "messages": [
+        {"role": "user", "content": "Load slowpoke"},
+        {
+            "role": "assistant",
+            "content": "Loaded slowpoke; waiting.",
+            "tool_calls": [
+                {
+                    "function": {
+                        "name": "skill_view",
+                        "arguments": '{"name": "slowpoke"}',
+                    }
+                }
+            ],
+        },
+    ]
+}
+
+
+@pytest.mark.parametrize("export", ["recovered", "failed", "unreadable", "cancelled"])
+def test_hermes_timeout_recovers_the_persisted_session(
+    monkeypatch, tmp_path, export
+) -> None:
+    home = _fake_home(tmp_path)
+    iso = tmp_path / "iso"
+    iso.mkdir()
+    _install(monkeypatch, home, lambda cmd, **_kw: _version(cmd))
+    exports = []
+
+    def fake_execute(self, cmd, *, env, cwd, timeout, stdin):
+        if cmd[0] == "/bin/sh":
+            # The timeout kills the shell before its own export runs.
+            return ProcessResult("", "", 124, timed_out=True)
+        exports.append((cmd, env, timeout))
+        if export == "failed":
+            return ProcessResult("", "no session", 1, timed_out=False)
+        if export == "cancelled":
+            return ProcessResult("", "interrupted", -9, False, cancelled=True)
+        stdout = '{"messages": 42}' if export == "unreadable" else _PARTIAL_SESSION
+        return ProcessResult(json.dumps(stdout), "", 0, timed_out=False)
+
+    monkeypatch.setattr(HermesHarness, "_execute", fake_execute)
+
+    result = HermesHarness().run(
+        run_context(prompt="Load slowpoke", timeout=30, isolated_home=str(iso))
+    )
+
+    # The export reads the attempt's isolated home, never the user's.
+    [(cmd, env, timeout)] = exports
+    assert cmd == ["hermes", "sessions", "export", "-"]
+    assert env["HERMES_HOME"] == str(iso / ".hermes")
+    assert timeout < 30
+    # Whatever the export did, the attempt is still a timeout.
+    assert result.timed_out
+    assert result.cancelled is (export == "cancelled")
+    detector = ActivationDetector(["slowpoke"], HermesHarness.activation_tool_names)
+    if export == "recovered":
+        assert [t.role for t in result.transcript] == ["user", "assistant", "tool_use"]
+        assert result.final_output == "Loaded slowpoke; waiting."
+        assert detector.detect(result.transcript) == ["slowpoke"]
+    else:
+        assert result.transcript == []
+        assert result.final_output == ""
+
+
+def test_hermes_judge_timeout_never_exports(monkeypatch, tmp_path) -> None:
+    # A bare prompt runs against the developer's real ~/.hermes, whose sessions
+    # are not caliper's to export.
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "hermes")
+    calls = []
+
+    def fake_execute(self, cmd, **kwargs):
+        calls.append(cmd)
+        return ProcessResult("", "", 124, timed_out=True)
+
+    monkeypatch.setattr(HermesHarness, "_execute", fake_execute)
+
+    result = HermesHarness().run_prompt("anything", cwd=str(tmp_path), timeout=1)
+
+    assert result.error is not None
+    assert [cmd[1] for cmd in calls] == ["-z"]
 
 
 def test_hermes_run_captures_token_usage_end_to_end(monkeypatch, tmp_path) -> None:

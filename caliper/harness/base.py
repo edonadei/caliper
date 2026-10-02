@@ -429,6 +429,8 @@ class CliHarness(HarnessBackend):
             if cleanup is not None:
                 cleanup()
         duration = time.monotonic() - start
+        if proc.timed_out:
+            proc = self._recover_timed_out(proc, ctx, env)
 
         transcript, final_output = self._parse_stream_with_tail(proc.stdout)
 
@@ -664,6 +666,19 @@ class CliHarness(HarnessBackend):
         final-answer event; :meth:`_parse_stream_with_tail` supplies the tail. A backend
         never walks the transcript backwards itself.
         """
+
+    def _recover_timed_out(
+        self, proc: ProcessResult, ctx: RunContext, env: dict[str, str]
+    ) -> ProcessResult:
+        """Recover what a timed-out attempt left behind, or ``proc`` unchanged.
+
+        Default: nothing to recover, since a streaming backend's partial stdout
+        is already in ``proc``. A backend whose transcript is only written out
+        after the agent exits overrides this to read it back. Runs after the
+        attempt's clock stops, so recovery never counts as agent wall time, and
+        only on the attempt path: a judge call has no session to recover.
+        """
+        return proc
 
     def _parse_stream_with_tail(
         self, stdout: str
