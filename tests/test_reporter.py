@@ -8,7 +8,6 @@ from rich.console import Console
 from caliper.reporter import (
     _OUTPUT_TRUNCATE_AT,
     _format_output,
-    _status_cell,
     make_progress,
     print_results,
     update_progress,
@@ -48,7 +47,8 @@ def test_update_progress_marks_early_stopped_task_finished() -> None:
 
     task = progress.tasks[task_ids["Task one"]]
     assert task.completed == 3
-    assert task.fields["status"] == "[yellow]⊘1[/yellow]"
+    # The attempts that never ran stay visible as such, not as failures.
+    assert task.fields["marks"].plain == "⊘ · ·"
 
 
 def test_cheat_remains_visible_when_cleanup_fails() -> None:
@@ -73,7 +73,12 @@ def test_cheat_remains_visible_when_cleanup_fails() -> None:
         ],
     )
 
-    assert "CHEAT" in str(_status_cell(task, k=1))
+    out = _render(_make_results([task]))
+
+    # The cleanup failure is reported, and the cheat is still named beside it.
+    assert "cleanup hook" in out
+    assert "1 cheat" in out
+    assert "⚠" in next(ln for ln in out.splitlines() if "Cheat" in ln)
 
 
 # ---------------------------------------------------------------------------
@@ -349,8 +354,8 @@ def test_aborted_unusable_task_is_reported_as_aborted() -> None:
 
     out = _render(results)
 
-    assert "ABORTED" in out
-    assert "1/3 attempts" in out
+    assert "aborted" in out
+    assert "after 1 of 3 attempts" in out
 
 
 def test_early_stopped_task_with_usable_pass_is_not_reported_as_aborted() -> None:
@@ -405,8 +410,8 @@ def test_early_stopped_task_with_usable_pass_is_not_reported_as_aborted() -> Non
 
     out = _render(results, verbose=True)
 
-    assert "ABORTED" not in out
-    assert "PASS" in out
+    assert "aborted" not in out
+    assert "100%" in next(ln for ln in out.splitlines() if "Task task-001" in ln)
 
 
 # ---------------------------------------------------------------------------
@@ -427,14 +432,24 @@ def test_autorater_reasoning_shown_for_failed_task() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_update_progress_shows_a_running_tally_rather_than_the_count() -> None:
+def test_update_progress_fills_the_marks_the_report_will_show() -> None:
     progress, task_ids = make_progress(["Task one"], k=5)
 
     counts = OutcomeCounts([Outcome.PASS, Outcome.TASK_FAIL, Outcome.PASS])
     update_progress(progress, task_ids, "Task one", k=5, counts=counts)
 
-    status = progress.tasks[task_ids["Task one"]].fields["status"]
-    assert status == "[green]✓2[/green] [red]✗1[/red]"
+    marks = progress.tasks[task_ids["Task one"]].fields["marks"]
+    assert marks.plain == "✓ ✗ ✓ · ·"
+
+
+def test_update_progress_tallies_above_five_attempts() -> None:
+    progress, task_ids = make_progress(["Task one"], k=10)
+
+    counts = OutcomeCounts([Outcome.PASS] * 6 + [Outcome.TASK_FAIL])
+    update_progress(progress, task_ids, "Task one", k=10, counts=counts)
+
+    marks = progress.tasks[task_ids["Task one"]].fields["marks"]
+    assert marks.plain == "✓6 ✗1 ·3"
 
 
 def test_update_progress_keeps_a_finished_trigger_probe_neutral() -> None:
@@ -449,7 +464,9 @@ def test_update_progress_keeps_a_finished_trigger_probe_neutral() -> None:
     )
 
     # Not a red ✗: a trigger probe asked no execution question.
-    assert progress.tasks[task_ids["Probe"]].fields["status"] == "[dim]—[/dim]"
+    marks = progress.tasks[task_ids["Probe"]].fields["marks"]
+    assert marks.plain == "— — —"
+    assert all("red" not in str(span.style) for span in marks.spans)
 
 
 def _render_markup(results: RunResults) -> str:
@@ -507,8 +524,8 @@ def test_trigger_probe_attempt_shows_its_activation_verdict() -> None:
 
     out = _render_markup(results)
 
-    assert "✗ Attempt 1" in out
-    assert "✓ Attempt 2" in out
+    assert "✗ attempt 1" in out
+    assert "✓ attempt 2" in out
 
 
 def test_built_in_activations_are_shown_without_being_scored() -> None:
@@ -543,8 +560,11 @@ def test_built_in_activations_are_shown_without_being_scored() -> None:
 
     out = _render_markup(results)
 
-    assert "Activation  100.0%" in out
-    assert "Built-in skills  claude-api 1/2  (ship with claude-code; not scored)" in out
+    assert "100%  2/2 ✓" in next(ln for ln in out.splitlines() if "Overall" in ln)
+    assert (
+        "built-in skills  claude-api 1/2  ship with claude-code · shown, not scored"
+        in out
+    )
 
 
 def test_truncating_escaped_markup_cannot_expose_a_tag() -> None:
@@ -597,3 +617,155 @@ def test_a_finished_task_counts_like_its_attempts_did_live():
     )
 
     assert result.counts == OutcomeCounts(outcomes)
+
+
+# ---------------------------------------------------------------------------
+# Review fixes: live order, usable-only costs, MCP attribution, hook output
+# ---------------------------------------------------------------------------
+
+
+def test_live_marks_sit_in_their_attempt_slot_whatever_the_finish_order() -> None:
+    progress, task_ids = make_progress(["Task one"], k=3)
+
+    # Attempt 2 finished first; it must not take attempt 1's slot.
+    update_progress(
+        progress,
+        task_ids,
+        "Task one",
+        k=3,
+        counts=OutcomeCounts([Outcome.TASK_FAIL]),
+        by_attempt={2: Outcome.TASK_FAIL},
+    )
+
+    task = progress.tasks[task_ids["Task one"]]
+    assert task.fields["marks"].plain == "· ✗ ·"
+    # The count comes from the same snapshot as the marks.
+    assert task.completed == 1
+
+
+def _usage_attempt(n: int, outcome: Outcome, tokens: int, **kw) -> AttemptRecord:
+    from caliper.schema.results import TokenUsage
+
+    return AttemptRecord(
+        attempt=n,
+        output="",
+        duration_seconds=10.0,
+        outcome=outcome,
+        usage=TokenUsage(input_tokens=tokens),
+        **kw,
+    )
+
+
+def test_per_attempt_cost_excludes_unusable_spend() -> None:
+    # 100 tokens on the pass, 900 wasted on the timeout: one usable attempt
+    # costs 100, not the 500 an all-attempts average would claim.
+    task = TaskResult(
+        task_id="task-001",
+        task_name="Task task-001",
+        attempts=[
+            _usage_attempt(1, Outcome.PASS, 1_000),
+            _usage_attempt(2, Outcome.TIMEOUT, 9_000),
+        ],
+    )
+    out = _render(_make_results([task]))
+
+    per_attempt = next(ln for ln in out.splitlines() if "per attempt" in ln)
+    assert "1K" in per_attempt
+    assert "5K" not in per_attempt
+
+
+def _mcp_run(transcript, servers, backend="claude-code") -> RunResults:
+    from caliper.schema.results import TranscriptTurn
+
+    task = TaskResult(
+        task_id="task-001",
+        task_name="t",
+        attempts=[
+            AttemptRecord(
+                attempt=1,
+                output="",
+                duration_seconds=1.0,
+                outcome=Outcome.PASS,
+                transcript=[
+                    TranscriptTurn(role=role, content="", tool_name=name)
+                    for role, name in transcript
+                ],
+            )
+        ],
+    )
+    results = _make_results([task])
+    results.run.mcp_servers = servers
+    results.run.backend = backend
+    return results
+
+
+def test_a_hermes_tool_result_is_not_counted_as_a_second_call() -> None:
+    from caliper.reporter import _mcp_calls
+
+    results = _mcp_run(
+        [("tool_use", "mcp_mail_read"), ("tool_result", "mcp_mail_read")],
+        ["mail"],
+        backend="hermes",
+    )
+    assert _mcp_calls(results)["mail"] == (1, 1, 1)
+
+
+def test_a_hermes_call_is_credited_to_the_longest_matching_server() -> None:
+    from caliper.reporter import _mcp_calls
+
+    results = _mcp_run(
+        [("tool_use", "mcp_mail_archive_read")],
+        ["mail", "mail_archive"],
+        backend="hermes",
+    )
+    stats = _mcp_calls(results)
+    assert stats["mail_archive"] == (1, 1, 1)
+    assert stats["mail"] == (0, 1, 0)
+
+
+def test_a_hook_failure_without_an_attempt_record_shows_its_output() -> None:
+    # A cancelled attempt leaves no record, so no panel can carry the output.
+    results = _make_results([_make_task("task-001", passed=True)])
+    results.run.hook_failures = [
+        HookFailure(
+            task_id="task-001",
+            attempt=2,
+            phase="cleanup",
+            exit_code=9,
+            output="database teardown failed",
+        )
+    ]
+    out = _render(results)
+
+    assert "cleanup hook exited 9" in out
+    assert "database teardown failed" in out
+    assert "output in the task's panel" not in out
+
+
+def test_a_cost_from_a_zero_baseline_is_shown_absolute() -> None:
+    from caliper.reporter import _fmt_tokens, _relative
+
+    assert _relative(0, 500, lambda n: _fmt_tokens(int(n))).plain == "+500"
+    assert _relative(0, 0, _fmt_tokens).plain == "—"
+
+
+def test_a_server_name_containing_the_separator_is_matched_whole() -> None:
+    from caliper.reporter import _mcp_calls
+
+    # Server names may contain "__": split on the first one and this call
+    # would land on `mail`.
+    results = _mcp_run(
+        [("tool_use", "mcp__mail__archive__read")], ["mail", "mail__archive"]
+    )
+    stats = _mcp_calls(results)
+    assert stats["mail__archive"] == (1, 1, 1)
+    assert stats["mail"] == (0, 1, 0)
+
+
+def test_a_hermes_server_with_a_leading_underscore_is_counted() -> None:
+    from caliper.reporter import _mcp_calls
+
+    # `mcp__mail_read` is hermes' single-underscore form for server `_mail`;
+    # the backend, not the name, says which form it is.
+    results = _mcp_run([("tool_use", "mcp__mail_read")], ["_mail"], backend="hermes")
+    assert _mcp_calls(results)["_mail"] == (1, 1, 1)

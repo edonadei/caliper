@@ -9,6 +9,7 @@ See docs/adr/0028-runs-load-user-customizations-by-default.md.
 from __future__ import annotations
 
 import io
+import re
 from datetime import datetime, timezone
 
 import pytest
@@ -257,7 +258,11 @@ def test_an_ablation_pair_needs_the_same_customizations(full, cut, label):
 
 @pytest.mark.parametrize(
     "loaded, label",
-    [(["gmail"], "without subject"), (None, "without subject"), ([], "bare agent")],
+    [
+        (["gmail"], "without subject"),
+        (None, "without subject"),
+        ([], "without any skills or servers"),
+    ],
 )
 def test_a_bare_agent_is_claimed_only_when_nothing_was_loaded(loaded, label):
     full = _saved(loads=True, loaded=loaded, skills=("subject",))
@@ -291,9 +296,11 @@ def _render(results: RunResults) -> str:
 def test_the_report_header_says_what_was_loaded(loads, loaded, shown):
     out = _render(_saved(loads=loads, loaded=loaded))
     if shown:
-        assert "user customizations:" in out and shown in out
+        assert re.search(rf"setup\s+with user customizations\s+{shown}", out)
+
     else:
-        assert "user customizations" not in out
+        assert re.search(r"setup\s+without user customizations", out)
+        assert "with user customizations" not in out
 
 
 def test_kind_prefixed_inventory_survives_saved_run_and_report():

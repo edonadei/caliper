@@ -120,7 +120,8 @@ def test_failed_setup_with_markup_output_still_reports(capfd, tmp_path) -> None:
 
     print_results(results)
     output = capfd.readouterr().out
-    assert "setup exited 7" in output
+    assert "setup hook exited 7" in output
+
     assert "[/broken]" in output
 
 

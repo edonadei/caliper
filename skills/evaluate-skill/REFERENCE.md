@@ -220,7 +220,7 @@ When in doubt use the raw rate: pass@k flatters flaky skills (`1/3 → 70.4%`).
 | `not_checked` | A trigger probe: no `expect:`/`assert:` to check | no |
 
 A throttled provider (429, overloaded, 503) is retried twice with backoff and
-folds into one attempt; a `throttled:` line means wall times were inflated, not
+folds into one attempt; a `throttled` note means wall times were inflated, not
 scores. A spending cap aborts the run and saves what ran: top up and re-run
 rather than reading its numbers. A task with no usable attempts has
 `score: null` and shows `—`. A run where every attempt was unusable is saved but
@@ -232,7 +232,7 @@ means the `description` is wrong; a green activation column with a low score
 means the body is. Per skill, the report shows how often it fires when wanted
 and when not wanted. A task without `activates:` renders *skipped*, never `0%`.
 A skill the agent CLI ships itself (Claude Code's `claude-api`, say) can still
-fire. It shows as `Built-in skills` under the activation table and is never scored,
+fire. It shows as a `built-in skills` note under the tables and is never scored,
 so it never fails `activates:`. If one shows up on a prompt your skill should
 have taken, the built-in skill won that prompt.
 
@@ -258,7 +258,7 @@ cheaper, and are never a regression. `compare` also warns when:
 
 **Stopped runs.** Ctrl-C saves everything that already ran, marked
 `interrupted` (`⊘` in `caliper list`), and exits `130`. `--fail-fast` marks a
-stopped task `ABORTED`. Both are scored over the attempts they have: read them
+stopped task `aborted`. Both are scored over the attempts they have: read them
 as a smaller sample, not a worse skill.
 
 **Exit codes.** `0` clean. `1` bad input (missing or invalid spec, unresolvable
@@ -331,7 +331,7 @@ Avoid:
 ### Trigger probes
 
 A task with only `activates:` is a **trigger probe**. It skips the judge, so it
-costs far less than an execution task, and reports as *trigger only*.
+costs far less than an execution task, and reports as a *probe*.
 
 - **Neighbour probe**: declare a skill yours could be confused with, give a
   prompt that belongs to *it*, and assert `activates: [neighbour]`. This catches

@@ -385,10 +385,10 @@ def test_report_highlights_cleanup_failure_on_passing_attempt(capfd) -> None:
     print_results(finished)
 
     output = capfd.readouterr().out
-    assert "lifecycle hooks failed" in output
-    assert "cleanup exited 9" in output
+    assert "1 lifecycle hook failed" in output
+    assert "cleanup hook exited 9" in output
     assert "cleanup broke" in output
-    assert "HOOK ERROR" in output
+    assert "⊘ hook" in output
 
 
 def _project(root: Path) -> Path:
@@ -439,7 +439,7 @@ def test_run_cli_writes_output_to_a_new_directory(monkeypatch, tmp_path) -> None
 
     assert result.exit_code == 0, result.output
     assert RunResults.model_validate_json(output.read_text()) == finished
-    assert "Score" in result.output
+    assert "Overall" in result.output
     assert "Results saved to" in result.output
 
 
@@ -461,7 +461,8 @@ def test_run_cli_keeps_report_and_interrupt_exit_if_output_cannot_be_written(
 
     assert result.exit_code == 130, result.output
     assert "Could not write --output" in result.output
-    assert "Score" in result.output
+    assert "Overall" in result.output
+
     assert "Results saved to" in result.output
     saved = RunStore(tmp_path).resolve("sample")
     assert saved is not None
@@ -753,7 +754,7 @@ def test_a_cheat_stays_flagged_in_live_progress_after_later_attempts(
     )
     monkeypatch.setattr(
         "caliper.commands.run.update_progress",
-        lambda *a, **k: updates.append(k["counts"].cheated),
+        lambda *a, **k: updates.append(Outcome.CHEAT in k["by_attempt"].values()),
     )
     monkeypatch.setattr("caliper.commands.run.print_banner", lambda *a, **k: None)
     monkeypatch.setattr("caliper.commands.run.print_results", lambda *a, **k: None)

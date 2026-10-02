@@ -296,14 +296,14 @@ def _ablation_labels(
     # "without ..." is the honest label for it. So does a run that may have
     # loaded user customizations (docs/adr/0028).
     bare = not cut_nb and cut_mcp == [] and not _may_have_loaded_customizations(cut_run)
-    cut_label = (
-        "bare agent" if bare else f"without {', '.join(sorted(cut_run.ablated))}"
-    )
-    return (
-        (cut_label, "full neighbourhood")
-        if a_run.ablated
-        else ("full neighbourhood", cut_label)
-    )
+    # Labels that name the subject, so a reader needs neither "ablation" nor
+    # "neighbourhood" to know what differs. The full side names exactly what
+    # was removed, never a kind (a server) the pair may not have had.
+    subject = ", ".join(sorted(cut_run.ablated))
+    cut_label = "without any skills or servers" if bare else f"without {subject}"
+    full_label = f"with {subject}"
+
+    return (cut_label, full_label) if a_run.ablated else (full_label, cut_label)
 
 
 def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
@@ -437,6 +437,8 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         b=b_run,
         a_label=a_label,
         b_label=b_label,
+        a_skills=[s.name for s in a.skill_snapshots if s.name],
+        b_skills=[s.name for s in b.skill_snapshots if s.name],
         matched=matched,
         unmatched_a=unmatched_a,
         unmatched_b=unmatched_b,

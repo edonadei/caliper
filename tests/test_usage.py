@@ -341,8 +341,9 @@ def test_print_results_renders_token_line(capsys) -> None:
     results = _run([_task_with_tokens("alpha", 1_000_000, 12.0)])
     print_results(results)
     out = capsys.readouterr().out
-    assert "Tokens" in out
-    assert "Wall" in out
+    # Tokens and wall share the cost column; the in/out split is a note.
+    assert "cost" in out
+    assert "tokens  2.0M in / 0 out" in out
 
 
 def test_print_results_renders_per_task_tokens_and_wall(capsys) -> None:
@@ -361,8 +362,8 @@ def test_every_run_renders_a_single_report(capsys) -> None:
     print_results(results)
     out = capsys.readouterr().out
     assert "compare" not in out
-    # The headline is named for the scoreboard it belongs to: a run has two.
-    assert "Score" in out
+    # One table, summed in its own footer.
+    assert "Overall" in out
 
 
 def test_an_ablated_run_names_what_was_removed(capsys) -> None:
@@ -372,7 +373,7 @@ def test_an_ablated_run_names_what_was_removed(capsys) -> None:
     results.run.ablated = ["grilling"]
     print_results(results)
     out = capsys.readouterr().out
-    assert "ablated" in out and "grilling" in out
+    assert "without grilling" in out and "via --ablate" in out
     assert "observed, not scored" in out
 
 
@@ -401,7 +402,7 @@ def test_an_ablated_run_shows_observations_on_a_passing_task(capsys) -> None:
     ]
     print_results(results)
     out = capsys.readouterr().out
-    assert "Observed activations" in out
+    assert "observed only" in out
     assert "keeper" in out and "1/1" in out
     # A declared-but-silent skill still gets a row: its dormancy is an answer.
     assert "dormant" in out and "0/1" in out
@@ -429,9 +430,9 @@ def test_a_server_ablated_run_keeps_its_activation_verdicts(capsys) -> None:
     results.skill_snapshots = [SkillSnapshot(name="keeper", path="/x/keeper/SKILL.md")]
     print_results(results)
     out = capsys.readouterr().out
-    assert "ablated" in out and "mcp:weather" in out
+    assert "without mcp:weather" in out and "via --ablate" in out
     assert "observed, not scored" not in out
-    assert "Observed activations" not in out
+    assert "observed only" not in out
 
 
 def test_a_normal_run_has_no_observed_activations_block(capsys) -> None:
@@ -439,7 +440,7 @@ def test_a_normal_run_has_no_observed_activations_block(capsys) -> None:
     # every run grows.
     results = _run([_task_with_tokens("alpha", 1000, 10.0)])
     print_results(results)
-    assert "Observed activations" not in capsys.readouterr().out
+    assert "observed only" not in capsys.readouterr().out
 
 
 def test_failure_details_still_show_why_an_attempt_failed(capsys) -> None:

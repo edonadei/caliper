@@ -631,7 +631,7 @@ a *neighbour probe* (`activates: [x]`, asserting the subject must not hijack a
 prompt belonging to `x` — grading whether `x` did the job well is `x`'s own
 eval) and a *silence probe* (`activates: []` on unrelated work, where there is
 nothing meaningful to expect). It skips the judge entirely, so it is much cheaper
-than an execution task, and renders as *trigger only* rather than a zero.
+than an execution task, and renders as a *probe* (no rate) rather than a zero.
 _Avoid_: activation-only task, triggering test.
 
 ## Attempt usage
@@ -694,7 +694,7 @@ render time by summing over the run's `AttemptRecord`s — never stored on the
 schema (mirrors how [[run comparison]] keeps usable/unusable counts derivable
 rather than persisted). Every attempt counts toward the run total, because the
 tokens and time were really spent; but the slice belonging to [[usable / unusable
-attempt|unusable attempts]] is reported on its own line ("unusable spend") so a
+attempt|unusable attempts]] is reported on its own line (the unusable note) so a
 timed-out attempt's wasted tokens/time are visible without distorting per-attempt
 economics. The per-attempt average is taken over usable attempts only, matching
 the score denominator.

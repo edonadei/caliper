@@ -175,7 +175,7 @@ This is a change in *text* with the same members. A change in *membership*
 
 A task with `activates:` and no `expect:`/`assert:` is a **trigger probe**. It
 asks only what the agent reached for, skips the judge entirely (so it's much
-cheaper than a graded task), and reports as `trigger only` rather than a zero.
+cheaper than a graded task), and reports as a `probe` rather than a zero.
 Use it for neighbour and silence probes, where there's no work worth grading.
 
 Activation is scored on its **own scoreboard**, never blended into the success
