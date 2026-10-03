@@ -3,17 +3,20 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 
 import yaml
 
 from caliper.harness.base import (
+    AgentReport,
     CliHarness,
     ConversationTurn,
     HarnessConfigurationError,
     ProcessResult,
     PromptCall,
     RunContext,
+    last_assistant,
     stream_events,
 )
 from caliper.harness.mcp import merge_user_servers, resolve_servers
@@ -162,9 +165,7 @@ class HermesHarness(CliHarness):
         if config_path.exists():
             config_path.chmod(0o600)
 
-    def _loaded_user_customizations(
-        self, proc: ProcessResult, ctx: RunContext
-    ) -> list[str] | None:
+    def _configured_servers(self, ctx: RunContext) -> list[str]:
         """The servers in the ``config.yaml`` the attempt ran with."""
         config_path = self._hermes_home(ctx) / "config.yaml"
         loaded = yaml.safe_load(config_path.read_text()) if config_path.exists() else {}
@@ -193,7 +194,7 @@ class HermesHarness(CliHarness):
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
         # One shell invocation: run oneshot (its final text and any error go to
         # stderr, where _diagnose reads them), then export the single persisted
-        # session as JSONL on stdout for _parse_stream — unfiltered, since v0.21
+        # session as JSONL on stdout for _read — unfiltered, since v0.21
         # tags it `oneshot` where v0.18 said `cli`, and the isolated home holds
         # no other session. `exit $rc` propagates the
         # oneshot's exit code so a failed run is classified as infra_error.
@@ -245,10 +246,11 @@ class HermesHarness(CliHarness):
                 return replace(proc, cancelled=True)
             if exported.returncode != 0 or exported.timed_out:
                 return proc
-            transcript, _ = self._parse_stream(exported.stdout)
+            record = self._load_export(exported.stdout)
+            recovered = record is not None and bool(self._turns(record)[0])
         except Exception:
             return proc
-        return replace(proc, stdout=exported.stdout) if transcript else proc
+        return replace(proc, stdout=exported.stdout) if recovered else proc
 
     # --- bare prompt call (the judge's half of the seam) -------------------
 
@@ -266,18 +268,33 @@ class HermesHarness(CliHarness):
             cmd[2:2] = ["--model", model]
         return PromptCall(cmd)
 
-    def _parse_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:
-        """Parse a `hermes sessions export` record into turns.
+    def _read(self, proc: ProcessResult, ctx: RunContext) -> AgentReport:
+        """Read the one `hermes sessions export` record on stdout.
 
-        The export is a single JSON object with a ``messages`` array of
-        OpenAI-style messages: ``user``/``assistant``/``tool`` roles, with an
-        assistant's ``tool_calls[].function`` carrying the call and a ``tool``
-        message carrying the result (linked by ``tool_call_id``).
+        The record carries the turns, the session's token totals and the
+        concrete model; the MCP inventory is the ``config.yaml`` the attempt
+        ran with.
         """
-        record = self._load_export(stdout)
+        report = AgentReport(read_mcp_servers=partial(self._configured_servers, ctx))
+        record = self._load_export(proc.stdout)
         if record is None:
-            return [], ""
+            return report
+        report.transcript, report.final_output = self._turns(record)
+        report.read_usage = partial(_usage, record)
+        model = record.get("model")
+        if isinstance(model, str) and model:
+            # Echoed even when no model was passed and the config default ran.
+            report.resolved_model = model
+        return report
 
+    def _turns(self, record: dict) -> tuple[list[ConversationTurn], str]:
+        """The export's ``messages`` as turns, plus the last assistant text.
+
+        A ``messages`` array of OpenAI-style messages: ``user``/``assistant``/
+        ``tool`` roles, with an assistant's ``tool_calls[].function`` carrying
+        the call and a ``tool`` message carrying the result (linked by
+        ``tool_call_id``).
+        """
         transcript: list[ConversationTurn] = []
         final_output = ""
         for message in record.get("messages", []):
@@ -309,27 +326,6 @@ class HermesHarness(CliHarness):
                     transcript.append(ConversationTurn(role="user", content=text))
 
         return transcript, final_output
-
-    def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
-        """Read the session export record's flat top-level token totals.
-
-        Hermes aggregates usage per session, so the record carries session totals
-        directly (no per-message summing). Its ``input_tokens`` is non-cached, so
-        ``cache_read_tokens``/``cache_write_tokens`` map onto the disjoint cache
-        fields.
-        """
-        record = self._load_export(proc.stdout)
-        if record is None:
-            return None
-        fields = {
-            "input_tokens": record.get("input_tokens"),
-            "output_tokens": record.get("output_tokens"),
-            "cache_read_tokens": record.get("cache_read_tokens"),
-            "cache_creation_tokens": record.get("cache_write_tokens"),
-        }
-        if all(v is None for v in fields.values()):
-            return None
-        return TokenUsage(**fields)
 
     def _load_export(self, stdout: str) -> dict | None:
         """Return the export record, tolerating extra non-JSON lines."""
@@ -371,17 +367,6 @@ class HermesHarness(CliHarness):
                 return {"raw": arguments}
             return parsed if isinstance(parsed, dict) else {"raw": arguments}
         return None
-
-    def _resolved_model(self, proc: ProcessResult, ctx: RunContext) -> str | None:
-        # Hermes echoes the concrete model in its session export, so we record
-        # what actually ran even when no model was passed and the config default
-        # was used. Fall back to the requested model if the export lacks it.
-        record = self._load_export(proc.stdout)
-        if record:
-            model = record.get("model")
-            if isinstance(model, str) and model:
-                return model
-        return ctx.model
 
     def _error_field(self, proc: ProcessResult, final_output: str) -> str | None:
         # The oneshot's final text is routed to stderr, so stderr is only an
@@ -451,16 +436,18 @@ class HermesHarness(CliHarness):
         ),
     )
 
-    def _cli_text(self, proc: ProcessResult, transcript: list[ConversationTurn]) -> str:
+    def _cli_text(self, proc: ProcessResult, report: AgentReport) -> str:
         # The oneshot prints its reply on stderr beside any error, whatever the
         # exit code, so once the agent gave a real answer stderr is the agent's
         # too. v0.21's "not processed" turn is hermes talking, not an answer.
-        answer = self._last_assistant(transcript)
+        answer = last_assistant(report.transcript)
         if answer and not answer.lower().startswith(_NOT_PROCESSED):
             return ""
-        return super()._cli_text(proc, [])
+        return super()._cli_text(proc, AgentReport())
 
-    def _diagnose(self, proc: ProcessResult, cli_text: str) -> str | None:
+    def _diagnose(
+        self, proc: ProcessResult, report: AgentReport, cli_text: str
+    ) -> str | None:
         return self._diagnose_unknown_model(cli_text)
 
     def _diagnose_unknown_model(self, cli_text: str) -> str | None:
@@ -493,3 +480,22 @@ class HermesHarness(CliHarness):
             "`hermes -z 'Reply OK' --model <model>` works in your normal shell), "
             "then rerun caliper."
         )
+
+
+def _usage(record: dict) -> TokenUsage | None:
+    """The session export record's flat top-level token totals.
+
+    Hermes aggregates usage per session, so the record carries session totals
+    directly (no per-message summing). Its ``input_tokens`` is non-cached, so
+    ``cache_read_tokens``/``cache_write_tokens`` map onto the disjoint cache
+    fields.
+    """
+    fields = {
+        "input_tokens": record.get("input_tokens"),
+        "output_tokens": record.get("output_tokens"),
+        "cache_read_tokens": record.get("cache_read_tokens"),
+        "cache_creation_tokens": record.get("cache_write_tokens"),
+    }
+    if all(v is None for v in fields.values()):
+        return None
+    return TokenUsage(**fields)

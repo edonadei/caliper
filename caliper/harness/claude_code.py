@@ -7,9 +7,11 @@ import re
 import shutil
 import sys
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 
 from caliper.harness.base import (
+    AgentReport,
     CliHarness,
     ConversationTurn,
     HarnessConfigurationError,
@@ -373,18 +375,13 @@ class ClaudeCodeHarness(CliHarness):
         ),
     )
 
-    def _cli_text(self, proc: ProcessResult, transcript: list[ConversationTurn]) -> str:
-        # The CLI reports its own failures — a lapsed login, a usage limit — as
-        # a ``result`` event flagged ``is_error``, in the same stream as the
-        # agent's turns. Those events are the CLI talking; the rest is not.
-        errors = _error_results(proc.stdout)
-        return "\n".join([*errors, super()._cli_text(proc, transcript)]).strip()
-
-    def _diagnose(self, proc: ProcessResult, cli_text: str) -> str | None:
+    def _diagnose(
+        self, proc: ProcessResult, report: AgentReport, cli_text: str
+    ) -> str | None:
         # Read off the CLI's own result envelope, not the text: an agent can
         # write about a 404 without being one. Same classification the judge's
         # prompt path uses (issue #75, docs/adr/0001).
-        failure = _closing_envelope_failure(proc.stdout)
+        failure = report.cli_failure
         if failure is not None and failure.kind is PromptFailureKind.AUTH:
             # A bare 401 may carry no login words for config_signals to match.
             return _NOT_LOGGED_IN.replace("{text}", cli_text)
@@ -426,15 +423,9 @@ class ClaudeCodeHarness(CliHarness):
 
         return None
 
-    def _fallback(
-        self,
-        transcript: list[ConversationTurn],
-        final_output: str,
-        proc: ProcessResult,
-    ) -> tuple[list[ConversationTurn], str]:
-        # Claude's stream-json stdout is never salvageable as a raw turn; the
-        # template's last-assistant tail is the only fallback.
-        return transcript, final_output
+    # Claude's stream-json stdout is never salvageable as a raw turn; the
+    # report's last-assistant tail is the only fallback.
+    salvages_raw_stdout = False
 
     def _error_field(self, proc: ProcessResult, final_output: str) -> str | None:
         if proc.timed_out:
@@ -534,63 +525,35 @@ class ClaudeCodeHarness(CliHarness):
             dst.write_text(out)
             dst.chmod(0o600)
 
-    def _loaded_user_customizations(
-        self, proc: ProcessResult, ctx: RunContext
-    ) -> list[str] | None:
-        """Every server the CLI's ``init`` event lists, whatever its status.
+    def _read(self, proc: ProcessResult, ctx: RunContext) -> AgentReport:
+        """One walk of the stream-json events.
 
-        The record is what the attempt was given, not what happened to connect.
-        ``None`` when no ``init`` event arrived.
+        The ``system``/``init`` event lists the attempt's MCP servers and
+        skills; each ``result`` event names the final answer, and the closing
+        one says whether the CLI failed. The CLI reports its own failures — a
+        lapsed login, a usage limit — as a ``result`` flagged ``is_error``, in
+        the same stream as the agent's turns: those are the CLI talking.
         """
-        servers = _init_event(proc.stdout).get("mcp_servers")
-        if not isinstance(servers, list):
-            return None
-        return [
-            s["name"]
-            for s in servers
-            if isinstance(s, dict) and isinstance(s.get("name"), str)
-        ]
+        report = AgentReport()
+        init: dict | None = None
+        first_result: dict | None = None
+        closing: dict | None = None
 
-    def _exposed_skills(self, proc: ProcessResult) -> list[str] | None:
-        """The ``init`` event's ``skills``: declared, user and built-in alike."""
-        skills = _init_event(proc.stdout).get("skills")
-        if not isinstance(skills, list):
-            return None
-        return [s for s in skills if isinstance(s, str)]
-
-    def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
-        """Read the ``result`` event's ``usage``. Claude's ``input_tokens`` is
-        already non-cached, so the mapping is direct."""
         for event in stream_events(proc.stdout):
-            if event.get("type") != "result":
-                continue
-            usage = event.get("usage")
-            if not isinstance(usage, dict):
-                return None
-            return TokenUsage(
-                input_tokens=usage.get("input_tokens"),
-                output_tokens=usage.get("output_tokens"),
-                cache_read_tokens=usage.get("cache_read_input_tokens"),
-                cache_creation_tokens=usage.get("cache_creation_input_tokens"),
-            )
-        return None
-
-    def _parse_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:
-        transcript: list[ConversationTurn] = []
-        final_output = ""
-
-        for event in stream_events(stdout):
             etype = event.get("type", "")
 
-            if etype == "assistant":
+            if etype == "system" and event.get("subtype") == "init":
+                init = init or event
+
+            elif etype == "assistant":
                 for block in event.get("message", {}).get("content", []):
                     btype = block.get("type", "")
                     if btype == "text":
-                        transcript.append(
+                        report.transcript.append(
                             ConversationTurn(role="assistant", content=block["text"])
                         )
                     elif btype == "tool_use":
-                        transcript.append(
+                        report.transcript.append(
                             ConversationTurn(
                                 role="tool_use",
                                 content=f"[tool: {block.get('name')}]",
@@ -606,7 +569,7 @@ class ClaudeCodeHarness(CliHarness):
                 for block in content if isinstance(content, list) else []:
                     if isinstance(block, dict) and block.get("type") == "tool_result":
                         text = _tool_result_text(block.get("content", ""))
-                        transcript.append(
+                        report.transcript.append(
                             ConversationTurn(
                                 role="tool_result", content=text, tool_output=text
                             )
@@ -615,22 +578,62 @@ class ClaudeCodeHarness(CliHarness):
             elif etype == "tool_result":
                 # Older stream shape: a top-level tool_result event.
                 text = _tool_result_text(event.get("content", ""))
-                transcript.append(
+                report.transcript.append(
                     ConversationTurn(role="tool_result", content=text, tool_output=text)
                 )
 
             elif etype == "result":
-                final_output = event.get("result", "")
+                report.final_output = event.get("result", "")
+                first_result = first_result or event
+                closing = event
+                error = _stream_error(event)
+                if error is not None:
+                    report.cli_errors.append(error)
 
-        return transcript, final_output
+        report.cli_failure = _envelope_failure(closing)
+        if first_result is not None:
+            report.read_usage = partial(_usage, first_result)
+        if init is not None:
+            report.read_mcp_servers = partial(_init_servers, init)
+            report.exposed_skills = _init_skills(init)
+        return report
 
 
-def _init_event(stdout: str) -> dict:
-    """The CLI's ``system``/``init`` event, or ``{}`` when none arrived."""
-    for event in stream_events(stdout):
-        if (event.get("type"), event.get("subtype")) == ("system", "init"):
-            return event
-    return {}
+def _usage(result: dict) -> TokenUsage | None:
+    """A ``result`` event's ``usage``. Claude's ``input_tokens`` is already
+    non-cached, so the mapping is direct."""
+    usage = result.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    return TokenUsage(
+        input_tokens=usage.get("input_tokens"),
+        output_tokens=usage.get("output_tokens"),
+        cache_read_tokens=usage.get("cache_read_input_tokens"),
+        cache_creation_tokens=usage.get("cache_creation_input_tokens"),
+    )
+
+
+def _init_servers(init: dict) -> list[str] | None:
+    """Every server the ``init`` event lists, whatever its status.
+
+    The record is what the attempt was given, not what happened to connect.
+    """
+    servers = init.get("mcp_servers")
+    if not isinstance(servers, list):
+        return None
+    return [
+        s["name"]
+        for s in servers
+        if isinstance(s, dict) and isinstance(s.get("name"), str)
+    ]
+
+
+def _init_skills(init: dict) -> list[str] | None:
+    """The ``init`` event's ``skills``: declared, user and built-in alike."""
+    skills = init.get("skills")
+    if not isinstance(skills, list):
+        return None
+    return [s for s in skills if isinstance(s, str)]
 
 
 def _tool_result_text(content: object) -> str:
@@ -657,32 +660,20 @@ def _envelope_failure(envelope: object) -> PromptFailure | None:
     return PromptFailure(kind=kind, message=message, status=status)
 
 
-def _error_results(stdout: str) -> list[str]:
-    """The text of each ``result`` event the CLI flagged ``is_error``.
+def _stream_error(event: dict) -> str | None:
+    """The text of a ``result`` event the CLI flagged ``is_error``, if any.
 
     Led by its ``api_error_status`` when it has one: a 429 is a throttle
     whatever words the message uses.
     """
-    errors = []
-    for event in stream_events(stdout):
-        if event.get("type") == "result" and event.get("is_error"):
-            result = event.get("result")
-            text = result.strip() if isinstance(result, str) else ""
-            status = event.get("api_error_status")
-            if isinstance(status, int):
-                text = f"API error {status}: {text}".strip()
-            if text:
-                errors.append(text)
-    return errors
-
-
-def _closing_envelope_failure(stdout: str) -> PromptFailure | None:
-    """The classified failure the CLI's closing ``result`` event reports, if any."""
-    for event in reversed(list(stream_events(stdout))):
-        if event.get("type") != "result":
-            continue
-        return _envelope_failure(event)
-    return None
+    if not event.get("is_error"):
+        return None
+    result = event.get("result")
+    text = result.strip() if isinstance(result, str) else ""
+    status = event.get("api_error_status")
+    if isinstance(status, int):
+        text = f"API error {status}: {text}".strip()
+    return text or None
 
 
 def _classify_claude_prompt_failure(

@@ -24,6 +24,7 @@ import pytest
 from conftest import run_context
 
 from caliper.harness.base import (
+    AgentReport,
     CliHarness,
     ConversationTurn,
     HarnessConfigurationError,
@@ -235,66 +236,46 @@ def test_skills_root_lives_inside_the_isolated_home(
 # --- reading the stream ------------------------------------------------------
 
 
-class _StubHarness(CliHarness):
-    """A backend that parses nothing, so the base's own tail is what is measured."""
-
-    def __init__(self, transcript, final_output="") -> None:
-        self._transcript = transcript
-        self._final_output = final_output
-
-    name = "stub"
-
-    def skills_root(self, ctx):  # pragma: no cover - unused here
-        raise NotImplementedError
-
-    def _command(self, ctx):  # pragma: no cover - unused here
-        raise NotImplementedError
-
-    def _environment(self, ctx):  # pragma: no cover - unused here
-        raise NotImplementedError
-
-    def _parse_stream(self, stdout):
-        return self._transcript, self._final_output
-
-
 def test_stream_tail_recovers_the_last_assistant_turn() -> None:
     """A stream that ends on a tool call still has a final answer: the last thing said."""
-    harness = _StubHarness(
-        [
+    report = AgentReport(
+        transcript=[
             ConversationTurn(role="assistant", content="first"),
             ConversationTurn(role="assistant", content="second"),
             ConversationTurn(role="tool_use", content="[tool: shell] ls"),
         ]
     )
 
-    assert harness._parse_stream_with_tail("")[1] == "second"
+    assert report.answer == "second"
 
 
 def test_stream_tail_defers_to_an_explicit_final_answer() -> None:
-    harness = _StubHarness(
-        [ConversationTurn(role="assistant", content="chatter")],
+    report = AgentReport(
+        transcript=[ConversationTurn(role="assistant", content="chatter")],
         final_output="the answer",
     )
 
-    assert harness._parse_stream_with_tail("")[1] == "the answer"
+    assert report.answer == "the answer"
 
 
 def test_stream_tail_ignores_empty_and_non_assistant_turns() -> None:
-    harness = _StubHarness(
-        [
+    report = AgentReport(
+        transcript=[
             ConversationTurn(role="assistant", content="real"),
             ConversationTurn(role="assistant", content=""),
             ConversationTurn(role="user", content="a question"),
         ]
     )
 
-    assert harness._parse_stream_with_tail("")[1] == "real"
+    assert report.answer == "real"
 
 
 def test_stream_tail_is_empty_when_the_agent_never_spoke() -> None:
-    harness = _StubHarness([ConversationTurn(role="tool_use", content="[tool: shell]")])
+    report = AgentReport(
+        transcript=[ConversationTurn(role="tool_use", content="[tool: shell]")]
+    )
 
-    assert harness._parse_stream_with_tail("")[1] == ""
+    assert report.answer == ""
 
 
 def test_timeout_keeps_the_agents_partial_transcript_and_activation(tmp_path) -> None:
@@ -450,6 +431,65 @@ def _answer_stream(backend: type[CliHarness]) -> str:
 
 
 @pytest.mark.parametrize("backend", ALL_BACKENDS)
+def test_a_backend_reads_its_output_in_one_pass(backend, monkeypatch) -> None:
+    """Every fact about a finished attempt comes out of one walk of its stream."""
+    module = sys.modules[backend.__module__]
+    walks = []
+    real = module.stream_events
+
+    def counting(stdout):
+        walks.append(stdout)
+        return real(stdout)
+
+    monkeypatch.setattr(module, "stream_events", counting)
+    proc = ProcessResult(
+        stdout=_answer_stream(backend), stderr="", returncode=0, timed_out=False
+    )
+
+    report = backend()._read(proc, run_context())
+
+    assert report.answer == _ANSWER
+    assert len(walks) <= 1
+
+
+def test_a_raising_provenance_reader_reads_as_unavailable() -> None:
+    """The report guards every optional fact, so no backend can forget to."""
+
+    def boom():
+        raise ValueError("malformed payload")
+
+    report = AgentReport(read_usage=boom, read_mcp_servers=boom)
+
+    assert report.usage is None
+    assert report.mcp_servers is None
+
+
+@pytest.mark.parametrize(
+    ("backend", "usage_event"),
+    [
+        (
+            ClaudeCodeHarness,
+            {"type": "result", "result": _ANSWER, "usage": {"input_tokens": "oops"}},
+        ),
+        (CodexHarness, {"type": "turn.completed", "usage": {"input_tokens": "oops"}}),
+    ],
+)
+def test_a_malformed_usage_payload_costs_only_the_usage(backend, usage_event) -> None:
+    """Usage is optional: a schema change there must not take the transcript too."""
+    proc = ProcessResult(
+        stdout=_answer_stream(backend) + "\n" + json.dumps(usage_event),
+        stderr="",
+        returncode=0,
+        timed_out=False,
+    )
+
+    report = backend()._read(proc, run_context())
+
+    assert report.usage is None
+    assert report.answer == _ANSWER
+
+
+@pytest.mark.parametrize("backend", ALL_BACKENDS)
 @pytest.mark.parametrize("returncode", [0, 1])
 def test_an_answer_about_auth_and_limits_is_not_a_refusal(backend, returncode) -> None:
     # hermes also prints its reply on stderr after a clean exit.
@@ -461,10 +501,10 @@ def test_an_answer_about_auth_and_limits_is_not_a_refusal(backend, returncode) -
         timed_out=False,
     )
     harness = backend()
-    transcript, final_output = harness._parse_stream_with_tail(proc.stdout)
+    report = harness._read(proc, run_context())
 
-    assert final_output == _ANSWER
-    assert harness._refusal(proc, transcript) is None
+    assert report.answer == _ANSWER
+    assert harness._refusal(proc, report) is None
 
 
 @pytest.mark.parametrize("backend", ALL_BACKENDS)
@@ -473,9 +513,9 @@ def test_a_failing_cli_that_says_not_logged_in_is_a_config_refusal(backend) -> N
         stdout="", stderr="Error: not logged in", returncode=1, timed_out=False
     )
     harness = backend()
-    transcript, _ = harness._parse_stream_with_tail(proc.stdout)
+    report = harness._read(proc, run_context())
 
-    refusal = harness._refusal(proc, transcript)
+    refusal = harness._refusal(proc, report)
 
     assert refusal is not None
     assert refusal.kind is RefusalKind.CONFIG
@@ -491,9 +531,9 @@ def test_a_quota_is_a_spending_cap_on_every_backend(backend) -> None:
         timed_out=False,
     )
     harness = backend()
-    transcript, _ = harness._parse_stream_with_tail(proc.stdout)
+    report = harness._read(proc, run_context())
 
-    refusal = harness._refusal(proc, transcript)
+    refusal = harness._refusal(proc, report)
 
     assert refusal is not None
     assert refusal.kind is RefusalKind.SPENDING_CAP
@@ -522,9 +562,9 @@ def test_pi_reads_its_error_event_not_the_prompt_it_echoes() -> None:
         timed_out=False,
     )
     harness = PiHarness()
-    transcript, _ = harness._parse_stream_with_tail(proc.stdout)
+    report = harness._read(proc, run_context())
 
-    refusal = harness._refusal(proc, transcript)
+    refusal = harness._refusal(proc, report)
 
     assert refusal is not None
     assert refusal.kind is RefusalKind.CONFIG
@@ -541,9 +581,9 @@ def test_claude_reads_a_throttle_from_its_status_alone() -> None:
         stdout=json.dumps(event), stderr="", returncode=1, timed_out=False
     )
     harness = ClaudeCodeHarness()
-    transcript, _ = harness._parse_stream_with_tail(proc.stdout)
+    report = harness._read(proc, run_context())
 
-    refusal = harness._refusal(proc, transcript)
+    refusal = harness._refusal(proc, report)
 
     assert refusal is not None
     assert refusal.kind is RefusalKind.THROTTLE
@@ -558,9 +598,9 @@ def test_hermes_answer_on_stderr_is_not_a_refusal_after_a_failed_exit() -> None:
         timed_out=False,
     )
     harness = HermesHarness()
-    transcript, _ = harness._parse_stream_with_tail(proc.stdout)
+    report = harness._read(proc, run_context())
 
-    assert harness._refusal(proc, transcript) is None
+    assert harness._refusal(proc, report) is None
 
 
 # --- readiness: declared by the backend, checked by the base -----------------
@@ -586,7 +626,7 @@ class _ReadyHarness(CliHarness):
     def _environment(self, ctx):  # pragma: no cover - unused here
         raise NotImplementedError
 
-    def _parse_stream(self, stdout):  # pragma: no cover - unused here
+    def _read(self, proc, ctx):  # pragma: no cover - unused here
         raise NotImplementedError
 
 

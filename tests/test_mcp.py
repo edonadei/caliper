@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from caliper import cancel
 from caliper.harness.base import (
+    AgentReport,
     CliHarness,
     ConversationTurn,
     HarnessConfigurationError,
@@ -500,10 +501,12 @@ class _AttemptPreflightHarness(CliHarness):
     def _environment(self, ctx: RunContext) -> dict[str, str]:
         return self._isolated_env(ctx)
 
-    def _parse_stream(self, stdout: str):
-        return [
-            ConversationTurn(role="assistant", content=stdout.strip())
-        ], stdout.strip()
+    def _read(self, proc, ctx) -> AgentReport:
+        answer = proc.stdout.strip()
+        return AgentReport(
+            transcript=[ConversationTurn(role="assistant", content=answer)],
+            final_output=answer,
+        )
 
 
 def test_server_that_dies_after_initial_preflight_stops_before_agent(tmp_path) -> None:

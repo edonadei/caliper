@@ -852,7 +852,11 @@ def test_codex_parses_mcp_tool_call_as_doubled_underscore_name() -> None:
             json.dumps({"item": {"type": "agent_message", "text": "done"}}),
         ]
     )
-    transcript, final = CodexHarness()._parse_stream(stream)
+    report = CodexHarness()._read(
+        ProcessResult(stdout=stream, stderr="", returncode=0, timed_out=False),
+        run_context(),
+    )
+    transcript, final = report.transcript, report.final_output
     tool_names = [t.tool_name for t in transcript if t.role == "tool_use"]
     # The in-progress item.started must not produce a second, duplicate turn.
     assert tool_names.count("mcp__echo__secret_word") == 1

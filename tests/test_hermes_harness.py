@@ -673,7 +673,9 @@ _PARTIAL_SESSION = {
 }
 
 
-@pytest.mark.parametrize("export", ["recovered", "failed", "unreadable", "cancelled"])
+@pytest.mark.parametrize(
+    "export", ["recovered", "failed", "unreadable", "malformed", "cancelled"]
+)
 def test_hermes_timeout_recovers_the_persisted_session(
     monkeypatch, tmp_path, export
 ) -> None:
@@ -692,6 +694,9 @@ def test_hermes_timeout_recovers_the_persisted_session(
             return ProcessResult("", "no session", 1, timed_out=False)
         if export == "cancelled":
             return ProcessResult("", "interrupted", -9, False, cancelled=True)
+        if export == "malformed":
+            # A record whose messages cannot be walked keeps the bare timeout.
+            return ProcessResult('{"messages": 42}', "", 0, timed_out=False)
         stdout = '{"messages": 42}' if export == "unreadable" else _PARTIAL_SESSION
         return ProcessResult(json.dumps(stdout), "", 0, timed_out=False)
 

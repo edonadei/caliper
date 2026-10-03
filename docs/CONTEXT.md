@@ -650,7 +650,7 @@ only, cache lives solely in `cache_read_tokens`/`cache_creation_tokens` — so t
 sum never double-counts. This is a normalized contract, not each CLI's raw
 numbers, because backends disagree: claude, pi and hermes report `input` already
 *excluding* cache (pass through), but codex uses OpenAI semantics where
-`input_tokens` *includes* `cached_input_tokens`, so its `_usage` **subtracts**
+`input_tokens` *includes* `cached_input_tokens`, so caliper **subtracts**
 (`input = raw.input_tokens − raw.cached_input_tokens`, `cache_read =
 raw.cached_input_tokens`). codex has no cache-creation notion (→ `None`) and folds
 `reasoning_output_tokens` into `output_tokens` (OpenAI counts it there).
