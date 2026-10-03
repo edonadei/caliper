@@ -210,6 +210,16 @@ chance at least one of k passes, fits a skill whose failures are cheap to retry.
 **pass^k** = `p^k`, the chance all k pass, fits a skill that runs unattended.
 When in doubt use the raw rate: pass@k flatters flaky skills (`1/3 → 70.4%`).
 
+Each task's execution rate shows a **95% Wilson confidence interval** in `run`,
+`report` and each side of `compare`. Its sample size is `usable`, never requested
+k: 3/3 passes still has a 43.9%–100% interval. No usable attempts means no
+interval. This shows sampling uncertainty, not significance of the delta;
+`compare` still flags any drop. JSON includes `TaskResult.score_interval` and
+`TaskComparison.a_score_interval` / `b_score_interval` as `[lower, upper]` rates
+in `[0, 1]`, or `null`. Older runs derive them from their recorded outcomes.
+Activation and the aggregate average have no interval. See
+[Results](../../docs/results.md#execution-confidence-intervals).
+
 **Outcomes.** Each attempt is one of:
 
 | Outcome | Meaning | In the score? |

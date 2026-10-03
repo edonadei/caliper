@@ -61,6 +61,20 @@ usable  = pass + task_fail + cheat
 score   = successes / usable                # raw rate; None if usable == 0
 ```
 
+Each task's execution score also has a **95% Wilson confidence interval**, shown
+in `run`, `report` and on each side of `compare`. For example, 3/3 passes is 100%
+with an interval of 43.9%–100%; 2/3 is 66.7% with an interval of 20.8%–93.9%.
+The sample size is the **usable** count, never the requested k: timeouts,
+infrastructure errors, judge errors and unchecked trigger probes are excluded;
+cheats count as failures. No usable attempts means no interval (`null` in JSON).
+The calculation follows the [NIST Wilson formula](https://www.itl.nist.gov/div898/handbook/prc/section2/prc241.htm).
+
+These intervals describe uncertainty in each task's single-attempt success
+rate. They are not a significance test of the delta between two runs; `compare`
+still flags any score drop as a regression. They assume independent attempts
+under the same run conditions and do not measure systematic judge bias. The
+aggregate averages task rates and has no binomial interval.
+
 Two secondary views are kept for anyone who wants them. They're shown under
 `--verbose`, and on every task in the JSON as `pass_at_k` / `pass_hat_k`:
 
@@ -195,7 +209,7 @@ How to read the diff:
   removed side is the bare agent, it reads `without any skills or servers`.
 - **Each cell is a rate and the attempts behind it**: `60%  ✓ ✗ ✓ ✗ ✓`. Above
   k=5 the marks collapse to a tally (`✓9 ✗1`). `⊘` is an unusable attempt and
-  `·` one that never ran.
+  `·` one that never ran. A second line shows that side's 95% Wilson interval.
 - **Tasks are matched by name**, so reordering doesn't matter. A task in only one
   run is listed as **unmatched** and left out of the delta.
 - **`Δ` is `after − before`, in percentage points** (60% → 100% is `+40 pp`).
@@ -304,6 +318,16 @@ The footer of the results table, then the notes under it:
   token/wall deltas.
 
 ## Results JSON
+
+### Execution confidence intervals
+
+`TaskResult.score_interval` is a derived `[lower, upper]` pair of rates in
+`[0, 1]`, or `null` when there are no usable attempts. It is serialized beside
+`score` and recomputed from recorded outcomes when loading older results or
+results with stale computed fields. `TaskComparison.a_score_interval` and
+`b_score_interval` carry the same derived intervals in `compare --format json`.
+All three fields use the two-sided 95% Wilson method without continuity
+correction. Activation and the aggregate task average have no interval.
 
 ### Usage and transcript fields
 
@@ -419,4 +443,3 @@ All three are `null` on runs saved before they were recorded.
 - `RunComparison` has `a_skills`/`b_skills`: the names of the skills each side
   installed, in snapshot order. They are what the compare header's `skills` row
   shows. A comparison serialized before the fields existed reads them as `[]`.
-

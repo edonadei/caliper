@@ -248,7 +248,13 @@ def _activation_marks(tr: TaskResult, k: int) -> Text:
     return _marks(items, k)
 
 
-def _rate_cell(score: float | None, evidence: Text | str, style: str = "") -> Text:
+def _rate_cell(
+    score: float | None,
+    evidence: Text | str,
+    style: str = "",
+    *,
+    interval: tuple[float, float] | None = None,
+) -> Text:
     """The one rate cell: the rate in its fixed slot, then what it rests on."""
     cell = Text(
         _fmt_score(score).rjust(_RATE_W),
@@ -259,6 +265,9 @@ def _rate_cell(score: float | None, evidence: Text | str, style: str = "") -> Te
         cell.append_text(evidence)
     else:
         cell.append(evidence, style="dim")
+    if interval is not None:
+        lower, upper = interval
+        cell.append(f"\n95% CI {_fmt_score(lower)}–{_fmt_score(upper)}", style="dim")
     return cell
 
 
@@ -611,6 +620,7 @@ def _success_cell(tr: TaskResult, k: int) -> Text:
         tr.score,
         _outcome_marks([a.outcome for a in tr.attempts], k),
         _rate_style(tr.score),
+        interval=tr.score_interval,
     )
 
 
@@ -1424,8 +1434,14 @@ def print_comparison(comp: RunComparison, verbose: bool = False) -> None:
                     tc.a_score,
                     _outcome_marks(tc.a_outcomes, comp.a.k),
                     "" if measured else "dim",
+                    interval=tc.a_score_interval,
                 ),
-                _rate_cell(tc.b_score, _outcome_marks(tc.b_outcomes, comp.b.k), after),
+                _rate_cell(
+                    tc.b_score,
+                    _outcome_marks(tc.b_outcomes, comp.b.k),
+                    after,
+                    interval=tc.b_score_interval,
+                ),
                 _pp(tc.delta, tc.regression),
             ]
         table.add_row(*row)

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from statistics import NormalDist
 from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field, model_validator
@@ -358,6 +360,28 @@ def success_rate(successes: int, usable: int) -> float | None:
     return successes / usable if usable > 0 else None
 
 
+def score_interval(successes: int, usable: int) -> tuple[float, float] | None:
+    """Two-sided 95% Wilson bounds on the raw success rate.
+
+    No continuity correction. The sample is usable attempts (ADR 0007), so
+    an unmeasured task has no interval. See docs/results.md and the NIST formula:
+    https://www.itl.nist.gov/div898/handbook/prc/section2/prc241.htm
+    """
+    rate = success_rate(successes, usable)
+    if rate is None:
+        return None
+    z = NormalDist().inv_cdf(0.975)
+    z_squared = z * z
+    denominator = 1 + z_squared / usable
+    center = (rate + z_squared / (2 * usable)) / denominator
+    margin = (
+        z
+        * math.sqrt(rate * (1 - rate) / usable + z_squared / (4 * usable**2))
+        / denominator
+    )
+    return max(0.0, center - margin), min(1.0, center + margin)
+
+
 def pass_at_k(successes: int, usable: int) -> float | None:
     """P(at least one of k attempts passes) at the observed rate.
 
@@ -461,7 +485,7 @@ class TaskResult(BaseModel):
     """One task's attempts, and every number that follows from them.
 
     Only the attempts and the task's identity are stored; ``successes``,
-    ``usable``, ``unusable`` and all four metrics are **derived**, so no two of
+    ``usable``, ``unusable`` and every metric are **derived**, so no two of
     them can disagree and a hand-edited or older file cannot carry a rate
     inconsistent with the attempts beside it. They are still serialized
     (``computed_field``), so a saved run reads the same as it always did.
@@ -518,6 +542,12 @@ class TaskResult(BaseModel):
         """The **raw success rate** over usable attempts — Caliper's primary
         metric. ``None`` when no attempt was fairly measured."""
         return success_rate(self.successes, self.usable)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def score_interval(self) -> tuple[float, float] | None:
+        """95% Wilson bounds derived from the same usable sample as ``score``."""
+        return score_interval(self.successes, self.usable)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -1057,7 +1087,7 @@ class RunResults(BaseModel):
 class TaskComparison(BaseModel):
     """One matched task diffed across two runs (A vs B).
 
-    ``a_score``/``b_score`` are the stored per-task ``pass_at_k`` (``None`` when
+    ``a_score``/``b_score`` are the per-task raw success rates (``None`` when
     every attempt was unusable — the task was never fairly measured). ``delta``
     is ``b - a`` only when both sides were measured, else ``None`` (never faked
     as 0). ``regression`` fires on the any-below rule: B below A, both measured.
@@ -1078,6 +1108,20 @@ class TaskComparison(BaseModel):
     b_activation: float | None = None
     activation_delta: float | None = None
     activation_regression: bool = False
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def a_score_interval(self) -> tuple[float, float] | None:
+        """A's 95% Wilson bounds, derived from its recorded outcomes."""
+        counts = OutcomeCounts(self.a_outcomes)
+        return score_interval(counts.successes, counts.usable)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def b_score_interval(self) -> tuple[float, float] | None:
+        """B's 95% Wilson bounds, derived from its recorded outcomes."""
+        counts = OutcomeCounts(self.b_outcomes)
+        return score_interval(counts.successes, counts.usable)
 
 
 class SkillDriftRecord(BaseModel):

@@ -124,6 +124,15 @@ validation.
 
 Failed tasks are shown automatically with their output and `assert_evidence`.
 
+- Each task's execution rate shows a 95% Wilson confidence interval in `run`,
+  `report` and each side of `compare`, over usable attempts rather than requested
+  k. Even 3/3 passes has a 43.9%–100% interval. No usable attempts means no
+  interval; activation and the aggregate average have none. This is sampling
+  uncertainty, not a significance test; `compare` still flags any drop. JSON
+  includes `TaskResult.score_interval` and `TaskComparison.a_score_interval` /
+  `b_score_interval` as `[lower, upper]` rates in `[0, 1]`, or `null`; older runs
+  derive them from recorded outcomes. See
+  [Results](../../docs/results.md#execution-confidence-intervals).
 - `✗` is a real `task_fail`. `⊘` is an unusable attempt (`infra_error`,
   `timeout`, `judge_error`), excluded from the score and counted separately. A
   run where every attempt was unusable measured nothing: it is saved, but

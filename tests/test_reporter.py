@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 from datetime import datetime, timezone
 
+from conftest import task_result
 from rich.console import Console
 
 from caliper.reporter import (
@@ -166,6 +167,42 @@ def _render(results: RunResults, *, verbose: bool = False) -> str:
     finally:
         reporter_mod.console = orig
     return buf.getvalue()
+
+
+def test_run_report_shows_score_uncertainty_beside_the_execution_rate() -> None:
+    task = task_result(Outcome.PASS, Outcome.PASS, Outcome.PASS, name="Three passes")
+    results = RunResults(
+        run=RunMeta(
+            spec="demo", timestamp=datetime.now(timezone.utc), k=3, backend="codex"
+        ),
+        task_results=[task],
+        aggregate=AggregateScore.from_task_results([task], k=3),
+    )
+
+    output = _render(results)
+
+    assert "100%" in output
+    assert "95% CI 43.9%–100%" in output
+    assert output.count("95% CI") == 1  # No interval on the aggregate average.
+
+
+def test_run_report_has_no_execution_interval_for_noise_or_trigger_probes() -> None:
+    tasks = [
+        task_result(Outcome.INFRA_ERROR, name="Noise"),
+        task_result(Outcome.NOT_CHECKED, name="Probe", expected=[]),
+    ]
+    results = RunResults(
+        run=RunMeta(
+            spec="demo", timestamp=datetime.now(timezone.utc), k=1, backend="codex"
+        ),
+        task_results=tasks,
+        aggregate=AggregateScore.from_task_results(tasks, k=1),
+    )
+
+    output = _render(results)
+
+    assert "95% CI" not in output
+    assert "probe" in output
 
 
 # ---------------------------------------------------------------------------

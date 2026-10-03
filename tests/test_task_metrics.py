@@ -7,9 +7,82 @@ of the six were then thrown away. There is one derivation now, and this is it.
 
 from __future__ import annotations
 
+import pytest
 from conftest import task_result as _task
 
 from caliper.schema.results import AggregateScore, Outcome, TaskResult
+
+
+def test_three_passes_still_have_substantial_score_uncertainty() -> None:
+    task = _task(Outcome.PASS, Outcome.PASS, Outcome.PASS)
+
+    # Two-sided 95% Wilson bounds, using z = 1.959963984540054.
+    assert task.score_interval == pytest.approx((0.4385029682, 1.0))
+
+
+@pytest.mark.parametrize(
+    ("successes", "failures", "bounds"),
+    [
+        (0, 3, (0.0, 0.5614970318)),
+        (2, 1, (0.2076596008, 0.9385080553)),
+        (1, 0, (0.2065493144, 1.0)),
+        (1, 1, (0.0945312057, 0.9054687943)),
+        (50, 50, (0.4038315304, 0.5961684696)),
+    ],
+)
+def test_score_interval_covers_boundary_mixed_and_larger_samples(
+    successes, failures, bounds
+) -> None:
+    task = _task(*([Outcome.PASS] * successes + [Outcome.TASK_FAIL] * failures))
+
+    assert task.score_interval == pytest.approx(bounds)
+
+
+def test_score_interval_excludes_noise_and_unchecked_but_counts_cheats() -> None:
+    task = _task(
+        Outcome.PASS,
+        Outcome.CHEAT,
+        Outcome.INFRA_ERROR,
+        Outcome.TIMEOUT,
+        Outcome.JUDGE_ERROR,
+        Outcome.NOT_CHECKED,
+    )
+
+    assert task.score_interval == pytest.approx((0.0945312057, 0.9054687943))
+
+
+@pytest.mark.parametrize(
+    "outcomes",
+    [
+        (),
+        (Outcome.NOT_CHECKED,),
+        (Outcome.INFRA_ERROR, Outcome.JUDGE_ERROR, Outcome.TIMEOUT),
+    ],
+)
+def test_an_unmeasured_task_has_no_score_interval(outcomes) -> None:
+    task = _task(*outcomes)
+
+    assert task.score_interval is None
+    assert task.model_dump(mode="json")["score_interval"] is None
+
+
+@pytest.mark.parametrize("stored_bounds", [None, [0.9, 1.0]])
+def test_saved_task_intervals_are_derived_even_when_missing_or_stale(
+    stored_bounds,
+) -> None:
+    stored = _task(Outcome.PASS, Outcome.PASS, Outcome.TASK_FAIL).model_dump(
+        mode="json"
+    )
+    if stored_bounds is None:
+        stored.pop("score_interval")
+    else:
+        stored["score_interval"] = stored_bounds
+
+    loaded = TaskResult.model_validate(stored)
+
+    assert loaded.model_dump(mode="json")["score_interval"] == pytest.approx(
+        [0.2076596008, 0.9385080553]
+    )
 
 
 def test_counts_split_usable_from_noise() -> None:

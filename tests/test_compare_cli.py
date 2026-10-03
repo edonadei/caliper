@@ -166,3 +166,36 @@ def test_an_unknown_format_is_refused(argv) -> None:
     output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
     assert result.exit_code == 2
     assert "Invalid value for '--format'" in output
+
+
+@pytest.mark.parametrize("command", ["report", "compare"])
+@pytest.mark.parametrize("fmt", ["table", "json"])
+def test_saved_run_commands_derive_intervals_for_older_runs(
+    monkeypatch, tmp_path, command, fmt
+) -> None:
+    ablated, full = _two_runs(tmp_path)
+    for path in (ablated, full):
+        stored = json.loads(path.read_text())
+        stored["task_results"][0].pop("score_interval")
+        path.write_text(json.dumps(stored))
+    monkeypatch.chdir(tmp_path)
+    args = (
+        [command, str(full)]
+        if command == "report"
+        else [command, str(ablated), str(full)]
+    )
+
+    result = runner.invoke(app, [*args, "--format", fmt])
+
+    assert result.exit_code == 0, result.output
+    if fmt == "table":
+        assert "95% CI 20.7%–100%" in result.output
+    else:
+        output = json.loads(result.output)
+        if command == "report":
+            assert output["task_results"][0]["score_interval"] == pytest.approx(
+                [0.2065493144, 1.0]
+            )
+        else:
+            for field in ("a_score_interval", "b_score_interval"):
+                assert output["matched"][0][field] == pytest.approx([0.2065493144, 1.0])

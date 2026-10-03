@@ -396,6 +396,12 @@ over the attempts that got a fair shot. Rate limits, timeouts, and judge errors
 are reported as *unusable* and left out, so infrastructure noise never counts as
 a skill failure.
 
+Each task shows a 95% Wilson confidence interval over its usable attempts in
+`run`, `report` and `compare`: 3/3 passes is 100%, with a 43.9%–100% interval.
+Small samples leave substantial uncertainty; intervals do not change the
+any-drop regression rule in `compare`. Results JSON includes the derived
+`score_interval` bounds (or `null` when no attempts were usable).
+
 | The question you're asking | Metric | For a `1/3` skill (k=3) |
 | --- | --- | --- |
 | How reliable is a **single** run? *(default)* | **success rate** | `33%` |

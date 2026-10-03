@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from caliper.compare import diff_runs
 from caliper.reporter import print_comparison
 from caliper.schema.results import (
@@ -61,6 +63,47 @@ def _run(tasks: list[TaskResult], *, spec: str = "demo", k: int = 5) -> RunResul
 
 
 P, F, INF = Outcome.PASS, Outcome.TASK_FAIL, Outcome.INFRA_ERROR
+
+
+def test_comparison_shows_each_samples_interval_without_changing_regressions() -> None:
+    a = _run([_task("alpha", [P, P, P])], k=3)
+    b = _run([_task("alpha", [P, P, F, INF, Outcome.JUDGE_ERROR])], k=5)
+
+    comp = diff_runs(a, b)
+    task = comp.matched[0]
+
+    assert task.a_score_interval == pytest.approx((0.4385029682, 1.0))
+    assert task.b_score_interval == pytest.approx((0.2076596008, 0.9385080553))
+    # The intervals overlap, but any-below remains the regression rule.
+    assert task.regression is True
+    assert task.delta == pytest.approx(-1 / 3)
+    dumped = comp.model_dump(mode="json")["matched"][0]
+    assert dumped["a_score_interval"] == pytest.approx([0.4385029682, 1.0])
+    assert dumped["b_score_interval"] == pytest.approx([0.2076596008, 0.9385080553])
+
+
+def test_comparison_table_shows_both_intervals_beside_the_delta(capsys) -> None:
+    a = _run([_task("alpha", [P, P, P])], k=3)
+    b = _run([_task("alpha", [P, P, F])], k=3)
+
+    print_comparison(diff_runs(a, b))
+
+    output = capsys.readouterr().out
+    assert "95% CI 43.9%–100%" in output
+    assert "95% CI 20.8%–93.9%" in output
+    assert "-33.3 pp" in output
+    assert output.count("95% CI") == 2
+
+
+def test_an_unmeasured_comparison_side_has_no_interval() -> None:
+    a = _run([_task("alpha", [P, F])])
+    b = _run([_task("alpha", [INF, Outcome.TIMEOUT, Outcome.NOT_CHECKED])])
+
+    task = diff_runs(a, b).matched[0]
+
+    assert task.a_score_interval == pytest.approx((0.0945312057, 0.9054687943))
+    assert task.b_score_interval is None
+    assert task.model_dump(mode="json")["b_score_interval"] is None
 
 
 # --------------------------------------------------------------------------
