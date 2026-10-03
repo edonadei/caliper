@@ -6,7 +6,6 @@ import re
 import typing
 from pathlib import Path
 
-import click
 from pydantic import BaseModel
 from typer.main import get_command
 
@@ -22,11 +21,14 @@ _LOADER_KEYS = {"id"}
 def _run_flags() -> dict[str, set[str]]:
     """Each `caliper run` option's primary flag, mapped to every spelling of it."""
     run = get_command(app).commands["run"]
-    return {
+    flags = {
         param.opts[0]: set(param.opts) | set(param.secondary_opts)
         for param in run.params
-        if isinstance(param, click.Option) and param.opts[0].startswith("--")
+        if param.param_type_name == "option" and param.opts[0].startswith("--")
     }
+    # An empty result would make every check below pass vacuously.
+    assert flags, "found no `caliper run` options; did typer change its types?"
+    return flags
 
 
 def _mentions_flag(text: str, flag: str) -> bool:
