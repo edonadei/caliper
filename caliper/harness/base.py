@@ -824,10 +824,11 @@ class CliHarness(HarnessBackend):
         """
         if not ctx.user_customizations:
             return None
-        if report.mcp_servers is None:
+        servers = report.mcp_servers
+        if servers is None:
             return sorted({UNLISTED_MCP, *user_files})
         return sorted(
-            {f"mcp:{name}" for name in set(report.mcp_servers) - ctx.spec_mcp_names}
+            {f"mcp:{name}" for name in set(servers) - ctx.spec_mcp_names}
             | set(user_files)
         )
 
