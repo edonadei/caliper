@@ -3,15 +3,28 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from caliper.harness.base import ConversationTurn, PromptResult
+from caliper.harness.base import (
+    ConversationTurn,
+    HarnessConfigurationError,
+    PromptResult,
+)
 from caliper.schema.spec import TaskSpec
 from caliper.workdir import AttemptWorkdir
+
+
+class JudgeModelUnavailable(HarnessConfigurationError):
+    """The judge's model cannot run, so no attempt could ever be graded.
+
+    The judge's own type, so the cause names the judge rather than a harness.
+    Still a configuration error: the same model fails every attempt's judge the
+    same way, so the run stops and diagnoses it like any other misconfiguration
+    instead of paying for each agent run only to discard it (issue #139).
+    """
 
 
 @dataclass
 class JudgeResult:
     passed: bool
-    reasoning: str
     assert_passed: bool | None = None
     assert_evidence: str | None = None
     autorater_passed: bool | None = None
@@ -74,6 +87,5 @@ class Judge(Protocol):
         self,
         task: TaskSpec,
         transcript: list[ConversationTurn],
-        final_output: str,
         workdir: AttemptWorkdir,
     ) -> JudgeResult: ...

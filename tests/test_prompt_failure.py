@@ -137,7 +137,6 @@ def test_eval_judge_stops_the_run_on_an_unavailable_model(
         EvalJudge(backend="claude-code").evaluate(
             task=_task(expect="x"),
             transcript=[ConversationTurn(role="assistant", content="hello")],
-            final_output="hello",
             workdir=attempt_workdir,
         )
 
@@ -163,7 +162,6 @@ def test_eval_judge_keeps_a_rate_limit_per_attempt(
     result = EvalJudge(backend="claude-code").evaluate(
         task=_task(expect="x"),
         transcript=[ConversationTurn(role="assistant", content="hello")],
-        final_output="hello",
         workdir=attempt_workdir,
     )
 

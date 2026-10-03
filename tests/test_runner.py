@@ -257,11 +257,11 @@ class JudgeErrorThenPass:
     def __init__(self) -> None:
         self.calls = 0
 
-    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
+    def evaluate(self, task, transcript, workdir) -> JudgeResult:
         self.calls += 1
         if self.calls == 1:
-            return JudgeResult(passed=False, reasoning="judge flaked", errored=True)
-        return JudgeResult(passed=True, reasoning="ok")
+            return JudgeResult(passed=False, errored=True)
+        return JudgeResult(passed=True)
 
 
 def _one_task_spec() -> EvalSpec:
@@ -410,8 +410,8 @@ class ModelReportingJudge:
         self.model = model
         self.prompt_version = None
 
-    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
-        return JudgeResult(passed=True, reasoning="ok", resolved_model=self._resolved)
+    def evaluate(self, task, transcript, workdir) -> JudgeResult:
+        return JudgeResult(passed=True, resolved_model=self._resolved)
 
 
 def test_runmeta_records_judge_engine_and_resolved_model(tmp_path) -> None:
@@ -493,10 +493,10 @@ class AlternatingModelJudge(ModelReportingJudge):
         self._models = list(models)
         self._lock = threading.Lock()
 
-    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
+    def evaluate(self, task, transcript, workdir) -> JudgeResult:
         with self._lock:
             resolved = self._models.pop(0)
-        return JudgeResult(passed=True, reasoning="ok", resolved_model=resolved)
+        return JudgeResult(passed=True, resolved_model=resolved)
 
 
 def test_runmeta_records_the_most_common_judge_model_and_warns(tmp_path) -> None:

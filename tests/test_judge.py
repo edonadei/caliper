@@ -25,6 +25,7 @@ from caliper.harness.codex import CodexHarness, _extract_codex_error
 from caliper.harness.hermes import HermesHarness
 from caliper.harness.pi import PiHarness
 from caliper.harness.prompt_failure import PromptFailure, PromptFailureKind
+from caliper.judge.base import JudgeModelUnavailable
 from caliper.judge.eval_judge import EvalJudge, render_judge_prompt
 from caliper.schema.results import TranscriptTurn
 from caliper.schema.spec import TaskSpec
@@ -90,7 +91,6 @@ def test_eval_judge_expect_only_calls_llm(attempt_workdir) -> None:
     result = judge.evaluate(
         task=_task(expect="should say hello"),
         transcript=[ConversationTurn(role="assistant", content="hello")],
-        final_output="hello",
         workdir=attempt_workdir,
     )
 
@@ -115,7 +115,6 @@ def test_judge_input_can_be_rebuilt_from_the_saved_transcript(attempt_workdir) -
     EvalJudge(backend="codex", harness=backend).evaluate(
         task=_task(expect="writes a.txt"),
         transcript=turns,
-        final_output="done",
         workdir=attempt_workdir,
     )
 
@@ -147,7 +146,7 @@ def _script(code: str) -> ScriptedPrompt:
 def test_script_mode_keeps_the_autorater_script(code, attempt_workdir) -> None:
     """Kept pass or fail: the workdir it asserted on does not outlive the attempt."""
     result = EvalJudge(backend="codex", harness=_script(code)).evaluate(
-        task=_task(), transcript=[], final_output="", workdir=attempt_workdir
+        task=_task(), transcript=[], workdir=attempt_workdir
     )
 
     assert result.autorater_script == code
@@ -155,7 +154,7 @@ def test_script_mode_keeps_the_autorater_script(code, attempt_workdir) -> None:
 
 def test_direct_verdict_has_no_autorater_script(attempt_workdir) -> None:
     result = EvalJudge(backend="codex", harness=_verdict(True)).evaluate(
-        task=_task(), transcript=[], final_output="", workdir=attempt_workdir
+        task=_task(), transcript=[], workdir=attempt_workdir
     )
 
     assert result.autorater_script is None
@@ -166,7 +165,6 @@ def test_eval_judge_assert_only_runs_script_no_llm(tmp_path, attempt_workdir) ->
     result = judge.evaluate(
         task=_task(expect="", assert_script="assert 1 == 1"),
         transcript=[],
-        final_output="",
         workdir=attempt_workdir,
     )
 
@@ -182,7 +180,6 @@ def test_eval_judge_assert_failure_makes_overall_fail(
     result = judge.evaluate(
         task=_task(expect="", assert_script="assert False, 'nope'"),
         transcript=[],
-        final_output="",
         workdir=attempt_workdir,
     )
 
@@ -195,7 +192,6 @@ def test_eval_judge_both_checks_must_pass(attempt_workdir) -> None:
     result = judge.evaluate(
         task=_task(expect="pass", assert_script="assert False, 'script fails'"),
         transcript=[],
-        final_output="",
         workdir=attempt_workdir,
     )
 
@@ -210,7 +206,6 @@ def test_errored_autorater_dropped_when_assert_passes(attempt_workdir) -> None:
     result = judge.evaluate(
         task=_task(expect="x", assert_script="assert True"),
         transcript=[],
-        final_output="",
         workdir=attempt_workdir,
     )
     assert result.errored is False
@@ -223,7 +218,6 @@ def test_errored_autorater_does_not_override_failing_assert(attempt_workdir) -> 
     result = judge.evaluate(
         task=_task(expect="x", assert_script="assert False"),
         transcript=[],
-        final_output="",
         workdir=attempt_workdir,
     )
     assert result.errored is False  # assert gave a real (failing) verdict
@@ -236,7 +230,6 @@ def test_judge_error_when_only_check_errors(attempt_workdir) -> None:
     result = judge.evaluate(
         task=_task(expect="x"),
         transcript=[],
-        final_output="",
         workdir=attempt_workdir,
     )
     assert result.errored is True
@@ -248,11 +241,10 @@ def test_unknown_judge_backend_errors(tmp_path, attempt_workdir) -> None:
     result = judge.evaluate(
         task=_task(),
         transcript=[],
-        final_output="",
         workdir=attempt_workdir,
     )
     assert result.errored is True
-    assert "Unknown judge backend" in result.reasoning
+    assert "Unknown judge backend" in result.autorater_reasoning
 
 
 # --- claude-code prompt path -------------------------------------------------
@@ -269,7 +261,6 @@ def test_eval_judge_claude_code_invokes_claude_cli(
     result = EvalJudge(backend="claude", model="claude-test").evaluate(
         task=_task(expect="The assistant says hello."),
         transcript=[ConversationTurn(role="assistant", content="hello")],
-        final_output="hello",
         workdir=attempt_workdir,
     )
 
@@ -299,7 +290,6 @@ def test_eval_judge_claude_code_defers_to_cli_default_model(
     EvalJudge(backend="claude-code").evaluate(
         task=_task(),
         transcript=[ConversationTurn(role="assistant", content="ok")],
-        final_output="ok",
         workdir=attempt_workdir,
     )
 
@@ -322,7 +312,6 @@ def test_claude_judge_extracts_concrete_model_from_envelope(
     result = EvalJudge(backend="claude-code").evaluate(
         task=_task(),
         transcript=[ConversationTurn(role="assistant", content="ok")],
-        final_output="ok",
         workdir=attempt_workdir,
     )
 
@@ -369,7 +358,6 @@ def test_codex_judge_uses_output_last_message(
     result = EvalJudge(backend="codex", model="test-model").evaluate(
         task=_task(expect="The assistant says hello."),
         transcript=[ConversationTurn(role="assistant", content="hello")],
-        final_output="hello",
         workdir=attempt_workdir,
     )
 
@@ -461,7 +449,6 @@ def test_hermes_backend_is_a_valid_judge(
     result = EvalJudge(backend="hermes", model="anthropic/claude-sonnet-4.6").evaluate(
         task=_task(),
         transcript=[ConversationTurn(role="assistant", content="ok")],
-        final_output="ok",
         workdir=attempt_workdir,
     )
 
@@ -484,7 +471,6 @@ def test_judge_strips_markdown_fence(monkeypatch, tmp_path, attempt_workdir) -> 
     result = EvalJudge(backend="hermes").evaluate(
         task=_task(expect="anything"),
         transcript=[],
-        final_output="",
         workdir=attempt_workdir,
     )
 
@@ -540,7 +526,6 @@ def test_pi_backend_is_a_valid_judge(monkeypatch, tmp_path, attempt_workdir) -> 
     result = EvalJudge(backend="pi", model="claude-sonnet-4-6").evaluate(
         task=_task(),
         transcript=[ConversationTurn(role="assistant", content="ok")],
-        final_output="ok",
         workdir=attempt_workdir,
     )
 
@@ -587,7 +572,6 @@ def test_assert_script_file_resolves_from_spec_dir_and_runs_in_workdir(
     result = EvalJudge().evaluate(
         task=_task(expect="", assert_script="./check.py"),
         transcript=[],
-        final_output="",
         workdir=attempt_workdir,
     )
 
@@ -606,7 +590,6 @@ def test_autorater_runs_in_the_attempt_workdir_not_the_spec_dir(
     EvalJudge(backend="claude", model="claude-test").evaluate(
         task=_task(expect="says ok"),
         transcript=[ConversationTurn(role="assistant", content="ok")],
-        final_output="ok",
         workdir=attempt_workdir,
     )
 
@@ -620,7 +603,6 @@ def test_an_assertion_that_hangs_has_no_verdict(attempt_workdir, monkeypatch) ->
     result = EvalJudge().evaluate(
         task=_task(expect="", assert_script="import time\ntime.sleep(30)"),
         transcript=[],
-        final_output="",
         workdir=attempt_workdir,
     )
 
@@ -636,7 +618,6 @@ def test_the_autorater_times_its_own_call(attempt_workdir) -> None:
     result = EvalJudge(backend="codex", harness=_verdict(True)).evaluate(
         task=_task(expect="x", assert_script="assert True"),
         transcript=[],
-        final_output="",
         workdir=attempt_workdir,
     )
 
@@ -650,7 +631,6 @@ def test_an_assert_script_beside_the_autorater_is_not_judge_time(
     result = EvalJudge(backend="codex", harness=_verdict(True)).evaluate(
         task=_task(expect="x", assert_script="import time\ntime.sleep(0.3)"),
         transcript=[],
-        final_output="",
         workdir=attempt_workdir,
     )
 
@@ -663,7 +643,6 @@ def test_an_assert_only_task_records_no_autorater_time(attempt_workdir) -> None:
     result = EvalJudge(backend="codex", harness=harness).evaluate(
         task=_task(expect="", assert_script="assert True"),
         transcript=[],
-        final_output="",
         workdir=attempt_workdir,
     )
 
@@ -683,10 +662,12 @@ def test_an_unavailable_judge_model_stops_the_run(attempt_workdir) -> None:
         )
     )
 
-    with pytest.raises(HarnessConfigurationError):
+    # The judge's own type, still a configuration error so the run stops on it
+    # and diagnoses it exactly as before (issue #139).
+    with pytest.raises(JudgeModelUnavailable) as raised:
         EvalJudge(backend="codex", harness=harness).evaluate(
             task=_task(expect="x"),
             transcript=[],
-            final_output="",
             workdir=attempt_workdir,
         )
+    assert isinstance(raised.value, HarnessConfigurationError)
