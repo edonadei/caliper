@@ -12,7 +12,7 @@ Unit tests fake the agent CLIs. The smoke evals in `tests/*-smoke.eval.yaml` run
 1. **Plan.** From the repo root, with the dev environment active:
 
    ```bash
-   python .claude/skills/smoke-harness/scripts/smoke.py --dry-run
+   python .agents/skills/smoke-harness/scripts/smoke.py --dry-run
    ```
 
    With no arguments the script picks the backends this branch touched (a backend's own harness file reaches that backend; shared `caliper/` code reaches all of them) and skips any whose CLI caliper cannot find (its `*_CLI_PATH` override, install locations, then `PATH`). Name backends to override: `smoke.py codex pi`, or pin a model with `claude-code:claude-haiku-4-5-20251001`.

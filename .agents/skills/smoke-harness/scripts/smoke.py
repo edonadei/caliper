@@ -1,9 +1,9 @@
 """Run caliper's backend smoke evals and check the saved results.
 
-    python .claude/skills/smoke-harness/scripts/smoke.py              # backends this branch touched
-    python .claude/skills/smoke-harness/scripts/smoke.py codex pi     # these backends
-    python .claude/skills/smoke-harness/scripts/smoke.py claude-code:claude-haiku-4-5-20251001
-    python .claude/skills/smoke-harness/scripts/smoke.py --dry-run   # print the plan, run nothing
+    python .agents/skills/smoke-harness/scripts/smoke.py              # backends this branch touched
+    python .agents/skills/smoke-harness/scripts/smoke.py codex pi     # these backends
+    python .agents/skills/smoke-harness/scripts/smoke.py claude-code:claude-haiku-4-5-20251001
+    python .agents/skills/smoke-harness/scripts/smoke.py --dry-run   # print the plan, run nothing
 
 Exit 0 when every attempt passed, 1 when any check failed, 2 when nothing could
 run (no harness-facing change, or no requested backend CLI installed).
