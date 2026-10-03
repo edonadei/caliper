@@ -24,6 +24,7 @@ import json
 import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from socketserver import TCPServer
 
 PROTOCOL_VERSION = "2024-11-05"
 TOKEN = os.environ.get("ECHO_MCP_TOKEN", "s3cr3t")
@@ -130,9 +131,19 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+class LoopbackHTTPServer(ThreadingHTTPServer):
+    def server_bind(self) -> None:
+        # This fixture needs only its literal loopback address. HTTPServer's
+        # getfqdn lookup can stall before listen() on macOS hosted runners:
+        # https://github.com/actions/runner-images/issues/14409
+        TCPServer.server_bind(self)
+        self.server_name = "127.0.0.1"
+        self.server_port = self.server_address[1]
+
+
 def main() -> None:
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    server = LoopbackHTTPServer(("127.0.0.1", port), Handler)
     sys.stderr.write(f"[echo-http] listening on 127.0.0.1:{port}\n")
     server.serve_forever()
 

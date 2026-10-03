@@ -113,10 +113,23 @@ def test_http_smoke_keeps_pid_and_log_in_its_workdir(monkeypatch) -> None:
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
-    setup = task.setup.replace("8765", str(port)).replace(
-        "python3", f'"{sys.executable}"'
-    )
     with AttemptWorkdir(_SPEC_DIR) as workdir:
+        # HTTPServer's reverse lookup can stall before listen() on macOS CI.
+        # Exercise the real fixture entry point with DNS forbidden, so the
+        # test stays sensitive to that startup regression on every platform.
+        launcher = Path(workdir.home) / "http-launcher.py"
+        launcher.write_text(
+            "import runpy, socket, sys\n"
+            "def no_reverse_dns(*args):\n"
+            "    raise AssertionError('HTTP fixture must not resolve hostnames')\n"
+            "socket.getfqdn = no_reverse_dns\n"
+            "fixture = sys.argv.pop(1)\n"
+            "runpy.run_path(fixture, run_name='__main__')\n",
+            encoding="utf-8",
+        )
+        setup = task.setup.replace("8765", str(port)).replace(
+            "python3", f'"{sys.executable}" "{launcher}"'
+        )
         pid_file = Path(workdir.path) / "caliper-echo-http.pid"
         log_file = Path(workdir.path) / "caliper-echo-http.log"
         server_process = None
@@ -125,6 +138,7 @@ def test_http_smoke_keeps_pid_and_log_in_its_workdir(monkeypatch) -> None:
             assert step.ok, step.output
             assert pid_file.exists()
             assert log_file.exists()
+            assert psutil.pid_exists(int(pid_file.read_text())), log_file.read_text()
             server_process = psutil.Process(int(pid_file.read_text()))
             payload = json.dumps(
                 {
