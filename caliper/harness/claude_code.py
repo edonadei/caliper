@@ -105,14 +105,16 @@ class ClaudeCodeHarness(CliHarness):
             )
         return files
 
-    def _user_skill_name(self, path: Path) -> str:
+    def user_skill_name(self, path: Path) -> str:
         # For personal Claude skills, frontmatter name is only a display label.
         return path.parent.name
 
-    def _seed_user_files(self, ctx: RunContext) -> list[str]:
-        names = super()._seed_user_files(ctx)
-        if not ctx.user_customizations:
-            return names
+    def stage_plugins(self, ctx: RunContext) -> tuple[list[str], dict[str, str]]:
+        return self._copy_plugins(ctx), self._staged_plugin_skill_paths(ctx)
+
+    def _copy_plugins(self, ctx: RunContext) -> list[str]:
+        """Copy each enabled user-scope plugin into a private installation."""
+        names: list[str] = []
         real = Path.home() / ".claude"
         target = Path(ctx.isolated_home) / ".claude"
         registry = real / "plugins/installed_plugins.json"
@@ -156,10 +158,11 @@ class ClaudeCodeHarness(CliHarness):
             ) from exc
         return names
 
-    def _plugin_skill_paths(self, ctx: RunContext) -> dict[str, str]:
+    def _staged_plugin_skill_paths(self, ctx: RunContext) -> dict[str, str]:
+        """Each staged plugin skill's command name, to the path its reads match."""
         claude_dir = Path(ctx.isolated_home) / ".claude"
         registry = claude_dir / "plugins/installed_plugins.json"
-        if not ctx.user_customizations or not registry.exists():
+        if not registry.exists():
             return {}
         paths = {}
         metadata_path = registry

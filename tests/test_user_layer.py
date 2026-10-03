@@ -7,10 +7,13 @@ from pathlib import Path
 import pytest
 from conftest import patch_cli_calls, run_context
 
-from caliper.harness.base import UNLISTED_MCP
+from caliper.harness import user_layer
+from caliper.harness.base import AgentReport
 from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.harness.codex import CodexHarness
 from caliper.harness.hermes import HermesHarness
+from caliper.harness.pi import PiHarness
+from caliper.harness.user_layer import UNLISTED_MCP
 from caliper.skills import SkillRef
 
 
@@ -333,3 +336,87 @@ def test_skills_are_recorded_when_the_mcp_inventory_is_unknown(monkeypatch, tmp_
         run_context(isolated_home=str(tmp_path / "iso"), user_customizations=True)
     )
     assert result.loaded_user_customizations == [UNLISTED_MCP, "skill:personal"]
+
+
+# --- the staging module, without spawning a CLI ------------------------------
+
+
+def _personal_skill(home: Path, folder: str) -> None:
+    skill = home / folder / "skills" / "personal"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: personal\ndescription: test\n---\n")
+
+
+@pytest.mark.parametrize(
+    ("backend", "folder", "rules"),
+    [
+        (ClaudeCodeHarness, ".claude", "CLAUDE.md"),
+        (CodexHarness, ".codex", "AGENTS.md"),
+        (HermesHarness, ".hermes", None),
+    ],
+)
+def test_staging_copies_the_user_layer_into_the_attempt_home(
+    monkeypatch, tmp_path, backend, folder, rules
+):
+    """Staged against a temp home, read back through one value: no CLI involved."""
+    home = tmp_path / "real"
+    _personal_skill(home, folder)
+    if rules:
+        (home / folder / rules).write_text("Personal instructions")
+    monkeypatch.setenv("HOME", str(home))
+    iso = tmp_path / "iso"
+    ctx = run_context(isolated_home=str(iso), user_customizations=True)
+
+    staged = user_layer.stage(backend(), ctx)
+
+    assert staged.skill_names == ["personal"]
+    assert (iso / folder / "skills/personal/SKILL.md").is_file()
+    expected = ["skill:personal"] + ([f"rules:{rules}"] if rules else [])
+    report = AgentReport(read_mcp_servers=lambda: ["mine"])
+    assert staged.loaded(report) == sorted(["mcp:mine", *expected])
+
+
+def test_an_isolated_attempt_stages_and_records_nothing(monkeypatch, tmp_path):
+    home = tmp_path / "real"
+    _personal_skill(home, ".claude")
+    monkeypatch.setenv("HOME", str(home))
+    iso = tmp_path / "iso"
+    ctx = run_context(isolated_home=str(iso), user_customizations=False)
+
+    staged = user_layer.stage(ClaudeCodeHarness(), ctx)
+
+    assert staged.skill_names == []
+    assert not (iso / ".claude/skills/personal").exists()
+    assert staged.loaded(AgentReport(read_mcp_servers=lambda: ["mine"])) is None
+
+
+def test_a_backend_without_mcp_stages_nothing_even_when_asked(monkeypatch, tmp_path):
+    """The run seam already turns the choice off here; staging agrees on its own."""
+    home = tmp_path / "real"
+    _personal_skill(home, ".pi/agent")
+    monkeypatch.setenv("HOME", str(home))
+    iso = tmp_path / "iso"
+    ctx = run_context(isolated_home=str(iso), user_customizations=True)
+
+    staged = user_layer.stage(PiHarness(), ctx)
+
+    assert staged.skill_names == []
+    assert not (iso / ".pi/agent/skills/personal").exists()
+
+
+def test_built_in_skills_are_what_is_neither_declared_nor_the_users(
+    monkeypatch, tmp_path
+):
+    home = tmp_path / "real"
+    _personal_skill(home, ".claude")
+    monkeypatch.setenv("HOME", str(home))
+    ctx = run_context(
+        isolated_home=str(tmp_path / "iso"),
+        user_customizations=True,
+        spec_skill_names=frozenset({"subject"}),
+    )
+    staged = user_layer.stage(ClaudeCodeHarness(), ctx)
+
+    exposed = AgentReport(exposed_skills=["subject", "personal", "debug"])
+    assert staged.builtin(exposed) == ["debug"]
+    assert staged.builtin(AgentReport()) is None

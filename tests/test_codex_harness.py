@@ -13,13 +13,13 @@ import pytest
 from conftest import patch_cli_calls, run_context
 
 from caliper.harness.base import (
-    UNLISTED_MCP,
     HarnessConfigurationError,
     ProcessResult,
     RunContext,
 )
 from caliper.harness.codex import NO_ACCOUNT_CONNECTORS, CodexHarness
 from caliper.harness.prompt_failure import PromptFailureKind
+from caliper.harness.user_layer import UNLISTED_MCP
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
 

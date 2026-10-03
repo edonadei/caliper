@@ -92,3 +92,10 @@ is policy that genuinely differs: `_diagnose`, `_error_field`, hermes'
 `_cli_text` (its reply shares stderr with its errors), and
 `_recover_timed_out`, which spawns a process rather than reading one.
 `salvages_raw_stdout` is declared as data, like the chores above.
+
+**Amended: the user layer is staged beside the base.** Staging the user
+customizations an attempt loads (docs/adr/0028) moved out of `CliHarness` into
+`caliper/harness/user_layer.py`, which does the work on the base's behalf. The
+rule is unchanged: a backend still only declares where it keeps that layer
+(`user_rules`, `user_settings_file`, `user_skill_name`, `bundled_skill_names`,
+`stage_plugins`), and those hooks are public because a sibling module calls them.

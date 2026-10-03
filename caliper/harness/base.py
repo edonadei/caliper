@@ -31,10 +31,6 @@ from caliper.skills import SkillRef, frontmatter_name, install_skills
 
 _POST_KILL_DRAIN_TIMEOUT = 1
 
-# Recorded beside the staged user files when the backend cannot list its MCP
-# servers: the inventory is partial, and says so (docs/adr/0028).
-UNLISTED_MCP = "mcp:(not listed)"
-
 _Fact = TypeVar("_Fact")
 
 
@@ -489,12 +485,10 @@ class CliHarness(HarnessBackend):
         self._ensure_ready(ctx)
         self._seed_home(ctx)
         self._prepare(ctx)
-        user_files = self._seed_user_files(ctx)
-        # After _prepare: a backend's skills root can depend on state _prepare
-        # sets up (hermes' HERMES_HOME, pi's agent dir).
-        user_skills = self._install_user_skills(ctx)
-        plugin_skills = self._plugin_skill_paths(ctx)
-        user_files.extend(f"skill:{name}" for name in plugin_skills)
+        # Imported here: the user layer reads this module's types.
+        from caliper.harness import user_layer
+
+        staged = user_layer.stage(self, ctx)
         self._install_skills(ctx)
         cmd, stdin, cleanup = self._command(ctx)
         env = self._environment(ctx)
@@ -547,23 +541,11 @@ class CliHarness(HarnessBackend):
             cancelled=proc.cancelled,
             salvaged=not parsed,
             refusal=refusal,
-            loaded_user_customizations=self._recorded_customizations(
-                report, ctx, user_files + [f"skill:{name}" for name in user_skills]
-            ),
-            user_skill_paths=plugin_skills,
-            user_skill_names=sorted(set(user_skills) | set(plugin_skills)),
-            builtin_skill_names=self._builtin_skills(
-                report, ctx, set(user_skills) | set(plugin_skills)
-            ),
+            loaded_user_customizations=staged.loaded(report),
+            user_skill_paths=staged.plugin_skill_paths,
+            user_skill_names=staged.skill_names,
+            builtin_skill_names=staged.builtin(report),
         )
-
-    def _builtin_skills(
-        self, report: AgentReport, ctx: RunContext, user_skills: set[str]
-    ) -> list[str] | None:
-        """The exposed skills that are neither declared nor the user's own."""
-        if report.exposed_skills is None:
-            return None
-        return sorted(set(report.exposed_skills) - ctx.spec_skill_names - user_skills)
 
     def run_prompt(
         self,
@@ -652,70 +634,29 @@ class CliHarness(HarnessBackend):
         ``_prepare``, so it may read state that hook set up.
         """
 
+    # Where this backend keeps the user layer it loads beside the spec's own,
+    # relative to the skills root's parent; staged by
+    # :mod:`caliper.harness.user_layer` (docs/adr/0028).
     user_rules: tuple[str, ...] = ()
     user_settings_file: str | None = None
 
-    def _seed_user_files(self, ctx: RunContext) -> list[str]:
-        """Record input files before the agent can mutate its private copies."""
-        if not ctx.user_customizations or not self.supports_mcp:
-            return []
-        target = self.skills_root(ctx).parent
-        source = Path.home() / target.relative_to(ctx.isolated_home)
-        names = []
-        for name in self.user_rules:
-            if (source / name).is_file():
-                (target / name).parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source / name, target / name)
-                names.append(f"rules:{name}")
-        if self.user_settings_file and (source / self.user_settings_file).is_file():
-            names.append(f"settings:{self.user_settings_file}")
-        return names
+    def stage_plugins(self, ctx: RunContext) -> tuple[list[str], dict[str, str]]:
+        """Stage the user's plugins; return their ``plugin:`` files and skills.
 
-    def _plugin_skill_paths(self, ctx: RunContext) -> dict[str, str]:
-        """Namespaced plugin skills whose file paths do not contain their name."""
-        return {}
+        The skills map each namespaced command name to the path a read of it
+        matches, since a plugin skill's file path does not contain its name.
+        Only asked when the attempt loads user customizations
+        (:mod:`caliper.harness.user_layer`). Default: no plugins.
+        """
+        return [], {}
 
-    def _user_skill_name(self, path: Path) -> str | None:
+    def user_skill_name(self, path: Path) -> str | None:
+        """The name a user skill installs under. Default: its frontmatter ``name``."""
         return frontmatter_name(path.read_text())
 
-    def _bundled_skill_names(self, source: Path) -> set[str]:
+    def bundled_skill_names(self, source: Path) -> set[str]:
         """Skills the CLI ships in the user's skills root; not the user's own."""
         return set()
-
-    def _install_user_skills(self, ctx: RunContext) -> list[str]:
-        if not ctx.user_customizations or not self.supports_mcp:
-            return []
-        root = self.skills_root(ctx)
-        source = Path.home() / root.relative_to(ctx.isolated_home)
-        refs = []
-        # Follow user-installed directory symlinks, but install independent copies.
-        visited: set[Path] = set()
-        bundled = self._bundled_skill_names(source)
-        for directory, directories, files in os.walk(source, followlinks=True):
-            resolved = Path(directory).resolve()
-            if resolved in visited:
-                directories.clear()
-                continue
-            visited.add(resolved)
-            # Hidden directories hold the CLI's own state and system skills
-            # (codex's `.system`), which it installs for itself.
-            directories[:] = sorted(d for d in directories if not d.startswith("."))
-            if "SKILL.md" not in files:
-                continue
-            directories.clear()
-            path = Path(directory) / "SKILL.md"
-            name = self._user_skill_name(path)
-            if not name or name in ctx.spec_skill_names or name in bundled:
-                continue
-            if name in {".", ".."} or "/" in name or "\\" in name:
-                raise HarnessConfigurationError(f"Invalid user skill name: {name!r}")
-            # Installed flat, so two same-named skills (e.g. in different hermes
-            # categories) cannot both land; the first in walk order wins.
-            if any(ref.name == name for ref in refs):
-                continue
-            refs.append(SkillRef(name, path))
-        install_skills(refs, root, ctx.forbidden_files)
-        return sorted(ref.name for ref in refs)
 
     def _install_skills(self, ctx: RunContext) -> None:
         """Install the declared neighbourhood; never preload any of it.
@@ -811,26 +752,6 @@ class CliHarness(HarnessBackend):
 
     def _error_field(self, proc: ProcessResult, final_output: str) -> str | None:
         return proc.error
-
-    def _recorded_customizations(
-        self, report: AgentReport, ctx: RunContext, user_files: list[str]
-    ) -> list[str] | None:
-        """What ``AttemptResult.loaded_user_customizations`` records.
-
-        ``None`` when isolated. When the MCP inventory is unknown, or reading
-        it failed (a provenance record must not sink the attempt, see
-        :class:`AgentReport`), the staged files are still recorded, marked with
-        :data:`UNLISTED_MCP` so the partial list never reads as complete.
-        """
-        if not ctx.user_customizations:
-            return None
-        servers = report.mcp_servers
-        if servers is None:
-            return sorted({UNLISTED_MCP, *user_files})
-        return sorted(
-            {f"mcp:{name}" for name in set(servers) - ctx.spec_mcp_names}
-            | set(user_files)
-        )
 
     def _prompt_command(self, prompt: str, model: str | None) -> PromptCall:
         """The invocation for a bare prompt call.
