@@ -611,7 +611,7 @@ def _task_name_cell(tr: TaskResult, k: int) -> Text:
     return name
 
 
-def _success_cell(tr: TaskResult, k: int) -> Text:
+def _success_cell(tr: TaskResult, k: int, *, verbose: bool = False) -> Text:
     # A trigger probe has no execution numbers: "0/3" would read as three
     # failures rather than three questions never asked.
     if tr.trigger_only:
@@ -620,7 +620,7 @@ def _success_cell(tr: TaskResult, k: int) -> Text:
         tr.score,
         _outcome_marks([a.outcome for a in tr.attempts], k),
         _rate_style(tr.score),
-        interval=tr.score_interval,
+        interval=tr.score_interval if verbose else None,
     )
 
 
@@ -669,7 +669,7 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     for tr in tasks:
         row: list[Text] = [_task_name_cell(tr, k)]
         if show_success:
-            row.append(_success_cell(tr, k))
+            row.append(_success_cell(tr, k, verbose=verbose))
         if verbose:
             row += [
                 Text(_fmt_score(tr.pass_at_k), style="dim"),
@@ -1434,13 +1434,13 @@ def print_comparison(comp: RunComparison, verbose: bool = False) -> None:
                     tc.a_score,
                     _outcome_marks(tc.a_outcomes, comp.a.k),
                     "" if measured else "dim",
-                    interval=tc.a_score_interval,
+                    interval=tc.a_score_interval if verbose else None,
                 ),
                 _rate_cell(
                     tc.b_score,
                     _outcome_marks(tc.b_outcomes, comp.b.k),
                     after,
-                    interval=tc.b_score_interval,
+                    interval=tc.b_score_interval if verbose else None,
                 ),
                 _pp(tc.delta, tc.regression),
             ]

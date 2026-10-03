@@ -62,7 +62,8 @@ score   = successes / usable                # raw rate; None if usable == 0
 ```
 
 Each task's execution score also has a **95% Wilson confidence interval**, shown
-in `run`, `report` and on each side of `compare`. For example, 3/3 passes is 100%
+with `--verbose` in `run`, `report` and on each side of `compare`. Default tables
+omit intervals; JSON always includes them. For example, 3/3 passes is 100%
 with an interval of 43.9%–100%; 2/3 is 66.7% with an interval of 20.8%–93.9%.
 The sample size is the **usable** count, never the requested k: timeouts,
 infrastructure errors, judge errors and unchecked trigger probes are excluded;
@@ -209,7 +210,8 @@ How to read the diff:
   removed side is the bare agent, it reads `without any skills or servers`.
 - **Each cell is a rate and the attempts behind it**: `60%  ✓ ✗ ✓ ✗ ✓`. Above
   k=5 the marks collapse to a tally (`✓9 ✗1`). `⊘` is an unusable attempt and
-  `·` one that never ran. A second line shows that side's 95% Wilson interval.
+  `·` one that never ran. With `--verbose`, a second line shows that side's 95%
+  Wilson interval.
 - **Tasks are matched by name**, so reordering doesn't matter. A task in only one
   run is listed as **unmatched** and left out of the delta.
 - **`Δ` is `after − before`, in percentage points** (60% → 100% is `+40 pp`).

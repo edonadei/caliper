@@ -109,7 +109,7 @@ def run_cmd(
         None, "--output", help="Save results JSON to path"
     ),
     verbose: bool = typer.Option(
-        False, "--verbose", "-v", help="Show per-attempt reasoning"
+        False, "--verbose", "-v", help="Show per-attempt reasoning and score intervals"
     ),
     model: str | None = typer.Option(
         None,

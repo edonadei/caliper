@@ -12,7 +12,7 @@ caliper run spec.eval.yaml --k 3                  # attempts per task (default 3
 caliper run spec.eval.yaml --k 3 --ablate my-skill   # the control: that skill removed
 caliper run spec.eval.yaml --ablate a --ablate mcp:srv --no-user-customizations  # every skill and server, isolated: the bare agent
 caliper run spec.eval.yaml --no-user-customizations  # isolated: only the spec's mcp: servers
-caliper run spec.eval.yaml --verbose              # expect, judge reasoning and script, pass@k, pass^k
+caliper run spec.eval.yaml --verbose              # confidence intervals, expect, judge reasoning and script, pass@k, pass^k
 
 caliper list                                      # every spec with its latest score
 caliper list my-skill                             # one spec's runs, ablated ones marked
@@ -210,12 +210,13 @@ chance at least one of k passes, fits a skill whose failures are cheap to retry.
 **pass^k** = `p^k`, the chance all k pass, fits a skill that runs unattended.
 When in doubt use the raw rate: pass@k flatters flaky skills (`1/3 → 70.4%`).
 
-Each task's execution rate shows a **95% Wilson confidence interval** in `run`,
-`report` and each side of `compare`. Its sample size is `usable`, never requested
-k: 3/3 passes still has a 43.9%–100% interval. No usable attempts means no
+With `--verbose`, each task's execution rate shows a **95% Wilson confidence
+interval** in `run`, `report` and each side of `compare`. Its sample size is
+`usable`, never requested k: 3/3 passes still has a 43.9%–100% interval.
+No usable attempts means no
 interval. This shows sampling uncertainty, not significance of the delta;
-`compare` still flags any drop. JSON includes `TaskResult.score_interval` and
-`TaskComparison.a_score_interval` / `b_score_interval` as `[lower, upper]` rates
+`compare` still flags any drop. JSON always includes `TaskResult.score_interval`
+and `TaskComparison.a_score_interval` / `b_score_interval` as `[lower, upper]` rates
 in `[0, 1]`, or `null`. Older runs derive them from their recorded outcomes.
 Activation and the aggregate average have no interval. See
 [Results](../../docs/results.md#execution-confidence-intervals).

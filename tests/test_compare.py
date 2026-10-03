@@ -82,17 +82,21 @@ def test_comparison_shows_each_samples_interval_without_changing_regressions() -
     assert dumped["b_score_interval"] == pytest.approx([0.2076596008, 0.9385080553])
 
 
-def test_comparison_table_shows_both_intervals_beside_the_delta(capsys) -> None:
+@pytest.mark.parametrize("verbose", [False, True])
+def test_comparison_table_shows_intervals_only_under_verbose(capsys, verbose) -> None:
     a = _run([_task("alpha", [P, P, P])], k=3)
     b = _run([_task("alpha", [P, P, F])], k=3)
 
-    print_comparison(diff_runs(a, b))
+    print_comparison(diff_runs(a, b), verbose=verbose)
 
     output = capsys.readouterr().out
-    assert "95% CI 43.9%–100%" in output
-    assert "95% CI 20.8%–93.9%" in output
     assert "-33.3 pp" in output
-    assert output.count("95% CI") == 2
+    if verbose:
+        assert "95% CI 43.9%–100%" in output
+        assert "95% CI 20.8%–93.9%" in output
+        assert output.count("95% CI") == 2
+    else:
+        assert "95% CI" not in output
 
 
 def test_an_unmeasured_comparison_side_has_no_interval() -> None:

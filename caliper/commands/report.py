@@ -31,7 +31,12 @@ def report_cmd(
     fmt: Annotated[
         OutputFormat, typer.Option("--format", "-f", help="Output format")
     ] = OutputFormat.TABLE,
-    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose", "-v", help="Show per-attempt reasoning and score intervals"
+        ),
+    ] = False,
 ) -> None:
     store = RunStore.discover()
     results_path = store.resolve(spec_or_file, run)

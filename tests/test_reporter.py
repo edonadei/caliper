@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 from datetime import datetime, timezone
 
+import pytest
 from conftest import task_result
 from rich.console import Console
 
@@ -169,7 +170,8 @@ def _render(results: RunResults, *, verbose: bool = False) -> str:
     return buf.getvalue()
 
 
-def test_run_report_shows_score_uncertainty_beside_the_execution_rate() -> None:
+@pytest.mark.parametrize("verbose", [False, True])
+def test_run_report_shows_score_uncertainty_only_under_verbose(verbose) -> None:
     task = task_result(Outcome.PASS, Outcome.PASS, Outcome.PASS, name="Three passes")
     results = RunResults(
         run=RunMeta(
@@ -179,11 +181,14 @@ def test_run_report_shows_score_uncertainty_beside_the_execution_rate() -> None:
         aggregate=AggregateScore.from_task_results([task], k=3),
     )
 
-    output = _render(results)
+    output = _render(results, verbose=verbose)
 
     assert "100%" in output
-    assert "95% CI 43.9%–100%" in output
-    assert output.count("95% CI") == 1  # No interval on the aggregate average.
+    if verbose:
+        assert "95% CI 43.9%–100%" in output
+        assert output.count("95% CI") == 1  # No interval on the aggregate average.
+    else:
+        assert "95% CI" not in output
 
 
 def test_run_report_has_no_execution_interval_for_noise_or_trigger_probes() -> None:

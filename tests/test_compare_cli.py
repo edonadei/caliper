@@ -170,8 +170,9 @@ def test_an_unknown_format_is_refused(argv) -> None:
 
 @pytest.mark.parametrize("command", ["report", "compare"])
 @pytest.mark.parametrize("fmt", ["table", "json"])
+@pytest.mark.parametrize("verbose", [False, True])
 def test_saved_run_commands_derive_intervals_for_older_runs(
-    monkeypatch, tmp_path, command, fmt
+    monkeypatch, tmp_path, command, fmt, verbose
 ) -> None:
     ablated, full = _two_runs(tmp_path)
     for path in (ablated, full):
@@ -185,11 +186,16 @@ def test_saved_run_commands_derive_intervals_for_older_runs(
         else [command, str(ablated), str(full)]
     )
 
-    result = runner.invoke(app, [*args, "--format", fmt])
+    result = runner.invoke(
+        app, [*args, "--format", fmt, *(["--verbose"] if verbose else [])]
+    )
 
     assert result.exit_code == 0, result.output
     if fmt == "table":
-        assert "95% CI 20.7%–100%" in result.output
+        if verbose:
+            assert "95% CI 20.7%–100%" in result.output
+        else:
+            assert "95% CI" not in result.output
     else:
         output = json.loads(result.output)
         if command == "report":

@@ -85,7 +85,10 @@ def compare_cmd(
         OutputFormat, typer.Option("--format", "-f", help="Output format")
     ] = OutputFormat.TABLE,
     verbose: Annotated[
-        bool, typer.Option("--verbose", "-v", help="Also show pass@k and pass^k")
+        bool,
+        typer.Option(
+            "--verbose", "-v", help="Also show score intervals, pass@k and pass^k"
+        ),
     ] = False,
 ) -> None:
     # One root for both sides: a bare spec name is resolved against it, so

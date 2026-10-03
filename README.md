@@ -359,7 +359,7 @@ run Caliper, inside the git repository. See
 | `--model TARGET` | `claude-code` | Model being evaluated: `backend`, `model`, or `backend:model` ([syntax](docs/backends.md#selecting-an-engine)) |
 | `--judge-model TARGET` | the `--model` backend | Judge engine, same syntax |
 | `--user-customizations` / `--no-user-customizations` | the spec's `user_customizations`, else on | Load your user skills, plugins, rules, settings and connectors into attempts, or isolate. See [Portable scores](#portable-scores) |
-| `--verbose` | off | Show every task with its `expect`, and per attempt the judge reasoning and any judge script |
+| `--verbose` | off | Show score confidence intervals, pass@k, pass^k, every task with its `expect`, and per attempt the judge reasoning and any judge script |
 | `--output PATH` | none | Also save results JSON to a specific path |
 
 ### Exit codes
@@ -396,10 +396,11 @@ over the attempts that got a fair shot. Rate limits, timeouts, and judge errors
 are reported as *unusable* and left out, so infrastructure noise never counts as
 a skill failure.
 
-Each task shows a 95% Wilson confidence interval over its usable attempts in
-`run`, `report` and `compare`: 3/3 passes is 100%, with a 43.9%–100% interval.
+With `--verbose`, each task shows a 95% Wilson confidence interval over its usable
+attempts in `run`, `report` and `compare`: 3/3 passes is 100%, with a
+43.9%–100% interval.
 Small samples leave substantial uncertainty; intervals do not change the
-any-drop regression rule in `compare`. Results JSON includes the derived
+any-drop regression rule in `compare`. Results JSON always includes the derived
 `score_interval` bounds (or `null` when no attempts were usable).
 
 | The question you're asking | Metric | For a `1/3` skill (k=3) |
