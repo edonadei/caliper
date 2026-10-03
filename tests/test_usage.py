@@ -65,7 +65,7 @@ def test_total_tokens_treats_missing_components_as_zero() -> None:
 
 
 # --------------------------------------------------------------------------
-# Per-backend _usage parsing
+# Per-backend usage reading
 # --------------------------------------------------------------------------
 
 
@@ -87,7 +87,7 @@ def test_claude_usage_maps_result_event_directly() -> None:
             ),
         ]
     )
-    usage = ClaudeCodeHarness()._usage(_proc(stdout), _ctx())
+    usage = ClaudeCodeHarness()._read(_proc(stdout), _ctx()).usage
     assert usage == TokenUsage(
         input_tokens=1000,
         output_tokens=200,
@@ -98,7 +98,7 @@ def test_claude_usage_maps_result_event_directly() -> None:
 
 def test_claude_usage_none_without_result_event() -> None:
     stdout = json.dumps({"type": "assistant", "message": {"content": []}})
-    assert ClaudeCodeHarness()._usage(_proc(stdout), _ctx()) is None
+    assert ClaudeCodeHarness()._read(_proc(stdout), _ctx()).usage is None
 
 
 def test_codex_usage_subtracts_cached_from_input() -> None:
@@ -119,7 +119,7 @@ def test_codex_usage_subtracts_cached_from_input() -> None:
             ),
         ]
     )
-    usage = CodexHarness()._usage(_proc(stdout), _ctx())
+    usage = CodexHarness()._read(_proc(stdout), _ctx()).usage
     assert usage.input_tokens == 16882 - 1920
     assert usage.cache_read_tokens == 1920
     assert usage.output_tokens == 17
@@ -152,7 +152,7 @@ def test_pi_usage_sums_per_assistant_message() -> None:
             msg_end(200, 20, 0),
         ]
     )
-    usage = PiHarness()._usage(_proc(stdout), _ctx())
+    usage = PiHarness()._read(_proc(stdout), _ctx()).usage
     assert usage.input_tokens == 300
     assert usage.output_tokens == 30
     assert usage.cache_read_tokens == 5
@@ -166,7 +166,7 @@ def test_hermes_usage_reads_session_totals() -> None:
         "cache_read_tokens": 12,
         "cache_write_tokens": 8,
     }
-    usage = HermesHarness()._usage(_proc(json.dumps(record)), _ctx())
+    usage = HermesHarness()._read(_proc(json.dumps(record)), _ctx()).usage
     assert usage == TokenUsage(
         input_tokens=500,
         output_tokens=40,
@@ -177,7 +177,7 @@ def test_hermes_usage_reads_session_totals() -> None:
 
 def test_hermes_usage_none_when_totals_absent() -> None:
     record = {"messages": [{"role": "user", "content": "hi"}]}
-    assert HermesHarness()._usage(_proc(json.dumps(record)), _ctx()) is None
+    assert HermesHarness()._read(_proc(json.dumps(record)), _ctx()).usage is None
 
 
 # --------------------------------------------------------------------------
@@ -185,24 +185,11 @@ def test_hermes_usage_none_when_totals_absent() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_usage_extraction_failure_degrades_to_none(monkeypatch) -> None:
-    """A raising _usage (e.g. a malformed/schema-changed payload) must degrade to
-    None, not crash the attempt — usage is optional."""
-
-    def boom(proc, ctx):
-        raise ValueError("malformed usage payload")
-
-    harness = ClaudeCodeHarness()
-    monkeypatch.setattr(harness, "_usage", boom)
-    assert harness._safe_usage(_proc("{}"), _ctx()) is None
-
-
 def test_codex_usage_survives_non_numeric_fields() -> None:
     # A malformed payload (string where an int is expected) must not raise out of
     # the guarded path; the whole attempt still resolves with usage=None.
     stdout = json.dumps({"type": "turn.completed", "usage": {"input_tokens": "oops"}})
-    harness = CodexHarness()
-    assert harness._safe_usage(_proc(stdout), _ctx()) is None
+    assert CodexHarness()._read(_proc(stdout), _ctx()).usage is None
 
 
 # --------------------------------------------------------------------------

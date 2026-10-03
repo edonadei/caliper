@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import IO
+from typing import IO, TypeVar
 
 from caliper import cancel
 from caliper.harness.prompt_failure import (
@@ -34,6 +34,8 @@ _POST_KILL_DRAIN_TIMEOUT = 1
 # Recorded beside the staged user files when the backend cannot list its MCP
 # servers: the inventory is partial, and says so (docs/adr/0028).
 UNLISTED_MCP = "mcp:(not listed)"
+
+_Fact = TypeVar("_Fact")
 
 
 class HarnessConfigurationError(RuntimeError):
@@ -70,7 +72,7 @@ class AttemptResult:
     # default was used. ``None`` when the backend cannot report it.
     resolved_model: str | None = None
     # Token accounting for this attempt, when the backend can extract it from its
-    # own output. ``None`` when the backend cannot report it (see ``_usage``).
+    # own output. ``None`` when the backend cannot report it (see ``AgentReport``).
     usage: TokenUsage | None = None
     # True when a cancellation killed this invocation. Such an attempt is
     # discarded rather than recorded: it is the interrupt showing up in the
@@ -184,6 +186,84 @@ class ProcessResult:
         if self.timed_out:
             return "timeout"
         return self.stderr or None
+
+
+@dataclass
+class AgentReport:
+    """Everything a backend read out of one finished agent process, read once.
+
+    A backend's single reading hook (:meth:`CliHarness._read`) fills this in
+    from one pass over what its CLI left behind; :meth:`CliHarness.run` decides
+    what each fact means. Every optional field is ``None`` when this backend
+    cannot report it, which is distinct from "reported, and empty".
+    """
+
+    transcript: list[ConversationTurn] = field(default_factory=list)
+    # What the stream named as the final answer; ``""`` when it named none, and
+    # :attr:`answer` supplies the tail.
+    final_output: str = ""
+    # Failures the CLI reported *inside* its stream (an ``is_error`` result, an
+    # ``error`` event), the CLI talking beside the agent (docs/adr/0030).
+    cli_errors: list[str] = field(default_factory=list)
+    # A provider failure the CLI reported structurally, by status code, for a
+    # ``_diagnose`` that must not read it off the agent's words.
+    cli_failure: PromptFailure | None = None
+    # The concrete model, when the output names it; else the requested one.
+    resolved_model: str | None = None
+    # Every skill the CLI exposed to the attempt, whatever its source.
+    exposed_skills: list[str] | None = None
+    # How to read the optional provenance facts, handed over unread: the
+    # report reads each one behind the guard (see :attr:`usage`), and only when
+    # asked, so an isolated attempt never reads the MCP inventory at all.
+    read_usage: Callable[[], TokenUsage | None] | None = None
+    # Every MCP server the attempt was given, spec's own included.
+    read_mcp_servers: Callable[[], Iterable[str] | None] | None = None
+
+    @property
+    def usage(self) -> TokenUsage | None:
+        """The token accounting, or ``None`` when unreported or unreadable."""
+        return _best_effort(self.read_usage)
+
+    @property
+    def mcp_servers(self) -> Iterable[str] | None:
+        """The MCP inventory, or ``None`` when unknown or unreadable."""
+        return _best_effort(self.read_mcp_servers)
+
+    @property
+    def answer(self) -> str:
+        """The final answer, falling back to the last thing the assistant said.
+
+        Every CLI agent has some shape of stream that may end without naming a
+        final answer — a tool call last, a truncated run — and the answer in
+        that case is the same for all of them. So the tail lives here rather
+        than at the end of four readers; a backend never walks the transcript
+        backwards itself.
+        """
+        return self.final_output or last_assistant(self.transcript)
+
+
+def last_assistant(transcript: list[ConversationTurn]) -> str:
+    """The most recent non-empty assistant turn's content, or ``""``."""
+    for turn in reversed(transcript):
+        if turn.role == "assistant" and turn.content:
+            return turn.content
+    return ""
+
+
+def _best_effort(read: Callable[[], _Fact | None] | None) -> _Fact | None:
+    """A provenance fact, or ``None`` when there is none or reading it fails.
+
+    Usage and the MCP inventory are optional: a malformed or schema-changed
+    payload degrades to "unavailable" rather than sinking the attempt, and
+    never takes the transcript down with it. Applied by :class:`AgentReport`
+    itself, so no reader can forget it.
+    """
+    if read is None:
+        return None
+    try:
+        return read()
+    except Exception:
+        return None
 
 
 def _timeout_output(partial: bytes | str | None, drained: bytes | str | None) -> str:
@@ -373,7 +453,8 @@ class CliHarness(HarnessBackend):
     timeouts uniformly), raises on a diagnosed misconfiguration, parses the
     stream, and assembles the ``AttemptResult``. A backend only implements the
     parts that genuinely differ between CLI agents — the command, the
-    environment, and how to read that agent's stream.
+    environment, and how to read that agent's output (one ``_read``, returning
+    an :class:`AgentReport`).
 
     Where a chore is the same for every CLI agent, the backend *declares* what
     varies and this class performs it: ``seed_files``, ``cli_name`` and friends,
@@ -381,12 +462,18 @@ class CliHarness(HarnessBackend):
     docs/adr/0020-a-backend-declares-its-chores-rather-than-performing-them.md.
 
     A CLI refusal follows the same rule: a backend declares its
-    ``config_signals`` and says which text its CLI wrote (``_cli_text``), and
-    this class classifies it (docs/adr/0030).
+    ``config_signals`` and reads out the errors its CLI wrote into the stream
+    (``AgentReport.cli_errors``), and this class classifies them
+    (docs/adr/0030).
     """
 
     # The misconfigurations this backend's CLI reports, checked in order.
     config_signals: tuple[ConfigSignal, ...] = ()
+
+    # Whether raw stdout is kept as a single turn when nothing parsed out of it.
+    # ``False`` for a CLI whose stdout is only ever its event stream, where an
+    # unparsed stream is no answer at all.
+    salvages_raw_stdout: bool = True
 
     def run(self, ctx: RunContext) -> AttemptResult:
         # The one fact the backend contributes to its own context: a request
@@ -433,17 +520,20 @@ class CliHarness(HarnessBackend):
         if proc.timed_out:
             proc = self._recover_timed_out(proc, ctx, env)
 
-        transcript, final_output = self._parse_stream_with_tail(proc.stdout)
+        report = self._read(proc, ctx)
+        transcript, final_output = report.transcript, report.answer
 
         # A timeout is the process outcome, whatever the CLI said before it hung.
-        refusal = None if proc.timed_out else self._refusal(proc, transcript)
+        refusal = None if proc.timed_out else self._refusal(proc, report)
         if refusal is not None and refusal.kind is RefusalKind.CONFIG:
             raise HarnessConfigurationError(refusal.message)
 
         # Whether the agent actually conversed, captured before the salvage below
         # can paper over the difference.
         parsed = bool(transcript)
-        transcript, final_output = self._fallback(transcript, final_output, proc)
+        if not parsed and proc.stdout and self.salvages_raw_stdout:
+            transcript = [ConversationTurn(role="assistant", content=proc.stdout)]
+            final_output = proc.stdout
 
         return AttemptResult(
             transcript=transcript,
@@ -452,29 +542,28 @@ class CliHarness(HarnessBackend):
             duration_seconds=duration,
             error=self._error_field(proc, final_output),
             timed_out=proc.timed_out,
-            resolved_model=self._resolved_model(proc, ctx),
-            usage=self._safe_usage(proc, ctx),
+            resolved_model=report.resolved_model or ctx.model,
+            usage=report.usage,
             cancelled=proc.cancelled,
             salvaged=not parsed,
             refusal=refusal,
             loaded_user_customizations=self._recorded_customizations(
-                proc, ctx, user_files + [f"skill:{name}" for name in user_skills]
+                report, ctx, user_files + [f"skill:{name}" for name in user_skills]
             ),
             user_skill_paths=plugin_skills,
             user_skill_names=sorted(set(user_skills) | set(plugin_skills)),
             builtin_skill_names=self._builtin_skills(
-                proc, ctx, set(user_skills) | set(plugin_skills)
+                report, ctx, set(user_skills) | set(plugin_skills)
             ),
         )
 
     def _builtin_skills(
-        self, proc: ProcessResult, ctx: RunContext, user_skills: set[str]
+        self, report: AgentReport, ctx: RunContext, user_skills: set[str]
     ) -> list[str] | None:
         """The exposed skills that are neither declared nor the user's own."""
-        exposed = self._exposed_skills(proc)
-        if exposed is None:
+        if report.exposed_skills is None:
             return None
-        return sorted(set(exposed) - ctx.spec_skill_names - user_skills)
+        return sorted(set(report.exposed_skills) - ctx.spec_skill_names - user_skills)
 
     def run_prompt(
         self,
@@ -589,14 +678,6 @@ class CliHarness(HarnessBackend):
     def _user_skill_name(self, path: Path) -> str | None:
         return frontmatter_name(path.read_text())
 
-    def _exposed_skills(self, proc: ProcessResult) -> list[str] | None:
-        """Every skill the CLI said it exposed to the attempt, whatever its source.
-
-        ``None`` when this backend's CLI does not list them, so a built-in
-        activation reads as unobserved rather than as "none fired".
-        """
-        return None
-
     def _bundled_skill_names(self, source: Path) -> set[str]:
         """Skills the CLI ships in the user's skills root; not the user's own."""
         return set()
@@ -660,12 +741,16 @@ class CliHarness(HarnessBackend):
     def _environment(self, ctx: RunContext) -> dict[str, str]: ...
 
     @abstractmethod
-    def _parse_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:
-        """Read this agent's stream into turns plus whatever it named as final.
+    def _read(self, proc: ProcessResult, ctx: RunContext) -> AgentReport:
+        """Read everything this agent's finished process says, in one pass.
 
-        Return ``""`` for the final output when the stream carried no explicit
-        final-answer event; :meth:`_parse_stream_with_tail` supplies the tail. A backend
-        never walks the transcript backwards itself.
+        The backend's one reading hook: its turns, the final answer its stream
+        named (``""`` when none: :attr:`AgentReport.answer` supplies the tail),
+        any failures its CLI reported inside the stream, and whatever
+        provenance the output carries. Usage and the MCP inventory are handed
+        over as unread ``read_*`` callables, which the report guards. What
+        each fact *means* (salvage, refusal) is decided in :meth:`run`, never
+        here.
         """
 
     def _recover_timed_out(
@@ -681,41 +766,18 @@ class CliHarness(HarnessBackend):
         """
         return proc
 
-    def _parse_stream_with_tail(
-        self, stdout: str
-    ) -> tuple[list[ConversationTurn], str]:
-        """Parse the agent's stream, falling back to its last assistant turn.
-
-        Every CLI agent has some shape of stream that may end without naming a
-        final answer — a tool call last, a truncated run — and the answer in that
-        case is the same for all of them: the last thing the assistant said. So
-        the tail lives here rather than at the end of four ``_parse_stream``
-        implementations. Distinct from :meth:`_fallback`, which salvages raw
-        stdout when *nothing* parsed at all.
-        """
-        transcript, final_output = self._parse_stream(stdout)
-        return transcript, final_output or self._last_assistant(transcript)
-
-    @staticmethod
-    def _last_assistant(transcript: list[ConversationTurn]) -> str:
-        """The most recent non-empty assistant turn's content, or ``""``."""
-        for turn in reversed(transcript):
-            if turn.role == "assistant" and turn.content:
-                return turn.content
-        return ""
-
-    def _refusal(
-        self, proc: ProcessResult, transcript: list[ConversationTurn]
-    ) -> CliRefusal | None:
+    def _refusal(self, proc: ProcessResult, report: AgentReport) -> CliRefusal | None:
         """The CLI refusal this invocation hit, if any (docs/adr/0030)."""
-        cli_text = self._cli_text(proc, transcript)
+        cli_text = self._cli_text(proc, report)
         return classify(
             cli_text,
             self.config_signals,
-            diagnose=lambda text: self._diagnose(proc, text),
+            diagnose=lambda text: self._diagnose(proc, report, text),
         )
 
-    def _diagnose(self, proc: ProcessResult, cli_text: str) -> str | None:
+    def _diagnose(
+        self, proc: ProcessResult, report: AgentReport, cli_text: str
+    ) -> str | None:
         """A misconfiguration a marker list cannot express, or ``None``.
 
         For the CLI's *structure*: an error envelope's status code, a crash's
@@ -725,18 +787,20 @@ class CliHarness(HarnessBackend):
         """
         return None
 
-    def _cli_text(self, proc: ProcessResult, transcript: list[ConversationTurn]) -> str:
+    def _cli_text(self, proc: ProcessResult, report: AgentReport) -> str:
         """What the CLI itself wrote, as opposed to what the agent said.
 
-        Default: the plain-text lines of stdout when nothing in it parsed as the
+        The failures the CLI reported inside its stream (``report.cli_errors``),
+        then the plain-text lines of stdout when nothing in it parsed as the
         agent's stream, and stderr unless the run succeeded with the agent
         speaking — a CLI that exits 0 after a real answer may still warn on
-        stderr. Never a JSON event: a stream echoes the prompt and the system
-        prompt, so a backend whose CLI reports errors inside its stream picks
-        those events out itself, whatever the exit code (docs/adr/0030).
+        stderr. Never any other JSON event: a stream echoes the prompt and the
+        system prompt, so only what the reader picked out as the CLI's own
+        errors counts, whatever the exit code (docs/adr/0030).
         """
+        transcript = report.transcript
         spoke = any(turn.role == "assistant" and turn.content for turn in transcript)
-        parts = []
+        parts = list(report.cli_errors)
         if proc.returncode != 0 or not spoke:
             parts.append(proc.stderr)
         if not transcript:
@@ -745,87 +809,28 @@ class CliHarness(HarnessBackend):
             )
         return "\n".join(part.strip() for part in parts if part and part.strip())
 
-    def _fallback(
-        self,
-        transcript: list[ConversationTurn],
-        final_output: str,
-        proc: ProcessResult,
-    ) -> tuple[list[ConversationTurn], str]:
-        """Salvage raw stdout as a single turn when nothing parsed out of it."""
-        if not transcript and proc.stdout:
-            return [
-                ConversationTurn(role="assistant", content=proc.stdout)
-            ], proc.stdout
-        return transcript, final_output
-
     def _error_field(self, proc: ProcessResult, final_output: str) -> str | None:
         return proc.error
 
-    def _resolved_model(self, proc: ProcessResult, ctx: RunContext) -> str | None:
-        """The concrete model the agent used, if the backend can report it.
-
-        Default: the model we requested (``None`` when we let the CLI pick its
-        own default and cannot observe what it chose). A backend that surfaces
-        the resolved model in its output overrides this.
-        """
-        return ctx.model
-
-    def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
-        """The token accounting for this attempt, if the backend can report it.
-
-        Default: ``None`` (usage unavailable). A backend that emits token counts
-        in its stream/output overrides this to parse ``proc.stdout`` into a
-        normalized :class:`TokenUsage` (``input_tokens`` non-cached; see its
-        docstring for the disjoint-fields contract).
-        """
-        return None
-
-    def _loaded_user_customizations(
-        self, proc: ProcessResult, ctx: RunContext
-    ) -> Iterable[str] | None:
-        """The MCP server names this attempt had, where the backend can see them.
-
-        Only asked when the attempt loaded user customizations; may include the
-        spec's own servers, which :meth:`_recorded_customizations` removes.
-        Default: ``None``, "unknown".
-        """
-        return None
-
     def _recorded_customizations(
-        self, proc: ProcessResult, ctx: RunContext, user_files: list[str]
+        self, report: AgentReport, ctx: RunContext, user_files: list[str]
     ) -> list[str] | None:
         """What ``AttemptResult.loaded_user_customizations`` records.
 
         ``None`` when isolated. When the MCP inventory is unknown, or reading
-        it fails (like :meth:`_safe_usage`, a provenance record must not sink
-        the attempt), the staged files are still recorded, marked with
+        it failed (a provenance record must not sink the attempt, see
+        :class:`AgentReport`), the staged files are still recorded, marked with
         :data:`UNLISTED_MCP` so the partial list never reads as complete.
         """
         if not ctx.user_customizations:
             return None
-        try:
-            names = self._loaded_user_customizations(proc, ctx)
-        except Exception:
-            names = None
-        if names is None:
+        servers = report.mcp_servers
+        if servers is None:
             return sorted({UNLISTED_MCP, *user_files})
         return sorted(
-            {f"mcp:{name}" for name in set(names) - ctx.spec_mcp_names}
+            {f"mcp:{name}" for name in set(servers) - ctx.spec_mcp_names}
             | set(user_files)
         )
-
-    def _safe_usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
-        """Extract usage, but never let a token-accounting failure sink an attempt.
-
-        Usage is optional (``None`` = unavailable, renders as "—"), so a malformed
-        or schema-changed usage payload must degrade to ``None`` rather than raise
-        and crash the whole eval. This is the single chokepoint every backend's
-        ``_usage`` passes through.
-        """
-        try:
-            return self._usage(proc, ctx)
-        except Exception:
-            return None
 
     def _prompt_command(self, prompt: str, model: str | None) -> PromptCall:
         """The invocation for a bare prompt call.

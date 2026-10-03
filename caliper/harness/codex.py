@@ -6,6 +6,7 @@ import shutil
 import sys
 import tempfile
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 
 import tomli_w
@@ -16,6 +17,7 @@ except ModuleNotFoundError:  # Python 3.10, where tomllib is not yet stdlib
     import tomli as tomllib
 
 from caliper.harness.base import (
+    AgentReport,
     CliHarness,
     ConversationTurn,
     HarnessConfigurationError,
@@ -158,101 +160,83 @@ class CodexHarness(CliHarness):
     def _environment(self, ctx: RunContext) -> dict[str, str]:
         return self._isolated_env(ctx)
 
-    def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
-        """Read the last ``turn.completed`` event's ``usage``.
+    def _read(self, proc: ProcessResult, ctx: RunContext) -> AgentReport:
+        """One walk of ``codex exec --json``'s events.
 
-        Codex uses OpenAI semantics where ``input_tokens`` *includes*
-        ``cached_input_tokens``, so we subtract to keep ``input_tokens``
-        non-cached (the disjoint-fields contract). Codex has no cache-creation
-        notion, and ``reasoning_output_tokens`` is already folded into
-        ``output_tokens``.
+        Items carry the agent's turns; ``turn.completed`` its usage; ``error``
+        and ``turn.failed`` events are codex itself failing, beside the agent.
+        The MCP inventory is not in the stream: it is the ``config.toml`` the
+        attempt ran with.
         """
-        latest: dict | None = None
+        report = AgentReport()
+        latest_usage: dict | None = None
         for event in stream_events(proc.stdout):
-            if event.get("type") != "turn.completed":
-                continue
+            error = _stream_error(event)
+            if error:
+                report.cli_errors.append(error)
             usage = event.get("usage")
-            if isinstance(usage, dict):
-                latest = usage
-        if latest is None:
-            return None
-        raw_input = latest.get("input_tokens")
-        cached = latest.get("cached_input_tokens")
-        non_cached = None
-        if raw_input is not None:
-            non_cached = raw_input - (cached or 0)
-        return TokenUsage(
-            input_tokens=non_cached,
-            output_tokens=latest.get("output_tokens"),
-            cache_read_tokens=cached,
-            cache_creation_tokens=None,
-        )
-
-    def _parse_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:
-        transcript: list[ConversationTurn] = []
-        final_output = ""
-
-        for event in stream_events(stdout):
+            if event.get("type") == "turn.completed" and isinstance(usage, dict):
+                latest_usage = usage
             item = event.get("item")
             if not isinstance(item, dict):
                 continue
-
             if item.get("type") == "agent_message":
                 text = item.get("text", "")
                 if text:
-                    transcript.append(ConversationTurn(role="assistant", content=text))
-                    final_output = text
-                continue
-
-            if event.get("type") != "item.completed":
-                continue
-
-            if item.get("type") == "command_execution":
-                command = item.get("command", "")
-                output = item.get("aggregated_output", "")
-                exit_code = item.get("exit_code")
-                status = item.get("status")
-                tool_input = {"command": command} if command else {}
-                transcript.append(
-                    ConversationTurn(
-                        role="tool_use",
-                        content=f"[tool: shell] {command}",
-                        tool_name="shell",
-                        tool_input=tool_input,
+                    report.transcript.append(
+                        ConversationTurn(role="assistant", content=text)
                     )
-                )
-                result_parts = []
-                if output:
-                    result_parts.append(output)
-                if exit_code is not None:
-                    result_parts.append(f"exit_code={exit_code}")
-                if status:
-                    result_parts.append(f"status={status}")
-                tool_output = "\n".join(result_parts)
-                transcript.append(
-                    ConversationTurn(
-                        role="tool_result",
-                        content=tool_output,
-                        tool_output=tool_output,
-                    )
-                )
-                continue
+                    report.final_output = text
+            elif event.get("type") == "item.completed":
+                report.transcript.extend(self._item_turns(item))
 
-            if self._is_mcp_tool_call(item):
-                transcript.extend(self._mcp_tool_turns(item))
-                continue
+        if latest_usage is not None:
+            report.read_usage = partial(_usage, latest_usage)
+        report.read_mcp_servers = partial(_configured_servers, ctx)
+        return report
 
-            item_type = str(item.get("type") or "tool")
-            transcript.append(
+    def _item_turns(self, item: dict) -> list[ConversationTurn]:
+        """The turns one completed non-message item stands for."""
+        if item.get("type") == "command_execution":
+            command = item.get("command", "")
+            output = item.get("aggregated_output", "")
+            exit_code = item.get("exit_code")
+            status = item.get("status")
+            tool_input = {"command": command} if command else {}
+            result_parts = []
+            if output:
+                result_parts.append(output)
+            if exit_code is not None:
+                result_parts.append(f"exit_code={exit_code}")
+            if status:
+                result_parts.append(f"status={status}")
+            tool_output = "\n".join(result_parts)
+            return [
                 ConversationTurn(
                     role="tool_use",
-                    content=f"[tool: {item_type}]",
-                    tool_name=item_type,
-                    tool_input=item,
-                )
-            )
+                    content=f"[tool: shell] {command}",
+                    tool_name="shell",
+                    tool_input=tool_input,
+                ),
+                ConversationTurn(
+                    role="tool_result",
+                    content=tool_output,
+                    tool_output=tool_output,
+                ),
+            ]
 
-        return transcript, final_output
+        if self._is_mcp_tool_call(item):
+            return self._mcp_tool_turns(item)
+
+        item_type = str(item.get("type") or "tool")
+        return [
+            ConversationTurn(
+                role="tool_use",
+                content=f"[tool: {item_type}]",
+                tool_name=item_type,
+                tool_input=item,
+            )
+        ]
 
     @staticmethod
     def _is_mcp_tool_call(item: dict) -> bool:
@@ -429,29 +413,6 @@ class CodexHarness(CliHarness):
             servers[name] = entry
         return servers
 
-    def _loaded_user_customizations(
-        self, proc: ProcessResult, ctx: RunContext
-    ) -> set[str] | None:
-        """The servers in the ``config.toml`` the attempt ran with, plus hosted apps.
-
-        The hosted apps surface as one server, ``codex_apps``, and only for a
-        ChatGPT login whose config leaves ``apps`` on. Such a login's plugins
-        bring tools caliper can't list, so with plugins on the set is unknown.
-        """
-        codex_home = Path(ctx.isolated_home) / ".codex"
-        config_path = codex_home / "config.toml"
-        config = tomllib.loads(config_path.read_text()) if config_path.exists() else {}
-        servers = config.get("mcp_servers")
-        names = set(servers) if isinstance(servers, dict) else set()
-        features = config.get("features")
-        features = features if isinstance(features, dict) else {}
-        if _chatgpt_login(codex_home / "auth.json"):
-            if features.get("plugins") is not False:
-                return None
-            if features.get("apps") is not False:
-                names.add(CODEX_APPS_SERVER)
-        return names
-
     config_signals = (
         ConfigSignal(
             (*AUTH_MARKERS, "401 unauthorized", "api key", "chatgpt account"),
@@ -467,13 +428,9 @@ class CodexHarness(CliHarness):
         ),
     )
 
-    def _cli_text(self, proc: ProcessResult, transcript: list[ConversationTurn]) -> str:
-        # `codex exec --json` reports its own failures as events beside the
-        # agent's items (`error`, `turn.failed`); only those are the CLI talking.
-        errors = _stream_errors(proc.stdout)
-        return "\n".join([*errors, super()._cli_text(proc, transcript)]).strip()
-
-    def _diagnose(self, proc: ProcessResult, cli_text: str) -> str | None:
+    def _diagnose(
+        self, proc: ProcessResult, report: AgentReport, cli_text: str
+    ) -> str | None:
         lowered = cli_text.lower()
         model_markers = (
             "requires a newer version of codex",
@@ -535,21 +492,63 @@ class CodexHarness(CliHarness):
         return text[:500]
 
 
-def _stream_errors(stdout: str) -> list[str]:
-    """The message of each failure event codex wrote into its JSON stream."""
-    errors = []
-    for event in stream_events(stdout):
-        if event.get("type") not in ("error", "turn.failed") and not isinstance(
-            event.get("error"), dict
-        ):
-            continue
-        message = event.get("message")
-        error = event.get("error")
-        if not isinstance(message, str) and isinstance(error, dict):
-            message = error.get("message")
-        if isinstance(message, str) and message.strip():
-            errors.append(message.strip())
-    return errors
+def _usage(usage: dict) -> TokenUsage:
+    """Map the last ``turn.completed`` event's ``usage``.
+
+    Codex uses OpenAI semantics where ``input_tokens`` *includes*
+    ``cached_input_tokens``, so we subtract to keep ``input_tokens``
+    non-cached (the disjoint-fields contract). Codex has no cache-creation
+    notion, and ``reasoning_output_tokens`` is already folded into
+    ``output_tokens``.
+    """
+    raw_input = usage.get("input_tokens")
+    cached = usage.get("cached_input_tokens")
+    non_cached = None
+    if raw_input is not None:
+        non_cached = raw_input - (cached or 0)
+    return TokenUsage(
+        input_tokens=non_cached,
+        output_tokens=usage.get("output_tokens"),
+        cache_read_tokens=cached,
+        cache_creation_tokens=None,
+    )
+
+
+def _stream_error(event: dict) -> str | None:
+    """The message of a failure event codex wrote into its JSON stream, if any."""
+    if event.get("type") not in ("error", "turn.failed") and not isinstance(
+        event.get("error"), dict
+    ):
+        return None
+    message = event.get("message")
+    error = event.get("error")
+    if not isinstance(message, str) and isinstance(error, dict):
+        message = error.get("message")
+    if isinstance(message, str) and message.strip():
+        return message.strip()
+    return None
+
+
+def _configured_servers(ctx: RunContext) -> set[str] | None:
+    """The servers in the ``config.toml`` the attempt ran with, plus hosted apps.
+
+    The hosted apps surface as one server, ``codex_apps``, and only for a
+    ChatGPT login whose config leaves ``apps`` on. Such a login's plugins
+    bring tools caliper can't list, so with plugins on the set is unknown.
+    """
+    codex_home = Path(ctx.isolated_home) / ".codex"
+    config_path = codex_home / "config.toml"
+    config = tomllib.loads(config_path.read_text()) if config_path.exists() else {}
+    servers = config.get("mcp_servers")
+    names = set(servers) if isinstance(servers, dict) else set()
+    features = config.get("features")
+    features = features if isinstance(features, dict) else {}
+    if _chatgpt_login(codex_home / "auth.json"):
+        if features.get("plugins") is not False:
+            return None
+        if features.get("apps") is not False:
+            names.add(CODEX_APPS_SERVER)
+    return names
 
 
 def _extract_codex_error(output: str) -> str | None:

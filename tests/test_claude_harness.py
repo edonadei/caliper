@@ -470,7 +470,7 @@ def test_claude_harness_cannot_list_built_in_skills_without_an_init_event() -> N
     proc = ProcessResult(
         stdout='{"type": "result"}', stderr="", returncode=0, timed_out=False
     )
-    assert ClaudeCodeHarness()._exposed_skills(proc) is None
+    assert ClaudeCodeHarness()._read(proc, run_context()).exposed_skills is None
 
 
 def test_claude_harness_records_unknown_without_an_init_event() -> None:
@@ -478,7 +478,7 @@ def test_claude_harness_records_unknown_without_an_init_event() -> None:
         stdout='{"type": "result"}', stderr="", returncode=0, timed_out=False
     )
     ctx = run_context(user_customizations=True)
-    assert ClaudeCodeHarness()._loaded_user_customizations(proc, ctx) is None
+    assert ClaudeCodeHarness()._read(proc, ctx).mcp_servers is None
 
 
 def test_claude_harness_user_customizations_still_ablates_a_server_the_user_also_has(
@@ -578,7 +578,11 @@ def test_tool_results_streamed_as_user_turns_are_captured():
             {"type": "result", "result": "Ticket CHG-1."},
         ]
     )
-    transcript, final = ClaudeCodeHarness()._parse_stream(stream)
+    report = ClaudeCodeHarness()._read(
+        ProcessResult(stdout=stream, stderr="", returncode=0, timed_out=False),
+        run_context(),
+    )
+    transcript, final = report.transcript, report.final_output
     assert [(t.role, t.tool_output) for t in transcript] == [
         ("tool_use", None),
         ("tool_result", '{"ticket": "CHG-1"}'),

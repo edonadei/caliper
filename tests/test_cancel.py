@@ -28,6 +28,7 @@ from typer.testing import CliRunner
 
 from caliper import cancel
 from caliper.harness.base import (
+    AgentReport,
     AttemptResult,
     CliHarness,
     ConversationTurn,
@@ -125,8 +126,8 @@ class SleepHarness(CliHarness):
     def _environment(self, ctx) -> dict[str, str]:  # pragma: no cover
         return {}
 
-    def _parse_stream(self, stdout: str):
-        return [], stdout
+    def _read(self, proc, ctx) -> AgentReport:
+        return AgentReport(final_output=proc.stdout)
 
 
 def _spec(n_tasks: int = 1) -> EvalSpec:

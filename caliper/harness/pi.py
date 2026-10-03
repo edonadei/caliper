@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 
 from caliper.harness.base import (
+    AgentReport,
     CliHarness,
     ConversationTurn,
     HarnessConfigurationError,
@@ -129,37 +131,21 @@ class PiHarness(CliHarness):
             ctx, extra={"PI_CODING_AGENT_DIR": str(self._agent_dir(ctx))}
         )
 
-    def _usage(self, proc: ProcessResult, ctx: RunContext) -> TokenUsage | None:
-        """Sum per-assistant-message usage across the stream.
+    def _read(self, proc: ProcessResult, ctx: RunContext) -> AgentReport:
+        return self._read_stream(proc.stdout)
 
-        pi reports usage on each ``message_end``; summing the assistant messages'
-        usage (each carries its own turn's counts) gives the run total. pi's
-        ``input`` is already non-cached, so ``cacheRead``/``cacheWrite`` map
-        straight onto the disjoint cache fields.
+    def _read_stream(self, stdout: str) -> AgentReport:
+        """One walk of pi's JSON event stream.
+
+        Tool executions and finished assistant messages are the turns. Each
+        assistant ``message_end`` carries its own turn's usage, summed into the
+        run total. In --mode json pi exits 0 even when it never reached the
+        model, and reports why only as an errored assistant message (#132):
+        that message is the CLI talking, and an answer that mentions "401" is
+        not a broken login.
         """
-        totals = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
-        seen = False
-        for message in self._assistant_messages(proc.stdout):
-            usage = message.get("usage")
-            if not isinstance(usage, dict):
-                continue
-            seen = True
-            for key in totals:
-                value = usage.get(key)
-                if isinstance(value, int):
-                    totals[key] += value
-        if not seen:
-            return None
-        return TokenUsage(
-            input_tokens=totals["input"],
-            output_tokens=totals["output"],
-            cache_read_tokens=totals["cacheRead"],
-            cache_creation_tokens=totals["cacheWrite"],
-        )
-
-    def _parse_stream(self, stdout: str) -> tuple[list[ConversationTurn], str]:
-        transcript: list[ConversationTurn] = []
-        final_output = ""
+        report = AgentReport()
+        usages: list[dict] = []
 
         for event in stream_events(stdout):
             etype = event.get("type")
@@ -167,7 +153,7 @@ class PiHarness(CliHarness):
             if etype == "tool_execution_start":
                 tool_name = event.get("toolName")
                 args = event.get("args")
-                transcript.append(
+                report.transcript.append(
                     ConversationTurn(
                         role="tool_use",
                         content=f"[tool: {tool_name}]",
@@ -179,7 +165,7 @@ class PiHarness(CliHarness):
 
             if etype == "tool_execution_end":
                 output = self._flatten_result(event.get("result"))
-                transcript.append(
+                report.transcript.append(
                     ConversationTurn(
                         role="tool_result",
                         content=output,
@@ -192,12 +178,21 @@ class PiHarness(CliHarness):
                 message = event.get("message")
                 if not isinstance(message, dict) or message.get("role") != "assistant":
                     continue
+                if isinstance(message.get("usage"), dict):
+                    usages.append(message["usage"])
+                error = _stream_error(message)
+                if error is not None:
+                    report.cli_errors.append(error)
                 text = self._flatten_text(message.get("content"))
                 if text:
-                    transcript.append(ConversationTurn(role="assistant", content=text))
-                    final_output = text
+                    report.transcript.append(
+                        ConversationTurn(role="assistant", content=text)
+                    )
+                    report.final_output = text
 
-        return transcript, final_output
+        if usages:
+            report.read_usage = partial(_usage, usages)
+        return report
 
     def _flatten_text(self, content: object) -> str:
         if isinstance(content, str):
@@ -236,7 +231,7 @@ class PiHarness(CliHarness):
     def _prompt_text(self, proc: ProcessResult) -> str:
         # The answer is the last assistant message of pi's JSON event stream —
         # the same stream an attempt run reads, tail and all.
-        return self._parse_stream_with_tail(proc.stdout)[1]
+        return self._read_stream(proc.stdout).answer
 
     config_signals = (
         ConfigSignal(
@@ -263,40 +258,42 @@ class PiHarness(CliHarness):
         ),
     )
 
-    def _cli_text(self, proc: ProcessResult, transcript: list[ConversationTurn]) -> str:
-        # In --mode json pi exits 0 even when it never reached the model, and
-        # reports why only as an errored assistant message in its stream
-        # (#132). Those messages are the CLI talking; the rest of the stream is
-        # the agent, and an answer that mentions "401" is not a broken login.
-        errors = self._stream_errors(proc.stdout)
-        return "\n".join([*errors, super()._cli_text(proc, transcript)]).strip()
-
-    def _diagnose(self, proc: ProcessResult, cli_text: str) -> str | None:
+    def _diagnose(
+        self, proc: ProcessResult, report: AgentReport, cli_text: str
+    ) -> str | None:
         lowered = cli_text.lower()
         if "provider" in lowered and "api key" in lowered:
             return _PROVIDER_DIAGNOSIS.replace("{text}", cli_text)
         return None
 
-    @staticmethod
-    def _assistant_messages(stdout: str) -> Iterator[dict]:
-        """Each finished assistant message in pi's JSON event stream."""
-        for event in stream_events(stdout):
-            if event.get("type") != "message_end":
-                continue
-            message = event.get("message")
-            if isinstance(message, dict) and message.get("role") == "assistant":
-                yield message
 
-    @classmethod
-    def _stream_errors(cls, stdout: str) -> list[str]:
-        """The ``errorMessage`` of each assistant turn pi ended on an error.
+def _usage(usages: list[dict]) -> TokenUsage:
+    """Sum the assistant messages' per-turn usage into the run total.
 
-        Trimmed at pi's ``; stack=`` suffix: the Node stack trace says where pi
-        failed, which is no help to whoever has to fix their login.
-        """
-        return [
-            error.split("; stack=", 1)[0].strip()
-            for message in cls._assistant_messages(stdout)
-            if message.get("stopReason") == "error"
-            and isinstance(error := message.get("errorMessage"), str)
-        ]
+    pi's ``input`` is already non-cached, so ``cacheRead``/``cacheWrite`` map
+    straight onto the disjoint cache fields.
+    """
+    totals = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+    for usage in usages:
+        for key in totals:
+            value = usage.get(key)
+            if isinstance(value, int):
+                totals[key] += value
+    return TokenUsage(
+        input_tokens=totals["input"],
+        output_tokens=totals["output"],
+        cache_read_tokens=totals["cacheRead"],
+        cache_creation_tokens=totals["cacheWrite"],
+    )
+
+
+def _stream_error(message: dict) -> str | None:
+    """The ``errorMessage`` of an assistant turn pi ended on an error, if any.
+
+    Trimmed at pi's ``; stack=`` suffix: the Node stack trace says where pi
+    failed, which is no help to whoever has to fix their login.
+    """
+    error = message.get("errorMessage")
+    if message.get("stopReason") != "error" or not isinstance(error, str):
+        return None
+    return error.split("; stack=", 1)[0].strip()
