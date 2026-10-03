@@ -8,9 +8,9 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from caliper.harness import get_harness
-from caliper.harness.base import ConversationTurn
+from caliper.harness.base import ConversationTurn, HarnessConfigurationError
 from caliper.harness.prompt_failure import PromptFailureKind, format_judge_failure
-from caliper.judge.base import Judge, JudgeModelUnavailable, JudgeResult, PromptBackend
+from caliper.judge.base import Judge, JudgeResult, PromptBackend
 from caliper.schema.results import TranscriptTurn
 from caliper.schema.spec import (
     DEFAULT_BACKEND,
@@ -140,7 +140,7 @@ def _run_inline_script(
 
 
 @dataclass(frozen=True)
-class AutoraterVerdict:
+class _AutoraterVerdict:
     """What one autorater call concluded about an attempt.
 
     ``errored`` is True when the autorater failed to yield a usable verdict at
@@ -160,17 +160,31 @@ class AutoraterVerdict:
     seconds: float | None = None
 
     @classmethod
-    def error(cls, reasoning: str, **fields) -> AutoraterVerdict:
+    def error(
+        cls,
+        reasoning: str,
+        *,
+        script: str | None = None,
+        resolved_model: str | None = None,
+        seconds: float | None = None,
+    ) -> _AutoraterVerdict:
         """No usable verdict, and why."""
-        return cls(passed=False, reasoning=reasoning, errored=True, **fields)
+        return cls(
+            passed=False,
+            reasoning=reasoning,
+            errored=True,
+            script=script,
+            resolved_model=resolved_model,
+            seconds=seconds,
+        )
 
 
-def _parse_rich_response(raw: str, workdir: AttemptWorkdir) -> AutoraterVerdict:
+def _parse_rich_response(raw: str, workdir: AttemptWorkdir) -> _AutoraterVerdict:
     """Parse an autorater response, running its script when it wrote one."""
     try:
         verdict = json.loads(raw)
     except json.JSONDecodeError:
-        return AutoraterVerdict.error(
+        return _AutoraterVerdict.error(
             f"Judge returned unparseable response: {raw[:200]}"
         )
 
@@ -180,14 +194,14 @@ def _parse_rich_response(raw: str, workdir: AttemptWorkdir) -> AutoraterVerdict:
     if mode == "script":
         code = verdict.get("code", "")
         if not code:
-            return AutoraterVerdict.error("Judge returned empty script")
+            return _AutoraterVerdict.error("Judge returned empty script")
         passed, evidence = _run_inline_script(code, workdir, "check")
         detail = f"{reasoning} | script: {'ok' if passed else evidence}"
         if passed is None:
-            return AutoraterVerdict.error(detail, script=code)
-        return AutoraterVerdict(passed=passed, reasoning=detail, script=code)
+            return _AutoraterVerdict.error(detail, script=code)
+        return _AutoraterVerdict(passed=passed, reasoning=detail, script=code)
 
-    return AutoraterVerdict(
+    return _AutoraterVerdict(
         passed=bool(verdict.get("passed", False)), reasoning=reasoning
     )
 
@@ -248,37 +262,39 @@ class EvalJudge(Judge):
         if static_result is not None:
             assert_passed, assert_evidence = static_result
 
-        autorater = (
-            self._llm_evaluate(task, transcript, workdir) if task.expect else None
-        )
-        # An errored autorater yields no verdict: leave autorater_passed None
-        # so it is dropped from the checks rather than counted as a failure.
-        autorater_passed = (
-            None if autorater is None or autorater.errored else autorater.passed
-        )
+        autorater: _AutoraterVerdict | None = None
+        autorater_passed: bool | None = None
+        if task.expect:
+            autorater = self._llm_evaluate(task, transcript, workdir)
+            # An errored autorater yields no verdict: leave autorater_passed
+            # None so it is dropped from the checks rather than counted as a
+            # failure.
+            autorater_passed = None if autorater.errored else autorater.passed
 
         # Rule B: only checks that produced a verdict count. A judge_error is
         # raised only when *no* verdict survives (see ADR-0001).
         checks = [c for c in (assert_passed, autorater_passed) if c is not None]
 
-        return JudgeResult(
+        result = JudgeResult(
             passed=all(checks) if checks else False,
             assert_passed=assert_passed,
             assert_evidence=assert_evidence,
             autorater_passed=autorater_passed,
-            autorater_reasoning=autorater.reasoning if autorater else None,
             errored=not checks,
-            resolved_model=autorater.resolved_model if autorater else None,
-            autorater_seconds=autorater.seconds if autorater else None,
-            autorater_script=autorater.script if autorater else None,
         )
+        if autorater is not None:
+            result.autorater_reasoning = autorater.reasoning
+            result.resolved_model = autorater.resolved_model
+            result.autorater_seconds = autorater.seconds
+            result.autorater_script = autorater.script
+        return result
 
     def _llm_evaluate(
         self,
         task: TaskSpec,
         transcript: list[ConversationTurn],
         workdir: AttemptWorkdir,
-    ) -> AutoraterVerdict:
+    ) -> _AutoraterVerdict:
         # An autorater is one bare prompt through a CLI agent — the same
         # backend adapters that run attempts also answer the judge, via the
         # ``run_prompt`` half of the backend seam.
@@ -286,7 +302,7 @@ class EvalJudge(Judge):
             try:
                 self._harness = get_harness(self.backend, self.model)
             except ValueError:
-                return AutoraterVerdict.error(
+                return _AutoraterVerdict.error(
                     f"Unknown judge backend: {self.backend!r}"
                 )
         harness = self._harness
@@ -309,12 +325,12 @@ class EvalJudge(Judge):
                 # The same model fails every attempt's judge the same way, so a
                 # per-attempt judge_error would pay for each agent run only to
                 # discard it. Stop the run instead (issue #139).
-                raise JudgeModelUnavailable(reasoning)
-            return AutoraterVerdict.error(
+                raise HarnessConfigurationError(reasoning)
+            return _AutoraterVerdict.error(
                 reasoning, resolved_model=result.resolved_model, seconds=seconds
             )
         if result.error:
-            return AutoraterVerdict.error(
+            return _AutoraterVerdict.error(
                 result.error, resolved_model=result.resolved_model, seconds=seconds
             )
         verdict = _parse_rich_response(_strip_markdown_fence(result.text), workdir)

@@ -25,7 +25,6 @@ from caliper.harness.codex import CodexHarness, _extract_codex_error
 from caliper.harness.hermes import HermesHarness
 from caliper.harness.pi import PiHarness
 from caliper.harness.prompt_failure import PromptFailure, PromptFailureKind
-from caliper.judge.base import JudgeModelUnavailable
 from caliper.judge.eval_judge import EvalJudge, render_judge_prompt
 from caliper.schema.results import TranscriptTurn
 from caliper.schema.spec import TaskSpec
@@ -662,12 +661,9 @@ def test_an_unavailable_judge_model_stops_the_run(attempt_workdir) -> None:
         )
     )
 
-    # The judge's own type, still a configuration error so the run stops on it
-    # and diagnoses it exactly as before (issue #139).
-    with pytest.raises(JudgeModelUnavailable) as raised:
+    with pytest.raises(HarnessConfigurationError):
         EvalJudge(backend="codex", harness=harness).evaluate(
             task=_task(expect="x"),
             transcript=[],
             workdir=attempt_workdir,
         )
-    assert isinstance(raised.value, HarnessConfigurationError)
