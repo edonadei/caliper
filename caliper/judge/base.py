@@ -11,7 +11,6 @@ from caliper.workdir import AttemptWorkdir
 @dataclass
 class JudgeResult:
     passed: bool
-    reasoning: str
     assert_passed: bool | None = None
     assert_evidence: str | None = None
     autorater_passed: bool | None = None
@@ -74,6 +73,5 @@ class Judge(Protocol):
         self,
         task: TaskSpec,
         transcript: list[ConversationTurn],
-        final_output: str,
         workdir: AttemptWorkdir,
     ) -> JudgeResult: ...

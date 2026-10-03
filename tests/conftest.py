@@ -132,11 +132,11 @@ class ScriptedJudge:
     prompt_version = None
 
     def __init__(self, result: JudgeResult | None = None) -> None:
-        self.result = result or JudgeResult(passed=True, reasoning="ok")
+        self.result = result or JudgeResult(passed=True)
         self.calls = 0
         self._lock = threading.Lock()
 
-    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
+    def evaluate(self, task, transcript, workdir) -> JudgeResult:
         with self._lock:
             self.calls += 1
         return self.result

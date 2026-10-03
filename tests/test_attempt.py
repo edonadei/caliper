@@ -22,14 +22,13 @@ class RecordingJudge:
     prompt_version = None
 
     def __init__(self, result: JudgeResult | None = None) -> None:
-        self.result = result or JudgeResult(passed=True, reasoning="looks right")
+        self.result = result or JudgeResult(passed=True)
         self.calls = 0
 
     def evaluate(
         self,
         task: TaskSpec,
         transcript: list[ConversationTurn],
-        final_output: str,
         workdir: AttemptWorkdir,
     ) -> JudgeResult:
         self.calls += 1
@@ -94,7 +93,6 @@ def test_a_clean_attempt_with_a_passing_verdict_is_a_pass():
     judge = RecordingJudge(
         JudgeResult(
             passed=True,
-            reasoning="ok",
             assert_passed=True,
             assert_evidence="",
             autorater_passed=True,
@@ -111,7 +109,7 @@ def test_a_clean_attempt_with_a_passing_verdict_is_a_pass():
 
 
 def test_a_failing_verdict_is_a_task_fail():
-    judge = RecordingJudge(JudgeResult(passed=False, reasoning="nope"))
+    judge = RecordingJudge(JudgeResult(passed=False))
 
     assembled = _assemble(_result(), judge=judge)
 
@@ -139,9 +137,7 @@ def test_the_attempt_record_carries_the_harness_result_verbatim():
 
 
 def test_the_judges_resolved_model_is_reported_back():
-    judge = RecordingJudge(
-        JudgeResult(passed=True, reasoning="ok", resolved_model="claude-sonnet-5")
-    )
+    judge = RecordingJudge(JudgeResult(passed=True, resolved_model="claude-sonnet-5"))
 
     assembled = _assemble(_result(), judge=judge)
 
@@ -241,7 +237,7 @@ def test_a_timeout_outranks_a_missing_execution_check():
 
 def test_an_errored_judge_is_a_judge_error_not_a_task_fail():
     """A check existed and the grader broke: unusable, not a real failure."""
-    judge = RecordingJudge(JudgeResult(passed=False, reasoning="flaked", errored=True))
+    judge = RecordingJudge(JudgeResult(passed=False, errored=True))
     assembled = _assemble(_result(), judge=judge)
     assert assembled.record.outcome is Outcome.JUDGE_ERROR
 

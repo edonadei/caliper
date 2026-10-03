@@ -185,7 +185,6 @@ def assemble_attempt(
     judge_result = judge.evaluate(
         task=task,
         transcript=result.transcript,
-        final_output=result.final_output,
         workdir=workdir,
     )
     return with_outcome(

@@ -46,10 +46,9 @@ class TimedJudge:
     model = None
     prompt_version = None
 
-    def evaluate(self, task, transcript, final_output, workdir) -> JudgeResult:
+    def evaluate(self, task, transcript, workdir) -> JudgeResult:
         return JudgeResult(
             passed=True,
-            reasoning="ok",
             autorater_seconds=1.5 if task.expect else None,
         )
 
