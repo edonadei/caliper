@@ -30,7 +30,8 @@ Pin an older run by its path.
 Other `run` controls: `--workers N` (parallel attempts across all tasks, default
 4; more workers share one rate limit and risk more `infra_error`), `--timeout`
 (seconds per attempt, default 120), `--fail-fast N` (stop a task after N
-consecutive `infra_error`/`timeout` attempts).
+consecutive `infra_error`/`timeout` attempts), `--output PATH` (also save the
+results JSON there).
 
 ## Spec format (.eval.yaml)
 

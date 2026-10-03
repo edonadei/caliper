@@ -22,6 +22,18 @@ When any of the following change, update every location below that covers it bef
 5. `skills/evaluate-skill/REFERENCE.md` — the source skill reference
 6. `skills/grill-skill/REFERENCE.md` — the grill-skill reference
 
+`tests/test_doc_sync.py` fails when a `caliper run` flag is missing from (or
+stale in) the README table or missing from the evaluate-skill reference, and
+when a spec key is missing from `docs/spec-reference.md`. The rest of this list
+is still on you.
+
+## Verifying harness changes
+
+After changing a backend harness, MCP wiring, or anything an attempt runs
+through (runner, attempt, workdir, judge), follow the smoke-harness skill at
+`.agents/skills/smoke-harness/SKILL.md`. It runs the backend smoke evals
+against the real agent CLIs, which CI skips because they call paid models.
+
 ## Formatting
 
 `ruff` is the single formatting and linting authority for this repo, pinned to
