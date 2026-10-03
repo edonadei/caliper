@@ -20,10 +20,14 @@ import sys
 import tempfile
 from pathlib import Path
 
-from caliper.schema.results import Outcome, RunResults
-from caliper.schema.spec import parse_target
-
 ROOT = Path(__file__).resolve().parents[4]
+# Check results with this checkout's schema, not whichever caliper is installed;
+# `python -m caliper.main` below runs from ROOT for the same reason.
+sys.path.insert(0, str(ROOT))
+
+from caliper.schema.results import Outcome, RunResults  # noqa: E402
+from caliper.schema.spec import parse_target  # noqa: E402
+
 TESTS = ROOT / "tests"
 
 # Which backends each smoke spec runs under, from the "Run it" comment at the top
