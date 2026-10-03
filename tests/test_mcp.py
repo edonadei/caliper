@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 import threading
 import time
 from pathlib import Path
 
-import pytest
 import psutil
+import pytest
+from conftest import ScriptedHarness, ScriptedJudge, run_context
 from pydantic import ValidationError
 
 from caliper import cancel
@@ -25,9 +27,6 @@ from caliper.harness.mcp import (
 from caliper.runner import RunAborted, run
 from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, McpServer, TaskSpec
-
-from conftest import ScriptedHarness, ScriptedJudge, run_context
-
 
 # --- schema validation ----------------------------------------------------
 
@@ -445,10 +444,8 @@ def test_preflight_kills_server_child_after_launcher_exits(tmp_path) -> None:
         if pid is None and marker.exists():
             pid = int(marker.read_text())
         if pid is not None:
-            try:
+            with contextlib.suppress(psutil.NoSuchProcess):
                 psutil.Process(pid).kill()
-            except psutil.NoSuchProcess:
-                pass
 
 
 def test_preflight_uses_sandbox_extra_path_for_command(tmp_path) -> None:
@@ -649,7 +646,8 @@ def test_cancel_interrupts_stalled_preflight_and_skips_next_server(
         cancel.request()
         thread.join(timeout=2)
         assert not thread.is_alive(), "Ctrl-C waited for the preflight timeout"
-        assert errors and isinstance(errors[0], McpPreflightInterrupted)
+        assert errors
+        assert isinstance(errors[0], McpPreflightInterrupted)
         assert not second.exists()
     finally:
         cancel.request()

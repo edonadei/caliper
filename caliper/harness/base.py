@@ -9,9 +9,10 @@ import tempfile
 import time
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import IO, Callable, Iterable, Iterator
+from typing import IO
 
 from caliper import cancel
 from caliper.harness.prompt_failure import (
@@ -212,7 +213,7 @@ def _stage_prompt(text: str, cwd: str) -> IO[bytes]:
 
 
 def _write_temp(data: bytes, directory: str | None) -> IO[bytes]:
-    staged = tempfile.TemporaryFile(dir=directory)
+    staged = tempfile.TemporaryFile(dir=directory)  # noqa: SIM115 - caller owns it
     try:
         staged.write(data)
         staged.flush()
@@ -985,54 +986,56 @@ class CliHarness(HarnessBackend):
         try:
             if stdin is not None:
                 prompt_file = _stage_prompt(stdin, cwd)
-            with subprocess.Popen(
-                cmd,
-                stdin=prompt_file if prompt_file is not None else subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                encoding="utf-8",
-                text=True,
-                env=process_env,
-                cwd=cwd,
-                start_new_session=True,
-            ) as proc:
-                with cancel.track(proc, process_tag=process_tag):
-                    deadline = time.monotonic() + timeout
-                    while True:
+            with (
+                subprocess.Popen(
+                    cmd,
+                    stdin=prompt_file
+                    if prompt_file is not None
+                    else subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    encoding="utf-8",
+                    text=True,
+                    env=process_env,
+                    cwd=cwd,
+                    start_new_session=True,
+                ) as proc,
+                cancel.track(proc, process_tag=process_tag),
+            ):
+                deadline = time.monotonic() + timeout
+                while True:
+                    try:
+                        stdout, stderr = proc.communicate(
+                            timeout=max(0.001, min(0.1, deadline - time.monotonic()))
+                        )
+                        break
+                    except subprocess.TimeoutExpired as exc:
+                        interrupted = cancel.requested()
+                        if not interrupted and time.monotonic() < deadline:
+                            continue
+                        cancel.kill(proc)
                         try:
                             stdout, stderr = proc.communicate(
-                                timeout=max(
-                                    0.001, min(0.1, deadline - time.monotonic())
-                                )
+                                timeout=_POST_KILL_DRAIN_TIMEOUT
                             )
-                            break
-                        except subprocess.TimeoutExpired as exc:
-                            interrupted = cancel.requested()
-                            if not interrupted and time.monotonic() < deadline:
-                                continue
-                            cancel.kill(proc)
-                            try:
-                                stdout, stderr = proc.communicate(
-                                    timeout=_POST_KILL_DRAIN_TIMEOUT
-                                )
-                            except subprocess.TimeoutExpired as drain:
-                                # An untagged detached tool may still hold the
-                                # pipes after its CLI parent has exited. Keep
-                                # what was read before giving up on them.
-                                stdout, stderr = drain.stdout, drain.stderr
-                                for pipe in (proc.stdout, proc.stderr):
-                                    if pipe is not None:
-                                        pipe.close()
-                            if interrupted:
-                                return ProcessResult(
-                                    "", "interrupted", -9, False, cancelled=True
-                                )
+                        except subprocess.TimeoutExpired as drain:
+                            # An untagged detached tool may still hold the
+                            # pipes after its CLI parent has exited. Keep
+                            # what was read before giving up on them.
+                            stdout, stderr = drain.stdout, drain.stderr
+                            for pipe in (proc.stdout, proc.stderr):
+                                if pipe is not None:
+                                    pipe.close()
+                        if interrupted:
                             return ProcessResult(
-                                _timeout_output(exc.stdout, stdout),
-                                _timeout_output(exc.stderr, stderr),
-                                124,
-                                True,
+                                "", "interrupted", -9, False, cancelled=True
                             )
+                        return ProcessResult(
+                            _timeout_output(exc.stdout, stdout),
+                            _timeout_output(exc.stderr, stderr),
+                            124,
+                            True,
+                        )
         except OSError as exc:
             return ProcessResult("", f"{self.name} CLI failed: {exc}", 1, False)
         finally:

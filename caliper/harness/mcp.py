@@ -19,6 +19,7 @@ docs/adr/0011-codex-remote-mcp-uses-static-http-headers-not-env-indirection.md).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import queue
@@ -136,7 +137,7 @@ def preflight_stdio_servers(
                     and sys.platform == "win32"
                     and "SystemRoot" in os.environ
                 ):
-                    process_env["SystemRoot"] = os.environ["SystemRoot"]
+                    process_env["SystemRoot"] = os.environ["SystemRoot"]  # noqa: SIM112
                 process_env.update(server.env)
                 process = subprocess.Popen(
                     [server.command, *server.args],
@@ -175,7 +176,7 @@ def preflight_stdio_servers(
                             )
                         _bounded(
                             lambda: _send(
-                                process,
+                                process,  # noqa: B023 - _bounded calls it right away
                                 {
                                     "jsonrpc": "2.0",
                                     "method": "notifications/initialized",
@@ -214,30 +215,22 @@ def preflight_stdio_servers(
                         # Capture children before terminating the launcher;
                         # reparenting would otherwise hide them from the walk.
                         descendants: set[psutil.Process] = set()
-                        try:
+                        with contextlib.suppress(psutil.Error):
                             descendants.update(
                                 psutil.Process(process.pid).children(recursive=True)
                             )
-                        except psutil.Error:
-                            pass
-                        try:
+                        with contextlib.suppress(OSError):
                             os.killpg(process.pid, signal.SIGTERM)
-                        except OSError:
-                            pass
-                        try:
+                        with contextlib.suppress(subprocess.TimeoutExpired):
                             process.wait(timeout=1)
-                        except subprocess.TimeoutExpired:
-                            pass
                         # The launcher can exit before another group member.
-                        try:
+                        with contextlib.suppress(OSError):
                             os.killpg(process.pid, signal.SIGKILL)
-                        except OSError:
-                            pass
                         for child in descendants:
-                            try:
+                            with contextlib.suppress(
+                                psutil.NoSuchProcess, psutil.AccessDenied
+                            ):
                                 child.kill()
-                            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                                pass
                         psutil.wait_procs(list(descendants), timeout=1)
                     elif job is not None:
                         windows_job.close(job)

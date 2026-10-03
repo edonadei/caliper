@@ -6,6 +6,7 @@ See docs/CONTEXT.md → Run environment.
 from __future__ import annotations
 
 import pytest
+from conftest import ScriptedHarness
 
 from caliper.environment import choose_user_customizations, resolve_environment
 from caliper.harness.base import (
@@ -13,8 +14,6 @@ from caliper.harness.base import (
 )
 from caliper.schema.spec import EvalSpec, McpServer, TaskSpec
 from caliper.workdir import AttemptWorkdir
-
-from conftest import ScriptedHarness
 
 
 def _skill(tmp_path, name: str) -> str:
@@ -95,7 +94,8 @@ def test_an_ignored_explicit_request_is_warned_about_once(tmp_path):
     )
 
     assert environment.user_customizations is False
-    assert len(warnings) == 1 and "no effect" in warnings[0]
+    assert len(warnings) == 1
+    assert "no effect" in warnings[0]
 
 
 def test_an_ignored_default_is_not_warned_about(tmp_path):

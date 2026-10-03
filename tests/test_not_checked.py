@@ -2,15 +2,21 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from conftest import (
+    ScriptedHarness,
+    ScriptedJudge,
+    agent_result,
+    failed_result,
+    task_result,
+)
 from typer.testing import CliRunner
 
 from caliper.commands.list_cmd import _score_cell
-from caliper.reporter import RULE_GLYPH, UNUSABLE_GLYPH
 from caliper.harness.base import (
     ConversationTurn,
 )
-from caliper.reporter import _success_cell
 from caliper.main import app
+from caliper.reporter import RULE_GLYPH, UNUSABLE_GLYPH, _success_cell
 from caliper.runner import run
 from caliper.schema.results import (
     AggregateScore,
@@ -21,15 +27,6 @@ from caliper.schema.results import (
     TaskResult,
 )
 from caliper.schema.spec import EvalSpec, TaskSpec
-
-from conftest import (
-    ScriptedHarness,
-    ScriptedJudge,
-    agent_result,
-    failed_result,
-    task_result,
-)
-
 
 # --- scoring --------------------------------------------------------------
 

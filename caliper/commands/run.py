@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import signal
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, Optional
 
 import typer
 from pydantic import ValidationError
@@ -13,10 +13,9 @@ from rich.markup import escape
 
 from caliper import cancel
 from caliper.commands.diagnosis import BadInput, CannotRun, ExitCode, fail
-from caliper.harness.base import HarnessConfigurationError
-from caliper.skillfetch import SkillFetcher
-from caliper.skills import SkillResolutionError
+from caliper.environment import choose_user_customizations
 from caliper.harness import get_harness
+from caliper.harness.base import HarnessConfigurationError
 from caliper.judge import EvalJudge
 from caliper.reporter import (
     SEP_GLYPH,
@@ -27,12 +26,9 @@ from caliper.reporter import (
     print_results,
     update_progress,
 )
+from caliper.runner import AttemptEvent, RunAborted, run
 from caliper.runstore import RunStore
-from caliper.environment import choose_user_customizations
-from caliper.runner import run, AttemptEvent, RunAborted
 from caliper.schema.results import Outcome, RunResults, TaskResult
-
-
 from caliper.schema.spec import (
     DEFAULT_BACKEND,
     VALID_BACKENDS,
@@ -40,6 +36,8 @@ from caliper.schema.spec import (
     parse_target,
     spec_name,
 )
+from caliper.skillfetch import SkillFetcher
+from caliper.skills import SkillResolutionError
 
 console = Console()
 
@@ -98,7 +96,7 @@ def run_cmd(
             "attempt that retried and then ran is one healthy attempt."
         ),
     ),
-    ablate: Optional[list[str]] = typer.Option(
+    ablate: list[str] | None = typer.Option(
         None,
         "--ablate",
         help=(
@@ -107,19 +105,19 @@ def run_cmd(
             "a full run with `caliper compare`."
         ),
     ),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None, "--output", help="Save results JSON to path"
     ),
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Show per-attempt reasoning"
     ),
-    model: Optional[str] = typer.Option(
+    model: str | None = typer.Option(
         None,
         "--model",
         "-m",
         help="Override skill backend/model (e.g. codex:gpt-5-codex or claude-sonnet-4-6)",
     ),
-    judge_model: Optional[str] = typer.Option(
+    judge_model: str | None = typer.Option(
         None,
         "--judge-model",
         help=(
@@ -127,7 +125,7 @@ def run_cmd(
             "Default: the --model backend, on its CLI's default model"
         ),
     ),
-    user_customizations: Optional[bool] = typer.Option(
+    user_customizations: bool | None = typer.Option(
         None,
         "--user-customizations/--no-user-customizations",
         show_default=False,
@@ -405,7 +403,7 @@ def _nothing_measured(results: RunResults) -> str | None:
 
 
 def _save_and_report(
-    results: RunResults, spec_file: Path, output: Optional[Path], verbose: bool
+    results: RunResults, spec_file: Path, output: Path | None, verbose: bool
 ) -> None:
     """Persist the run and render it — the same path for a whole or partial run.
 

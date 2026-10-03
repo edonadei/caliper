@@ -5,17 +5,17 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from conftest import patch_cli_calls, run_context
 
 from caliper.harness.base import UNLISTED_MCP
 from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.harness.codex import CodexHarness
 from caliper.harness.hermes import HermesHarness
 from caliper.skills import SkillRef
-from conftest import patch_cli_calls, run_context
 
 
 @pytest.mark.parametrize(
-    "backend,folder",
+    ("backend", "folder"),
     [
         (ClaudeCodeHarness, ".claude"),
         (CodexHarness, ".codex"),
@@ -78,7 +78,7 @@ def test_user_skills_are_copied_and_declared_names_win(
 
 
 @pytest.mark.parametrize(
-    "backend,folder,settings,rules,content,marker",
+    ("backend", "folder", "settings", "rules", "content", "marker"),
     [
         (
             ClaudeCodeHarness,
@@ -153,7 +153,7 @@ def test_settings_and_rules_follow_the_switch(
 
 @pytest.mark.parametrize("loads", [True, False])
 @pytest.mark.parametrize(
-    "skill_location,skill_name,command_name",
+    ("skill_location", "skill_name", "command_name"),
     [
         ("skills/review", "review", "review:review"),
         ("skills/review", "fancy", "review:fancy"),
@@ -260,7 +260,7 @@ def test_claude_user_skills_keep_the_directory_command_name(
 
 
 @pytest.mark.parametrize(
-    "backend,folder",
+    ("backend", "folder"),
     [
         (ClaudeCodeHarness, ".claude"),
         (CodexHarness, ".codex"),

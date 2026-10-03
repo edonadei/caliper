@@ -24,7 +24,7 @@ from pathlib import Path
 from caliper.sandbox import SpecSandbox
 from caliper.schema.results import MCP_ABLATION_PREFIX
 from caliper.schema.spec import GitSkillSource, McpServer
-from caliper.skillfetch import SkillFetchError, SkillFetcher
+from caliper.skillfetch import SkillFetcher, SkillFetchError
 
 # ``--ablate`` names its subject bare when only one kind declares it, and by
 # kind — ``skill:`` / ``mcp:`` — when both do. A server's qualifier is the same

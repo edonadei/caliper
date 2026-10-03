@@ -6,7 +6,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 from rich.console import Console
@@ -52,7 +52,7 @@ ALIASES = {
 
 def update_cli_cmd(
     target: Annotated[
-        Optional[str],
+        str | None,
         typer.Argument(help="CLI to update: codex, claude-code, pi, or all"),
     ] = None,
     check: Annotated[

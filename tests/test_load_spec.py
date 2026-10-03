@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import pytest
 from pydantic import ValidationError
 from typer.testing import CliRunner
@@ -33,7 +35,7 @@ def test_load_spec_accepts_bare_agent_with_no_skills_key(tmp_path) -> None:
 
 
 def test_load_spec_rejects_the_old_singular_skill_key(tmp_path) -> None:
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(ValueError, match="skills:") as exc:
         load_spec(_write(tmp_path, "skill:\n  path: ./SKILL.md\n" + _TASK))
     msg = str(exc.value)
     assert "skills:" in msg
@@ -42,7 +44,7 @@ def test_load_spec_rejects_the_old_singular_skill_key(tmp_path) -> None:
 
 
 @pytest.mark.parametrize(
-    "removed, needle",
+    ("removed", "needle"),
     [
         ("skill:\n  path: ./SKILL.md\n  backend: codex\n", "skill.backend"),
         ("skill:\n  path: ./SKILL.md\n  model: claude-sonnet-4-6\n", "skill.model"),
@@ -50,10 +52,9 @@ def test_load_spec_rejects_the_old_singular_skill_key(tmp_path) -> None:
     ],
 )
 def test_load_spec_rejects_removed_engine_keys(tmp_path, removed, needle) -> None:
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(ValueError, match=re.escape(needle)) as exc:
         load_spec(_write(tmp_path, removed + _TASK))
     msg = str(exc.value)
-    assert needle in msg
     # The error must point users at the runtime flags, not just say "unknown key".
     assert "--model" in msg or "--judge-model" in msg
 
@@ -85,9 +86,8 @@ def test_empty_activates_asserts_silence_and_is_a_real_check(tmp_path) -> None:
 
 
 def test_task_with_no_check_at_all_is_rejected(tmp_path) -> None:
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(ValueError, match="activates"):
         load_spec(_write(tmp_path, "tasks:\n  - name: t\n    prompt: p\n"))
-    assert "activates" in str(exc.value)
 
 
 def test_task_may_carry_both_expect_and_activates(tmp_path) -> None:
@@ -209,7 +209,7 @@ def test_run_rejects_the_spec_before_its_first_attempt(
 
 
 @pytest.mark.parametrize(
-    "text, message",
+    ("text", "message"),
     [
         ("", "the spec is empty"),
         ("- a\n", "must be a mapping with a `tasks:` list"),
@@ -221,7 +221,7 @@ def test_a_spec_that_is_not_a_mapping_says_so(tmp_path, text, message) -> None:
 
 
 @pytest.mark.parametrize(
-    "text, message",
+    ("text", "message"),
     [
         ("tasks:\n", "`tasks:` must be a list of tasks, not nothing"),
         ("tasks: go\n", "`tasks:` must be a list of tasks, not a string"),
@@ -236,7 +236,7 @@ def test_a_malformed_tasks_list_says_what_shape_it_needs(
 
 
 @pytest.mark.parametrize(
-    "prefix, shown",
+    ("prefix", "shown"),
     [
         ("user_customizations: true\n", "user_customizations: true"),
         ("user_customizations: false\n", "user_customizations: false"),

@@ -24,8 +24,8 @@ from __future__ import annotations
 
 import subprocess
 import threading
+from collections.abc import Callable
 from dataclasses import replace
-from typing import Callable
 
 import pytest
 
@@ -210,7 +210,7 @@ class _FakePopen:
         self._completed: subprocess.CompletedProcess | None = None
         self.pid = 4242
 
-    def __enter__(self) -> "_FakePopen":
+    def __enter__(self) -> _FakePopen:
         return self
 
     def __exit__(self, *exc_info: object) -> None:

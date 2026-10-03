@@ -4,13 +4,17 @@ import json
 import subprocess
 
 import pytest
+from conftest import patch_cli_calls
 
-from caliper.harness.base import HarnessConfigurationError, ProcessResult
+from caliper.harness.base import (
+    ConversationTurn,
+    HarnessConfigurationError,
+    ProcessResult,
+)
 from caliper.harness.claude_code import (
     ClaudeCodeHarness,
     _classify_claude_prompt_failure,
 )
-from caliper.harness.base import ConversationTurn
 from caliper.harness.prompt_failure import (
     PromptFailureKind,
     classify_claude_api_error_status,
@@ -18,8 +22,6 @@ from caliper.harness.prompt_failure import (
 )
 from caliper.judge.eval_judge import EvalJudge
 from caliper.schema.spec import TaskSpec
-
-from conftest import patch_cli_calls
 
 # Recorded from `claude -p "say ok" --output-format json --model claude-sonnet-4-20250514`
 # against a retired model (issue #75).

@@ -20,8 +20,8 @@ rather than spending every remaining attempt on the same wall.
 from __future__ import annotations
 
 import random
+from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Callable
 
 from caliper import cancel
 from caliper.harness.base import AttemptResult

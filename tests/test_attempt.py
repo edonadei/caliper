@@ -11,7 +11,6 @@ from caliper.schema.results import Outcome, TokenUsage
 from caliper.schema.spec import TaskSpec
 from caliper.workdir import AttemptWorkdir
 
-
 # --- doubles ---------------------------------------------------------------
 
 

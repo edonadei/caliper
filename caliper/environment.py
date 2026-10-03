@@ -14,9 +14,10 @@ See docs/CONTEXT.md → Run environment.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Literal
 
 from caliper.harness.base import HarnessBackend, HarnessConfigurationError, RunContext
 from caliper.harness.mcp import resolve_declared_paths

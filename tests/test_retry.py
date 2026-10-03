@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from conftest import ScriptedHarness, ScriptedJudge
 
 from caliper import cancel
 from caliper.harness.base import (
@@ -28,8 +29,6 @@ from caliper.retry import (
 from caliper.runner import RunAborted, run
 from caliper.schema.results import Outcome, TokenUsage
 from caliper.schema.spec import EvalSpec, TaskSpec
-
-from conftest import ScriptedHarness, ScriptedJudge
 
 # No real waiting anywhere in this file: the policy's timing is asserted
 # directly, and every loop test injects zero delays.

@@ -170,9 +170,11 @@ def test_report_prints_both_scoreboards_separately():
     )
     # Two columns, two footers: never one blended number.
     header = next(ln for ln in out.splitlines() if "Task" in ln)
-    assert "success" in header and "activation" in header
+    assert "success" in header
+    assert "activation" in header
     overall = next(ln for ln in out.splitlines() if "Overall" in ln)
-    assert "100%" in overall and "73.3%" in overall
+    assert "100%" in overall
+    assert "73.3%" in overall
     # Per-skill diagnostic: fires when wanted 2/2, when not wanted 2/4.
     assert re.search(r"mine\s.*100%\s+2/2\s.*50%\s+2/4", out)
 
@@ -292,7 +294,8 @@ def test_compare_surfaces_an_activation_delta_for_a_trigger_only_task():
         _act_run([True, True, True, True]), _act_run([True, False, False, False])
     )
     tc = comp.matched[0]
-    assert tc.a_score is None and tc.b_score is None
+    assert tc.a_score is None
+    assert tc.b_score is None
     assert tc.a_activation == 1.0
     assert tc.b_activation == 0.25
     assert tc.activation_delta == -0.75

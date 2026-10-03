@@ -5,14 +5,12 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from conftest import patch_cli_calls, run_context
 
-from caliper.harness.base import HarnessConfigurationError
-from caliper.harness.base import ProcessResult
+from caliper.harness.base import HarnessConfigurationError, ProcessResult
 from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
-
-from conftest import patch_cli_calls, run_context
 
 
 def _ok_stream(cmd: list[str]) -> subprocess.CompletedProcess:
@@ -687,7 +685,7 @@ def test_claude_harness_leaves_an_agent_writing_about_a_404_alone(
 
 
 @pytest.mark.parametrize(
-    "platform, keychain, seeded, expected",
+    ("platform", "keychain", "seeded", "expected"),
     [
         # macOS: a Keychain entry wins over a possibly stale file (#180).
         ("darwin", "keychain", "stale-file", "keychain"),

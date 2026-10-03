@@ -7,9 +7,9 @@ of the six were then thrown away. There is one derivation now, and this is it.
 
 from __future__ import annotations
 
-from caliper.schema.results import AggregateScore, Outcome, TaskResult
-
 from conftest import task_result as _task
+
+from caliper.schema.results import AggregateScore, Outcome, TaskResult
 
 
 def test_counts_split_usable_from_noise() -> None:

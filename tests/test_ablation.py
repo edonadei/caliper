@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from conftest import ScriptedHarness, ScriptedJudge, agent_result
 
 from caliper.compare import diff_runs
 from caliper.harness.base import (
@@ -31,9 +32,6 @@ from caliper.schema.results import (
 )
 from caliper.schema.spec import EvalSpec, McpServer, TaskSpec
 from caliper.skills import AblationError, SkillResolutionError
-
-from conftest import ScriptedHarness, ScriptedJudge, agent_result
-
 
 # --- fixtures -------------------------------------------------------------
 
@@ -253,7 +251,8 @@ def test_a_bare_name_on_a_collision_is_refused(tmp_path):
     with pytest.raises(AblationError) as exc:
         _run_spec(spec, spec_path, _recording(), ablate=["weather"])
     message = str(exc.value)
-    assert "mcp:weather" in message and "skill:weather" in message
+    assert "mcp:weather" in message
+    assert "skill:weather" in message
     assert exc.value.title == "Invalid ablation"
 
 
@@ -463,7 +462,8 @@ def test_a_server_marker_the_full_side_never_had_is_not_a_pair():
     a = _saved(skills=["keeper"], ablated=["mcp:weather"])
     b = _saved(skills=["keeper"], ablated=[], mcp_servers=[])
     comp = diff_runs(a, b)
-    assert comp.a_label is None and comp.b_label is None
+    assert comp.a_label is None
+    assert comp.b_label is None
     assert comp.neighbourhood_mismatch is False
 
 
@@ -493,7 +493,8 @@ def test_different_recorded_servers_warn():
     comp = diff_runs(a, b)
     assert comp.mcp_mismatch is True
     assert any("MCP servers" in w for w in comp.warnings)
-    assert comp.a_label is None and comp.b_label is None
+    assert comp.a_label is None
+    assert comp.b_label is None
 
 
 def test_matching_recorded_servers_do_not_warn():
@@ -541,5 +542,6 @@ def test_two_full_runs_are_unlabelled():
     a = _saved(skills=["keeper"], ablated=[])
     b = _saved(skills=["keeper"], ablated=[])
     comp = diff_runs(a, b)
-    assert comp.a_label is None and comp.b_label is None
+    assert comp.a_label is None
+    assert comp.b_label is None
     assert comp.warnings == []

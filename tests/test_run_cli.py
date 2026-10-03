@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from conftest import ScriptedHarness
 from typer.testing import CliRunner
 
 from caliper.main import app
@@ -18,9 +19,6 @@ from caliper.schema.results import (
     RunResults,
     TaskResult,
 )
-
-from conftest import ScriptedHarness
-
 
 runner = CliRunner()
 
@@ -250,7 +248,7 @@ def _stub_a_run(monkeypatch, finished: RunResults) -> None:
 
 
 @pytest.mark.parametrize(
-    "argv, spec_prefix, forwarded, shown, hidden",
+    ("argv", "spec_prefix", "forwarded", "shown", "hidden"),
     [
         # The default: one quiet line saying how to isolate, no warning.
         ([], "", None, "without asking", "⚠"),
@@ -565,7 +563,8 @@ def test_run_cli_refuses_unknown_backends_before_any_attempt(
         assert flag in result.output
         # Names what is wrong and what would be right.
         assert "Unknown backend" in result.output
-        assert "claude-code" in result.output and "codex" in result.output
+        assert "claude-code" in result.output
+        assert "codex" in result.output
 
 
 class _NoPromptCli(ScriptedHarness):
@@ -622,7 +621,7 @@ def test_the_missing_judge_message_matches_how_the_judge_was_chosen() -> None:
 
 
 @pytest.mark.parametrize(
-    "flags, judge",
+    ("flags", "judge"),
     [
         ([], ("claude-code", None)),
         # The backend is followed, the skill's model is not.
@@ -696,7 +695,7 @@ def test_run_ignores_a_missing_judge_cli_when_no_task_has_expect(
 
 
 @pytest.mark.parametrize(
-    "flag, value",
+    ("flag", "value"),
     [("--k", "0"), ("--workers", "0"), ("--timeout", "0"), ("--timeout", "-5")],
 )
 def test_run_rejects_a_value_below_one_before_running(

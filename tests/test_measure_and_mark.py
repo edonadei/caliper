@@ -13,8 +13,8 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from caliper.attempt import assemble_attempt
 from caliper.activation import ActivationDetector
+from caliper.attempt import assemble_attempt
 from caliper.compare import diff_runs
 from caliper.harness.base import AttemptResult, ConversationTurn
 from caliper.judge.base import JudgeResult

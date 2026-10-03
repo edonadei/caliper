@@ -60,3 +60,21 @@ packages = ["caliper"]
 [tool.ruff]
 line-length = 88
 target-version = "py310"
+
+[tool.ruff.lint]
+# E501 stays off: the formatter owns line length (docs/adr/0002).
+select = ["E4", "E7", "E9", "F", "B", "I", "UP", "SIM", "PT", "T20", "TID"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"caliper.harness.claude_code".msg = "Go through caliper.harness.get_harness; backends stay behind the harness seam."
+"caliper.harness.codex".msg = "Go through caliper.harness.get_harness; backends stay behind the harness seam."
+"caliper.harness.pi".msg = "Go through caliper.harness.get_harness; backends stay behind the harness seam."
+"caliper.harness.hermes".msg = "Go through caliper.harness.get_harness; backends stay behind the harness seam."
+
+[tool.ruff.lint.per-file-ignores]
+"caliper/harness/**" = ["TID251"]
+"tests/**" = ["TID251"]
+"docs/**" = ["T20"]

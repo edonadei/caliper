@@ -6,6 +6,7 @@ module owns is exactly how those processes are spawned, drained and stopped.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shlex
 import signal
@@ -61,10 +62,8 @@ def test_hook_with_background_child_returns_after_its_shell_exits(tmp_path) -> N
         assert step.output == "setup broke"
     finally:
         if pid_file.exists():
-            try:
+            with contextlib.suppress(ProcessLookupError):
                 os.kill(int(pid_file.read_text().strip()), signal.SIGTERM)
-            except ProcessLookupError:
-                pass
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX background shell syntax")
@@ -80,10 +79,8 @@ def test_successful_hook_with_continuous_background_writer_returns(tmp_path) -> 
         assert time.monotonic() - started < 3
     finally:
         if pid_file.exists():
-            try:
+            with contextlib.suppress(ProcessLookupError):
                 os.kill(int(pid_file.read_text().strip()), signal.SIGTERM)
-            except ProcessLookupError:
-                pass
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows background shell syntax")
@@ -155,9 +152,8 @@ def test_a_hanging_hook_is_killed_at_its_limit(tmp_path, monkeypatch) -> None:
 
 def test_a_cancelled_run_cancels_its_assertions(tmp_path) -> None:
     cancel.request()
-    with AttemptWorkdir(tmp_path) as workdir:
-        with pytest.raises(StepCancelled):
-            workdir.run_python("assert", "import time\ntime.sleep(30)\n")
+    with AttemptWorkdir(tmp_path) as workdir, pytest.raises(StepCancelled):
+        workdir.run_python("assert", "import time\ntime.sleep(30)\n")
 
 
 def test_cleanup_still_runs_after_the_run_was_cancelled(tmp_path) -> None:

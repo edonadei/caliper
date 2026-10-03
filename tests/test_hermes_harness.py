@@ -5,14 +5,13 @@ import subprocess
 
 import pytest
 import yaml
+from conftest import patch_cli_calls, run_context
 
 from caliper.activation import ActivationDetector
 from caliper.harness.base import HarnessConfigurationError, ProcessResult
 from caliper.harness.hermes import HermesHarness
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
-
-from conftest import patch_cli_calls, run_context
 
 
 def _version(cmd):

@@ -15,14 +15,15 @@ import sys
 import tempfile
 import threading
 import time
-from contextlib import contextmanager
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Iterator
 
-import pytest
 import psutil
+import pytest
+from conftest import ScriptedHarness, ScriptedJudge
 from typer.testing import CliRunner
 
 from caliper import cancel
@@ -47,7 +48,6 @@ from caliper.schema.results import (
     TaskResult,
 )
 from caliper.schema.spec import EvalSpec, TaskSpec
-from conftest import ScriptedHarness, ScriptedJudge
 
 runner = CliRunner()
 
@@ -345,12 +345,14 @@ def test_cancelling_a_finished_agent_with_exited_tools_keeps_its_attempt() -> No
         "import subprocess, sys; "
         "subprocess.run([sys.executable, '-c', 'import time; time.sleep(0.3)'])"
     )
-    with subprocess.Popen([sys.executable, "-c", agent]) as proc:
-        with cancel.track(proc):
-            proc.wait(timeout=5)
-            assert cancel._descendants[proc], "the watcher never saw the tool"
-            cancel.kill(proc)
-            assert not cancel.was_killed(proc)
+    with (
+        subprocess.Popen([sys.executable, "-c", agent]) as proc,
+        cancel.track(proc),
+    ):
+        proc.wait(timeout=5)
+        assert cancel._descendants[proc], "the watcher never saw the tool"
+        cancel.kill(proc)
+        assert not cancel.was_killed(proc)
     cancel.reset()
 
 
@@ -416,10 +418,8 @@ def _running_attempt(
     finally:
         cancel.request()
         for pid in pids:
-            try:
+            with suppress(psutil.NoSuchProcess):
                 psutil.Process(pid).kill()
-            except psutil.NoSuchProcess:
-                pass
         thread.join(timeout=5)
         cancel.reset()
 

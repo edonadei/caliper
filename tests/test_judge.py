@@ -13,6 +13,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 import pytest
+from conftest import patch_cli_calls
 
 from caliper.harness.base import (
     ConversationTurn,
@@ -20,16 +21,14 @@ from caliper.harness.base import (
     ProcessResult,
     PromptResult,
 )
-from caliper.harness.prompt_failure import PromptFailure, PromptFailureKind
-from caliper.harness.codex import _extract_codex_error, CodexHarness
+from caliper.harness.codex import CodexHarness, _extract_codex_error
 from caliper.harness.hermes import HermesHarness
 from caliper.harness.pi import PiHarness
+from caliper.harness.prompt_failure import PromptFailure, PromptFailureKind
 from caliper.judge.eval_judge import EvalJudge, render_judge_prompt
 from caliper.schema.results import TranscriptTurn
 from caliper.schema.spec import TaskSpec
 from caliper.workdir import _STEP_TIMEOUTS
-
-from conftest import patch_cli_calls
 
 
 def _task(**overrides) -> TaskSpec:
@@ -421,8 +420,10 @@ def test_codex_judge_timeout_removes_its_output_file(monkeypatch, tmp_path) -> N
 
     result = CodexHarness().run_prompt("anything", cwd=str(tmp_path), timeout=1)
 
-    assert result.error is not None and "timed out" in result.error
-    assert staged and not staged[0].exists()
+    assert result.error is not None
+    assert "timed out" in result.error
+    assert staged
+    assert not staged[0].exists()
 
 
 def test_codex_error_extraction_from_noisy_cli_output() -> None:
@@ -548,7 +549,8 @@ def test_pi_backend_is_a_valid_judge(monkeypatch, tmp_path, attempt_workdir) -> 
     # The judge model reached the CLI (backend:model form resolves through).
     cmd, _ = calls[0]
     assert cmd[cmd.index("--model") + 1] == "claude-sonnet-4-6"
-    assert "--print" in cmd and "--mode" in cmd
+    assert "--print" in cmd
+    assert "--mode" in cmd
 
 
 def test_pi_judge_reports_cli_error_as_errored(monkeypatch, tmp_path) -> None:

@@ -7,7 +7,6 @@ from caliper.harness.refusal import (
     classify,
 )
 
-
 # --- what counts as a cap or a throttle --------------------------------------
 
 
@@ -20,7 +19,8 @@ def test_known_provider_signals_are_refusals() -> None:
         ("the model is overloaded", RefusalKind.THROTTLE),
     ):
         refusal = classify(text, [])
-        assert refusal is not None and refusal.kind is kind, text
+        assert refusal is not None, text
+        assert refusal.kind is kind, text
 
 
 # --- classify ---------------------------------------------------------------
@@ -67,7 +67,8 @@ def test_a_structural_diagnosis_runs_after_cap_and_throttle() -> None:
         RefusalKind.CONFIG, "crashed"
     )
     capped = classify("TypeError: spending cap reached", [], diagnose)
-    assert capped is not None and capped.kind is RefusalKind.SPENDING_CAP
+    assert capped is not None
+    assert capped.kind is RefusalKind.SPENDING_CAP
 
 
 def test_a_spending_cap_quotes_the_line_that_says_so() -> None:
