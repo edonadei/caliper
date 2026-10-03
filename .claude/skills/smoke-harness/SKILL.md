@@ -15,10 +15,10 @@ Unit tests fake the agent CLIs. The smoke evals in `tests/*-smoke.eval.yaml` run
    python .claude/skills/smoke-harness/scripts/smoke.py --dry-run
    ```
 
-   With no arguments the script picks the backends this branch touched (a backend's own harness file reaches that backend; shared `caliper/` code reaches all of them) and skips any whose CLI is not on `PATH`. Name backends to override: `smoke.py codex pi`, or pin a model with `claude-code:claude-haiku-4-5-20251001`.
+   With no arguments the script picks the backends this branch touched (a backend's own harness file reaches that backend; shared `caliper/` code reaches all of them) and skips any whose CLI caliper cannot find (its `*_CLI_PATH` override, install locations, then `PATH`). Name backends to override: `smoke.py codex pi`, or pin a model with `claude-code:claude-haiku-4-5-20251001`.
    Done when the plan lists a run for every backend your change reaches. A backend skipped for a missing CLI is unverified: say so in your report and in the PR, never as a pass.
 
-2. **Run** the same command without `--dry-run`. Each spec runs once (`--k 1`) and the script checks its saved results JSON: every attempt `pass`, a transcript saved, no hook failures, the requested backend recorded, user customizations off.
+2. **Run** the same command without `--dry-run`. Each spec runs once (`--k 1`) and the script checks its saved results JSON: one attempt per task, every attempt `pass`, a transcript saved, no hook failures, the requested backend recorded, user customizations off.
    Done when the script exits. Exit 0 means every check passed; 1 lists each failing check under its spec; 2 means nothing could run.
 
 3. **Read every failure** before touching code. Each line names the task, the outcome, and the judge's or assert's evidence; the full results JSON sits in the directory printed on the last line. Sort each failure into one bucket:

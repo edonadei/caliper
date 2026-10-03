@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 import os
 import secrets
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -25,8 +24,9 @@ ROOT = Path(__file__).resolve().parents[4]
 # `python -m caliper.main` below runs from ROOT for the same reason.
 sys.path.insert(0, str(ROOT))
 
+from caliper.harness import get_harness  # noqa: E402
 from caliper.schema.results import Outcome, RunResults  # noqa: E402
-from caliper.schema.spec import parse_target  # noqa: E402
+from caliper.schema.spec import load_spec, parse_target  # noqa: E402
 
 TESTS = ROOT / "tests"
 
@@ -42,7 +42,6 @@ SPECS = {
     "mcp-remote-smoke.eval.yaml": {"claude-code"},
 }
 BACKENDS = ["claude-code", "codex", "hermes", "pi"]
-CLI = {"claude-code": "claude", "codex": "codex", "hermes": "hermes", "pi": "pi"}
 BACKEND_FILES = {
     f"caliper/harness/{name.replace('-', '_')}.py": name for name in BACKENDS
 }
@@ -56,14 +55,22 @@ def changed_files() -> list[str]:
         text=True,
         check=True,
     ).stdout.strip()
-    diff = subprocess.run(
+    tracked = subprocess.run(
         ["git", "diff", "--name-only", base],
         cwd=ROOT,
         capture_output=True,
         text=True,
         check=True,
-    )
-    return diff.stdout.split()
+    ).stdout.split()
+    # A new harness file or smoke spec counts before it is staged.
+    untracked = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    return tracked + untracked
 
 
 def touched_backends(files: list[str]) -> set[str]:
@@ -82,13 +89,21 @@ def touched_backends(files: list[str]) -> set[str]:
     return backends
 
 
-def check(results_path: Path, backend: str) -> list[str]:
+def check(results_path: Path, backend: str, spec_path: Path) -> list[str]:
     """Every problem in one saved run; empty when the run is clean."""
     if not results_path.exists():
         return ["no results JSON was saved"]
     results = RunResults.model_validate_json(results_path.read_text())
     run = results.run
     problems = []
+    # An empty run checks nothing, so it must not read as a pass: every task in
+    # the spec needs its one attempt (--k 1).
+    attempts = {t.task_name: len(t.attempts) for t in results.task_results}
+    for task in load_spec(spec_path).tasks:
+        if attempts.get(task.name, 0) != 1:
+            problems.append(
+                f"{task.name}: expected 1 attempt, got {attempts.get(task.name, 0)}"
+            )
     if run.backend != backend:
         problems.append(f"ran on {run.backend}, expected {backend}")
     if run.user_customizations:
@@ -136,8 +151,9 @@ def main() -> int:
 
     plan = []
     for backend, target in targets:
-        if shutil.which(CLI.get(backend, backend)) is None:
-            print(f"skip {backend}: `{CLI.get(backend, backend)}` is not on PATH")
+        # caliper's own lookup: the *_CLI_PATH override, install locations, PATH.
+        if get_harness(backend).prompt_cli_missing():
+            print(f"skip {backend}: caliper cannot find its CLI")
             continue
         for spec, runs_on in SPECS.items():
             if backend in runs_on:
@@ -176,7 +192,7 @@ def main() -> int:
             capture_output=True,
             text=True,
         )
-        problems = check(results, backend)
+        problems = check(results, backend, TESTS / spec)
         failed |= bool(problems)
         print(f"{'FAIL' if problems else 'ok  '} {backend:12} {spec}")
         for problem in problems:
