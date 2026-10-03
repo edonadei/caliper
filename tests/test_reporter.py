@@ -234,7 +234,8 @@ def test_judge_input_shows_only_under_verbose() -> None:
     verbose = _render(results, verbose=True)
 
     assert "no file" in default
-    assert "EXPECTED" not in default and "SCRIPTED" not in default
+    assert "EXPECTED" not in default
+    assert "SCRIPTED" not in default
     assert "writes the EXPECTED file" in verbose
     assert "assert open('SCRIPTED').read()" in verbose
     saved = RunResults.model_validate_json(results.model_dump_json())

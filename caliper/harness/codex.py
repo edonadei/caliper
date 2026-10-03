@@ -5,8 +5,8 @@ import os
 import shutil
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import tomli_w
 
@@ -16,8 +16,8 @@ except ModuleNotFoundError:  # Python 3.10, where tomllib is not yet stdlib
     import tomli as tomllib
 
 from caliper.harness.base import (
-    ConversationTurn,
     CliHarness,
+    ConversationTurn,
     HarnessConfigurationError,
     ProcessResult,
     PromptCall,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 from rich import box
@@ -73,7 +73,7 @@ def _read(store: RunStore, path: Path) -> RunResults | None:
 
 def list_cmd_fn(
     spec: Annotated[
-        Optional[str], typer.Argument(help="Spec name to list runs for")
+        str | None, typer.Argument(help="Spec name to list runs for")
     ] = None,
 ) -> None:
     # No `--dir`: the results root is discovered, the same way for every command

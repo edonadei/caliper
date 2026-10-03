@@ -6,7 +6,7 @@ from caliper.schema.spec import parse_target
 
 
 @pytest.mark.parametrize(
-    "value, expected",
+    ("value", "expected"),
     [
         # backend:model compound
         ("codex:gpt-5-codex", ("codex", "gpt-5-codex")),

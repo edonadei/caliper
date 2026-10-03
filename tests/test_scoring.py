@@ -7,6 +7,8 @@ what ``AggregateScore.from_task_results`` does across tasks.
 
 from __future__ import annotations
 
+from conftest import task_result
+
 from caliper.schema.results import (
     AggregateScore,
     AttemptRecord,
@@ -16,8 +18,6 @@ from caliper.schema.results import (
     pass_hat_k,
     success_rate,
 )
-
-from conftest import task_result
 
 
 def _task(task_id: str, name: str, *outcomes: Outcome) -> TaskResult:

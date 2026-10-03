@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 from rich.console import Console
@@ -26,7 +26,7 @@ def report_cmd(
         str, typer.Argument(help="Spec name or path to results JSON")
     ],
     run: Annotated[
-        Optional[str], typer.Option("--run", help="Specific run timestamp")
+        str | None, typer.Option("--run", help="Specific run timestamp")
     ] = None,
     fmt: Annotated[
         OutputFormat, typer.Option("--format", "-f", help="Output format")

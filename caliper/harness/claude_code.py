@@ -6,12 +6,12 @@ import os
 import re
 import shutil
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from caliper.harness.base import (
-    ConversationTurn,
     CliHarness,
+    ConversationTurn,
     HarnessConfigurationError,
     ProcessResult,
     PromptCall,
@@ -19,12 +19,12 @@ from caliper.harness.base import (
     RunContext,
     stream_events,
 )
+from caliper.harness.mcp import merge_user_servers, resolve_servers
 from caliper.harness.prompt_failure import (
     PromptFailure,
     PromptFailureKind,
     classify_claude_api_error_status,
 )
-from caliper.harness.mcp import merge_user_servers, resolve_servers
 from caliper.harness.refusal import ConfigSignal
 from caliper.schema.results import TokenUsage
 from caliper.skills import frontmatter_name

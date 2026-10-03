@@ -1,11 +1,11 @@
 import typer
 
-from caliper.commands.run import run_cmd
-from caliper.commands.report import report_cmd
 from caliper.commands.compare import compare_cmd
 from caliper.commands.list_cmd import list_cmd_fn
-from caliper.commands.validate import validate_cmd
+from caliper.commands.report import report_cmd
+from caliper.commands.run import run_cmd
 from caliper.commands.update_cli import update_cli_cmd
+from caliper.commands.validate import validate_cmd
 
 app = typer.Typer(
     name="caliper",

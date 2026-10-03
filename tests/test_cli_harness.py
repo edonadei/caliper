@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from conftest import run_context
 
 from caliper.harness.base import (
     CliHarness,
@@ -36,8 +37,6 @@ from caliper.harness.refusal import RefusalKind
 from caliper.runner import run
 from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, TaskSpec
-
-from conftest import run_context
 
 ALL_BACKENDS = [ClaudeCodeHarness, CodexHarness, HermesHarness, PiHarness]
 

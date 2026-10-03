@@ -78,7 +78,8 @@ def test_identical_runs_have_zero_deltas_and_no_regression() -> None:
     assert all(tc.delta == 0.0 for tc in comp.matched)
     assert all(not tc.regression for tc in comp.matched)
     assert comp.aggregate_delta == 0.0
-    assert comp.unmatched_a == [] and comp.unmatched_b == []
+    assert comp.unmatched_a == []
+    assert comp.unmatched_b == []
 
 
 # --------------------------------------------------------------------------
@@ -97,7 +98,8 @@ def test_single_task_regression_flags_only_that_task() -> None:
     assert not by_name["alpha"].regression
     assert by_name["alpha"].delta == 0.0
     assert by_name["beta"].regression
-    assert by_name["beta"].delta is not None and by_name["beta"].delta < 0
+    assert by_name["beta"].delta is not None
+    assert by_name["beta"].delta < 0
     assert comp.aggregate_delta < 0
 
 
@@ -107,7 +109,8 @@ def test_improvement_is_not_flagged_as_regression() -> None:
 
     comp = diff_runs(a, b)
     assert not comp.has_regression
-    assert comp.matched[0].delta is not None and comp.matched[0].delta > 0
+    assert comp.matched[0].delta is not None
+    assert comp.matched[0].delta > 0
 
 
 # --------------------------------------------------------------------------
@@ -140,7 +143,8 @@ def test_matching_is_by_name_not_positional_id() -> None:
     assert set(by_name) == {"alpha", "beta"}
     assert by_name["alpha"].delta == 0.0
     assert by_name["beta"].delta == 0.0
-    assert comp.unmatched_a == [] and comp.unmatched_b == []
+    assert comp.unmatched_a == []
+    assert comp.unmatched_b == []
 
 
 # --------------------------------------------------------------------------
@@ -173,7 +177,8 @@ def test_fully_unusable_side_is_unmeasured_never_a_regression() -> None:
     assert not tc.regression
     assert not comp.has_regression
     # An unmeasured side is excluded from the comparable aggregate.
-    assert comp.a_matched_avg == 0.0 and comp.b_matched_avg == 0.0
+    assert comp.a_matched_avg == 0.0
+    assert comp.b_matched_avg == 0.0
 
 
 # --------------------------------------------------------------------------

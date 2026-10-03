@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Callable, Iterator
 
 from caliper.harness.base import (
-    ConversationTurn,
     CliHarness,
+    ConversationTurn,
     HarnessConfigurationError,
     ProcessResult,
     PromptCall,
@@ -14,7 +14,6 @@ from caliper.harness.base import (
 )
 from caliper.harness.refusal import AUTH_MARKERS, ConfigSignal
 from caliper.schema.results import TokenUsage
-
 
 _PROVIDER_DIAGNOSIS = (
     "pi cannot run with the current provider/credential "

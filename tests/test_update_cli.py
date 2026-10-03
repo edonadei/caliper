@@ -6,7 +6,6 @@ from typer.testing import CliRunner
 
 from caliper.main import app
 
-
 runner = CliRunner()
 
 

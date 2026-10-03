@@ -5,13 +5,12 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from conftest import patch_cli_calls, run_context
 
 from caliper.harness.base import HarnessConfigurationError
 from caliper.harness.pi import PiHarness
 from caliper.harness.refusal import RefusalKind
 from caliper.skills import resolve_skills
-
-from conftest import patch_cli_calls, run_context
 
 
 def _version(cmd):

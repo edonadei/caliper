@@ -7,6 +7,13 @@ import time
 from pathlib import Path
 
 import pytest
+from conftest import (
+    ScriptedHarness,
+    ScriptedJudge,
+    agent_result,
+    failed_result,
+    in_turn,
+)
 
 from caliper import cancel
 from caliper.harness.base import (
@@ -21,17 +28,9 @@ from caliper.judge.base import JudgeResult
 from caliper.judge.eval_judge import JUDGE_PROMPT_VERSION
 from caliper.reporter import print_results
 from caliper.runner import run
-from caliper.workdir import _STEP_TIMEOUTS
 from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, TaskSpec
-
-from conftest import (
-    ScriptedHarness,
-    ScriptedJudge,
-    agent_result,
-    failed_result,
-    in_turn,
-)
+from caliper.workdir import _STEP_TIMEOUTS
 
 
 def _fails_first_and_third(ctx: RunContext) -> AttemptResult:
@@ -762,7 +761,8 @@ def test_agent_setup_and_assert_share_one_attempt_workdir(
     assert list(launch_dir.iterdir()) == []
     assert sorted(p.name for p in spec_dir.iterdir()) == ["fixture.txt"]
     # The workdir is per-attempt scratch, gone once the attempt is recorded.
-    assert harness.workdir is not None and not Path(harness.workdir).exists()
+    assert harness.workdir is not None
+    assert not Path(harness.workdir).exists()
 
 
 def test_hooks_see_the_workdir_and_spec_dir_env(tmp_path) -> None:

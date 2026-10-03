@@ -11,6 +11,7 @@ from __future__ import annotations
 import threading
 
 import pytest
+from conftest import ScriptedJudge
 
 from caliper.harness.base import (
     AttemptResult,
@@ -21,8 +22,6 @@ from caliper.harness.base import (
 from caliper.runner import run
 from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, TaskSpec
-
-from conftest import ScriptedJudge
 
 
 class BarrierHarness(HarnessBackend):

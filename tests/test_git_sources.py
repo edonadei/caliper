@@ -17,9 +17,8 @@ from typer.testing import CliRunner
 from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.main import app
 from caliper.schema.spec import EvalSpec, GitSkillSource
-from caliper.skillfetch import SkillFetchError, SkillFetcher
+from caliper.skillfetch import SkillFetcher, SkillFetchError
 from caliper.skills import SkillResolutionError, resolve_skills
-
 
 SKILL_BODY = """---
 name: {name}

@@ -13,6 +13,7 @@ import re
 from datetime import datetime, timezone
 
 import pytest
+from conftest import ScriptedHarness, ScriptedJudge, agent_result
 from rich.console import Console
 
 import caliper.reporter as reporter_mod
@@ -26,8 +27,6 @@ from caliper.schema.results import (
     SkillSnapshot,
 )
 from caliper.schema.spec import EvalSpec, McpServer, TaskSpec
-
-from conftest import ScriptedHarness, ScriptedJudge, agent_result
 
 
 def _customizing(*, supports_mcp: bool = True, loaded=("gmail",)) -> ScriptedHarness:
@@ -76,7 +75,7 @@ def _run(
 
 
 @pytest.mark.parametrize(
-    "flag, spec_setting, expected",
+    ("flag", "spec_setting", "expected"),
     [
         (None, None, True),  # the default loads them (docs/adr/0028)
         (None, True, True),
@@ -117,7 +116,7 @@ def test_a_backend_that_cannot_see_them_records_unknown(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "flag, spec_setting, warned",
+    ("flag", "spec_setting", "warned"),
     [(True, None, True), (None, True, True), (None, None, False)],
 )
 def test_a_backend_without_mcp_runs_isolated_and_warns_only_when_asked(
@@ -189,7 +188,7 @@ def test_a_flag_mismatch_warns_with_the_isolating_fix():
 
 
 @pytest.mark.parametrize(
-    "a_loaded, b_loaded, mismatch",
+    ("a_loaded", "b_loaded", "mismatch"),
     [
         (["gmail"], ["drive"], True),
         (["gmail"], ["gmail"], False),
@@ -214,7 +213,7 @@ def test_loaded_sets_warn_only_when_both_are_known_and_differ(
 
 
 @pytest.mark.parametrize(
-    "a, b, warns",
+    ("a", "b", "warns"),
     [
         (dict(loads=True, loaded=["gmail"]), dict(loads=True, loaded=["gmail"]), True),
         (dict(loads=True, loaded=["gmail"]), dict(loads=False), True),
@@ -234,7 +233,7 @@ def test_a_cross_backend_diff_warns_once_when_a_setup_may_confound_it(a, b, warn
 
 
 @pytest.mark.parametrize(
-    "full, cut, label",
+    ("full", "cut", "label"),
     [
         (
             dict(loads=True, loaded=["gmail"]),
@@ -257,7 +256,7 @@ def test_an_ablation_pair_needs_the_same_customizations(full, cut, label):
 
 
 @pytest.mark.parametrize(
-    "loaded, label",
+    ("loaded", "label"),
     [
         (["gmail"], "without subject"),
         (None, "without subject"),
@@ -285,7 +284,7 @@ def _render(results: RunResults) -> str:
 
 
 @pytest.mark.parametrize(
-    "loads, loaded, shown",
+    ("loads", "loaded", "shown"),
     [
         (True, ["drive", "gmail"], "drive, gmail"),
         (True, None, "not listed by this backend"),

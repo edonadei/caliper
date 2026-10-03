@@ -12,7 +12,6 @@ from pydantic import (
     model_validator,
 )
 
-
 VALID_BACKENDS: frozenset[str] = frozenset({"claude-code", "codex", "pi", "hermes"})
 
 # The engine (backend + model) is a runtime axis, not a spec field: it is chosen
@@ -97,7 +96,7 @@ class TaskSpec(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def require_at_least_one_check(self) -> "TaskSpec":
+    def require_at_least_one_check(self) -> TaskSpec:
         # ``activates: []`` is falsy but *is* a check ("nothing should fire"), so
         # this tests for absence, not truthiness.
         if not self.expect and not self.assert_script and self.activates is None:
@@ -164,7 +163,7 @@ class McpServer(BaseModel):
         return self.type in _REMOTE_MCP_TYPES
 
     @model_validator(mode="after")
-    def check_transport(self) -> "McpServer":
+    def check_transport(self) -> McpServer:
         if self.type not in _VALID_MCP_TYPES:
             valid = ", ".join(sorted(_VALID_MCP_TYPES))
             raise ValueError(

@@ -10,6 +10,7 @@ except ModuleNotFoundError:  # Python 3.10, where tomllib is not yet stdlib
     import tomli as tomllib
 
 import pytest
+from conftest import patch_cli_calls, run_context
 
 from caliper.harness.base import (
     UNLISTED_MCP,
@@ -21,8 +22,6 @@ from caliper.harness.codex import NO_ACCOUNT_CONNECTORS, CodexHarness
 from caliper.harness.prompt_failure import PromptFailureKind
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
-
-from conftest import patch_cli_calls, run_context
 
 
 def test_codex_installs_the_skill_and_leaves_the_prompt_alone(
@@ -721,7 +720,7 @@ def test_codex_records_no_hosted_apps_when_the_user_turned_them_off(
 
 
 @pytest.mark.parametrize(
-    "customizations, declared, expected",
+    ("customizations", "declared", "expected"),
     [
         (False, frozenset(), NO_ACCOUNT_CONNECTORS),
         (True, frozenset({"echo"}), ()),

@@ -23,8 +23,8 @@ import signal
 import subprocess
 import threading
 import weakref
-from contextlib import contextmanager
-from typing import Iterator
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 
 import psutil
 
@@ -161,10 +161,8 @@ def kill(proc: subprocess.Popen) -> None:
     with _lock:
         descendants = set(_descendants.get(proc, ()))
         tag = _tags.get(proc)
-    try:
+    with suppress(psutil.Error):
         descendants.update(psutil.Process(proc.pid).children(recursive=True))
-    except psutil.Error:
-        pass
     if tag is not None:
         descendants.update(
             child for child in _tagged_processes(tag) if child.pid != proc.pid
@@ -182,10 +180,8 @@ def kill(proc: subprocess.Popen) -> None:
     # The stored psutil.Process handles retain identity across reparenting and
     # guard against killing an unrelated process if the OS recycles a PID.
     for child in descendants:
-        try:
+        with suppress(psutil.NoSuchProcess, psutil.AccessDenied):
             child.kill()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
     try:
         if hasattr(os, "killpg"):
             os.killpg(proc.pid, signal.SIGKILL)
@@ -200,10 +196,8 @@ def kill(proc: subprocess.Popen) -> None:
         for child in _tagged_processes(tag):
             if child.pid == proc.pid:
                 continue
-            try:
+            with suppress(psutil.NoSuchProcess, psutil.AccessDenied):
                 child.kill()
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
 
 
 def _tagged_processes(tag: str) -> set[psutil.Process]:

@@ -330,9 +330,11 @@ class SkillFetcher:
             raise SkillFetchError(
                 "git is not installed, and a spec declaring a git source needs "
                 "it to fetch the skill."
-            )
+            ) from None
         except subprocess.TimeoutExpired:
-            raise SkillFetchError(f"git {args[0]} timed out after {_GIT_TIMEOUT}s")
+            raise SkillFetchError(
+                f"git {args[0]} timed out after {_GIT_TIMEOUT}s"
+            ) from None
         if proc.returncode != 0:
             # The *first* line: git puts the diagnosis there and follows it with
             # remediation prose, so the last line of "repository not found /

@@ -10,10 +10,10 @@ from __future__ import annotations
 import json
 import subprocess
 
+from conftest import patch_cli_calls, run_context
+
 from caliper.harness.base import RunContext
 from caliper.harness.claude_code import ClaudeCodeHarness
-
-from conftest import patch_cli_calls, run_context
 
 
 def _agent_says(text: str):

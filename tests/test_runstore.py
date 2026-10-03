@@ -63,7 +63,8 @@ def test_two_runs_in_the_same_second_both_survive(tmp_path) -> None:
     second = store.save(_results())
 
     assert first != second
-    assert first.exists() and second.exists()
+    assert first.exists()
+    assert second.exists()
     assert second.stem == f"{first.stem}-2"
 
 
