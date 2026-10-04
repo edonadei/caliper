@@ -262,7 +262,12 @@ for scripting. Each `skill_drift` entry carries the member's `name`,
 `caliper compare` deliberately doesn't set a failing exit code on a regression.
 It flags any drop at all, however small, and at small k that fires on noise
 about as often as on a real change. Gating a pipeline belongs on a bar you set
-*before* the run, which is what `caliper run`'s exit code `3` is reserved for.
+*before* the run: a spec's [`bar:`](spec-reference.md#the-bar-bar), which
+`caliper run` exits `3` on.
+
+`--format markdown` renders the comparison as a GitHub-flavoured table — what the
+[GitHub Action](ci.md) puts in a pull-request comment. `caliper report
+--format markdown` does the same for one run, leading with its bar verdict.
 
 ## Token and time usage
 
@@ -349,6 +354,18 @@ All three are `null` on runs saved before they were recorded.
 
 - `report --format json` adds a derived `usage_totals` block. The saved JSON
   keeps the raw per-attempt `usage`; totals are always derived, never persisted.
+- It also adds a derived `gate` block when the run declared a bar: `verdict`
+  (`cleared`, `missed`, `inconclusive` or `not_applied`), `blocks` (whether it
+  exits `3`), `on_inconclusive`, `reason` (set when not applied), and one entry
+  per barred rate in `checks` (`name`, `bar`, `successes`, `usable`, `rate`,
+  and the 95% interval `low`/`high`). It's `null` when there's no bar.
+
+### Bar field
+
+- `RunMeta.bar` is the spec's [`bar:`](spec-reference.md#the-bar-bar) as it
+  read when the run started (`score`, `activation`, `on_inconclusive`), so a
+  saved run is judged by the bar it was held to. `null` when the spec declared
+  none, and on runs saved before bars existed.
 
 ### Activation fields
 

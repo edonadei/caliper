@@ -1,0 +1,52 @@
+name: skill-evals
+
+# Runs this repo's own skill evals (skills/*/*.eval.yaml) through the Caliper
+# action in action.yml, on a self-hosted runner signed in to a Codex ChatGPT
+# plan — so evals bill the subscription, not an API key. Off until the repo
+# variable CALIPER_RUNNER names that runner's labels as JSON, e.g.
+# ["self-hosted","luna"]; without it nothing is queued on any runner.
+#
+# The base comparison comes from the Actions cache, refreshed by pushes to main.
+
+on:
+  pull_request:
+    paths:
+      - "skills/**"
+  push:
+    branches: [main]
+    paths:
+      - "skills/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# A newer push supersedes the run in flight: its attempts would be paid for
+# and then discarded.
+concurrency:
+  group: skill-evals-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evals:
+    # Never a fork's PR: `uses: ./` runs the action from the PR's own checkout,
+    # so a fork could rewrite it and run anything on the self-hosted machine.
+    if: >-
+      vars.CALIPER_RUNNER != '' && (github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ${{ fromJSON(vars.CALIPER_RUNNER || '"ubuntu-latest"') }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          specs: skills/*/*.eval.yaml
+          model: codex
+          k: 3
+          max-attempts: 60
+          # The runner keeps its own ~/.codex/auth.json from `codex login`;
+          # the CLI is installed there by hand.
+          install-cli: "false"
+          # A workflow_dispatch run has no diff: it runs every spec.
+          changed-only: ${{ github.event_name != 'workflow_dispatch' }}

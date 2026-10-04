@@ -44,6 +44,7 @@ from rich.progress import (
 from rich.table import Column, Table
 from rich.text import Text
 
+from caliper.gate import GateResult, Verdict, evaluate
 from caliper.schema.results import (
     ObservedActivation,
     Outcome,
@@ -754,6 +755,53 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     for tr in detailed:
         console.print(_task_panel(tr, k, verbose, ablated=bool(run.ablated_skills)))
     console.print()
+    gate = evaluate(results)
+    if gate is not None:
+        _print_gate(gate)
+
+
+_VERDICT_STYLE = {
+    Verdict.CLEARED: ("green", _CHECK),
+    Verdict.MISSED: ("bold red", _CROSS),
+    Verdict.INCONCLUSIVE: ("yellow", _WARN),
+    Verdict.NOT_APPLIED: ("dim", _RULE),
+}
+
+
+def _print_gate(gate: GateResult) -> None:
+    """The run's verdict against its spec's ``bar:`` — the last thing printed,
+    because it is the line a CI log is read for (docs/adr/0035)."""
+    style, glyph = _VERDICT_STYLE[gate.verdict]
+    head = Text.assemble(
+        ("Bar ", "bold"), (f"{glyph} {gate.verdict.value.replace('_', ' ')}", style)
+    )
+    if gate.reason:
+        head.append(f"  {gate.reason}", style="dim")
+    elif gate.verdict is Verdict.INCONCLUSIVE:
+        head.append(
+            "  (exit 3: on_inconclusive is fail)"
+            if gate.blocks
+            else "  the interval straddles the bar; raise --k to settle it",
+            style="dim",
+        )
+    console.print(head)
+    for check in gate.checks:
+        console.print(_gate_line(check))
+    console.print()
+
+
+def _gate_line(check) -> Text:
+    style, glyph = _VERDICT_STYLE[check.verdict]
+    line = Text("  ")
+    line.append(f"{glyph} ", style=style)
+    line.append(f"{check.name} {_fmt_score(check.rate)}")
+    line.append(
+        f" ({check.successes}/{check.usable}, 95% CI "
+        f"{_fmt_score(check.low)} to {_fmt_score(check.high)})",
+        style="dim",
+    )
+    line.append(f"  bar {_fmt_score(check.bar)}")
+    return line
 
 
 def _activation_severity(stats) -> float:

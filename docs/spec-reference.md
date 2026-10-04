@@ -40,6 +40,11 @@ mcp:                            # optional: MCP servers the agent may use
 
 user_customizations: false              # optional: isolate every run (the default loads your user customizations)
 
+bar:                            # optional: the pre-registered bar; a clean run that misses it exits 3
+  score: 0.8                    #   min success rate over expect:/assert: tasks (0–1)
+  activation: 0.9               #   min activation score over activates: tasks (0–1)
+  on_inconclusive: pass         #   pass (default) or fail, when the 95% interval straddles the bar
+
 tasks:
   - name: Short task name
     setup: <shell command>      # optional; runs in the attempt workdir; failure skips the agent and judge
@@ -292,6 +297,52 @@ when you want to require it. There are no per-kind switches. Hooks are loaded
 with settings and run within the attempt timeout, without a separate preflight.
 
 See [Portable scores](../README.md#portable-scores) for when to isolate.
+
+## The bar (`bar:`)
+
+`bar:` is the number a skill has to keep. Commit it in the spec, and `caliper
+run` exits `3` when a clean run misses it — the exit a CI job fails on. It is a
+spec field rather than a flag on purpose: a bar committed before the change it
+judges can't be tuned after seeing the score
+([ADR 0035](adr/0035-a-blocking-score-is-pre-registered.md)).
+
+```yaml
+bar:
+  score: 0.8          # at least one of score / activation
+  activation: 0.9
+  on_inconclusive: pass
+```
+
+| Key | Meaning |
+|---|---|
+| `score` | Minimum success rate over the `expect:`/`assert:` tasks, 0 to 1 |
+| `activation` | Minimum [activation score](#activates-did-the-agent-reach-for-it) over the `activates:` tasks, 0 to 1 |
+| `on_inconclusive` | `pass` (default, exit `0`) or `fail` (exit `3`) when the evidence can't decide |
+
+**How a rate is checked.** Each barred rate is pooled over the run's usable
+attempts across all tasks (unusable attempts leave the denominator, as
+everywhere else) and given a 95% Wilson interval. The verdict is about the
+whole interval:
+
+| Verdict | When | Exit |
+|---|---|---|
+| cleared | the interval is at or above the bar | `0` |
+| missed | the interval is entirely below the bar | `3` |
+| inconclusive | the interval straddles the bar | `0`, or `3` with `on_inconclusive: fail` |
+| not applied | an `--ablate` run, an interrupted run, or a failed setup/cleanup hook | unchanged |
+
+At CI sample sizes most changes land *inconclusive*: 4 of 5 passing is a
+plausible draw both from a skill that clears 0.8 and from one that doesn't.
+Blocking on it blocks on noise, which is why `pass` is the default; raise `--k`
+to narrow the interval. A bar of `1.0` can never be cleared, only missed or
+inconclusive, so it fails a run on any failure it can tell from noise.
+
+A run that could not run exits `2` before the bar is checked: a broken pipeline
+is never reported as a failing skill. A rate with no task to produce it (a
+`score:` bar on a spec of trigger probes) is refused when the spec loads.
+
+The saved run records the bar it was held to (`RunMeta.bar`), so `caliper
+report` judges an old run by its own bar, not today's spec.
 
 ## Judging
 

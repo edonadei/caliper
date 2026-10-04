@@ -22,6 +22,7 @@ caliper report results.json --format json
 
 caliper compare control.json my-skill             # Δ = b − a, task by task
 caliper compare a.json b.json --format json
+caliper report my-skill --format markdown         # for a PR comment; leads with the bar verdict
 ```
 
 `report` and `compare` take a spec name (its latest run) or a results-JSON path.
@@ -48,6 +49,11 @@ sandbox:
   extra_path: ["./bin"]     # optional; relative to the spec, prefixed to PATH
 
 user_customizations: false  # optional; isolate from the user's own skills and setup
+
+bar:                        # optional; a clean run that misses it exits 3
+  score: 0.8                #   min success rate (expect:/assert: tasks), 0–1
+  activation: 0.9           #   min activation score (activates: tasks), 0–1
+  on_inconclusive: pass     #   pass (default) or fail when the 95% interval straddles the bar
 
 mcp:                        # optional MCP servers the agent may use
   weather:                  # local stdio server
@@ -265,8 +271,17 @@ as a smaller sample, not a worse skill.
 **Exit codes.** `0` clean. `1` bad input (missing or invalid spec, unresolvable
 skills). `2` could not run cleanly (backend misconfiguration, unavailable model, failed
 hook or MCP server, or every attempt unusable).
-`3` reserved for "ran cleanly, a declared bar was not met". `130` interrupted.
+`3` ran cleanly but missed the spec's `bar:`. `130` interrupted.
 `compare` never gates: at small k its any-drop rule fires on noise.
+
+**The bar.** Each barred rate is pooled over usable attempts across tasks and
+given a 95% Wilson interval: *cleared* when the interval is at or above the bar,
+*missed* (exit `3`) when wholly below, *inconclusive* when it straddles (exit
+`0` unless `on_inconclusive: fail`). Ablated, interrupted and hook-failed runs
+are *not applied*. Most small-k runs are inconclusive; raise `--k` to settle
+one. Set a bar only once the user knows the score they mean to keep, and land
+it before the skill change it judges. In CI, the GitHub Action in `action.yml`
+runs changed specs, comments on the PR and fails on exit `3` (docs/ci.md).
 
 **Where runs are saved.** `.caliper/results/<spec-name>/<timestamp>.json` under
 the nearest `.caliper/` at or above the working directory, bounded by the git

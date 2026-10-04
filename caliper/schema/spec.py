@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path, PurePosixPath
+from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -248,6 +249,38 @@ class GitSkillSource(BaseModel):
         return value
 
 
+class Bar(BaseModel):
+    """The pre-registered bar a clean run must clear, or exit 3.
+
+    Committed beside the tasks it is measured on, so it is fixed before the run
+    produces a number rather than tuned after (docs/adr/0035). Each rate is
+    optional; at least one must be set. A rate is checked against the run's
+    usable attempts pooled across tasks, with a 95% Wilson interval: a run
+    clears it when the whole interval sits at or above it, misses it when the
+    whole interval sits below, and is *inconclusive* otherwise.
+    """
+
+    # Minimum execution success rate (``expect:``/``assert:``), 0 to 1.
+    score: float | None = Field(None, ge=0, le=1)
+    # Minimum activation score (``activates:``), 0 to 1.
+    activation: float | None = Field(None, ge=0, le=1)
+    # What an interval straddling the bar exits with. ``pass`` (exit 0) by
+    # default: at small k nearly every run straddles, and blocking on noise
+    # trains a team to ignore the check.
+    on_inconclusive: Literal["pass", "fail"] = "pass"
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def require_a_rate(self) -> Bar:
+        if self.score is None and self.activation is None:
+            raise ValueError(
+                "`bar:` needs at least one of `score:` or `activation:` — "
+                "a bar with no rate cannot be missed"
+            )
+        return self
+
+
 class EvalSpec(BaseModel):
     # The skill neighbourhood: a list of skill *sources*, each installed at the
     # backend's skills root and never preloaded. A bare string is a path source
@@ -261,6 +294,8 @@ class EvalSpec(BaseModel):
     # isolated score, ``true`` says the skill needs them, unset takes the
     # default. The CLI flags override it (docs/adr/0028).
     user_customizations: bool | None = None
+    # The pre-registered bar; ``None`` = report only, never exit 3.
+    bar: Bar | None = None
     tasks: list[TaskSpec]
 
     model_config = ConfigDict(extra="forbid")
@@ -275,6 +310,28 @@ class EvalSpec(BaseModel):
                     "[A-Za-z0-9_-]+ so the mcp__<name>__<tool> handle is well-formed"
                 )
         return value
+
+    @model_validator(mode="after")
+    def check_bar_is_measurable(self) -> EvalSpec:
+        # A rate no task can produce would never be missed — and never
+        # cleared — so it is refused rather than left to read as a gate.
+        if self.bar is None:
+            return self
+        if self.bar.score is not None and not any(
+            t.expect or t.assert_script for t in self.tasks
+        ):
+            raise ValueError(
+                "`bar.score` needs a task with `expect:` or `assert:`: every "
+                "task here is a trigger probe, so there is no success rate to bar"
+            )
+        if self.bar.activation is not None and not any(
+            t.activates is not None for t in self.tasks
+        ):
+            raise ValueError(
+                "`bar.activation` needs a task with `activates:`: no task "
+                "asserts what fires, so there is no activation score to bar"
+            )
+        return self
 
     @field_validator("tasks")
     @classmethod

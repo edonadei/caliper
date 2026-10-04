@@ -1,7 +1,7 @@
 """Every way a caliper command can fail, and what it exits with.
 
 The README publishes an exit-code contract, and CI reads it: ``2`` means *the
-eval could not run* (a broken pipeline) where ``3`` will mean *the skill did not
+eval could not run* (a broken pipeline) where ``3`` means *the skill did not
 clear the bar* (the answer you asked for). The contract used to live nowhere —
 each command re-derived its own mapping from failure to panel to code, and
 ``run`` re-inspected a ``RunAborted``'s cause with ``isinstance`` to pick a
@@ -53,9 +53,8 @@ class ExitCode(IntEnum):
     # Could not run: a misconfigured backend, an exhausted account. To CI
     # this is a broken pipeline, not a failing skill.
     CANNOT_RUN = 2
-    # Reserved for a *pre-registered* bar that a clean run did not clear —
-    # the one verdict worth failing a pipeline on. Nothing raises it yet;
-    # named here so the reservation is visible rather than only documented.
+    # A clean run missed the spec's *pre-registered* ``bar:`` — the one
+    # verdict worth failing a pipeline on (caliper/gate.py, docs/adr/0035).
     BAR_NOT_MET = 3
     # Ctrl-C. The shell's own convention, so a script does not read a partial
     # run as a complete one.

@@ -75,6 +75,8 @@ existing Claude Code auth, with no extra configuration. On macOS the Keychain
 entry wins over `~/.claude/.credentials.json`, as it does for the CLI itself, so
 a stale file left next to a valid Keychain login doesn't break attempts.
 
+In CI, set `ANTHROPIC_API_KEY` on the job ([Running in CI](ci.md)).
+
 An expired OAuth session or invalid API key stops the run as a configuration
 error. Run `claude`, then `/login`, and retry the eval. Caliper reads these
 failures from the CLI's error output, not from an agent discussing authentication.
@@ -96,6 +98,11 @@ codex login
 `--model codex` calls `codex exec`. If the Codex desktop app is installed,
 Caliper prefers the app-bundled binary over `codex` on `PATH`. Set
 `CODEX_CLI_PATH` to force a specific binary.
+
+Each attempt gets a copy of `~/.codex/auth.json`, so a ChatGPT-plan login
+(`codex login`) and an API-key login (`codex login --with-api-key`) both work
+headless. To bill CI runs to a ChatGPT plan rather than an API key, see
+[Running in CI](ci.md#billing-a-chatgpt-plan-codex).
 
 ## pi
 

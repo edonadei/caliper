@@ -7,6 +7,8 @@ import typer
 from rich.console import Console
 
 from caliper.commands.diagnosis import BadInput, fail
+from caliper.gate import evaluate
+from caliper.markdown import run_markdown
 from caliper.reporter import print_results
 from caliper.runstore import RunStore, UnreadableRun
 
@@ -19,6 +21,8 @@ class OutputFormat(str, Enum):
 
     TABLE = "table"
     JSON = "json"
+    # For a pull-request comment or a job summary (caliper/markdown.py).
+    MARKDOWN = "markdown"
 
 
 def report_cmd(
@@ -49,6 +53,13 @@ def report_cmd(
         # per-attempt usage.
         data = results.model_dump(mode="json")
         data["usage_totals"] = results.usage.model_dump(mode="json")
+        # Derived the same way: the verdict follows from the recorded bar and
+        # the attempts, so it is never stored beside them (docs/adr/0035).
+        gate = evaluate(results)
+        data["gate"] = gate.to_json() if gate is not None else None
         console.print_json(data=data)
+    elif fmt is OutputFormat.MARKDOWN:
+        # Plain stdout, not rich: markup in task names must reach the file as typed.
+        typer.echo(run_markdown(results), nl=False)
     else:
         print_results(results, verbose=verbose)

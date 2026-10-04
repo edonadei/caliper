@@ -41,6 +41,9 @@ sandbox:
   forbidden_files:               # extra patterns only: the spec itself and any
     - "./answers/.*"             #   .caliper/ directory are forbidden already
 
+# bar:                           # add once a baseline shows the score to keep:
+#   score: 0.8                   #   a clean run that misses it exits 3 (CI fails)
+
 tasks:
   - name: Happy path — <what success looks like>
     setup: <optional shell command, run in the attempt workdir>
@@ -133,6 +136,9 @@ Failed tasks are shown automatically with their output and `assert_evidence`.
 - A run stopped with Ctrl-C, by `--fail-fast` (`aborted`), or by a spending cap
   is scored over the attempts it has: a smaller sample, not a worse skill.
   Re-run before drawing a conclusion.
+- With a `bar:`, the run ends with its verdict: *cleared*, *missed* (exit `3`),
+  or *inconclusive* when the 95% interval straddles the bar (exit `0` unless
+  `on_inconclusive: fail`). Inconclusive means "raise `--k`", not "passed".
 - `compare` shows `Δ = b − a` per task; any drop is flagged. Token and wall-time
   deltas are shown too, and are never a regression. It warns when a git-sourced
   skill's text drifted between the runs (pin `ref:`), when the declared skills

@@ -9,6 +9,7 @@ from rich.console import Console
 from caliper.commands.diagnosis import BadInput, fail
 from caliper.commands.report import OutputFormat
 from caliper.compare import IncomparableRunsError, diff_runs
+from caliper.markdown import comparison_markdown
 from caliper.reporter import comparison_to_json, print_comparison
 from caliper.runstore import RunStore, UnreadableRun
 from caliper.schema.results import RunResults
@@ -104,5 +105,7 @@ def compare_cmd(
 
     if fmt is OutputFormat.JSON:
         console.print_json(comparison_to_json(comparison))
+    elif fmt is OutputFormat.MARKDOWN:
+        typer.echo(comparison_markdown(comparison), nl=False)
     else:
         print_comparison(comparison, verbose=verbose)

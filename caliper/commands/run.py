@@ -14,6 +14,7 @@ from rich.markup import escape
 from caliper import cancel
 from caliper.commands.diagnosis import BadInput, CannotRun, ExitCode, fail
 from caliper.environment import choose_user_customizations
+from caliper.gate import evaluate
 from caliper.harness import get_harness
 from caliper.harness.base import HarnessConfigurationError
 from caliper.judge import EvalJudge
@@ -357,6 +358,12 @@ def run_cmd(
         fail(CannotRun(nothing_measured))
     if results.run.hook_failures:
         raise typer.Exit(ExitCode.CANNOT_RUN)
+    # Last, so every "could not run" above wins: a bar is only ever missed by a
+    # run that measured cleanly (docs/adr/0035). The verdict was printed with
+    # the report.
+    gate = evaluate(results)
+    if gate is not None and gate.blocks:
+        raise typer.Exit(ExitCode.BAR_NOT_MET)
 
 
 def _judge_cli_missing(judge_backend: str, skill_backend: str, *, named: bool) -> str:

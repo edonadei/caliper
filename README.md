@@ -201,6 +201,7 @@ commented lines.
 | 📐 **[Spec reference](docs/spec-reference.md)** | Every `.eval.yaml` field and the judging rules |
 | 🔌 **[Backends](docs/backends.md)** | Setup per agent, `--model` syntax, MCP support |
 | 📊 **[Results](docs/results.md)** | Scoring, `caliper compare`, the results JSON schema |
+| 🚦 **[CI](docs/ci.md)** | The GitHub Action: run evals on a PR, comment, fail on a missed bar |
 | 📖 **[Glossary](docs/CONTEXT.md)** | Spec, neighbourhood, activation, ablation… |
 | 🧭 **[Design decisions](docs/adr/)** | Architecture Decision Records |
 
@@ -218,6 +219,9 @@ commented lines.
 5. Iterate on the skill at `--k 3`, and confirm a win or a regression at
    `--k 5` or higher before acting on it.
 6. Commit the spec alongside the skill so contributors can run the same eval.
+7. Once you know the score you mean to keep, commit a `bar:` in the spec and
+   run it [in CI](docs/ci.md): a pull request that drops the skill below it
+   fails.
 
 ## How it works
 
@@ -323,6 +327,8 @@ The quick start covers the basics. A spec can also:
 - extend `PATH` or **forbid files** the agent must not read (`sandbox:`)
 - assert **silence** (`activates: []`) or a **delegation chain**
   (`activates: [mine, helper]`)
+- pre-register a **bar** (`bar: {score: 0.8}`): a clean run that misses it
+  exits `3`, so CI can block on it
 
 The full format, with every field, is in
 **[docs/spec-reference.md](docs/spec-reference.md)**. To scaffold a spec, use
@@ -369,7 +375,7 @@ run Caliper, inside the git repository. See
 | `0` | Ran, and nothing asked for a verdict said no |
 | `1` | Bad input: spec not found, invalid spec, unresolvable skills, two references naming one run |
 | `2` | Could not run cleanly: backend misconfiguration, an unavailable model, a failed setup/cleanup hook, or every attempt `infra_error`/`timeout`/`judge_error` |
-| `3` | Reserved: ran cleanly, but a declared bar was not met |
+| `3` | Ran cleanly, but missed the spec's pre-registered [`bar:`](docs/spec-reference.md#the-bar-bar) |
 | `130` | Interrupted with Ctrl-C; the partial run was saved |
 
 `2` and `3` are the distinction CI needs: *the eval could not run* is a broken
@@ -384,10 +390,18 @@ A run that stopped before **any** attempt finished writes no results file,
 unless a lifecycle hook failed and its diagnostic needs saving. Exits `2` and
 `130` can therefore leave nothing on disk.
 
+A bar is checked with a 95% interval, not the bare score: a run whose interval
+straddles the bar is *inconclusive* and exits `0` unless the spec says
+`on_inconclusive: fail`. A run that exits `1`, `2` or `130` is never checked
+against its bar.
+
 `caliper compare` deliberately never fails on a regression. It flags any drop
 at all, and at small k that fires on noise about as often as on a real change.
-Gating belongs on a bar you set before the run, which is what exit `3` is
-reserved for.
+Gating belongs on a bar you set before the run, which is what exit `3` is for.
+
+`caliper report` and `caliper compare` take `--format table` (default), `json`
+or `markdown`; markdown is what the [GitHub Action](docs/ci.md) posts on a pull
+request.
 
 ## Scoring
 

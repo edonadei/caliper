@@ -292,6 +292,21 @@ still beat the score of the same tasks with that skill [[ablation|ablated]].
 Equalling or exceeding full-skill is a bonus, not required. We are proving *no
 worse*, not *better*.
 
+## Bar
+
+The rate a clean run must reach, declared in the [[eval spec]]'s `bar:` — a
+minimum [[success rate|score]], a minimum [[activation score]], or both. It is
+*pre-registered*: committed before the change it judges, so it cannot be tuned
+to the number a run returned. A run that misses it exits `3`
+([[exit code]]); see [[0035-a-blocking-score-is-pre-registered]].
+
+A bar is checked against an interval, never the bare rate. The verdict is
+**cleared** (the 95% interval is at or above the bar), **missed** (wholly
+below), **inconclusive** (straddling — the sample cannot tell), or **not
+applied** (an [[ablation|ablated]], [[interrupted run|interrupted]] or
+hook-failed run, which is not a clean measurement of the full spec).
+_Avoid_: threshold, min-score (both suggest a flag set at run time).
+
 ## Single-shot harness
 
 Every backend's `HarnessBackend.run(ctx)` takes one attempt's `RunContext` —
@@ -558,8 +573,7 @@ reads instead of looking at. `0` ran, `1` the request was wrong (a missing spec,
 an invalid one, a reference naming no run), `2` caliper could not run the eval
 (a misconfigured backend, an exhausted account, a run whose every attempt was
 execution noise), `130` a Ctrl-C whose partial
-run was saved. `3` is **reserved**: a clean run that did not clear a
-*pre-registered* bar.
+run was saved, and `3` a clean run that missed its [[bar]].
 
 The distinction `2` and `3` draw is the one CI needs — *the eval could not run*
 is a broken pipeline, *the skill did not clear the bar* is the answer you asked

@@ -245,6 +245,9 @@ def run(
             if any(task.expect for task in spec.tasks)
             else None,
             era=ERA_INSTALL_AND_DISCOVER,
+            # Copied as the spec read at the start, so the saved run says which
+            # bar it was held to (docs/adr/0035).
+            bar=spec.bar,
             ablated=environment.ablated,
             # What the run's tool environment actually held, so a saved run
             # describes itself and `compare` can check an `mcp:` marker against

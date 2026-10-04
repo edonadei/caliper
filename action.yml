@@ -1,0 +1,227 @@
+name: Caliper
+description: >-
+  Run Caliper evals on a pull request, comment the scores, and fail the job
+  when a spec misses its pre-registered bar.
+branding:
+  icon: check-circle
+  color: blue
+
+inputs:
+  specs:
+    description: Space-separated globs of .eval.yaml specs, relative to the repo root.
+    default: "**/*.eval.yaml"
+  changed-only:
+    description: >-
+      On a pull request (or a push to the default branch), run only the specs
+      whose spec directory, path-sourced skills or assert scripts changed.
+    default: "true"
+  k:
+    description: Attempts per task.
+    default: "3"
+  max-attempts:
+    description: >-
+      Refuse to start when the selected specs would run more attempts than
+      this (tasks x k, summed). 0 disables the ceiling.
+    default: "100"
+  model:
+    description: caliper run --model (e.g. codex, codex:gpt-5-codex, claude-code).
+    default: ""
+  judge-model:
+    description: caliper run --judge-model. Default follows --model's backend.
+    default: ""
+  args:
+    description: Extra arguments for every caliper run (e.g. "--workers 2 --timeout 300").
+    default: ""
+  install-cli:
+    description: >-
+      Install the agent CLI(s) that model and judge-model need with npm when
+      they are not already on PATH (claude-code, codex). Set false on a
+      self-hosted runner that manages its own.
+    default: "true"
+  codex-auth-json:
+    description: >-
+      Contents of ~/.codex/auth.json from `codex login` (a ChatGPT plan). Only
+      written when the runner has no auth.json yet, so a self-hosted runner
+      keeps the copy Codex refreshes in place.
+    default: ""
+  openai-api-key:
+    description: >-
+      An OpenAI API key for Codex, signed in with `codex login --with-api-key`
+      when the runner has no auth.json. Use codex-auth-json instead to bill a
+      ChatGPT plan.
+    default: ""
+  compare-base:
+    description: >-
+      Keep the latest default-branch run of each spec in the Actions cache and
+      show a comparison against it in the PR comment.
+    default: "true"
+  comment:
+    description: Post (or update) one PR comment with the results.
+    default: "true"
+  skip-forks:
+    description: >-
+      Skip pull requests from forks. They get no secrets, and on a self-hosted
+      runner they would run untrusted code on your machine.
+    default: "true"
+  python:
+    description: Python interpreter used to create Caliper's virtualenv.
+    default: python3
+  github-token:
+    description: Token for the PR comment (needs pull-requests write).
+    default: ${{ github.token }}
+
+outputs:
+  exit-code:
+    description: "0 ran, 1 bad input, 2 could not run, 3 a spec missed its bar."
+    value: ${{ steps.run.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - name: Decide whether to run
+      id: guard
+      shell: bash
+      env:
+        IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        SKIP_FORKS: ${{ inputs.skip-forks }}
+      run: |
+        if [ "$IS_FORK" = "true" ] && [ "$SKIP_FORKS" = "true" ]; then
+          echo "::notice::Caliper skipped: pull request from a fork (skip-forks: true)."
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Install Caliper
+      if: steps.guard.outputs.skip != 'true'
+      shell: bash
+      env:
+        PYTHON: ${{ inputs.python }}
+      run: |
+        # A virtualenv, not --user: Debian/Ubuntu runners refuse system-wide pip
+        # (PEP 668), and a self-hosted runner's own Python stays untouched.
+        venv="$RUNNER_TEMP/caliper-venv"
+        "$PYTHON" -m venv "$venv"
+        "$venv/bin/python" -m pip install --quiet --upgrade pip
+        # The action installs the Caliper it ships with, so pinning the action
+        # pins the evaluator.
+        "$venv/bin/python" -m pip install --quiet "${{ github.action_path }}"
+        echo "$venv/bin" >> "$GITHUB_PATH"
+
+    - name: Install agent CLIs
+      if: steps.guard.outputs.skip != 'true' && inputs.install-cli == 'true'
+      shell: bash
+      env:
+        MODEL: ${{ inputs.model }}
+        JUDGE_MODEL: ${{ inputs.judge-model }}
+      run: |
+        backends=$(python -m caliper.ci backends "$MODEL" "$JUDGE_MODEL")
+        for backend in $backends; do
+          case "$backend" in
+            claude-code) cli=claude; pkg=@anthropic-ai/claude-code ;;
+            codex) cli=codex; pkg=@openai/codex ;;
+            *) echo "::notice::Install the $backend CLI yourself; the action only installs claude-code and codex."; continue ;;
+          esac
+          if command -v "$cli" >/dev/null 2>&1; then
+            echo "$cli already installed: $("$cli" --version 2>/dev/null | head -1)"
+          else
+            npm install --global --silent "$pkg"
+          fi
+        done
+
+    - name: Sign in to Codex
+      if: >-
+        steps.guard.outputs.skip != 'true'
+        && (inputs.codex-auth-json != '' || inputs.openai-api-key != '')
+      shell: bash
+      env:
+        CODEX_AUTH_JSON: ${{ inputs.codex-auth-json }}
+        OPENAI_API_KEY: ${{ inputs.openai-api-key }}
+      run: |
+        # ~/.codex, not $CODEX_HOME: it is the file caliper copies into every
+        # attempt (caliper/harness/codex.py).
+        home="$HOME/.codex"
+        mkdir -p "$home"
+        if [ -f "$home/auth.json" ]; then
+          echo "Keeping the existing $home/auth.json (Codex refreshes it in place)."
+        elif [ -n "$CODEX_AUTH_JSON" ]; then
+          umask 077
+          printf '%s' "$CODEX_AUTH_JSON" > "$home/auth.json"
+        else
+          printf '%s' "$OPENAI_API_KEY" | CODEX_HOME="$home" codex login --with-api-key
+        fi
+
+    - name: Refresh the Codex login once
+      if: steps.guard.outputs.skip != 'true'
+      shell: bash
+      env:
+        MODEL: ${{ inputs.model }}
+        JUDGE_MODEL: ${{ inputs.judge-model }}
+      # Caliper copies auth.json into every attempt; refresh a ChatGPT-plan
+      # token once, in place, before parallel attempts race to (caliper/ci.py).
+      run: python -m caliper.ci codex-warmup "$MODEL" "$JUDGE_MODEL"
+
+    - name: Restore the default branch's latest runs
+      if: steps.guard.outputs.skip != 'true' && inputs.compare-base == 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: .caliper/results/.ci/base
+        key: caliper-base-${{ runner.os }}-${{ github.sha }}
+        restore-keys: caliper-base-${{ runner.os }}-
+
+    - name: Run Caliper
+      id: run
+      if: steps.guard.outputs.skip != 'true'
+      shell: bash
+      env:
+        CALIPER_SPECS: ${{ inputs.specs }}
+        CALIPER_CHANGED_ONLY: ${{ inputs.changed-only }}
+        CALIPER_K: ${{ inputs.k }}
+        CALIPER_MAX_ATTEMPTS: ${{ inputs.max-attempts }}
+        CALIPER_MODEL: ${{ inputs.model }}
+        CALIPER_JUDGE_MODEL: ${{ inputs.judge-model }}
+        CALIPER_EXTRA_ARGS: ${{ inputs.args }}
+        CALIPER_COMMENT: ${{ inputs.comment }}
+        CALIPER_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        CALIPER_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set +e
+        python -m caliper.ci run
+        code=$?
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        exit 0
+
+    - name: Save the default branch's latest runs
+      if: >-
+        always() && steps.guard.outputs.skip != 'true' && inputs.compare-base == 'true'
+        && github.event_name == 'push'
+        && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      uses: actions/cache/save@v4
+      with:
+        path: .caliper/results/.ci/base
+        key: caliper-base-${{ runner.os }}-${{ github.sha }}-${{ github.run_attempt }}
+
+    - name: Upload results
+      if: always() && steps.guard.outputs.skip != 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: caliper-results-${{ github.run_id }}-${{ github.run_attempt }}
+        path: .caliper/results/.ci/head
+        if-no-files-found: ignore
+        # .caliper/ is a hidden directory, which v4 skips unless told otherwise.
+        include-hidden-files: true
+
+    - name: Verdict
+      if: steps.guard.outputs.skip != 'true'
+      shell: bash
+      env:
+        CODE: ${{ steps.run.outputs.exit-code }}
+      run: |
+        case "$CODE" in
+          0) echo "Every spec ran; no declared bar was missed." ;;
+          3) echo "::error::A spec missed its pre-registered bar (exit 3)." ;;
+          2) echo "::error::Caliper could not run a spec (exit 2): a broken pipeline, not a failing skill." ;;
+          *) echo "::error::Caliper exited $CODE." ;;
+        esac
+        exit "${CODE:-2}"

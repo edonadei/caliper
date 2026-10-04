@@ -8,6 +8,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
+from caliper.schema.spec import Bar
+
 
 class Outcome(str, Enum):
     """The typed result of a single attempt.
@@ -230,6 +232,10 @@ class RunMeta(BaseModel):
     # False so runs saved before this existed still load.
     interrupted: bool = False
     hook_failures: list[HookFailure] = Field(default_factory=list)
+    # The spec's ``bar:`` as it read when this run started, so a saved run says
+    # which bar it was held to even after the spec changes. ``None`` = no bar
+    # (report only), or a run saved before bars existed (docs/adr/0035).
+    bar: Bar | None = None
 
     @property
     def ablated_skills(self) -> list[str]:
