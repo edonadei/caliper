@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Literal
 
 from caliper.harness.base import HarnessBackend, HarnessConfigurationError, RunContext
-from caliper.harness.mcp import resolve_declared_paths
+from caliper.harness.mcp import resolve_declared_paths, resolve_servers
 from caliper.schema.spec import (
     DEFAULT_USER_CUSTOMIZATIONS,
     EvalSpec,
@@ -29,6 +29,9 @@ from caliper.schema.spec import (
 )
 from caliper.skillfetch import SkillFetcher
 from caliper.skills import SkillRef, apply_ablation, resolve_skills, validate_activates
+from caliper.trust.canary import CanarySet
+from caliper.trust.container import Containment
+from caliper.trust.egress import EgressPolicy, host_of
 from caliper.workdir import AttemptWorkdir
 
 
@@ -95,14 +98,28 @@ class RunEnvironment:
     extra_path: list[str]
     forbidden_files: list[str]
     timeout: int
+    # Whether each attempt gets canary secrets (``sandbox.canaries``).
+    canaries: bool = False
+    # The hosts the agent may reach, or ``None`` when egress is not watched.
+    egress: EgressPolicy | None = None
+    # The container every agent spawn runs in, or ``None`` for the host.
+    container: Containment | None = None
 
     def context(
-        self, task: TaskSpec, attempt: int, workdir: AttemptWorkdir
+        self,
+        task: TaskSpec,
+        attempt: int,
+        workdir: AttemptWorkdir,
+        *,
+        canaries: CanarySet | None = None,
+        proxy_url: str | None = None,
     ) -> RunContext:
         """One invocation's context.
 
         Build a fresh one per invocation: a retried attempt must not inherit
-        what the failed invocation left behind (docs/adr/0023).
+        what the failed invocation left behind (docs/adr/0023). The canaries
+        and the proxy are the attempt's, handed in by the runner that owns
+        their lifetime.
         """
         return RunContext(
             task_id=task.id,
@@ -121,6 +138,9 @@ class RunEnvironment:
             spec_mcp_names=self.spec_mcp_names,
             spec_skill_names=self.spec_skill_names,
             forbidden_files=self.forbidden_files,
+            canaries=canaries,
+            proxy_url=proxy_url,
+            container=self.container,
         )
 
     def expected_activation(self, task: TaskSpec) -> list[str] | None:
@@ -152,6 +172,8 @@ def resolve_environment(
     timeout: int,
     fetcher: SkillFetcher | None = None,
     on_warning: Callable[[str], None] | None = None,
+    container: Containment | None = None,
+    allow_hosts: list[str] | None = None,
 ) -> RunEnvironment:
     """Resolve what every attempt will be given, or refuse before any paid attempt.
 
@@ -206,6 +228,11 @@ def resolve_environment(
             "which has no MCP support; the run records it as off."
         )
 
+    mcp_servers = (
+        resolve_declared_paths(ablation.mcp_servers, spec_dir)
+        if "mcp" in spec.model_fields_set
+        else None
+    )
     return RunEnvironment(
         skill_refs=ablation.skill_refs,
         ablated=ablation.names,
@@ -214,15 +241,72 @@ def resolve_environment(
         # empty mapping but still declares the block, and must isolate.
         # Attempts run in fresh workdirs, so ./ and ../ server paths are
         # anchored to the spec here, before any backend writes its config.
-        mcp_servers=(
-            resolve_declared_paths(ablation.mcp_servers, spec_dir)
-            if "mcp" in spec.model_fields_set
-            else None
-        ),
+        mcp_servers=mcp_servers,
         user_customizations=customizations.load,
         spec_skill_names=frozenset(ref.name for ref in declared_refs),
         spec_mcp_names=frozenset(spec.mcp),
         extra_path=[str((spec_dir / p).resolve()) for p in spec.sandbox.extra_path],
         forbidden_files=list(spec.sandbox.forbidden_files),
         timeout=timeout,
+        canaries=spec.sandbox.canaries,
+        egress=egress_policy(
+            spec,
+            harness,
+            mcp_servers or {},
+            contained=container is not None,
+            allow_hosts=allow_hosts or [],
+        ),
+        container=container,
     )
+
+
+def egress_policy(
+    spec: EvalSpec,
+    harness: HarnessBackend,
+    mcp_servers: dict[str, McpServer],
+    *,
+    contained: bool,
+    allow_hosts: list[str],
+) -> EgressPolicy | None:
+    """The hosts a run's agent may reach, or ``None`` when egress is not watched.
+
+    Watched when the spec declares ``sandbox.egress`` or the run is contained:
+    a contained agent has no other way out, so a run that declared nothing
+    still needs its backend's own hosts. The policy is the backend's hosts, the
+    hosts of the remote ``mcp:`` servers that survived ablation, the spec's
+    list, and ``--allow-host`` (docs/CONTEXT.md → Egress policy).
+    """
+    if spec.sandbox.egress is None and not contained:
+        return None
+    remote = [
+        host
+        for name, server in mcp_servers.items()
+        if server.is_remote and (host := _remote_host(name, server))
+    ]
+    return EgressPolicy(
+        tuple(
+            dict.fromkeys(
+                [
+                    *harness.egress_hosts,
+                    *remote,
+                    *(spec.sandbox.egress or []),
+                    *allow_hosts,
+                ]
+            )
+        )
+    )
+
+
+def _remote_host(name: str, server: McpServer) -> str | None:
+    """The host a remote ``mcp:`` server lives at, its ``${VAR}``s resolved.
+
+    A URL whose variable is unset names no host; the backend reports that
+    server's own failure when it starts, so the policy just leaves it out.
+    """
+    url = server.url or ""
+    if "${" in url:
+        try:
+            url = resolve_servers({name: server})[name].url or ""
+        except Exception:
+            return None
+    return host_of(url)

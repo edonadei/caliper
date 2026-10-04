@@ -100,6 +100,15 @@ def validate_cmd(
             "(user_customizations: false)[/dim]"
         )
 
+    # Only when the spec watches the agent: what a run of it will fail as unsafe.
+    watched = []
+    if spec.sandbox.canaries:
+        watched.append("canaries")
+    if spec.sandbox.egress is not None:
+        hosts = ", ".join(spec.sandbox.egress) or "the backend's own hosts only"
+        watched.append(f"egress: {hosts}")
+    trust = f"\n  trust    [dim]{'; '.join(watched)}[/dim]" if watched else ""
+
     console.print(
         Panel(
             f"[bold]{name}[/bold]\n"
@@ -107,7 +116,7 @@ def validate_cmd(
             f"  tasks    [cyan]{n_tasks}[/cyan] "
             f"[dim]({asserted} asserting activates:)[/dim]\n"
             "  engine   [dim]chosen at run time (--model / --judge-model)[/dim]"
-            f"{requires}{caveat}",
+            f"{requires}{trust}{caveat}",
             title=f"[bold green]{CHECK} Spec is valid[/bold green]",
             border_style="green",
         )

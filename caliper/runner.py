@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,7 @@ from caliper.schema.results import (
     ERA_INSTALL_AND_DISCOVER,
     AggregateScore,
     AttemptRecord,
+    EgressEvent,
     HookFailure,
     HookPhase,
     Outcome,
@@ -38,6 +40,9 @@ from caliper.schema.spec import (
 )
 from caliper.skillfetch import SkillFetcher
 from caliper.skillsnapshot import snapshot_skill
+from caliper.trust.canary import CanarySet
+from caliper.trust.container import Containment
+from caliper.trust.egress import EgressProxy
 from caliper.workdir import AttemptWorkdir, StepCancelled
 
 _FAIL_FAST_OUTCOMES = {Outcome.INFRA_ERROR, Outcome.TIMEOUT}
@@ -121,6 +126,11 @@ def run(
     # may raise to refuse the run. The CLI checks the judge's CLI here, so a bad
     # spec is diagnosed first and a missing judge still costs nothing.
     before_attempts: Callable[[], None] | None = None,
+    # ``--container``: the run's containment, set up by the caller, which owns
+    # its lifetime (docs/adr/0035). ``None`` runs the agent on the host.
+    container: Containment | None = None,
+    # ``--allow-host``: hosts the egress policy allows beside the spec's.
+    allow_hosts: list[str] | None = None,
 ) -> RunResults:
     # Before anything that can block: a Ctrl-C during skill fetching has to be
     # honoured by the attempts that would otherwise start right after it.
@@ -137,6 +147,8 @@ def run(
         timeout=timeout,
         fetcher=fetcher,
         on_warning=on_warning,
+        container=container,
+        allow_hosts=allow_hosts,
     )
     skill_refs = environment.skill_refs
     if before_attempts is not None:
@@ -266,6 +278,11 @@ def run(
                     0 if failure.phase == "setup" else 1,
                 ),
             ),
+            containment=container.label if container is not None else None,
+            canaries=environment.canaries,
+            egress_allow=list(environment.egress.allow)
+            if environment.egress is not None
+            else None,
         ),
         skill_snapshots=skill_snapshots,
         task_results=task_results,
@@ -451,9 +468,16 @@ def _run_attempt(task: TaskSpec, attempt: int, env: _RunEnv) -> AttemptRecord | 
                 failures.append(failure)
                 record = _assemble(SetupFailed(reason), task, attempt, env, workdir)
             elif not cancel.requested():
-                invoked = _invoke_agent(task, attempt, env, workdir)
+                with _watching(env.environment) as watch:
+                    invoked = _invoke_agent(task, attempt, env, workdir, watch)
                 record = _assemble(
-                    invoked.result, task, attempt, env, workdir, invoked.retries
+                    invoked.result,
+                    task,
+                    attempt,
+                    env,
+                    workdir,
+                    invoked.retries,
+                    watch,
                 )
         finally:
             try:
@@ -496,16 +520,67 @@ def _run_hook(
     return failure, f"{phase} exited {step.exit_code}"
 
 
+@dataclass
+class _Watch:
+    """What one attempt is watched with: its canaries and its egress proxy.
+
+    Per attempt rather than per invocation, so a throttled invocation's
+    retry plants the same canaries and its requests land in the same log.
+    """
+
+    canaries: CanarySet | None = None
+    proxy: EgressProxy | None = None
+
+    @property
+    def proxy_url(self) -> str | None:
+        return self.proxy.url if self.proxy is not None else None
+
+    @property
+    def egress(self) -> list[EgressEvent] | None:
+        return self.proxy.events if self.proxy is not None else None
+
+
+@contextmanager
+def _watching(environment: RunEnvironment) -> Iterator[_Watch]:
+    """Fresh canaries and a started proxy for one attempt, as the run asks.
+
+    A contained agent reaches the host only at its network's gateway, so the
+    proxy listens there; an uncontained one is pointed at the loopback.
+    """
+    watch = _Watch(canaries=CanarySet.generate() if environment.canaries else None)
+    if environment.egress is None:
+        yield watch
+        return
+    bind = environment.container.gateway if environment.container else "127.0.0.1"
+    with EgressProxy(environment.egress, bind_host=bind) as proxy:
+        watch.proxy = proxy
+        yield watch
+
+
 def _invoke_agent(
-    task: TaskSpec, attempt: int, env: _RunEnv, workdir: AttemptWorkdir
+    task: TaskSpec,
+    attempt: int,
+    env: _RunEnv,
+    workdir: AttemptWorkdir,
+    watch: _Watch | None = None,
 ) -> RetriedInvocation:
+    watch = watch or _Watch()
+
     # The neighbourhood is *installed* by the harness at its own skills root
     # and never preloaded.
     def invoke():
         # Built inside the closure, so a retried attempt gets its own
         # context rather than the previous invocation's scratch
         # (docs/adr/0019 — the attempt is the shot, not the spawn).
-        return env.harness.run(env.environment.context(task, attempt, workdir))
+        return env.harness.run(
+            env.environment.context(
+                task,
+                attempt,
+                workdir,
+                canaries=watch.canaries,
+                proxy_url=watch.proxy_url,
+            )
+        )
 
     # A throttled invocation measured nothing, so it is retried rather than
     # recorded — the attempt is the shot at the task, not the spawn
@@ -523,8 +598,10 @@ def _assemble(
     env: _RunEnv,
     workdir: AttemptWorkdir,
     retries: int = 0,
+    watch: _Watch | None = None,
 ) -> AttemptRecord | None:
     """Grade how the attempt ended, and collect the run-level facts it reported."""
+    watch = watch or _Watch()
     assembled = assemble_attempt(
         ended,
         attempt=attempt,
@@ -535,6 +612,8 @@ def _assemble(
         sandbox=env.sandbox,
         judge=env.judge,
         retries=retries,
+        canaries=watch.canaries,
+        egress=watch.egress,
     )
     if assembled is None:
         return None

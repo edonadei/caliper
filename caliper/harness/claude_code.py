@@ -75,6 +75,15 @@ class ClaudeCodeHarness(CliHarness):
     # `claude setup-token` is the documented way to authenticate a headless run,
     # and the stripped HOME is exactly the case it exists for.
     env_passthrough = CliHarness.env_passthrough + ("CLAUDE_CODE_OAUTH_TOKEN",)
+    # Spawned by name on the host, so the image runs it by the same one.
+    container_cli = "claude"
+    egress_hosts = (
+        "anthropic.com",
+        "*.anthropic.com",
+        "claude.ai",
+        "*.claude.ai",
+        "*.sentry.io",
+    )
 
     @property
     def name(self) -> str:

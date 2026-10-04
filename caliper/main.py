@@ -6,6 +6,7 @@ from caliper.commands.report import report_cmd
 from caliper.commands.run import run_cmd
 from caliper.commands.update_cli import update_cli_cmd
 from caliper.commands.validate import validate_cmd
+from caliper.commands.vet import vet_cmd
 
 app = typer.Typer(
     name="caliper",
@@ -21,6 +22,9 @@ app.command("compare", help="Diff two saved runs of the same eval (A vs B)")(
 )
 app.command("list", help="List evaluation specs and past runs")(list_cmd_fn)
 app.command("validate", help="Validate an evaluation spec file")(validate_cmd)
+app.command(
+    "vet", help="Scan and probe a skill you did not write; print a trust report"
+)(vet_cmd)
 app.command("update-cli", help="Check or update Codex and Claude Code CLIs")(
     update_cli_cmd
 )

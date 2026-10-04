@@ -59,6 +59,14 @@ class HermesHarness(CliHarness):
     supports_mcp = True
     user_settings_file = "config.yaml"
     cli_name = "hermes"
+    # Its own inference API and the providers it most often fronts; any other
+    # comes in through ``--allow-host``.
+    egress_hosts = (
+        "*.nousresearch.com",
+        "openrouter.ai",
+        "*.anthropic.com",
+        "*.openai.com",
+    )
     cli_path_env_var = "HERMES_CLI_PATH"
     cli_unavailable_message = (
         "hermes CLI is not available for the `hermes` backend.\n\n"

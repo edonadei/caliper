@@ -53,9 +53,9 @@ class ExitCode(IntEnum):
     # Could not run: a misconfigured backend, an exhausted account. To CI
     # this is a broken pipeline, not a failing skill.
     CANNOT_RUN = 2
-    # Reserved for a *pre-registered* bar that a clean run did not clear —
-    # the one verdict worth failing a pipeline on. Nothing raises it yet;
-    # named here so the reservation is visible rather than only documented.
+    # A *pre-registered* bar that a clean run did not clear — the one verdict
+    # worth failing a pipeline on. `vet` raises it for a skill whose trust
+    # report is unsafe (docs/adr/0036); `run` and `compare` never do.
     BAR_NOT_MET = 3
     # Ctrl-C. The shell's own convention, so a script does not read a partial
     # run as a complete one.

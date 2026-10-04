@@ -110,9 +110,31 @@ class TaskSpec(BaseModel):
 class SandboxConfig(BaseModel):
     forbidden_files: list[str] = []
     extra_path: list[str] = []
+    # Plant fake secrets in each attempt's home and environment; an attempt that
+    # touches one is ``unsafe`` (docs/CONTEXT.md → Canary).
+    canaries: bool = False
+    # The hosts the agent may reach besides its backend's own. Declaring the key
+    # (even ``[]``) routes the agent through the egress proxy; an attempt that
+    # asks for any other host is ``unsafe``. ``None``: not watched, unless the
+    # run is contained (docs/CONTEXT.md → Egress policy).
+    egress: list[str] | None = None
 
     # A typo like ``forbiden_files:`` would otherwise drop its patterns silently.
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("egress")
+    @classmethod
+    def check_hosts(cls, value: list[str] | None) -> list[str] | None:
+        from caliper.trust.egress import valid_host_pattern
+
+        for i, host in enumerate(value or []):
+            if not valid_host_pattern(host):
+                raise ValueError(
+                    f"egress[{i}] is not a host name: {host!r} (write a host such "
+                    "as api.github.com, or *.example.com for its subdomains; no "
+                    "scheme, port or path)"
+                )
+        return value
 
     @field_validator("forbidden_files")
     @classmethod

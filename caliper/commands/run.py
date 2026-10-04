@@ -2,20 +2,21 @@ from __future__ import annotations
 
 import signal
 import threading
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 import typer
 from pydantic import ValidationError
 from rich.console import Console
 from rich.markup import escape
+from rich.progress import Progress
 
 from caliper import cancel
 from caliper.commands.diagnosis import BadInput, CannotRun, ExitCode, fail
 from caliper.environment import choose_user_customizations
 from caliper.harness import get_harness
-from caliper.harness.base import HarnessConfigurationError
+from caliper.harness.base import HarnessBackend, HarnessConfigurationError
 from caliper.judge import EvalJudge
 from caliper.reporter import (
     SEP_GLYPH,
@@ -32,12 +33,15 @@ from caliper.schema.results import Outcome, RunResults, TaskResult
 from caliper.schema.spec import (
     DEFAULT_BACKEND,
     VALID_BACKENDS,
+    EvalSpec,
     load_spec,
     parse_target,
     spec_name,
 )
 from caliper.skillfetch import SkillFetcher
 from caliper.skills import SkillResolutionError
+from caliper.trust.container import Containment, contain
+from caliper.trust.egress import valid_host_pattern
 
 console = Console()
 
@@ -137,6 +141,26 @@ def run_cmd(
             "portable score or a harness comparison. Judge connector controls are unchanged."
         ),
     ),
+    container: str | None = typer.Option(
+        None,
+        "--container",
+        metavar="IMAGE",
+        help=(
+            "Run each agent attempt inside this container image (Docker), on a "
+            "network whose only way out is caliper's egress proxy. The image "
+            "must have the agent CLI; see docker/Dockerfile."
+        ),
+    ),
+    allow_host: list[str] | None = typer.Option(
+        None,
+        "--allow-host",
+        metavar="HOST",
+        help=(
+            "A host the agent may reach when egress is watched, beside its "
+            "backend's own and the spec's sandbox.egress (repeatable; "
+            "*.example.com for subdomains)."
+        ),
+    ),
 ) -> None:
     if k < 1:
         fail(
@@ -153,6 +177,14 @@ def run_cmd(
         )
     if not spec_file.exists():
         fail(BadInput(f"File not found: {spec_file}"))
+    for host in allow_host or []:
+        if not valid_host_pattern(host):
+            fail(
+                BadInput(
+                    f"--allow-host {host!r} is not a host name. Write a host such "
+                    "as api.github.com, or *.example.com for its subdomains."
+                )
+            )
 
     try:
         spec = load_spec(spec_file)
@@ -316,6 +348,87 @@ def run_cmd(
                 by_attempt={a.attempt: a.outcome for a in result.attempts},
             )
 
+    if container:
+        console.print(
+            f"[cyan]Contained:[/cyan] attempts run in {escape(container)}; the "
+            "agent reaches only allowed hosts, through caliper's egress proxy."
+        )
+    elif spec.sandbox.egress is not None:
+        console.print(
+            "[dim]Egress watched through a proxy, not enforced: an uncontained "
+            "agent can go around it. --container IMAGE enforces it.[/dim]"
+        )
+
+    # Set up before the first attempt and torn down after the last; a runtime
+    # that is not answering, or an image without the agent CLI, is refused
+    # before anything is paid for (docs/adr/0035).
+    containment = (
+        contain(container, cli=harness.contained_cli())
+        if container
+        else nullcontext(None)
+    )
+    try:
+        with containment as contained:
+            aborted, results = _run_live(
+                progress,
+                spec=spec,
+                spec_file=spec_file,
+                harness=harness,
+                judge=judge,
+                k=k,
+                workers=workers,
+                timeout=timeout,
+                fail_fast_unusable=fail_fast_unusable,
+                ablate=list(ablate or []),
+                fetcher=fetcher,
+                warn=warn,
+                on_attempt_done=on_attempt_done,
+                on_task_done=on_task_done,
+                user_customizations=user_customizations,
+                check_judge_cli=check_judge_cli,
+                container=contained,
+                allow_hosts=list(allow_host or []),
+            )
+    except HarnessConfigurationError as exc:
+        fail(exc)
+
+    _save_and_report(results, spec_file, output, verbose)
+
+    if aborted is not None:
+        # Which of the two causes it was, and what that exits with, is the
+        # diagnosis table's call — not this module's.
+        fail(aborted)
+    if results.run.interrupted:
+        raise typer.Exit(ExitCode.INTERRUPTED)
+    nothing_measured = _nothing_measured(results)
+    if nothing_measured is not None:
+        fail(CannotRun(nothing_measured))
+    if results.run.hook_failures:
+        raise typer.Exit(ExitCode.CANNOT_RUN)
+
+
+def _run_live(
+    progress: Progress,
+    *,
+    spec: EvalSpec,
+    spec_file: Path,
+    harness: HarnessBackend,
+    judge: EvalJudge,
+    k: int,
+    workers: int,
+    timeout: int,
+    fail_fast_unusable: int,
+    ablate: list[str],
+    fetcher: SkillFetcher,
+    warn: Callable[[str], None],
+    on_attempt_done: Callable[[AttemptEvent], None],
+    on_task_done: Callable[[TaskResult], None],
+    user_customizations: bool | None,
+    check_judge_cli: Callable[[], None],
+    container: Containment | None,
+    allow_hosts: list[str],
+) -> tuple[RunAborted | None, RunResults]:
+    """Run under the live view; a fatal error mid-run comes back with its results."""
     aborted: RunAborted | None = None
     with progress, _interrupt_guard(progress.console):
         try:
@@ -335,6 +448,8 @@ def run_cmd(
                 on_task_done=on_task_done,
                 user_customizations=user_customizations,
                 before_attempts=check_judge_cli,
+                container=container,
+                allow_hosts=allow_hosts,
             )
         except (SkillResolutionError, HarnessConfigurationError) as exc:
             fail(exc)
@@ -343,20 +458,7 @@ def run_cmd(
             # exception, and they get saved and rendered exactly like any other
             # run before the cause is shown.
             aborted, results = exc, exc.results
-
-    _save_and_report(results, spec_file, output, verbose)
-
-    if aborted is not None:
-        # Which of the two causes it was, and what that exits with, is the
-        # diagnosis table's call — not this module's.
-        fail(aborted)
-    if results.run.interrupted:
-        raise typer.Exit(ExitCode.INTERRUPTED)
-    nothing_measured = _nothing_measured(results)
-    if nothing_measured is not None:
-        fail(CannotRun(nothing_measured))
-    if results.run.hook_failures:
-        raise typer.Exit(ExitCode.CANNOT_RUN)
+    return aborted, results
 
 
 def _judge_cli_missing(judge_backend: str, skill_backend: str, *, named: bool) -> str:

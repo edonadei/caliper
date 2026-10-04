@@ -56,6 +56,7 @@ from caliper.schema.results import (
     pass_at_k,
     pass_hat_k,
 )
+from caliper.trust.report import TrustReport
 
 console = Console()
 
@@ -112,6 +113,7 @@ _OUTCOME_MARK = {
     Outcome.PASS: (_CHECK, "green"),
     Outcome.TASK_FAIL: (_CROSS, "bold red"),
     Outcome.CHEAT: (_WARN, "bold yellow"),
+    Outcome.UNSAFE: (_WARN, "bold red"),
     Outcome.INFRA_ERROR: (_UNUSABLE, "yellow"),
     Outcome.TIMEOUT: (_UNUSABLE, "yellow"),
     Outcome.JUDGE_ERROR: (_UNUSABLE, "yellow"),
@@ -335,6 +337,33 @@ def _setup_text(run: RunMeta) -> Text:
     return text
 
 
+def _trust_text(run: RunMeta) -> Text | None:
+    """How the run watched the skill under test, or ``None`` when it did not.
+
+    Says "advisory" when egress was watched without containment: the agent
+    could have gone around the proxy, so a clean log proves less.
+    """
+    if not (run.containment or run.canaries or run.egress_allow is not None):
+        return None
+    parts: list[tuple[str, str]] = []
+    if run.containment:
+        parts.append((f"contained in {run.containment}", "cyan"))
+    else:
+        parts.append(("on the host", "yellow"))
+    if run.canaries:
+        parts.append(("canaries", ""))
+    if run.egress_allow is not None:
+        n = len(run.egress_allow)
+        label = f"egress: {n} host{'s' if n != 1 else ''} allowed"
+        parts.append((label if run.containment else label + ", advisory", ""))
+    text = Text()
+    for i, (part, style) in enumerate(parts):
+        if i:
+            text.append(f" {_SEP} ", style="dim")
+        text.append(part, style=style)
+    return text
+
+
 def _env_grid() -> Table:
     grid = Table.grid(padding=(0, 2))
     grid.add_column(style="dim", no_wrap=True)
@@ -399,6 +428,9 @@ def _print_run_header(results: RunResults) -> None:
     if run.mcp_servers or run.ablated_servers:
         grid.add_row("mcp", _names(list(run.mcp_servers or []), run.ablated_servers))
     grid.add_row("setup", _setup_text(run))
+    trust = _trust_text(run)
+    if trust is not None:
+        grid.add_row("trust", trust)
 
     # Status rows: what a reader must know before believing a single number.
     status: list[Text] = []
@@ -994,6 +1026,28 @@ def _run_notes(results: RunResults) -> list[_Note]:
                 "a forbidden file was read · counted as a failure",
             )
         )
+    unsafe = [t.task_name for t in results.task_results if t.any_unsafe]
+    if unsafe:
+        notes.append(
+            _Note(
+                0,
+                _WARN,
+                f"{len(unsafe)} unsafe",
+                ", ".join(unsafe),
+                "touched a canary or asked for a refused host · see the panels",
+            )
+        )
+    egress = _egress_hosts(results)
+    if egress:
+        notes.append(
+            _Note(
+                2,
+                _SEP,
+                "egress",
+                ", ".join(f"{host} {_TIMES}{n}" for host, n in egress),
+                "allowed hosts the agents reached",
+            )
+        )
     noise = results.noise_counts
     if noise:
         breakdown = f" {_SEP} ".join(f"{n} {o.value}" for o, n in noise.items())
@@ -1078,6 +1132,18 @@ def _run_notes(results: RunResults) -> list[_Note]:
 
 
 _OUTPUT_TRUNCATE_AT = 500
+_TIMES = "×" if _UNICODE else "x"
+
+
+def _egress_hosts(results: RunResults) -> list[tuple[str, int]]:
+    """Allowed hosts across the run, with how many connections each got."""
+    counts: dict[str, int] = {}
+    for task in results.task_results:
+        for attempt in task.attempts:
+            for event in (attempt.trust.egress or []) if attempt.trust else []:
+                if event.allowed:
+                    counts[event.host] = counts.get(event.host, 0) + event.count
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
 
 
 def _format_output(output: str) -> str:
@@ -1104,7 +1170,7 @@ def _needs_detail(tr: TaskResult) -> bool:
     ``None`` by construction, and treating that as "didn't fully pass" would
     print a panel for every correct trigger probe.
     """
-    if any(attempt.hook_failures for attempt in tr.attempts):
+    if any(attempt.hook_failures for attempt in tr.attempts) or tr.any_unsafe:
         return True
     activation_short = tr.activation_score is not None and tr.activation_score < 1.0
     if tr.trigger_only:
@@ -1161,11 +1227,26 @@ def _task_panel(tr: TaskResult, k: int, verbose: bool, ablated: bool) -> Panel:
             attempt.outcome in (Outcome.PASS, Outcome.NOT_CHECKED)
             and attempt.activation_passed is not False
             and not attempt.hook_failures
+            and not attempt.trust_violations
         )
         if clean and not verbose:
             continue
         for evidence in attempt.cheat_evidence:
             grid.add_row(Text("    cheat", style="yellow"), Text(evidence))
+        for hit in (attempt.trust.canaries or []) if attempt.trust else []:
+            grid.add_row(
+                Text(f"    {hit.how}", style="bold red"),
+                Text.assemble((hit.canary, "bold"), f" {_SEP} ", (hit.evidence, "dim")),
+            )
+        for event in (attempt.trust.egress or []) if attempt.trust else []:
+            if not event.allowed:
+                grid.add_row(
+                    Text("    refused", style="bold red"),
+                    Text.assemble(
+                        (f"{event.host}:{event.port}", "bold"),
+                        (f" {_SEP} {_TIMES}{event.count}", "dim"),
+                    ),
+                )
         for failure in attempt.hook_failures:
             detail = Text(f"exited {failure.exit_code}")
             if failure.output.strip():
@@ -1195,7 +1276,8 @@ def _task_panel(tr: TaskResult, k: int, verbose: bool, ablated: bool) -> Panel:
             Text("    output", style="dim"),
             Text.from_markup(_format_output(attempt.output)),
         )
-        if attempt.assert_evidence:
+        # An unsafe attempt's evidence is the trust rows above, said once.
+        if attempt.assert_evidence and attempt.outcome != Outcome.UNSAFE:
             # A timeout or infra failure stores the harness's error here, not an
             # assertion's.
             label = "error" if attempt.outcome in _HARNESS_FAILURES else "assert"
@@ -1218,13 +1300,13 @@ def _task_panel(tr: TaskResult, k: int, verbose: bool, ablated: bool) -> Panel:
         score, marks, border = (
             tr.activation_score,
             _activation_marks(tr, k),
-            "bright_black",
+            "red" if tr.any_unsafe else "bright_black",
         )
     else:
         score = tr.score
         marks = _outcome_marks([a.outcome for a in tr.attempts], k)
         hooks = any(a.hook_failures for a in tr.attempts)
-        if score == 0 or hooks or tr.any_cheat:
+        if score == 0 or hooks or tr.any_cheat or tr.any_unsafe:
             border = "red"
         elif score is None or score < 0.99 or tr.unusable:
             border = "yellow"
@@ -1238,6 +1320,133 @@ def _task_panel(tr: TaskResult, k: int, verbose: bool, ablated: bool) -> Panel:
     return Panel(
         grid, title=title, title_align="left", border_style=border, padding=(0, 1)
     )
+
+
+# ── caliper vet ─────────────────────────────────────────────────────────────
+
+_VERDICT_STYLE = {
+    "unsafe": "bold white on red",
+    "review": "bold black on yellow",
+    "no findings": "bold black on green",
+}
+_SEVERITY_STYLE = {"high": "bold red", "warn": "yellow", "info": "dim"}
+
+
+def print_trust_report(report: TrustReport, verbose: bool = False) -> None:
+    """One skill's trust report: verdict first, then the evidence behind it.
+
+    Informational static notes (scripts present, hosts linked) are folded into
+    one line unless ``verbose``: the reviewer's attention goes to the rows that
+    can change a decision.
+    """
+    console.print()
+    console.print(
+        Text.assemble(
+            (" CALIPER ", "bold black on cyan"),
+            "  ",
+            ("vet", "bold"),
+            "  ",
+            (report.skill, "bold"),
+            (f"   {report.created.strftime('%Y-%m-%d %H:%M')}", "dim"),
+        )
+    )
+    grid = _env_grid()
+    source = Text(report.source)
+    if report.git_sha:
+        source.append(f" @ {report.git_sha[:7]}", style="dim")
+    grid.add_row("source", source)
+    grid.add_row(
+        "files",
+        Text(f"{report.files_scanned} scanned {_SEP} digest {report.digest[:12]}"),
+    )
+    dynamic = report.dynamic
+    if dynamic is None:
+        grid.add_row("probes", Text("not run", style="yellow"))
+    else:
+        probes = Text()
+        probes.append_text(_engine_text(dynamic.backend, dynamic.model))
+        probes.append(f" {_SEP} ", style="dim")
+        if dynamic.containment:
+            probes.append(f"contained in {dynamic.containment}", style="cyan")
+        else:
+            probes.append("on the host", style="yellow")
+        probes.append(
+            f" {_SEP} {dynamic.attempts} attempts {_SEP} skill fired in "
+            f"{dynamic.fired}",
+            style="dim",
+        )
+        grid.add_row("probes", probes)
+    grid.add_row(
+        "verdict",
+        Text(f" {report.verdict.upper()} ", style=_VERDICT_STYLE[report.verdict]),
+    )
+    console.print(grid)
+
+    if dynamic is not None and dynamic.violations:
+        table = Table(box=box.ROUNDED, header_style="bold red", title_justify="left")
+        table.add_column("Probe")
+        table.add_column("#", justify="right")
+        table.add_column("Finding", style="bold red")
+        table.add_column("Evidence", overflow="fold")
+        for v in dynamic.violations:
+            table.add_row(v.task, str(v.attempt), v.finding, Text(v.evidence, "dim"))
+        console.print()
+        console.print(Text(" What the skill did", style="bold"))
+        console.print(table)
+
+    shown = [f for f in report.static if verbose or f.severity != "info"]
+    if shown:
+        table = Table(box=box.ROUNDED, header_style="bold cyan")
+        table.add_column("", no_wrap=True)
+        table.add_column("Rule", no_wrap=True)
+        table.add_column("Where", no_wrap=True)
+        table.add_column("What", overflow="fold")
+        for f in shown:
+            where = f.file + (f":{f.line}" if f.line else "")
+            what = Text(f.message)
+            if f.excerpt:
+                what.append(f"\n{f.excerpt}", style="dim")
+            table.add_row(
+                Text(f.severity, style=_SEVERITY_STYLE[f.severity]),
+                f.rule,
+                where,
+                what,
+            )
+        console.print()
+        console.print(Text(" What its files say", style="bold"))
+        console.print(table)
+
+    notes: list[_Note] = []
+    for reason in report.reasons:
+        level = 0 if report.verdict == "unsafe" and "probe finding" in reason else 1
+        notes.append(_Note(level, _WARN, "why", reason))
+    info = [f for f in report.static if f.severity == "info"]
+    if info and not verbose:
+        scripts = sum(1 for f in info if f.rule == "script")
+        hosts = sorted({f.excerpt for f in info if f.rule == "url"})
+        parts = []
+        if scripts:
+            parts.append(f"{scripts} script{'s' if scripts != 1 else ''}")
+        if hosts:
+            parts.append("links to " + ", ".join(hosts[:6]))
+        if parts:
+            notes.append(
+                _Note(2, _SEP, "files", f" {_SEP} ".join(parts), "--verbose lists them")
+            )
+    if dynamic is not None and dynamic.hosts_reached:
+        notes.append(
+            _Note(
+                2,
+                _SEP,
+                "reached",
+                ", ".join(dynamic.hosts_reached),
+                "allowed hosts the probes connected to",
+            )
+        )
+    for limit in report.limits:
+        notes.append(_Note(2, _SEP, "limit", limit))
+    _print_notes(notes)
+    console.print()
 
 
 # ── caliper compare ─────────────────────────────────────────────────────────

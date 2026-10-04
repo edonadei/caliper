@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import IO, TypeVar
+from typing import IO, TYPE_CHECKING, TypeVar
 
 from caliper import cancel
 from caliper.harness.prompt_failure import (
@@ -28,6 +28,10 @@ from caliper.harness.refusal import (
 from caliper.schema.results import TokenUsage
 from caliper.schema.spec import McpServer
 from caliper.skills import SkillRef, frontmatter_name, install_skills
+
+if TYPE_CHECKING:  # The trust modules read this one's types at import time.
+    from caliper.trust.canary import CanarySet
+    from caliper.trust.container import Containment
 
 _POST_KILL_DRAIN_TIMEOUT = 1
 
@@ -138,6 +142,13 @@ class RunContext:
     # server never takes one of them (docs/adr/0028).
     spec_mcp_names: frozenset[str] = frozenset()
     spec_skill_names: frozenset[str] = frozenset()
+    # What a run watching the skill under test adds (docs/CONTEXT.md → Trust):
+    # fake secrets to plant in the home and environment, the egress proxy the
+    # agent's traffic goes through, and the container it runs in. ``None``
+    # each when the run does not ask for it; the judge's context never does.
+    canaries: CanarySet | None = None
+    proxy_url: str | None = None
+    container: Containment | None = None
 
     def __post_init__(self) -> None:
         """The context owns its lists, and tolerates ``None`` for the optional ones.
@@ -398,6 +409,12 @@ class HarnessBackend(ABC):
     # once, in the runner (docs/adr/0014).
     activation_tool_names: frozenset[str] = frozenset()
 
+    # The hosts this backend's agent talks to on its own: its model API, login
+    # and telemetry. A run that watches egress always allows them, beside what
+    # the spec and ``--allow-host`` add (docs/CONTEXT.md → Egress policy). A
+    # fact about the backend, declared rather than discovered (docs/adr/0020).
+    egress_hosts: tuple[str, ...] = ()
+
     @abstractmethod
     def run(self, ctx: RunContext) -> AttemptResult:
         """Run one attempt and report what came back.
@@ -429,6 +446,14 @@ class HarnessBackend(ABC):
             resolved_model=model,
             error=f"backend {self.name!r} cannot run a bare prompt",
         )
+
+    def contained_cli(self) -> str | None:
+        """The command a container image runs this agent by, if it has one.
+
+        Default ``None``: a backend with no CLI cannot be contained, and
+        ``--container`` skips the image probe for it.
+        """
+        return None
 
     def prompt_cli_missing(self) -> bool:
         """True when the CLI a bare prompt would spawn is not installed here.
@@ -482,7 +507,10 @@ class CliHarness(HarnessBackend):
         # rule ``RunContext.__post_init__`` enforces for the lists.
         ctx = replace(ctx, model=ctx.model or self._model)
 
-        self._ensure_ready(ctx)
+        # A contained run probed the CLI inside the image once, up front: the
+        # host need not have it at all (docs/adr/0035).
+        if ctx.container is None:
+            self._ensure_ready(ctx)
         self._seed_home(ctx)
         self._prepare(ctx)
         # Imported here: the user layer reads this module's types.
@@ -490,28 +518,38 @@ class CliHarness(HarnessBackend):
 
         staged = user_layer.stage(self, ctx)
         self._install_skills(ctx)
+        # After everything a backend seeds, so a canary never takes the place
+        # of a file the agent needs.
+        if ctx.canaries is not None:
+            ctx.canaries.plant(ctx.isolated_home)
         cmd, stdin, cleanup = self._command(ctx)
-        env = self._environment(ctx)
+        env = self._watched_environment(ctx, self._environment(ctx))
 
         start = time.monotonic()
         try:
-            if ctx.mcp_servers:
-                from caliper.harness.mcp import preflight_stdio_servers
+            if ctx.container is not None:
+                # Its stdio servers start inside the image, where a host
+                # preflight proves nothing.
+                proc = self._execute_contained(ctx, cmd, env, stdin)
+            else:
+                if ctx.mcp_servers:
+                    from caliper.harness.mcp import preflight_stdio_servers
 
-                # Check again in the actual attempt environment immediately
-                # before the agent starts. A server can fail after the run's
-                # initial preflight or depend on the backend's isolated env.
-                preflight_stdio_servers(
-                    ctx.mcp_servers, env=env, cwd=ctx.workdir, timeout=ctx.timeout
+                    # Check again in the actual attempt environment immediately
+                    # before the agent starts. A server can fail after the run's
+                    # initial preflight or depend on the backend's isolated env.
+                    preflight_stdio_servers(
+                        ctx.mcp_servers, env=env, cwd=ctx.workdir, timeout=ctx.timeout
+                    )
+                proc = self._execute(
+                    cmd, env=env, cwd=ctx.workdir, timeout=ctx.timeout, stdin=stdin
                 )
-            proc = self._execute(
-                cmd, env=env, cwd=ctx.workdir, timeout=ctx.timeout, stdin=stdin
-            )
         finally:
             if cleanup is not None:
                 cleanup()
         duration = time.monotonic() - start
-        if proc.timed_out:
+        # Recovery spawns on the host; a contained attempt keeps its bare timeout.
+        if proc.timed_out and ctx.container is None:
             proc = self._recover_timed_out(proc, ctx, env)
 
         report = self._read(proc, ctx)
@@ -974,6 +1012,87 @@ class CliHarness(HarnessBackend):
             timed_out=False,
             cancelled=cancel.was_killed(proc),
         )
+
+    #: The command a container image runs this agent by. Default:
+    #: :attr:`cli_name`, looked up on the image's own ``PATH``.
+    container_cli: str | None = None
+
+    def contained_cli(self) -> str | None:
+        """The CLI name to run inside a container image, if this backend has one."""
+        return self.container_cli or self.cli_name
+
+    def _watched_environment(
+        self, ctx: RunContext, env: dict[str, str]
+    ) -> dict[str, str]:
+        """The agent's environment, with what a watching run adds to it.
+
+        The canaries never replace a variable the backend set, and the proxy
+        variables replace any the agent would otherwise have used. A contained
+        agent gets the image's ``PATH`` behind the spec's own directories, and
+        scratch space inside its home: the host's ``TMPDIR`` is not mounted.
+        """
+        env = dict(env)
+        if ctx.canaries is not None:
+            for key, value in ctx.canaries.env.items():
+                env.setdefault(key, value)
+        if ctx.proxy_url is not None:
+            from caliper.trust.egress import proxy_env
+
+            env.update(proxy_env(ctx.proxy_url))
+        if ctx.container is not None:
+            env["PATH"] = os.pathsep.join([*ctx.extra_path, ctx.container.path])
+            scratch = Path(ctx.isolated_home) / ".tmp"
+            scratch.mkdir(exist_ok=True)
+            env["TMPDIR"] = str(scratch)
+        return env
+
+    def _execute_contained(
+        self,
+        ctx: RunContext,
+        cmd: list[str],
+        env: dict[str, str],
+        stdin: str | None,
+    ) -> ProcessResult:
+        """Spawn the agent inside the run's container (docs/adr/0035).
+
+        The host path a backend resolved for its CLI means nothing inside the
+        image, so wherever it appears, on argv or in a variable a wrapper
+        script reads, it becomes the image's command name. The container is
+        removed afterwards however the spawn ended: killing the runtime's
+        client does not stop what it started.
+        """
+        from caliper.trust.container import container_name, write_env_file
+
+        container = ctx.container
+        assert container is not None
+        host_cli, inside = self.cli_path(), self.contained_cli()
+        if host_cli and inside and host_cli != inside:
+            cmd = [inside if part == host_cli else part for part in cmd]
+            env = {k: inside if v == host_cli else v for k, v in env.items()}
+        mounts = [(ctx.isolated_home, False)] + [
+            (path, True)
+            for path in dict.fromkeys(ctx.extra_path)
+            if Path(path).is_dir()
+        ]
+        name = container_name()
+        env_file = write_env_file(env)
+        try:
+            return self._execute(
+                container.wrap(
+                    cmd,
+                    cwd=ctx.workdir,
+                    name=name,
+                    env_file=env_file,
+                    mounts=mounts,
+                ),
+                env=dict(os.environ),
+                cwd=ctx.workdir,
+                timeout=ctx.timeout,
+                stdin=stdin,
+            )
+        finally:
+            container.remove(name)
+            Path(env_file).unlink(missing_ok=True)
 
     def _version_ok(self, cli: str, *, timeout: int) -> bool:
         """True when ``cli --version`` exits 0 — the CLI is installed and runnable."""

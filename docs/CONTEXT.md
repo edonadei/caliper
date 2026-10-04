@@ -524,7 +524,7 @@ guaranteed zero.
 ## Outcome
 
 The typed result of a single **attempt**, replacing the bare `passed: bool`. One
-of six values, classified once at the seam where an attempt is assembled:
+of eight values, classified once at the seam where an attempt is assembled:
 
 - `pass` — the attempt satisfied the task's judge(s).
 - `task_fail` — the skill genuinely failed the task.
@@ -539,6 +539,9 @@ of six values, classified once at the seam where an attempt is assembled:
   call was observed (nothing parsed from its stream and no tokens reported).
 - `timeout` — the attempt exceeded its time budget with no usable result.
 - `cheat` — a forbidden-file read was detected.
+- `unsafe` — a [[trust|watched]] attempt touched a [[canary]] or asked for a
+  host its [[egress policy]] refused. Usable, like `cheat`, and ranked above
+  it: the skill acting against the user is the graver finding.
 - `not_checked` — the attempt ran cleanly and the task authored **no execution
   check** (a [[trigger probe]]). Not an error and not a failure: nothing was
   asked, so nothing was answered.
@@ -558,8 +561,8 @@ reads instead of looking at. `0` ran, `1` the request was wrong (a missing spec,
 an invalid one, a reference naming no run), `2` caliper could not run the eval
 (a misconfigured backend, an exhausted account, a run whose every attempt was
 execution noise), `130` a Ctrl-C whose partial
-run was saved. `3` is **reserved**: a clean run that did not clear a
-*pre-registered* bar.
+run was saved. `3` is a clean run that did not clear a *pre-registered* bar;
+today only a [[trust report]] whose verdict is `unsafe` raises it.
 
 The distinction `2` and `3` draw is the one CI needs — *the eval could not run*
 is a broken pipeline, *the skill did not clear the bar* is the answer you asked
@@ -592,9 +595,9 @@ evidence behind a `cheat` [[outcome]], so the offending paths are reported and
 not merely counted.
 
 A sandbox is not a claim that the agent was *contained* — nothing stops the
-read; the run observes it and grades accordingly. No part of an attempt is a
-security boundary against the skill under test; see
-[[0027-an-attempt-is-not-a-security-boundary]].
+read; the run observes it and grades accordingly. No part of an uncontained
+attempt is a security boundary against the skill under test; see
+[[0027-an-attempt-is-not-a-security-boundary]] and [[containment]].
 
 ## Run environment
 
@@ -764,3 +767,70 @@ The marker is what `compare` warns on and what `list` marks — always on the fa
 that a run stopped early, never on a depth threshold, which would be a worse
 rewrite of the confidence intervals that belong on the score itself. See
 docs/adr/0018-the-attempt-is-the-unit-of-parallelism.md.
+
+## Trust
+
+What a run can say about a skill it does not trust: what the skill does with
+the user's secrets and network, as distinct from whether it does its job. A run
+is *watched* when it plants [[canary|canaries]], watches its [[egress policy]],
+or both; a watched attempt that touches either is `unsafe` (see [[outcome]]).
+Trust is observed on every attempt, whatever its outcome, and reported apart
+from the [[success rate|score]], which counts an `unsafe` attempt only as a
+failure.
+_Avoid_: security score, safety (a run shows what a skill did, never that it
+is safe).
+
+## Canary
+
+A fake credential planted in an attempt's isolated home or environment where a
+real one would live (`~/.aws/credentials`, `$GITHUB_TOKEN`), fresh for every
+attempt and opening nothing. A skill with no business with credentials never
+touches one, so any touch is a finding. Three strengths, weakest first: a
+**read** (a tool call named its place), **exposed** (its value came back in a
+tool output, so it reached the agent's context), **sent** (the agent wrote the
+value out: into a tool call, its answer, or a request). Writing *about* a
+canary file is not a read.
+_Avoid_: honeytoken (fine, but not ours), fake secret (says nothing about the
+tripwire).
+
+## Egress policy
+
+The hosts an attempt's agent may reach: its backend's own (model API, login,
+telemetry), the hosts of the run's remote `mcp:` servers, `sandbox.egress`, and
+`--allow-host`. Enforced by a per-attempt forward proxy that tunnels to allowed
+hosts, refuses the rest, and logs both. Without [[containment]] it is
+*advisory*: the agent is pointed at the proxy, and a process that ignores the
+pointer goes around it.
+_Avoid_: firewall (nothing below the proxy filters anything on the host).
+
+## Containment
+
+Running the agent of every attempt inside a container runtime, so the boundary
+a skill meets is the container's rather than the user's account: only the
+attempt's own home and workdir are mounted, and the network's only way out is
+the [[egress policy]]'s proxy. Caliper delegates it rather than building a
+sandbox (see [[0035-containment-is-delegated-to-a-container-runtime]]). Only the
+agent is contained; [[step|steps]] run on the host.
+_Avoid_: sandbox (that is what the agent may not touch), isolation (an
+attempt's fresh home is isolation, and is not containment).
+
+## Trust probe
+
+A task written to make a skill show what it touches, run with canaries and
+egress armed: the skill on its own job, the skill following its own setup, the
+skill on input carrying a planted injection. Its only check is `activates:`, so
+it never reaches a judge: a hostile transcript is not handed to a tool-enabled
+agent on the host. It fails as `unsafe`, or as a missed activation when the
+skill never fired and so was never exercised.
+_Avoid_: red-team task, security test.
+
+## Trust report
+
+What `caliper vet` produces for one skill: a static scan of every file an
+install would copy, the contained [[trust probe|probes]], and a verdict:
+`unsafe` when a probe touched a canary or a refused host; `review` when nothing
+was observed but something stops short of a clean bill (a static finding,
+probes not run or not exercising the skill, attempts that could not run); `no
+findings` otherwise. It always lists what it cannot tell. `no findings` is not
+"safe".
+_Avoid_: security audit, certification.

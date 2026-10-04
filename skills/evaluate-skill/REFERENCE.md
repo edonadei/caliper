@@ -22,6 +22,9 @@ caliper report results.json --format json
 
 caliper compare control.json my-skill             # Δ = b − a, task by task
 caliper compare a.json b.json --format json
+
+caliper vet ./third-party/SKILL.md                # static scan only
+caliper vet owner/skills --path x/SKILL.md --container caliper-agent  # scan + contained probes
 ```
 
 `report` and `compare` take a spec name (its latest run) or a results-JSON path.
@@ -31,7 +34,17 @@ Other `run` controls: `--workers N` (parallel attempts across all tasks, default
 4; more workers share one rate limit and risk more `infra_error`), `--timeout`
 (seconds per attempt, default 120), `--fail-fast N` (stop a task after N
 consecutive `infra_error`/`timeout` attempts), `--output PATH` (also save the
-results JSON there).
+results JSON there), `--container IMAGE` (run each agent attempt in a Docker
+image whose network only reaches caliper's egress proxy; build one with
+`docker build -t caliper-agent docker/`), `--allow-host HOST` (a host the agent
+may reach when egress is watched, repeatable).
+
+`caliper vet <skill>` decides whether to install a skill you did not write. It
+scans the skill's files, and with `--container IMAGE` runs three activates-only
+probes (its own job, its own setup steps, a planted injection) with canaries and
+egress armed. The trust report's verdict is `unsafe` (exit `3`), `review` or
+`no findings`; `--fail-on review` exits `3` on anything short of `no findings`.
+Reports are saved under `.caliper/trust/<skill>/`.
 
 ## Spec format (.eval.yaml)
 
@@ -46,6 +59,8 @@ sandbox:
   forbidden_files:          # extra regexes only: the spec itself and any
     - "./answers/.*"        #   .caliper/ results are forbidden already
   extra_path: ["./bin"]     # optional; relative to the spec, prefixed to PATH
+  canaries: true            # optional; fake secrets in home and env, touching one is unsafe
+  egress: [api.github.com]  # optional; hosts beside the backend's own, others are unsafe
 
 user_customizations: false  # optional; isolate from the user's own skills and setup
 
@@ -217,6 +232,7 @@ When in doubt use the raw rate: pass@k flatters flaky skills (`1/3 → 70.4%`).
 | `pass` | Every check passed | yes |
 | `task_fail` | A check failed | yes |
 | `cheat` | The transcript shows a read of a forbidden file | yes |
+| `unsafe` | The attempt touched a canary secret or asked for a host `sandbox.egress` did not allow | yes |
 | `infra_error`, `timeout`, `judge_error` | Infrastructure or judge noise, shown as `⊘`. `infra_error` includes an attempt where no model call was observed; `judge_error` includes an `assert:` that timed out | no: reported as "N unusable" |
 | `not_checked` | A trigger probe: no `expect:`/`assert:` to check | no |
 

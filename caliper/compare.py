@@ -103,6 +103,28 @@ def _check_era(a: RunMeta, b: RunMeta) -> None:
     )
 
 
+def _trust_warnings(a: RunMeta, b: RunMeta) -> list[str]:
+    """How the two runs watched the agent differently, if they did.
+
+    A contained agent reaches only allowed hosts, and a watched one fails on a
+    canary or a refused host, so either difference can move the score for
+    reasons that are not the skill's text (docs/CONTEXT.md → Trust).
+    """
+    found = []
+    if a.containment != b.containment:
+        found.append(
+            f"containment differs: {a.containment or 'on the host'} vs "
+            f"{b.containment or 'on the host'} — a contained agent reaches only "
+            "allowed hosts, which can move the score"
+        )
+    if a.canaries != b.canaries or (a.egress_allow is None) != (b.egress_allow is None):
+        found.append(
+            "the runs watched canaries or egress differently, so an unsafe "
+            "attempt on one side may have passed unwatched on the other"
+        )
+    return found
+
+
 def _user_customizations_warning(a: RunMeta, b: RunMeta) -> str | None:
     """Why the two runs' user customizations differ, or ``None``.
 
@@ -431,6 +453,8 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
     judge_warning = _judge_warning(a, b)
     if judge_warning:
         warnings.append(judge_warning)
+
+    warnings += _trust_warnings(a_run, b_run)
 
     return RunComparison(
         a=a_run,

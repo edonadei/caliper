@@ -38,6 +38,12 @@
 > Precedence is now `setup failed → cancelled → timeout → infra_error → cheat →
 > not_checked → judge`. `caliper/outcome.py` is folded into `caliper/attempt.py`;
 > `classify_pre_judge` and `judge_outcome` are private helpers there.
+>
+> **Amended by [0036](0036-touching-a-canary-or-a-refused-host-is-unsafe.md):**
+> an eighth value, `unsafe`, for a watched attempt that touched a canary secret
+> or asked for a host the egress policy refused. Usable, like `cheat`, and
+> ranked above it: `setup failed → cancelled → timeout → infra_error → unsafe →
+> cheat → not_checked → judge`.
 
 An attempt's result is a typed `Outcome` (`pass`, `task_fail`, `judge_error`,
 `infra_error`, `timeout`, `cheat`), not just `passed: bool`, so infrastructure

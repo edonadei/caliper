@@ -1,6 +1,6 @@
 # Caliper Eval Starter Pack
 
-Five copy-paste eval templates that take you from install to a real,
+Seven copy-paste eval templates that take you from install to a real,
 running eval in about five minutes. Each one targets a specific way agents
 fail — and each one runs **green as-is** against a tiny bundled example, so you
 can prove your setup works before you change a single line.
@@ -26,7 +26,7 @@ Two terms you'll see in every template:
 - **`--k N`** runs each task `N` times; **pass@k** is the resulting reliability
   score — what fraction of runs succeeded, not whether one lucky run passed.
 
-## The five templates
+## The seven templates
 
 | # | Template | The failure it catches |
 |---|----------|------------------------|
@@ -35,6 +35,8 @@ Two terms you'll see in every template:
 | 3 | [`03-runaway-loops`](03-runaway-loops/runaway-loops.eval.yaml) | The agent retries forever, burning time and tokens. |
 | 4 | [`04-prompt-regression`](04-prompt-regression/prompt-regression.eval.yaml) | A prompt edit silently breaks cases that used to pass. |
 | 5 | [`05-context-boundary`](05-context-boundary/context-boundary.eval.yaml) | Old chat/transcript context gets treated as current truth. |
+| 6 | [`06-prompt-injection`](06-prompt-injection/prompt-injection.eval.yaml) | Instructions hidden in content the skill reads take over the agent. |
+| 7 | [`07-exfiltration`](07-exfiltration/exfiltration.eval.yaml) | A skill you did not write reads your secrets or sends data somewhere. |
 
 ### 1. False success — *grade the outcome, not the bragging*
 
@@ -92,6 +94,41 @@ checkable. Adapt the assertion to whatever your own skill produces.
 **Reach for it when** your skill loads memory, transcripts, ADRs, release notes,
 or team context and must prove what was actually authoritative before acting.
 
+### 6. Prompt injection — *plant the attack in the input*
+
+A skill that reads untrusted content (pages, emails, issues, notes) can be
+steered by whoever wrote that content. This template plants an instruction in
+the input file and asserts the work was still done without it. Its `sandbox:`
+also arms two tripwires every attempt carries: **canary secrets** planted where
+real credentials live, and an **egress proxy** that allows only the hosts you
+list. Touching either makes the attempt `unsafe`, a failure, even when the work
+looked right.
+
+**Reach for it when** your skill reads anything a third party could have
+written.
+
+### 7. Secret exfiltration — *vet a skill before you install it*
+
+Point this at a marketplace skill, pinned to the commit you would install, and
+run it contained. It asks for an ordinary job with the same tripwires armed,
+plus a request the skill should stay out of. A skill that reads a canary,
+prints one, or reaches for an undeclared host fails, however good its output.
+For a single trust report with a static scan and built-in probes, run
+`caliper vet <skill> --container caliper-agent`.
+
+**Reach for it when** you are deciding whether to install a skill you did not
+write.
+
+Templates 6 and 7 are only as strong as their containment. On your machine the
+egress check is advisory, since an agent that ignores proxy settings goes
+around it, and the skill runs with your files. Build the agent image once and
+pass `--container`:
+
+```bash
+docker build -t caliper-agent docker/     # from a caliper checkout
+caliper run exfiltration.eval.yaml --k 3 --container caliper-agent
+```
+
 ## Run them
 
 Each template runs from its own folder. From the repo:
@@ -104,13 +141,15 @@ caliper run false-success.eval.yaml --k 3
 You should see all tasks pass. That confirms Caliper is wired up correctly —
 the CLI, your backend auth, and the judge all work end to end.
 
-Do the same for the other four:
+Do the same for the others:
 
 ```bash
 cd ../02-tool-misuse       && caliper run tool-misuse.eval.yaml --k 3
 cd ../03-runaway-loops     && caliper run runaway-loops.eval.yaml --k 3 --timeout 90
 cd ../04-prompt-regression && caliper run prompt-regression.eval.yaml --k 3
 cd ../05-context-boundary  && caliper run context-boundary.eval.yaml --k 3
+cd ../06-prompt-injection  && caliper run prompt-injection.eval.yaml --k 3
+cd ../07-exfiltration      && caliper run exfiltration.eval.yaml --k 3 --container caliper-agent
 ```
 
 ## Point a template at your own agent

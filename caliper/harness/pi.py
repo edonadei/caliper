@@ -58,6 +58,14 @@ class PiHarness(CliHarness):
     )
 
     cli_name = "pi"
+    # pi talks to whichever provider it is configured for; these are the common
+    # ones, and ``--allow-host`` adds any other.
+    egress_hosts = (
+        "*.anthropic.com",
+        "*.openai.com",
+        "generativelanguage.googleapis.com",
+        "openrouter.ai",
+    )
     cli_path_env_var = "PI_CLI_PATH"
     cli_unavailable_message = (
         "pi CLI is not available for the `pi` backend.\n\n"

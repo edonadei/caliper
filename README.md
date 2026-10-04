@@ -188,9 +188,10 @@ failed. Full results are saved as JSON under `.caliper/results/<spec>/`.
 
 ### Not sure what to put in a spec?
 
-The **[Eval Starter Pack](examples/starter-pack/)** has five copy-paste
+The **[Eval Starter Pack](examples/starter-pack/)** has seven copy-paste
 templates, each catching a real agent failure (false success, tool misuse,
-runaway loops, prompt regressions, stale context treated as current). Every template runs green as-is against a
+runaway loops, prompt regressions, stale context treated as current, prompt
+injection, secret exfiltration). Every template runs green as-is against a
 bundled example, then points at your own skill by editing two or three
 commented lines.
 
@@ -261,6 +262,45 @@ compare with someone else's run, or publish the score. Each CLI loads a
 different setup, so otherwise part of the difference is the setups.
 `caliper compare` warns when two runs loaded differently.
 
+## Vetting a skill you did not write
+
+An attempt's isolation keeps a *measurement* clean; it does not contain a
+hostile skill ([ADR 0027](docs/adr/0027-an-attempt-is-not-a-security-boundary.md)).
+To find out what a third-party skill does with your files, secrets and network
+before you install it, run it in a container:
+
+```bash
+docker build -t caliper-agent docker/          # once: an image with the agent CLIs
+caliper vet owner/skills --path skills/pdf/SKILL.md --container caliper-agent
+```
+
+`caliper vet` writes one **trust report** for the skill:
+
+- a **static scan** of every file an install would copy: downloads piped to a
+  shell, credential paths, known exfiltration endpoints, instructions that
+  override the agent or hide steps from the user, invisible characters,
+  obfuscated code, persistence;
+- three **probes** run inside the container: the skill on its own job, the
+  skill's own setup steps, and the skill on a file carrying a planted injection.
+  Each attempt gets fresh **canary secrets** (`~/.aws/credentials`,
+  `~/.ssh/id_ed25519`, `$GITHUB_TOKEN`, …), and its network is an internal one
+  whose only way out is caliper's **egress proxy**, which allows the agent's own
+  model API and refuses and logs everything else.
+
+The verdict is `unsafe` when a probe touched a canary or asked for a refused
+host (exit `3`), `review` when nothing was observed but something needs a look,
+and `no findings` otherwise. Without `--container`, `vet` only scans: running
+an untrusted skill on your machine is what you are trying to decide about.
+
+The same guards work in any spec: `sandbox.canaries: true` plants canaries,
+`sandbox.egress: [hosts]` watches egress, and `caliper run --container IMAGE`
+contains the attempts. An attempt that touches a canary or a refused host is
+`unsafe`, counted as a failure. Templates
+[06](examples/starter-pack/06-prompt-injection/) and
+[07](examples/starter-pack/07-exfiltration/) of the starter pack use them.
+Image requirements and the hosts each backend is allowed are in
+[docs/backends.md](docs/backends.md#containment).
+
 ## Core concepts
 
 | Term | What it is |
@@ -321,6 +361,8 @@ The quick start covers the basics. A spec can also:
 - run **`setup:` and `cleanup:`** shell hooks in each attempt's workdir (each
   killed after 600 seconds)
 - extend `PATH` or **forbid files** the agent must not read (`sandbox:`)
+- plant **canary secrets** and **watch egress** (`sandbox.canaries`,
+  `sandbox.egress`), failing any attempt that touches them as `unsafe`
 - assert **silence** (`activates: []`) or a **delegation chain**
   (`activates: [mine, helper]`)
 
@@ -341,6 +383,7 @@ The full format, with every field, is in
 | `caliper list [spec]` | List specs and saved runs. Per spec, each row shows its **Run** ID and what that run **ablated**, which is how you find the run to diff against |
 | `caliper report <spec-or-result>` | Re-render saved results |
 | `caliper compare <A> <B>` | Diff two saved runs of the same eval, task by task. Each side is a spec name (that spec's **latest** run) or a results-JSON path; they must be two distinct runs |
+| `caliper vet <skill>` | Scan a skill you did not write and, with `--container IMAGE`, probe it with canaries and logged egress; prints and saves a trust report. `<skill>` is a `SKILL.md`, its directory, or a git repo (`--ref`, `--path`). `--fail-on review` exits `3` on anything short of `no findings` |
 | `caliper update-cli [backend]` | Check or update installed agent CLI versions |
 
 Results are saved under the nearest `.caliper/` directory at or above where you
@@ -359,6 +402,8 @@ run Caliper, inside the git repository. See
 | `--model TARGET` | `claude-code` | Model being evaluated: `backend`, `model`, or `backend:model` ([syntax](docs/backends.md#selecting-an-engine)) |
 | `--judge-model TARGET` | the `--model` backend | Judge engine, same syntax |
 | `--user-customizations` / `--no-user-customizations` | the spec's `user_customizations`, else on | Load your user skills, plugins, rules, settings and connectors into attempts, or isolate. See [Portable scores](#portable-scores) |
+| `--container IMAGE` | none | Run each agent attempt in this Docker image, on a network whose only way out is the egress proxy. See [Containment](docs/backends.md#containment) |
+| `--allow-host HOST` | none | A host the agent may reach when egress is watched, beside its backend's own and the spec's `sandbox.egress` (repeatable; `*.example.com` for subdomains) |
 | `--verbose` | off | Show every task with its `expect`, and per attempt the judge reasoning and any judge script |
 | `--output PATH` | none | Also save results JSON to a specific path |
 
@@ -369,7 +414,7 @@ run Caliper, inside the git repository. See
 | `0` | Ran, and nothing asked for a verdict said no |
 | `1` | Bad input: spec not found, invalid spec, unresolvable skills, two references naming one run |
 | `2` | Could not run cleanly: backend misconfiguration, an unavailable model, a failed setup/cleanup hook, or every attempt `infra_error`/`timeout`/`judge_error` |
-| `3` | Reserved: ran cleanly, but a declared bar was not met |
+| `3` | Ran cleanly, but a pre-registered bar was not met. Today only `caliper vet` uses it: the trust report's verdict was `unsafe` (or, with `--fail-on review`, anything short of `no findings`) |
 | `130` | Interrupted with Ctrl-C; the partial run was saved |
 
 `2` and `3` are the distinction CI needs: *the eval could not run* is a broken
@@ -387,7 +432,7 @@ unless a lifecycle hook failed and its diagnostic needs saving. Exits `2` and
 `caliper compare` deliberately never fails on a regression. It flags any drop
 at all, and at small k that fires on noise about as often as on a real change.
 Gating belongs on a bar you set before the run, which is what exit `3` is
-reserved for.
+for.
 
 ## Scoring
 

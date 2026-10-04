@@ -63,6 +63,7 @@ class CodexHarness(CliHarness):
         "selecting a separate backend."
     )
     cli_version_timeout = 5
+    egress_hosts = ("openai.com", "*.openai.com", "chatgpt.com", "*.chatgpt.com")
 
     @property
     def name(self) -> str:

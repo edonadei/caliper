@@ -1,5 +1,10 @@
 # An attempt is not a security boundary
 
+> **Superseded in part by [0035](0035-containment-is-delegated-to-a-container-runtime.md):**
+> an attempt run with `--container IMAGE` is contained by a container runtime.
+> Everything below still holds for an attempt run without it, which is every
+> attempt by default.
+
 An attempt's isolation (a fresh home, the closed skill neighbourhood, no
 account connectors) exists to keep a **measurement** clean: the agent sees the
 spec's skills and servers and nothing ambient, so a score does not depend on

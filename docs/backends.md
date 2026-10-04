@@ -2,7 +2,8 @@
 
 Caliper runs every skill through a real CLI agent, so every backend can load and
 run a skill the way a user would. This page covers setup for each one, how
-`--model` and `--judge-model` pick an engine, and which backends support `mcp:`.
+`--model` and `--judge-model` pick an engine, which backends support `mcp:`, and
+how `--container` contains an attempt.
 
 For the short version, see [Choosing an engine](../README.md#choosing-an-engine)
 in the README.
@@ -263,3 +264,77 @@ isolation, not a security boundary (ADR 0027).
 The switch applies to attempts. The judge's bare-prompt path retains its existing
 connector controls and uses the caller's CLI configuration; this switch does not
 strip the judge's global skills, rules or settings.
+
+## Containment
+
+`--container IMAGE` (on `caliper run` and `caliper vet`) runs each attempt's
+agent inside a Docker container instead of on your machine
+([ADR 0035](adr/0035-containment-is-delegated-to-a-container-runtime.md)).
+Caliper does not build a sandbox of its own; the container is the boundary:
+
+- **Files.** The only host paths it sees are the attempt's own temporary home
+  and workdir, mounted at the same paths, and the spec's `sandbox.extra_path`
+  directories, read-only. Your home directory, repositories and real
+  credentials stores are not mounted.
+- **User.** It runs as your user id, with every Linux capability dropped and
+  no privilege escalation, so files it writes in the workdir are yours and
+  `assert:` reads them as usual.
+- **Network.** It sits on a fresh `--internal` network with no route out. The
+  one address it can reach is the host's side of that network, where the
+  attempt's egress proxy listens. The proxy allows the backend's own hosts
+  (below), the hosts of remote `mcp:` servers, `sandbox.egress` and
+  `--allow-host`, refuses everything else, and logs both.
+
+Everything that could fail is checked before the first attempt: the runtime
+answers, the image is there (pulled if not), the agent CLI runs inside it, and
+the proxy can listen on the network. A run records `containment:
+docker:<image>`.
+
+### The image
+
+The image supplies the agent CLI and whatever tools the skill runs. The repo's
+`docker/Dockerfile` installs Claude Code and Codex on Node 22 with Python 3,
+git, curl, jq and ripgrep:
+
+```bash
+docker build -t caliper-agent docker/
+docker build -t caliper-agent --build-arg CODEX_VERSION=0.50.0 docker/   # pin a CLI
+```
+
+Credentials are never baked in. They reach the container the way they reach
+an uncontained attempt: seeded into the isolated home (`~/.codex/auth.json`,
+Claude Code's credentials) or passed as the variables the backend forwards. So
+the agent's own login is inside the container with the skill, and a trust
+report says so.
+
+The agent runs by its command name on the image's `PATH` (`claude`, `codex`,
+`pi`, `hermes`). `CALIPER_CONTAINER_RUNTIME` names a Docker-compatible CLI
+other than `docker`.
+
+### Egress hosts by backend
+
+| Backend | Always allowed |
+|---|---|
+| `claude-code` | `anthropic.com`, `*.anthropic.com`, `claude.ai`, `*.claude.ai`, `*.sentry.io` |
+| `codex` | `openai.com`, `*.openai.com`, `chatgpt.com`, `*.chatgpt.com` |
+| `pi` | `*.anthropic.com`, `*.openai.com`, `generativelanguage.googleapis.com`, `openrouter.ai` |
+| `hermes` | `*.nousresearch.com`, `openrouter.ai`, `*.anthropic.com`, `*.openai.com` |
+
+A backend configured for another provider (Bedrock, Vertex, a gateway, a local
+model) needs that host added with `--allow-host`. A proxy set in caliper's own
+environment (`HTTPS_PROXY`, `HTTP_PROXY`, honouring `NO_PROXY`) is used as the
+upstream.
+
+### Limits
+
+- **Linux with Docker Engine.** The proxy listens on the internal network's
+  gateway, which is a host interface on Linux. Docker Desktop keeps its
+  networks inside a VM; caliper detects that and refuses before the first
+  attempt. Windows is not supported.
+- **Stdio `mcp:` servers start inside the image**, so their commands must
+  exist there. Their host preflight is skipped.
+- **Only the agent is contained.** `setup:`, `assert:`, `cleanup:` and the
+  judge run on the host, as the spec author's code. A judge-written script is
+  tracked in [#158](https://github.com/edonadei/caliper/issues/158).
+- **Hermes' timeout recovery** (exporting a partial session) is skipped for a
+  contained attempt, which keeps its bare timeout.
