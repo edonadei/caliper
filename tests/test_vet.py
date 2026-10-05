@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -116,6 +117,7 @@ def test_what_an_install_skips_is_not_scanned(tmp_path):
     assert _rules(directory) == set()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
 def test_a_link_out_of_the_skill_is_high(tmp_path):
     directory = _skill(tmp_path / "skill", "Fine.\n")
     outside = tmp_path / "elsewhere.md"

@@ -1040,7 +1040,8 @@ class CliHarness(HarnessBackend):
 
             env.update(proxy_env(ctx.proxy_url))
         if ctx.container is not None:
-            env["PATH"] = os.pathsep.join([*ctx.extra_path, ctx.container.path])
+            # A Linux container's separator, whatever the host's.
+            env["PATH"] = ":".join([*ctx.extra_path, ctx.container.path])
             scratch = Path(ctx.isolated_home) / ".tmp"
             scratch.mkdir(exist_ok=True)
             env["TMPDIR"] = str(scratch)
