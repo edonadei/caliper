@@ -104,57 +104,63 @@ Output: `exit-code`.
 | Backend | API billing | Subscription billing |
 |---|---|---|
 | `claude-code` | `ANTHROPIC_API_KEY` on the job's `env:` | `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) on the job's `env:` |
-| `codex` | `openai-api-key: ${{ secrets.OPENAI_API_KEY }}` | a self-hosted runner, or `codex-auth-json` ([below](#billing-a-chatgpt-plan-codex)) |
+| `codex` | `openai-api-key: ${{ secrets.OPENAI_API_KEY }}` | `codex-auth-json: ${{ secrets.CODEX_AUTH_JSON }}` ([below](#billing-a-chatgpt-plan-codex)) |
 
 Both are forwarded into attempts (see [Backends](backends.md)). A run whose
 login is missing or expired exits `2` with the fix, before it measures anything.
 
 ## Billing a ChatGPT plan (Codex)
 
-Codex signs in with a ChatGPT plan by writing `~/.codex/auth.json`, and
-refreshes the tokens in that file as they age. CI has to keep the refreshed
-copy, so the plan works best on a **self-hosted runner** — your own machine,
-where the file persists between jobs:
+Codex signs in with a ChatGPT plan by writing `~/.codex/auth.json`, and any
+model the plan includes can run the evals — GPT-6 Luna (`gpt-6-luna`) is the
+cheap, high-volume tier and a good fit for k × tasks attempts:
 
-1. [Add a self-hosted runner](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/adding-self-hosted-runners)
-   on the machine, with a label of your choice (say `luna`).
-2. As the user the runner service runs as, install Codex and sign in once:
-   `npm install -g @openai/codex && codex login`.
-3. Point the workflow at it and leave the login alone:
+1. On your own machine, `codex login` with the ChatGPT account CI should bill.
+2. Store the contents of `~/.codex/auth.json` as the repository secret
+   `CODEX_AUTH_JSON`.
+3. Pass it to the action and pick the model:
 
    ```yaml
    jobs:
      evals:
-       # Never a fork's PR on your own machine (see Forks below).
        if: >-
          github.event_name != 'pull_request'
          || github.event.pull_request.head.repo.full_name == github.repository
-       runs-on: [self-hosted, luna]
+       runs-on: ubuntu-latest
        steps:
          - uses: actions/checkout@v4
          - uses: edonadei/caliper@main  # pin a release tag once one ships the action
            with:
              specs: skills/*/*.eval.yaml
-             model: codex
-             install-cli: "false"
+             model: codex:gpt-6-luna
+             codex-auth-json: ${{ secrets.CODEX_AUTH_JSON }}
    ```
+
+The judge follows the backend on the Codex CLI's default model
+([ADR 0034](adr/0034-the-judge-follows-the-skill-backend-by-default.md)); add
+`judge-model: codex:gpt-6-luna` to grade on Luna too, at the cost of a less
+careful grader.
 
 Before the run, the action makes one tiny `codex exec` call. Caliper copies
 `auth.json` into every attempt, and a token due a refresh would otherwise be
 refreshed by each parallel attempt from the same stale copy, with the result
 thrown away; the warm-up refreshes it once, in the runner's own file.
 
-This repo's own [`skill-evals` workflow](../.github/workflows/skill-evals.yml)
-does exactly this. It stays off until the repository variable `CALIPER_RUNNER`
-holds the runner's labels as JSON, e.g. `["self-hosted","luna"]`.
+**Keeping the login alive.** Codex refreshes the tokens in `auth.json` as they
+age. A GitHub-hosted runner starts every job from the secret, so once Codex has
+refreshed the login the secret is stale, and it has to be re-seeded from a
+fresh `codex login`. A **self-hosted runner** avoids that: the file persists
+between jobs and the action leaves an existing one alone. Sign in once as the
+runner's user, then set `runs-on` to the runner's labels and drop
+`codex-auth-json`. Either way, use a login dedicated to CI, never share it
+between concurrent jobs, and treat the file like a password. OpenAI's
+[CI/CD auth guide](https://developers.openai.com/codex/auth/ci-cd-auth) covers
+the trade-offs.
 
-**On a GitHub-hosted runner**, store the file as a secret and pass it as
-`codex-auth-json: ${{ secrets.CODEX_AUTH_JSON }}`. Each job starts from the
-secret, so once Codex refreshes the login the secret is stale and has to be
-re-seeded from a fresh `codex login`. Use a login dedicated to CI, never share
-it between concurrent jobs, and treat the file like a password.
-OpenAI's [CI/CD auth guide](https://developers.openai.com/codex/auth/ci-cd-auth)
-covers the trade-offs.
+This repo's own [`skill-evals` workflow](../.github/workflows/skill-evals.yml)
+runs its skills on `codex:gpt-6-luna` this way. It stays off until the
+repository variable `CALIPER_EVALS` is `true`; `CALIPER_RUNNER` optionally
+names a self-hosted runner's labels as JSON.
 
 ## Forks
 
