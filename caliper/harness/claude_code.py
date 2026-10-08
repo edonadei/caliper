@@ -56,7 +56,7 @@ _NOT_LOGGED_IN = (
     "caliper runs Claude Code in an isolated HOME so each attempt has no "
     "session history. The Claude CLI returned:\n"
     "  {text}\n\n"
-    "Run `claude`, then `/login`, and retry the eval. If "
+    "Run `claude auth login` and retry the eval. If "
     "`claude -p 'Reply OK'` works in your normal shell but caliper still "
     "fails, the harness is not finding or copying the credential store "
     "that your Claude Code install uses."
@@ -359,8 +359,10 @@ class ClaudeCodeHarness(CliHarness):
                 "failed to authenticate",
                 "oauth session expired",
                 "invalid api key",
+                "api error 401",
             ),
             _NOT_LOGGED_IN,
+            login=True,
         ),
         ConfigSignal(
             (
@@ -386,9 +388,6 @@ class ClaudeCodeHarness(CliHarness):
         # write about a 404 without being one. Same classification the judge's
         # prompt path uses (issue #75, docs/adr/0001).
         failure = report.cli_failure
-        if failure is not None and failure.kind is PromptFailureKind.AUTH:
-            # A bare 401 may carry no login words for config_signals to match.
-            return _NOT_LOGGED_IN.replace("{text}", cli_text)
         if failure is not None and failure.kind is PromptFailureKind.MODEL_UNAVAILABLE:
             model_part = f" '{self._model}'" if self._model else ""
             return (
@@ -457,6 +456,9 @@ class ClaudeCodeHarness(CliHarness):
         return (
             shutil.which("claude", path=self._prompt_environment().get("PATH")) is None
         )
+
+    def login_command(self) -> list[str]:
+        return ["claude", "auth", "login"]
 
     def _prompt_environment(self) -> dict[str, str]:
         env = dict(os.environ)

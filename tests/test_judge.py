@@ -18,6 +18,7 @@ from conftest import patch_cli_calls
 from caliper.harness.base import (
     ConversationTurn,
     HarnessConfigurationError,
+    LoginRequired,
     ProcessResult,
     PromptResult,
 )
@@ -63,6 +64,9 @@ class ScriptedPrompt:
         self.calls += 1
         self.prompts.append(prompt)
         return self.result
+
+    def login_command(self) -> list[str]:
+        return ["scripted-cli", "login"]
 
 
 def _verdict(passed: bool, model: str | None = None) -> ScriptedPrompt:
@@ -425,13 +429,15 @@ def test_codex_judge_with_a_lapsed_login_stops_the_run(monkeypatch, tmp_path) ->
         ),
     )
 
-    with pytest.raises(HarnessConfigurationError) as exc:
+    with pytest.raises(LoginRequired) as exc:
         CodexHarness().run_prompt("anything", cwd=str(tmp_path))
 
     message = str(exc.value)
     assert message.startswith("The codex judge cannot run.")
     assert "Your access token could not be refreshed." in message
     assert "Run `codex login`" in message
+    # The binary caliper resolved, not whatever `codex` the shell finds first.
+    assert exc.value.command == ["codex.cmd", "login"]
 
 
 def test_codex_error_extraction_from_noisy_cli_output() -> None:
@@ -588,13 +594,15 @@ def test_pi_judge_with_a_rejected_key_stops_the_run(monkeypatch, tmp_path) -> No
     }
     _spawn(monkeypatch, stdout=json.dumps(message_end))
 
-    with pytest.raises(HarnessConfigurationError) as exc:
+    with pytest.raises(LoginRequired) as exc:
         PiHarness().run_prompt("anything", cwd=str(tmp_path))
 
     message = str(exc.value)
     assert message.startswith("The pi judge cannot run.")
     assert "API key is invalid." in message
     assert "`pi` then `/login`" in message
+    # pi logs in only from its own terminal UI: there is no command to offer.
+    assert exc.value.command is None
 
 
 def test_a_judge_answer_about_a_login_failure_is_a_verdict(
@@ -752,13 +760,15 @@ def test_a_judge_login_failure_stops_the_run(attempt_workdir) -> None:
         )
     )
 
-    with pytest.raises(HarnessConfigurationError) as exc:
+    with pytest.raises(LoginRequired) as exc:
         EvalJudge(backend="codex", harness=harness).evaluate(
             task=_task(expect="x"),
             transcript=[],
             workdir=attempt_workdir,
         )
 
+    assert exc.value.backend == "codex"
+    assert exc.value.command == ["scripted-cli", "login"]
     assert str(exc.value).startswith(
         "Judge authentication failed (Invalid bearer token)."
     )

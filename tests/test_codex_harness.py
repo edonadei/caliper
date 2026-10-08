@@ -15,6 +15,7 @@ from conftest import patch_cli_calls, run_context
 
 from caliper.harness.base import (
     HarnessConfigurationError,
+    LoginRequired,
     ProcessResult,
     RunContext,
 )
@@ -380,6 +381,40 @@ def test_codex_fails_clearly_when_cli_requires_newer_version(
     assert "requested model" in message
     assert "upgrade the Codex app or CLI" in message
     assert "Hello" not in message
+
+
+def test_codex_with_a_lapsed_login_names_its_login_command(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setattr(
+        "caliper.harness.base.shutil.which", lambda _name: "/opt/bin/codex"
+    )
+    monkeypatch.setattr(
+        "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
+    )
+    monkeypatch.delenv("CODEX_CLI_PATH", raising=False)
+
+    def fake_run(cmd, **kwargs):
+        if cmd == ["/opt/bin/codex", "--version"]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="codex-cli 0.132.0\n", stderr=""
+            )
+        return subprocess.CompletedProcess(
+            cmd,
+            1,
+            stdout="",
+            stderr="ERROR: Your access token could not be refreshed. "
+            "Please log out and sign in again.",
+        )
+
+    patch_cli_calls(monkeypatch, fake_run)
+
+    with pytest.raises(LoginRequired) as exc:
+        CodexHarness().run(run_context(isolated_home=str(tmp_path)))
+
+    assert exc.value.backend == "codex"
+    assert exc.value.command == ["/opt/bin/codex", "login"]
+    assert "Run `codex login`" in str(exc.value)
 
 
 @pytest.mark.parametrize(

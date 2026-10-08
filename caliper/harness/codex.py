@@ -435,8 +435,12 @@ class CodexHarness(CliHarness):
             "shell, then retry the eval. For API billing, configure the "
             "Codex CLI with an API key rather than selecting a separate "
             "backend.",
+            login=True,
         ),
     )
+
+    def login_command(self) -> list[str]:
+        return [self.cli_path() or "codex", "login"]
 
     def _diagnose(
         self, proc: ProcessResult, report: AgentReport, cli_text: str

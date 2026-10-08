@@ -46,6 +46,13 @@ There is no direct-API backend. To run against API-priced billing, configure one
 of these CLIs with an API key (for example `ANTHROPIC_API_KEY` or
 `OPENAI_API_KEY`).
 
+When a run stops because the agent's or the judge's CLI is not logged in, it
+exits `2` with a `Not logged in` error that says how to log in. In an
+interactive terminal, `caliper run` also offers to run that backend's login
+command (`claude auth login`, `codex login` or `hermes model`) and reruns the
+eval once the login succeeds. pi logs in only from its own terminal UI, so it
+gets no offer.
+
 ### What gets recorded
 
 Each saved run's `RunMeta` records the engine that was actually used: the skill
@@ -76,7 +83,7 @@ entry wins over `~/.claude/.credentials.json`, as it does for the CLI itself, so
 a stale file left next to a valid Keychain login doesn't break attempts.
 
 An expired OAuth session or invalid API key stops the run as a configuration
-error. Run `claude`, then `/login`, and retry the eval. Caliper reads these
+error. Run `claude auth login` and retry the eval. Caliper reads these
 failures from the CLI's error output, not from an agent discussing authentication.
 
 The CLI ships skills of its own (`claude-api`, `debug` and others) that stay
@@ -125,8 +132,8 @@ pi's agent dir, where pi discovers them.
 
 ```bash
 curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
-hermes login   # authenticate
-hermes model   # pick a default model/provider you have credits for
+hermes model                  # pick a default provider you have credits for, and log in
+hermes auth add <provider>    # or add a provider's credentials directly
 ```
 
 Hermes is a stateful, always-on agent with persistent memory, a persona, and

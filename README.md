@@ -384,6 +384,12 @@ A run that stopped before **any** attempt finished writes no results file,
 unless a lifecycle hook failed and its diagnostic needs saving. Exits `2` and
 `130` can therefore leave nothing on disk.
 
+A run that stops because the agent's or the judge's CLI is not logged in exits
+`2` with a `Not logged in` error naming the backend's login command. In an
+interactive terminal, `caliper run` first offers to run that command, and reruns
+the eval if the login succeeds. Elsewhere (CI, an agent), nothing waits for
+input.
+
 `caliper compare` deliberately never fails on a regression. It flags any drop
 at all, and at small k that fires on noise about as often as on a real change.
 Gating belongs on a bar you set before the run, which is what exit `3` is

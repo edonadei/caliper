@@ -25,7 +25,7 @@ def test_known_provider_signals_are_refusals() -> None:
 
 # --- classify ---------------------------------------------------------------
 
-LOGIN = ConfigSignal(("not logged in",), "Log in. The CLI said: {text}")
+LOGIN = ConfigSignal(("not logged in",), "Log in. The CLI said: {text}", login=True)
 
 
 def test_nothing_the_cli_wrote_is_no_refusal() -> None:
@@ -55,7 +55,17 @@ def test_a_throttle_wins_over_a_config_marker_it_brushes() -> None:
 def test_a_config_marker_is_diagnosed_with_what_the_cli_said() -> None:
     refusal = classify("Error: Not logged in", [LOGIN])
     assert refusal == CliRefusal(
-        RefusalKind.CONFIG, "Log in. The CLI said: Error: Not logged in"
+        RefusalKind.CONFIG, "Log in. The CLI said: Error: Not logged in", login=True
+    )
+
+
+def test_only_a_login_signal_is_fixed_by_logging_in() -> None:
+    signals = [LOGIN, ConfigSignal(("no access",), "Ask your admin: {text}")]
+
+    refusal = classify("Error: no access for this org", signals)
+
+    assert refusal == CliRefusal(
+        RefusalKind.CONFIG, "Ask your admin: Error: no access for this org", login=False
     )
 
 

@@ -57,6 +57,8 @@ The spec has no `backend`/`model` or `judge:` block. The engine is chosen at run
 3. `caliper run <spec> --k 3 --ablate <skill-name>`, once (write `skill:<skill-name>` if an `mcp:` server shares the name). This is the **control**: the declared neighbourhood without this skill. The skill isn't installed, so editing `SKILL.md` can't move its number. Keep its results path (`caliper list <spec-name>` marks ablated runs) and re-diff against it. Re-run it only when the tasks or the declared skills change.
 4. `caliper run <spec> --k 3`, then `caliper compare <control.json> <spec-name>` to see whether it earns its place. After each edit, also compare against the previous full run's path to see whether the edit held: a skill that got worse can still beat the control. A bare spec name resolves to that spec's latest run.
 
+If a run stops with `Not logged in`, ask the user whether to run the login command the error names. With their consent, run it (it opens a browser for them to finish) and rerun; never run it without consent.
+
 ## Reading results
 
 The **success rate** (`successes / usable`) is the headline. pass@k and pass^k are secondary views under `--verbose`. Activation is a separate scoreboard, over a different population: report it beside the success rate, never averaged into it.

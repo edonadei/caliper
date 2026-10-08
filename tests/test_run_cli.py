@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -7,8 +8,10 @@ import pytest
 from conftest import ScriptedHarness
 from typer.testing import CliRunner
 
+from caliper.harness.base import HarnessConfigurationError, LoginRequired
 from caliper.main import app
 from caliper.reporter import print_results
+from caliper.runner import RunAborted
 from caliper.runstore import RunStore
 from caliper.schema.results import (
     AggregateScore,
@@ -763,3 +766,155 @@ def test_a_cheat_stays_flagged_in_live_progress_after_later_attempts(
 
     assert result.exit_code == 0, result.output
     assert updates == [True, True, True]
+
+
+# --- offering the backend's login ---------------------------------------------
+
+_CLAUDE_LOGIN = ["claude", "auth", "login"]
+
+
+def _lapsed_login() -> LoginRequired:
+    return LoginRequired(
+        "Run `claude auth login`.", backend="claude-code", command=_CLAUDE_LOGIN
+    )
+
+
+def _stop_the_run_with(
+    monkeypatch, tmp_path, stop: Exception, *, interactive: bool | None
+) -> list[str]:
+    """Stub a run that stops with ``stop``; returns the argv it was invoked with.
+
+    ``interactive=None`` keeps the real terminal check, which CliRunner fails.
+    """
+    import caliper.commands.run as run_module
+
+    def stopped(**_: object):
+        raise stop
+
+    _stub_a_run(monkeypatch, _finished(datetime(2026, 7, 3, tzinfo=timezone.utc)))
+    monkeypatch.setattr(run_module, "run", stopped)
+    if interactive is not None:
+        monkeypatch.setattr(run_module, "_interactive", lambda: interactive)
+    spec_file = tmp_path / "sample.eval.yaml"
+    spec_file.write_text(
+        "tasks:\n  - name: One\n    prompt: Do it\n    assert: assert True\n"
+    )
+    argv = ["/venv/bin/caliper", "run", str(spec_file), "--k", "1"]
+    monkeypatch.setattr("sys.argv", argv)
+    return argv
+
+
+def _fake_login(monkeypatch, returncode: int) -> tuple[list, list]:
+    """Fake the login command and the re-exec; returns what each was given."""
+    logins: list[list[str]] = []
+    reruns: list[tuple[str, list[str]]] = []
+
+    def login(cmd, **kwargs):
+        logins.append(cmd)
+        return subprocess.CompletedProcess(cmd, returncode)
+
+    def rerun(file, args):
+        reruns.append((file, list(args)))
+        raise SystemExit(0)
+
+    monkeypatch.setattr("caliper.commands.run.subprocess.run", login)
+    monkeypatch.setattr("caliper.commands.run.os.execvp", rerun)
+    return logins, reruns
+
+
+def _invoke(argv: list[str], answer: str = ""):
+    return runner.invoke(app, argv[1:], input=answer)
+
+
+def test_a_login_stop_off_a_terminal_names_the_command_and_waits_for_nothing(
+    monkeypatch, tmp_path
+) -> None:
+    argv = _stop_the_run_with(monkeypatch, tmp_path, _lapsed_login(), interactive=None)
+    logins, reruns = _fake_login(monkeypatch, 0)
+
+    result = _invoke(argv, answer="y\n")
+
+    assert result.exit_code == 2, result.output
+    assert "Not logged in" in result.output
+    assert "claude auth login" in result.output
+    assert "Log in to" not in result.output
+    assert (logins, reruns) == ([], [])
+
+
+def test_yes_logs_in_then_reruns_the_same_command(monkeypatch, tmp_path) -> None:
+    # Mid-run, so the attempts already paid for are saved before anyone is asked.
+    partial = _finished(datetime(2026, 7, 3, tzinfo=timezone.utc))
+    stop = RunAborted(_lapsed_login(), partial)
+    argv = _stop_the_run_with(monkeypatch, tmp_path, stop, interactive=True)
+    saved = []
+    monkeypatch.setattr(
+        "caliper.commands.run._save_and_report", lambda *a, **k: saved.append(a[0])
+    )
+    logins, reruns = _fake_login(monkeypatch, 0)
+
+    result = _invoke(argv, answer="y\n")
+
+    assert result.exit_code == 0, result.output
+    assert "Log in to claude-code now with `claude auth login`?" in result.output
+    assert saved == [partial]
+    assert logins == [["claude", "auth", "login"]]
+    assert reruns == [("/venv/bin/caliper", argv)]
+
+
+# Ctrl-D at the prompt declines too, rather than exiting 1 as bad input would.
+@pytest.mark.parametrize("answer", ["n\n", ""])
+def test_no_exits_two_without_logging_in(monkeypatch, tmp_path, answer) -> None:
+    argv = _stop_the_run_with(monkeypatch, tmp_path, _lapsed_login(), interactive=True)
+    logins, reruns = _fake_login(monkeypatch, 0)
+
+    result = _invoke(argv, answer=answer)
+
+    assert result.exit_code == 2, result.output
+    assert "Log in to claude-code now" in result.output
+    assert (logins, reruns) == ([], [])
+
+
+def test_a_failed_login_exits_two_without_rerunning(monkeypatch, tmp_path) -> None:
+    argv = _stop_the_run_with(monkeypatch, tmp_path, _lapsed_login(), interactive=True)
+    logins, reruns = _fake_login(monkeypatch, 1)
+
+    result = _invoke(argv, answer="y\n")
+
+    assert result.exit_code == 2, result.output
+    assert logins == [["claude", "auth", "login"]]
+    assert reruns == []
+
+
+def test_a_login_command_that_cannot_start_exits_two(monkeypatch, tmp_path) -> None:
+    argv = _stop_the_run_with(monkeypatch, tmp_path, _lapsed_login(), interactive=True)
+    _, reruns = _fake_login(monkeypatch, 0)
+
+    def missing(command):
+        raise FileNotFoundError(2, "No such file or directory", command[0])
+
+    monkeypatch.setattr("caliper.commands.run.subprocess.run", missing)
+
+    result = _invoke(argv, answer="y\n")
+
+    assert result.exit_code == 2, result.output
+    assert "Could not run `claude auth login`" in result.output
+    assert reruns == []
+
+
+@pytest.mark.parametrize(
+    "stop",
+    [
+        HarnessConfigurationError("Your organization disabled Claude Code."),
+        # pi logs in only from its own terminal UI: nothing to run for it.
+        LoginRequired("Run `pi`, then `/login`.", backend="pi", command=None),
+    ],
+)
+def test_a_stop_with_no_login_command_never_asks(monkeypatch, tmp_path, stop) -> None:
+    argv = _stop_the_run_with(monkeypatch, tmp_path, stop, interactive=True)
+    logins, reruns = _fake_login(monkeypatch, 0)
+
+    result = _invoke(argv, answer="y\n")
+
+    assert result.exit_code == 2, result.output
+    assert "Log in to" not in result.output
+    assert (logins, reruns) == ([], [])

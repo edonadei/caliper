@@ -8,7 +8,11 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from caliper.harness import get_harness
-from caliper.harness.base import ConversationTurn, HarnessConfigurationError
+from caliper.harness.base import (
+    ConversationTurn,
+    HarnessConfigurationError,
+    LoginRequired,
+)
 from caliper.harness.prompt_failure import PromptFailureKind, format_judge_failure
 from caliper.judge.base import Judge, JudgeResult, PromptBackend
 from caliper.schema.results import TranscriptTurn
@@ -321,13 +325,14 @@ class EvalJudge(Judge):
             # Switch on the typed kind here, in the judge — provider status codes
             # never leak past the harness boundary (issue #75, ADR-0001).
             reasoning = format_judge_failure(result.failure, result.resolved_model)
-            if result.failure.kind in (
-                PromptFailureKind.MODEL_UNAVAILABLE,
-                PromptFailureKind.AUTH,
-            ):
-                # The same model or login fails every attempt's judge the same
-                # way, so a per-attempt judge_error would pay for each agent run
-                # only to discard it. Stop the run instead (issues #139, #245).
+            # The same model or login fails every attempt's judge the same way,
+            # so a per-attempt judge_error would pay for each agent run only to
+            # discard it. Stop the run instead (issues #139, #245).
+            if result.failure.kind is PromptFailureKind.AUTH:
+                raise LoginRequired(
+                    reasoning, backend=self.backend, command=harness.login_command()
+                )
+            if result.failure.kind is PromptFailureKind.MODEL_UNAVAILABLE:
                 raise HarnessConfigurationError(reasoning)
             return _AutoraterVerdict.error(
                 reasoning, resolved_model=result.resolved_model, seconds=seconds

@@ -38,6 +38,19 @@ class HarnessConfigurationError(RuntimeError):
     """Raised when a harness cannot run because local configuration is invalid."""
 
 
+class LoginRequired(HarnessConfigurationError):
+    """The backend's CLI is not logged in, or its login has lapsed.
+
+    ``command`` is the argv that logs in, or ``None`` when the backend has no
+    command for it (pi logs in only from its terminal UI).
+    """
+
+    def __init__(self, message: str, *, backend: str, command: list[str] | None):
+        super().__init__(message)
+        self.backend = backend
+        self.command = command
+
+
 @dataclass
 class ConversationTurn:
     role: str
@@ -430,6 +443,10 @@ class HarnessBackend(ABC):
             error=f"backend {self.name!r} cannot run a bare prompt",
         )
 
+    def login_command(self) -> list[str] | None:
+        """The argv that logs this backend's CLI in, or ``None`` if it has none."""
+        return None
+
     def prompt_cli_missing(self) -> bool:
         """True when the CLI a bare prompt would spawn is not installed here.
 
@@ -520,7 +537,7 @@ class CliHarness(HarnessBackend):
         # A timeout is the process outcome, whatever the CLI said before it hung.
         refusal = None if proc.timed_out else self._refusal(proc, report)
         if refusal is not None and refusal.kind is RefusalKind.CONFIG:
-            raise HarnessConfigurationError(refusal.message)
+            raise self._configuration_error(refusal.message, refusal)
 
         # Whether the agent actually conversed, captured before the salvage below
         # can paper over the difference.
@@ -593,8 +610,8 @@ class CliHarness(HarnessBackend):
             # the run instead of recording a judge_error per attempt.
             refusal = classify(self._prompt_cli_text(proc, result), self.config_signals)
             if refusal is not None and refusal.kind is RefusalKind.CONFIG:
-                raise HarnessConfigurationError(
-                    f"The {self.name} judge cannot run.\n\n{refusal.message}"
+                raise self._configuration_error(
+                    f"The {self.name} judge cannot run.\n\n{refusal.message}", refusal
                 )
             return result
         finally:
@@ -725,6 +742,15 @@ class CliHarness(HarnessBackend):
             self.config_signals,
             diagnose=lambda text: self._diagnose(proc, report, text),
         )
+
+    def _configuration_error(
+        self, message: str, refusal: CliRefusal
+    ) -> HarnessConfigurationError:
+        if refusal.login:
+            return LoginRequired(
+                message, backend=self.name, command=self.login_command()
+            )
+        return HarnessConfigurationError(message)
 
     def _diagnose(
         self, proc: ProcessResult, report: AgentReport, cli_text: str

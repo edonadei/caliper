@@ -64,7 +64,8 @@ class HermesHarness(CliHarness):
         "hermes CLI is not available for the `hermes` backend.\n\n"
         "Install the Hermes Agent (`curl -fsSL "
         "https://hermes-agent.nousresearch.com/install.sh | bash`) and "
-        "authenticate it (`hermes login`), or set `HERMES_CLI_PATH` to "
+        "authenticate it (`hermes auth add <provider>`, or `hermes model` to "
+        "pick a provider and log in), or set `HERMES_CLI_PATH` to "
         "the hermes binary, then rerun caliper."
     )
     cli_version_timeout = 15
@@ -400,6 +401,7 @@ class HermesHarness(CliHarness):
             "(pick your model and complete its login), verify `hermes -z "
             "'Reply OK'` works in your normal shell, then rerun caliper. Pass "
             "`--model hermes:<model>` to override the default for one run.",
+            login=True,
         ),
         # A bare "quota" is not here: an exhausted quota is a spending cap, and
         # stops the run with the cap's own message (docs/adr/0030).
@@ -431,10 +433,15 @@ class HermesHarness(CliHarness):
             "Caliper drives the local hermes CLI and reuses its `~/.hermes` "
             "credentials. The hermes CLI returned:\n"
             "  {text}\n\n"
-            "Authenticate hermes (`hermes login`), verify `hermes -z 'Reply "
+            "Authenticate hermes (`hermes auth add <provider>`, or `hermes "
+            "model` to pick a provider and log in), verify `hermes -z 'Reply "
             "OK'` works in your normal shell, then rerun caliper.",
+            login=True,
         ),
     )
+
+    def login_command(self) -> list[str]:
+        return [self.cli_path() or "hermes", "model"]
 
     def _cli_text(self, proc: ProcessResult, report: AgentReport) -> str:
         # The oneshot prints its reply on stderr beside any error, whatever the

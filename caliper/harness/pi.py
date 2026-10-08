@@ -262,6 +262,7 @@ class PiHarness(CliHarness):
             "Authenticate pi (e.g. `pi` then `/login`, or set the provider "
             "API key), verify `pi --print 'Reply OK'` works in your normal "
             "shell, then rerun caliper.",
+            login=True,
         ),
     )
 
