@@ -139,15 +139,6 @@ Failed tasks are shown automatically with their output and `assert_evidence`.
   differ, when the runs loaded user customizations differently, or when they
   were graded by different judges.
 
-## Naming convention
-
-The spec lives next to the skill and shares its directory name:
-
-```
-skills/my-skill/SKILL.md
-skills/my-skill/my-skill.eval.yaml   ← generated here
-```
-
 ## Troubleshooting
 
 **`Judge model ... is unavailable` / `Judge authentication failed` / `Judge rate limited`**
