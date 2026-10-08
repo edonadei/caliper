@@ -430,7 +430,9 @@ passing `--judge-model <backend[:model]>` to pick an available judge. Example:
   the run at the first attempt that reaches the judge (exit `2`) instead of
   recording `judge_error` on each one. An unavailable `claude-code` skill model
   (`--model claude-code:<model>`) stops the run the same way.
-- An authentication failure or a rate limit stays a per-attempt `judge_error`.
+- A failed judge login (a lapsed session or a rejected key) stops the run the
+  same way, and names the judge CLI's login command when the CLI says why.
+- A rate limit stays a per-attempt `judge_error`.
 - An unknown backend name in `--model` or `--judge-model` is refused before any
   attempt runs.
 

@@ -419,7 +419,13 @@ class CodexHarness(CliHarness):
 
     config_signals = (
         ConfigSignal(
-            (*AUTH_MARKERS, "401 unauthorized", "api key", "chatgpt account"),
+            (
+                *AUTH_MARKERS,
+                "401 unauthorized",
+                "api key",
+                "chatgpt account",
+                "sign in again",
+            ),
             "Codex CLI cannot run with the current subscription/authentication "
             "configuration.\n\n"
             "Caliper uses `codex exec` for `--model codex` and does not fall "

@@ -112,6 +112,49 @@ def test_claude_prompt_output_unclassified_is_error_passes_text_through(
     assert '"mode": "verdict"' in result.text
 
 
+def test_claude_judge_with_an_expired_login_stops_the_run(monkeypatch) -> None:
+    """The CLI's expired-OAuth envelope carries no status, only its own words."""
+    envelope = {
+        "type": "result",
+        "is_error": True,
+        "api_error_status": None,
+        "result": "Failed to authenticate: OAuth session expired and could not be "
+        "refreshed",
+        "modelUsage": {},
+    }
+
+    def fake_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 1, stdout=json.dumps(envelope), stderr=""
+        )
+
+    patch_cli_calls(monkeypatch, fake_run)
+
+    with pytest.raises(HarnessConfigurationError) as exc:
+        ClaudeCodeHarness().run_prompt("anything", cwd=".")
+
+    message = str(exc.value)
+    assert message.startswith("The claude-code judge cannot run.")
+    assert "OAuth session expired and could not be refreshed" in message
+    assert "Run `claude`, then `/login`" in message
+
+
+def test_claude_judge_answer_about_a_login_failure_is_an_answer(monkeypatch) -> None:
+    answer = '{"mode": "verdict", "passed": false, "reasoning": "401: not logged in"}'
+    envelope = {"type": "result", "is_error": False, "result": answer}
+
+    def fake_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(envelope), stderr=""
+        )
+
+    patch_cli_calls(monkeypatch, fake_run)
+
+    result = ClaudeCodeHarness().run_prompt("anything", cwd=".")
+
+    assert result.text == answer
+
+
 def _task(**overrides) -> TaskSpec:
     fields = {"id": "t1", "name": "t", "prompt": "p", "expect": "says ok"}
     fields.update(overrides)

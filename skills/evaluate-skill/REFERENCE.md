@@ -168,8 +168,8 @@ run; otherwise each engine grades itself and `compare` warns.
 
 A run records the model the backend reported running, not the one requested,
 and warns on a mismatch. An unknown backend name is refused before any attempt;
-an unavailable judge model, an unavailable `claude-code` skill model, or an
-unknown `hermes:<model>` stops the run with exit `2`. So does a spec with
+an unavailable judge model, a failed judge login, an unavailable `claude-code`
+skill model, or an unknown `hermes:<model>` stops the run with exit `2`. So does a spec with
 `expect:` when the judge's CLI isn't installed: install it, or drop
 `--judge-model` so the backend of the model being evaluated (`--model`)
 grades too.
@@ -405,6 +405,6 @@ expect: |
 **`Judge model ... is unavailable` / `Judge authentication failed` / `Judge rate limited`**
 The judge CLI reached the provider and the call was refused. Pass
 `--judge-model <backend[:model]>` to pick an available judge engine or model. An
-unavailable judge model stops the run at the first attempt that reaches the
-judge (exit `2`); an authentication failure or a rate limit stays a per-attempt
+unavailable judge model or a failed judge login stops the run at the first
+attempt that reaches the judge (exit `2`); a rate limit stays a per-attempt
 `judge_error`.

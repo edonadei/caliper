@@ -585,8 +585,18 @@ class CliHarness(HarnessBackend):
                     error=f"{self.name} prompt call timed out after {timeout}s",
                 )
             if call.read is not None:
-                return call.read(proc)
-            return self._prompt_output(proc, model)
+                result = call.read(proc)
+            else:
+                result = self._prompt_output(proc, model)
+            # The attempt path's rule (docs/adr/0030): a misconfiguration the
+            # CLI reported would fail every attempt's judge alike, so it stops
+            # the run instead of recording a judge_error per attempt.
+            refusal = classify(self._prompt_cli_text(proc, result), self.config_signals)
+            if refusal is not None and refusal.kind is RefusalKind.CONFIG:
+                raise HarnessConfigurationError(
+                    f"The {self.name} judge cannot run.\n\n{refusal.message}"
+                )
+            return result
         finally:
             if call.cleanup is not None:
                 call.cleanup()
@@ -783,6 +793,18 @@ class CliHarness(HarnessBackend):
     def _prompt_text(self, proc: ProcessResult) -> str:
         """The final answer text on a clean exit. Default: raw stdout."""
         return proc.stdout.strip()
+
+    def _prompt_cli_text(self, proc: ProcessResult, result: PromptResult) -> str:
+        """What the CLI itself wrote for a prompt call, never the model's answer.
+
+        Default: the failure the backend read out, and stderr when the call
+        failed or produced no answer, unless that failure already quotes it.
+        """
+        error = (result.error or "").strip()
+        stderr = proc.stderr.strip()
+        if (proc.returncode != 0 or not result.text) and stderr not in error:
+            return f"{error}\n{stderr}".strip()
+        return error
 
     # --- shared machinery -------------------------------------------------
 

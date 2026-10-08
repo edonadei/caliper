@@ -7,6 +7,7 @@ import re
 import shutil
 import sys
 from collections.abc import Callable
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
 
@@ -473,6 +474,17 @@ class ClaudeCodeHarness(CliHarness):
         # parse can report an unusable response (see PR #61).
         text, resolved = _extract_verdict_and_model(proc.stdout, model)
         return PromptResult(text=text, resolved_model=resolved, error=None)
+
+    def _prompt_cli_text(self, proc: ProcessResult, result: PromptResult) -> str:
+        # An ``is_error`` envelope is the CLI talking, whatever its status: a
+        # lapsed OAuth login carries none, so its text arrives as the answer.
+        # It stands in for ``result.error``, which only ever copies it.
+        try:
+            envelope = json.loads(proc.stdout.strip())
+        except json.JSONDecodeError:
+            envelope = None
+        error = _stream_error(envelope) if isinstance(envelope, dict) else None
+        return super()._prompt_cli_text(proc, replace(result, error=error))
 
     def _looks_like_cli_startup_crash(self, text: str, lowered: str) -> bool:
         return (
