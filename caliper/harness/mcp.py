@@ -336,25 +336,14 @@ def _list_tools(
     deadline: float,
     timeout: float,
     meta: dict | None = None,
-) -> None:
+) -> dict:
     request: dict = {"jsonrpc": "2.0", "id": request_id, "method": "tools/list"}
     if meta is not None:
         request["params"] = {"_meta": meta}
     result = _exchange(process, request, name, deadline, timeout).get("result")
     if not isinstance(result, dict) or not isinstance(result.get("tools"), list):
         raise HarnessConfigurationError(f"MCP server '{name}' did not list tools")
-    ttl = result.get("ttlMs")
-    if meta is not None and (
-        not isinstance(ttl, int | float)
-        or isinstance(ttl, bool)
-        or ttl < 0
-        or result.get("cacheScope") not in ("public", "private")
-    ):
-        # 2026-07-28 requires these caching hints, and Claude Code drops the
-        # server's tools when they are missing.
-        raise HarnessConfigurationError(
-            f"MCP server '{name}' listed tools without valid ttlMs and cacheScope"
-        )
+    return result
 
 
 def _initialized(
@@ -421,37 +410,48 @@ def _discover(
             f"MCP server '{name}' rejected initialize"
         ) from exc
     result = response.get("result")
-    error = response.get("error")
-    if (
+    if not (
         isinstance(result, dict)
         and isinstance(result.get("supportedVersions"), list)
         and isinstance(result.get("capabilities"), dict)
     ):
-        if not speaks_modern:
-            raise HarnessConfigurationError(
-                f"MCP server '{name}' speaks only MCP {_MODERN_PROTOCOL_VERSION}, "
-                "which this backend's agent cannot connect to. Use a server that "
-                "also answers initialize, or a backend that speaks "
-                f"{_MODERN_PROTOCOL_VERSION}."
+        error = response.get("error")
+        if (
+            isinstance(error, dict)
+            and error.get("code") == _UNSUPPORTED_PROTOCOL_VERSION
+        ):
+            # The server is alive and modern, but shares no version with preflight.
+            data = error.get("data")
+            supported = data.get("supported") if isinstance(data, dict) else None
+            versions = (
+                ", ".join(map(str, supported)) if isinstance(supported, list) else data
             )
-        if "tools" in result["capabilities"]:
-            _list_tools(process, 3, name, deadline, timeout, meta=_MODERN_META)
-        return
-    if isinstance(error, dict) and error.get("code") == _UNSUPPORTED_PROTOCOL_VERSION:
-        # The server is alive and modern, but shares no version with preflight.
-        data = error.get("data")
-        supported = data.get("supported") if isinstance(data, dict) else None
-        versions = (
-            ", ".join(supported)
-            if isinstance(supported, list)
-            and all(isinstance(v, str) for v in supported)
-            else str(data)
-        )
+            raise HarnessConfigurationError(
+                f"MCP server '{name}' does not support MCP "
+                f"{_MODERN_PROTOCOL_VERSION} (it supports {versions})"
+            )
+        raise HarnessConfigurationError(f"MCP server '{name}' rejected initialize")
+    if not speaks_modern:
         raise HarnessConfigurationError(
-            f"MCP server '{name}' does not support MCP {_MODERN_PROTOCOL_VERSION} "
-            f"(it supports {versions})"
+            f"MCP server '{name}' speaks only MCP {_MODERN_PROTOCOL_VERSION}, "
+            "which this backend's agent cannot connect to. Use a server that "
+            "also answers initialize, or a backend that speaks "
+            f"{_MODERN_PROTOCOL_VERSION}."
         )
-    raise HarnessConfigurationError(f"MCP server '{name}' rejected initialize")
+    if "tools" not in result["capabilities"]:
+        return
+    tools = _list_tools(process, 3, name, deadline, timeout, _MODERN_META)
+    # 2026-07-28 requires these caching hints, and Claude Code drops the server's
+    # tools when they are missing.
+    ttl = tools.get("ttlMs")
+    if (
+        type(ttl) not in (int, float)
+        or ttl < 0
+        or tools.get("cacheScope") not in ("public", "private")
+    ):
+        raise HarnessConfigurationError(
+            f"MCP server '{name}' listed tools without valid ttlMs and cacheScope"
+        )
 
 
 def interpolate(value: str, *, server_name: str, field_label: str) -> str:
