@@ -28,6 +28,7 @@ from caliper.harness.refusal import (
 from caliper.schema.results import TokenUsage
 from caliper.schema.spec import McpServer
 from caliper.skills import SkillRef, frontmatter_name, install_skills
+from caliper.workdir import StepCancelled
 
 _POST_KILL_DRAIN_TIMEOUT = 1
 
@@ -584,6 +585,10 @@ class CliHarness(HarnessBackend):
                     resolved_model=model,
                     error=f"{self.name} prompt call timed out after {timeout}s",
                 )
+            if proc.cancelled:
+                # Killed by the run's cancellation: no verdict, and no
+                # judge_error either.
+                raise StepCancelled("judge")
             if call.read is not None:
                 result = call.read(proc)
             else:
@@ -591,7 +596,11 @@ class CliHarness(HarnessBackend):
             # The attempt path's rule (docs/adr/0030): a misconfiguration the
             # CLI reported would fail every attempt's judge alike, so it stops
             # the run instead of recording a judge_error per attempt.
-            refusal = classify(self._prompt_cli_text(proc, result), self.config_signals)
+            refusal = classify(
+                self._prompt_cli_text(proc, result),
+                self.config_signals,
+                diagnose=lambda text: self._diagnose(proc, AgentReport(), text),
+            )
             if refusal is not None and refusal.kind is RefusalKind.CONFIG:
                 raise HarnessConfigurationError(
                     f"The {self.name} judge cannot run.\n\n{refusal.message}"
