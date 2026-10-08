@@ -131,6 +131,10 @@ def test_claude_judge_with_an_expired_login_stops_the_run(monkeypatch) -> None:
 
     patch_cli_calls(monkeypatch, fake_run)
 
+    monkeypatch.setattr(
+        "caliper.harness.claude_code.shutil.which",
+        lambda name, path=None: f"/opt/bin/{name}",
+    )
     with pytest.raises(LoginRequired) as exc:
         ClaudeCodeHarness().run_prompt("anything", cwd=".")
 
@@ -138,7 +142,7 @@ def test_claude_judge_with_an_expired_login_stops_the_run(monkeypatch) -> None:
     assert message.startswith("The claude-code judge cannot run.")
     assert "OAuth session expired and could not be refreshed" in message
     assert "Run `claude auth login`" in message
-    assert exc.value.command == ["claude", "auth", "login"]
+    assert exc.value.command == ["/opt/bin/claude", "auth", "login"]
 
 
 def test_claude_judge_answer_about_a_login_failure_is_an_answer(monkeypatch) -> None:

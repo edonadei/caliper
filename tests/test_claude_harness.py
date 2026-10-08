@@ -754,13 +754,17 @@ def test_claude_harness_expired_login_is_configuration_error(
         )
 
     patch_cli_calls(monkeypatch, fake_run)
+    monkeypatch.setattr(
+        "caliper.harness.claude_code.shutil.which",
+        lambda name, path=None: f"/opt/bin/{name}",
+    )
     with pytest.raises(LoginRequired) as exc:
         ClaudeCodeHarness().run(run_context(isolated_home=str(tmp_path / "home")))
 
     assert message in str(exc.value)
     assert "Run `claude auth login`" in str(exc.value)
     assert "retry" in str(exc.value)
-    assert exc.value.command == ["claude", "auth", "login"]
+    assert exc.value.command == ["/opt/bin/claude", "auth", "login"]
 
 
 def test_claude_harness_bare_401_is_configuration_error(monkeypatch, tmp_path):
@@ -776,12 +780,16 @@ def test_claude_harness_bare_401_is_configuration_error(monkeypatch, tmp_path):
         )
 
     patch_cli_calls(monkeypatch, fake_run)
+    monkeypatch.setattr(
+        "caliper.harness.claude_code.shutil.which",
+        lambda name, path=None: f"/opt/bin/{name}",
+    )
     with pytest.raises(LoginRequired) as exc:
         ClaudeCodeHarness().run(run_context(isolated_home=str(tmp_path / "home")))
 
     assert "API error 401: Request failed" in str(exc.value)
     assert "Run `claude auth login`" in str(exc.value)
-    assert exc.value.command == ["claude", "auth", "login"]
+    assert exc.value.command == ["/opt/bin/claude", "auth", "login"]
 
 
 def test_claude_harness_org_without_access_is_not_a_login(monkeypatch, tmp_path):

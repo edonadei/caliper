@@ -801,6 +801,8 @@ def _stop_the_run_with(
     )
     argv = ["/venv/bin/caliper", "run", str(spec_file), "--k", "1"]
     monkeypatch.setattr("sys.argv", argv)
+    monkeypatch.setattr("sys.executable", "/venv/bin/python")
+    monkeypatch.setattr("sys.orig_argv", ["python", *argv])
     return argv
 
 
@@ -818,7 +820,7 @@ def _fake_login(monkeypatch, returncode: int) -> tuple[list, list]:
         raise SystemExit(0)
 
     monkeypatch.setattr("caliper.commands.run.subprocess.run", login)
-    monkeypatch.setattr("caliper.commands.run.os.execvp", rerun)
+    monkeypatch.setattr("caliper.commands.run.os.execv", rerun)
     return logins, reruns
 
 
@@ -858,7 +860,7 @@ def test_yes_logs_in_then_reruns_the_same_command(monkeypatch, tmp_path) -> None
     assert "Log in to claude-code now with `claude auth login`?" in result.output
     assert saved == [partial]
     assert logins == [["claude", "auth", "login"]]
-    assert reruns == [("/venv/bin/caliper", argv)]
+    assert reruns == [("/venv/bin/python", ["/venv/bin/python", *argv])]
 
 
 # Ctrl-D at the prompt declines too, rather than exiting 1 as bad input would.
@@ -882,6 +884,7 @@ def test_a_failed_login_exits_two_without_rerunning(monkeypatch, tmp_path) -> No
 
     assert result.exit_code == 2, result.output
     assert logins == [["claude", "auth", "login"]]
+    assert "`claude auth login` did not complete the login." in result.output
     assert reruns == []
 
 

@@ -380,13 +380,18 @@ def _stop(exc: Exception) -> NoReturn:
         and _logged_in(login.command)
     ):
         console.print("Logged in. Rerunning the eval.")
-        os.execvp(sys.argv[0], sys.argv)
+        # Through the interpreter, so `python -m caliper.main` reruns as well as
+        # the console script does.
+        os.execv(sys.executable, [sys.executable, *sys.orig_argv[1:]])
     raise typer.Exit(code)
 
 
 def _logged_in(command: list[str]) -> bool:
     try:
-        return subprocess.run(command).returncode == 0
+        if subprocess.run(command).returncode == 0:
+            return True
+        console.print(f"`{' '.join(command)}` did not complete the login.")
+        return False
     except OSError as exc:
         console.print(
             f"[bold red]Could not run[/bold red] `{' '.join(command)}`: {exc}"

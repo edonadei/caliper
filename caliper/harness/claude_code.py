@@ -458,7 +458,9 @@ class ClaudeCodeHarness(CliHarness):
         )
 
     def login_command(self) -> list[str]:
-        return ["claude", "auth", "login"]
+        # The `claude` the run itself reached, found on the nvm-prefixed PATH.
+        path = self._prompt_environment().get("PATH")
+        return [shutil.which("claude", path=path) or "claude", "auth", "login"]
 
     def _prompt_environment(self) -> dict[str, str]:
         env = dict(os.environ)

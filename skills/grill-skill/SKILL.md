@@ -61,7 +61,7 @@ Runs load the user's own customizations by default (user skills, plugins, rules,
 
 ## Phase 3 — First run
 
-Validate the spec, then run at `k=1` (commands in [REFERENCE.md](REFERENCE.md)). Show the results. Fix any harness or config error (not a task failure) before moving on. If a run stops with `Not logged in`, ask the user whether to run the login command the error names. With their consent, run it (it opens a browser for them to finish) and rerun; never run it without consent.
+Validate the spec, then run at `k=1` (commands in [REFERENCE.md](REFERENCE.md)). Show the results. Fix any harness or config error (not a task failure) before moving on. If a run stops with `Not logged in`, ask the user whether to run the login command the error names. With their consent, run it (it opens a browser for them to finish) and rerun; never run it without consent. `hermes model` is an interactive picker, so ask the user to run it in their own terminal instead.
 
 ## Phase 4 — Check the tasks need the skill
 
