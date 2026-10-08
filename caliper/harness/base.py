@@ -380,6 +380,11 @@ class HarnessBackend(ABC):
     # wires MCP support.
     supports_mcp: bool = False
 
+    # Whether the agent's own MCP client connects to a stdio server that speaks
+    # only MCP 2026-07-28. Preflight accepts such a server only when this is
+    # ``True`` (docs/adr/0035).
+    speaks_modern_mcp: bool = False
+
     # Optional backend-specific guidance appended to the run seam's refusal when
     # this backend cannot honor ``mcp:``. Left ``None`` by a backend whose lack
     # of support is merely a not-yet-implemented slice (it gets the generic "not
@@ -502,7 +507,11 @@ class CliHarness(HarnessBackend):
                 # before the agent starts. A server can fail after the run's
                 # initial preflight or depend on the backend's isolated env.
                 preflight_stdio_servers(
-                    ctx.mcp_servers, env=env, cwd=ctx.workdir, timeout=ctx.timeout
+                    ctx.mcp_servers,
+                    env=env,
+                    cwd=ctx.workdir,
+                    timeout=ctx.timeout,
+                    speaks_modern=self.speaks_modern_mcp,
                 )
             proc = self._execute(
                 cmd, env=env, cwd=ctx.workdir, timeout=ctx.timeout, stdin=stdin

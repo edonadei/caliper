@@ -181,6 +181,10 @@ error, never a silent no-op.
   so it sees only the declared set.
 - **Remote OAuth** isn't supported on `codex` or `hermes`: it needs an
   interactive browser flow the harness can't drive.
+- **A stdio server that speaks only MCP 2026-07-28** works only on `claude-code`
+  2.1.292 or later. On `codex` and `hermes`, the preflight stops the run with a
+  configuration error
+  ([ADR 0035](adr/0035-mcp-preflight-gates-modern-only-servers-on-the-backend.md)).
 - **`pi`** has no MCP by design
   ([ADR 0010](adr/0010-pi-mcp-unsupported-by-design.md)). Expose the capability
   as a CLI tool your skill drives, or as a pi extension, or run the eval on
