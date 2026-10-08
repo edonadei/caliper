@@ -13,9 +13,10 @@ A modern-only server passes only when the backend declares
 codex opens stdio servers with `initialize` only, and hermes falls forward to
 `server/discover` only for some `initialize` errors. An
 `UnsupportedProtocolVersion` reply (-32022) proves the server is alive, not that
-it shares a version, so it stops the run too. A modern `tools/list` must carry
-the `ttlMs` and `cacheScope` caching hints the revision requires: Claude Code
-drops a server's tools without them.
+it shares a version, so it stops the run too, as does a discovery result
+that doesn't list 2026-07-28. A modern `tools/list` must carry the
+`resultType`, integer `ttlMs` and `cacheScope` the revision requires: Claude
+Code drops a server's tools without them.
 
 The flag is per backend, not per installed version. Caliper assumes a current
 `claude-code` (2.1.292 or later, where 2026-07-28 is the stdio default) rather

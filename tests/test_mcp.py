@@ -678,21 +678,89 @@ def test_preflight_rejects_a_modern_server_that_does_not_list_its_tools(
         )
 
 
-def test_preflight_rejects_a_modern_tool_list_without_caching_hints(
-    tmp_path,
+@pytest.mark.parametrize(
+    "tools",
+    [
+        {"resultType": "complete", "tools": []},
+        {"tools": [], "ttlMs": 0, "cacheScope": "public"},
+        {"resultType": "complete", "tools": [], "ttlMs": 1.5, "cacheScope": "public"},
+        {"resultType": "complete", "tools": [], "ttlMs": 0, "cacheScope": "shared"},
+    ],
+)
+def test_preflight_rejects_a_modern_tool_list_claude_code_would_drop(
+    tmp_path, tools
 ) -> None:
     with pytest.raises(
         HarnessConfigurationError,
-        match=r"^MCP server 'modern' listed tools without valid ttlMs and "
+        match=r"^MCP server 'modern' listed tools without resultType, ttlMs and "
         r"cacheScope$",
     ):
         preflight_stdio_servers(
-            _modern_server(
-                tmp_path,
-                _DISCOVERED_TOOLS,
-                tools_reply={"result": {"resultType": "complete", "tools": []}},
-            ),
+            _modern_server(tmp_path, _DISCOVERED_TOOLS, tools_reply={"result": tools}),
             speaks_modern=True,
+        )
+
+
+def test_preflight_rejects_a_discovery_without_2026_07_28(tmp_path) -> None:
+    discovered = {
+        "result": {"supportedVersions": ["2027-01-01"], "capabilities": {"tools": {}}}
+    }
+
+    with pytest.raises(
+        HarnessConfigurationError,
+        match=r"^MCP server 'modern' does not support MCP 2026-07-28 "
+        r"\(it supports 2027-01-01\)$",
+    ):
+        preflight_stdio_servers(
+            _modern_server(tmp_path, discovered), speaks_modern=True
+        )
+
+
+def test_preflight_names_no_versions_when_the_server_lists_none(tmp_path) -> None:
+    unsupported = {"error": {"code": -32022, "message": "Unsupported"}}
+
+    with pytest.raises(
+        HarnessConfigurationError,
+        match=r"^MCP server 'modern' does not support MCP 2026-07-28$",
+    ):
+        preflight_stdio_servers(
+            _modern_server(tmp_path, unsupported), speaks_modern=True
+        )
+
+
+def test_preflight_treats_a_null_error_beside_a_result_as_legacy(tmp_path) -> None:
+    script = tmp_path / "server.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], 'error': None, "
+        f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
+    )
+
+    preflight_stdio_servers(
+        {"echo": McpServer(command=sys.executable, args=[str(script)])}
+    )
+
+
+def test_preflight_reports_a_garbled_discovery_as_rejected_initialize(
+    tmp_path,
+) -> None:
+    script = tmp_path / "server.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        f"**{_NOT_FOUND!r}}}), flush=True)\n"
+        "sys.stdin.readline()\n"
+        "print('not json', flush=True)\n"
+        "sys.stdin.readline()\n"
+    )
+
+    with pytest.raises(
+        HarnessConfigurationError, match=r"^MCP server 'garbled' rejected initialize$"
+    ):
+        preflight_stdio_servers(
+            {"garbled": McpServer(command=sys.executable, args=[str(script)])}
         )
 
 

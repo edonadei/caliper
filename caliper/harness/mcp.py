@@ -57,7 +57,8 @@ _MODERN_META = {
     "io.modelcontextprotocol/clientCapabilities": {},
 }
 _UNSUPPORTED_PROTOCOL_VERSION = -32022
-_DISCOVER_TIMEOUT = 5.0
+# Claude Code gives up on ``server/discover`` after about 3 seconds.
+_DISCOVER_TIMEOUT = 3.0
 
 
 class McpPreflightInterrupted(Exception):
@@ -173,7 +174,7 @@ def preflight_stdio_servers(
                         response = _exchange(
                             process, initialize, name, deadline, timeout
                         )
-                        if "error" in response:
+                        if "result" not in response:
                             _discover(
                                 process,
                                 name,
@@ -405,32 +406,25 @@ def _discover(
             min(deadline, time.monotonic() + _DISCOVER_TIMEOUT),
             _DISCOVER_TIMEOUT,
         )
-    except HarnessConfigurationError as exc:
+    except (HarnessConfigurationError, ValueError) as exc:
         raise HarnessConfigurationError(
             f"MCP server '{name}' rejected initialize"
         ) from exc
     result = response.get("result")
+    error = response.get("error")
+    if isinstance(error, dict) and error.get("code") == _UNSUPPORTED_PROTOCOL_VERSION:
+        data = error.get("data")
+        raise _unsupported(
+            name, data.get("supported") if isinstance(data, dict) else None
+        )
     if not (
         isinstance(result, dict)
         and isinstance(result.get("supportedVersions"), list)
         and isinstance(result.get("capabilities"), dict)
     ):
-        error = response.get("error")
-        if (
-            isinstance(error, dict)
-            and error.get("code") == _UNSUPPORTED_PROTOCOL_VERSION
-        ):
-            # The server is alive and modern, but shares no version with preflight.
-            data = error.get("data")
-            supported = data.get("supported") if isinstance(data, dict) else None
-            versions = (
-                ", ".join(map(str, supported)) if isinstance(supported, list) else data
-            )
-            raise HarnessConfigurationError(
-                f"MCP server '{name}' does not support MCP "
-                f"{_MODERN_PROTOCOL_VERSION} (it supports {versions})"
-            )
         raise HarnessConfigurationError(f"MCP server '{name}' rejected initialize")
+    if _MODERN_PROTOCOL_VERSION not in result["supportedVersions"]:
+        raise _unsupported(name, result["supportedVersions"])
     if not speaks_modern:
         raise HarnessConfigurationError(
             f"MCP server '{name}' speaks only MCP {_MODERN_PROTOCOL_VERSION}, "
@@ -441,17 +435,26 @@ def _discover(
     if "tools" not in result["capabilities"]:
         return
     tools = _list_tools(process, 3, name, deadline, timeout, _MODERN_META)
-    # 2026-07-28 requires these caching hints, and Claude Code drops the server's
-    # tools when they are missing.
+    # 2026-07-28 requires these fields, and Claude Code drops the server's tools
+    # when one is missing.
     ttl = tools.get("ttlMs")
     if (
-        type(ttl) not in (int, float)
+        tools.get("resultType") != "complete"
+        or type(ttl) is not int
         or ttl < 0
         or tools.get("cacheScope") not in ("public", "private")
     ):
         raise HarnessConfigurationError(
-            f"MCP server '{name}' listed tools without valid ttlMs and cacheScope"
+            f"MCP server '{name}' listed tools without resultType, ttlMs and cacheScope"
         )
+
+
+def _unsupported(name: str, supported: object) -> HarnessConfigurationError:
+    """A live 2026-era server that shares no protocol version with preflight."""
+    message = f"MCP server '{name}' does not support MCP {_MODERN_PROTOCOL_VERSION}"
+    if isinstance(supported, list) and supported:
+        message += f" (it supports {', '.join(map(str, supported))})"
+    return HarnessConfigurationError(message)
 
 
 def interpolate(value: str, *, server_name: str, field_label: str) -> str:
