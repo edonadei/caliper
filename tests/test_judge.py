@@ -16,6 +16,7 @@ import pytest
 from conftest import patch_cli_calls
 
 from caliper.harness.base import (
+    CliHarness,
     ConversationTurn,
     HarnessConfigurationError,
     LoginRequired,
@@ -29,7 +30,7 @@ from caliper.harness.prompt_failure import PromptFailure, PromptFailureKind
 from caliper.judge.eval_judge import EvalJudge, render_judge_prompt
 from caliper.schema.results import TranscriptTurn
 from caliper.schema.spec import TaskSpec
-from caliper.workdir import _STEP_TIMEOUTS
+from caliper.workdir import _STEP_TIMEOUTS, StepCancelled
 
 
 def _task(**overrides) -> TaskSpec:
@@ -438,6 +439,60 @@ def test_codex_judge_with_a_lapsed_login_stops_the_run(monkeypatch, tmp_path) ->
     assert "Run `codex login`" in message
     # The binary caliper resolved, not whatever `codex` the shell finds first.
     assert exc.value.command == ["codex.cmd", "login"]
+
+
+def test_codex_judge_prompt_echoed_on_stderr_is_not_a_login(
+    monkeypatch, tmp_path
+) -> None:
+    # codex echoes the judge prompt to stderr; an answer about a 401 is not one.
+    _codex_cli_present(monkeypatch, tmp_path)
+    _spawn(
+        monkeypatch,
+        returncode=1,
+        stderr=(
+            "OpenAI Codex v0.132.0\n"
+            "user\nThe middleware returns 401 Unauthorized when the API key is "
+            "missing. Authentication works.\n"
+            "ERROR: stream disconnected before completion\n"
+        ),
+    )
+
+    result = CodexHarness().run_prompt("anything", cwd=str(tmp_path))
+
+    assert result.error == ("codex judge failed: stream disconnected before completion")
+
+
+def test_codex_judge_refused_model_is_not_a_login(monkeypatch, tmp_path) -> None:
+    _codex_cli_present(monkeypatch, tmp_path)
+    _spawn(
+        monkeypatch,
+        returncode=1,
+        stderr=(
+            'ERROR: {"type":"error","status":400,"error":{"type":'
+            '"invalid_request_error","message":"The \'bad-model\' model is not '
+            'supported when using Codex with a ChatGPT account."}}\n'
+        ),
+    )
+
+    with pytest.raises(HarnessConfigurationError) as exc:
+        CodexHarness().run_prompt("anything", cwd=str(tmp_path))
+
+    message = str(exc.value)
+    assert "Codex CLI cannot run the requested model" in message
+    assert "codex login" not in message
+
+
+def test_a_cancelled_judge_call_is_not_a_verdict(monkeypatch, tmp_path) -> None:
+    # The run's cancellation killed the judge: it saw nothing, so no judge_error.
+    _codex_cli_present(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        CliHarness,
+        "_execute",
+        lambda self, *a, **k: ProcessResult("", "", -9, False, cancelled=True),
+    )
+
+    with pytest.raises(StepCancelled):
+        CodexHarness().run_prompt("anything", cwd=str(tmp_path))
 
 
 def test_codex_error_extraction_from_noisy_cli_output() -> None:

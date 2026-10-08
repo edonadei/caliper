@@ -326,6 +326,11 @@ class CodexHarness(CliHarness):
             cleanup=lambda: output_path.unlink(missing_ok=True),
         )
 
+    def _prompt_cli_text(self, proc: ProcessResult, result: PromptResult) -> str:
+        # Only the error line the reader picked out: `codex exec` echoes the
+        # whole judge prompt to stderr, and the graded answer can say "401".
+        return result.error or ""
+
     def _read_last_message(
         self, proc: ProcessResult, model: str | None, output_path: Path
     ) -> PromptResult:
