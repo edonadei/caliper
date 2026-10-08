@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
@@ -422,6 +423,23 @@ def test_codex_read_last_message_leaves_success_unclassified(tmp_path) -> None:
     assert result.failure is None
     assert result.error is None
     assert result.text == "42"
+
+
+def test_codex_read_last_message_decodes_utf8_under_a_non_utf8_locale(
+    monkeypatch, tmp_path
+) -> None:
+    # Path.read_text takes its default from io.text_encoding, which on Windows
+    # is the locale code page rather than UTF-8.
+    monkeypatch.setattr(
+        io, "text_encoding", lambda encoding, stacklevel=2: encoding or "cp1252"
+    )
+    output_path = tmp_path / "last-message.txt"
+    output_path.write_bytes("Verdict: réussi ✓\n".encode())
+    proc = ProcessResult(stdout="", stderr="", returncode=0, timed_out=False)
+
+    result = CodexHarness()._read_last_message(proc, "gpt-5", output_path)
+
+    assert result.text == "Verdict: réussi ✓"
 
 
 _AMBIENT_CONFIG = (
