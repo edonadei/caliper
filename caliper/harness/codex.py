@@ -329,7 +329,11 @@ class CodexHarness(CliHarness):
     def _read_last_message(
         self, proc: ProcessResult, model: str | None, output_path: Path
     ) -> PromptResult:
-        raw = output_path.read_text().strip() if output_path.exists() else ""
+        raw = (
+            output_path.read_text(encoding="utf-8").strip()
+            if output_path.exists()
+            else ""
+        )
         raw = raw or proc.stdout.strip()
         if proc.returncode != 0:
             detail = _extract_codex_error(proc.stderr) or _extract_codex_error(raw)
