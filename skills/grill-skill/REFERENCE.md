@@ -141,12 +141,26 @@ Failed tasks are shown automatically with their output and `assert_evidence`.
 
 ## Naming convention
 
-The spec lives next to the skill and shares its directory name:
+Name a spec for the scenario it exercises. The filename, minus `.eval.yaml`,
+becomes the spec name. It titles the run header, files runs under
+`.caliper/results/<spec>/`, and is what `list`, `report` and `compare` take, so
+renaming a spec starts a new run history. caliper derives nothing else from it.
+The skills in `skills:` are peers. A run names a subject only when it removes
+one with `--ablate`, never through the filename.
+
+A spec built to harden one skill, which is what this skill generates, lives
+next to that skill and shares its directory name. Neighbours declared for
+probes don't change that. The probes guard that skill, so the scenario is
+still that skill:
 
 ```
 skills/my-skill/SKILL.md
 skills/my-skill/my-skill.eval.yaml   ← generated here
 ```
+
+A spec that exercises several skills together, such as a flow that chains
+them, takes the scenario's name instead of one member's, for example
+`release-flow.eval.yaml`.
 
 ## Troubleshooting
 
