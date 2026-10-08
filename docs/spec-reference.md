@@ -84,6 +84,9 @@ spec.
 Every entry is installed at the agent's own skills root under its frontmatter
 `name:`, and **nothing is preloaded**. Entries are peers: no entry is "the skill
 under test", so `activates:` always names skills explicitly.
+The filename follows the same rule. Name a spec that tests one skill after that
+skill, and a spec that tests several together for its scenario, such as
+`release-flow.eval.yaml`.
 
 The set is closed. Caliper installs these skills and nothing else, which is
 what makes activation a measurement rather than a guess. A skill you don't
