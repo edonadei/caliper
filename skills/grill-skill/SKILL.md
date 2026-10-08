@@ -47,7 +47,7 @@ Always propose a silence probe as well: unrelated work, `activates: []`.
 
 Turn each answer into a task: a realistic `prompt` that never names the skill, an observable `expect`, an `assert` when the outcome is checkable, and `activates:` on execution tasks, naming the skill plus any declared skill it delegates to on that task, so the run can tell a `description` failure from a body failure. The harness is single-shot: nobody answers the agent's questions. If the skill asks before acting, the task judges that first turn: `expect:` the question, `assert:` nothing was done yet. Show the proposed YAML and confirm before writing.
 
-Write the spec beside `SKILL.md`, named `<dir-name>.eval.yaml`, with `skills: [./SKILL.md]` and no engine: the backend and model are picked at run time with `--model` / `--judge-model`, so if the SKILL.md targets a non-default agent, tell the user which flag to pass.
+Write the spec beside `SKILL.md`, named `<dir-name>.eval.yaml`, with `skills: [./SKILL.md]` and no engine: the backend and model are picked at run time with `--model` / `--judge-model`, so if the SKILL.md targets a non-default agent, tell the user which flag to pass. Then tell the user to commit the spec now, beside `SKILL.md`.
 
 ### Gap-fill
 
