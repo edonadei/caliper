@@ -17,5 +17,6 @@ it shares a version, so it stops the run too. A modern `tools/list` must carry
 the `ttlMs` and `cacheScope` caching hints the revision requires: Claude Code
 drops a server's tools without them.
 
-Known gap: the flag is per backend, not per installed version, so `claude-code`
-older than 2.1.292 is still declared modern.
+The flag is per backend, not per installed version. Caliper assumes a current
+`claude-code` (2.1.292 or later, where 2026-07-28 is the stdio default) rather
+than probing the CLI version on every run.
