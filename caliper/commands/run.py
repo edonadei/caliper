@@ -391,18 +391,15 @@ def _stop(exc: Exception) -> NoReturn:
 
 def _logged_in(command: list[str]) -> bool:
     try:
-        if subprocess.run(command).returncode == 0:
-            return True
+        returncode = subprocess.run(command).returncode
+    except OSError as exc:
+        console.print(f"Could not run `{shlex.join(command)}`: {exc}", soft_wrap=True)
+        return False
+    if returncode != 0:
         console.print(
             f"`{shlex.join(command)}` did not complete the login.", soft_wrap=True
         )
-        return False
-    except OSError as exc:
-        console.print(
-            f"[bold red]Could not run[/bold red] `{shlex.join(command)}`: {exc}",
-            soft_wrap=True,
-        )
-        return False
+    return returncode == 0
 
 
 def _interactive() -> bool:

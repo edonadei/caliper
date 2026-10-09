@@ -36,16 +36,13 @@ class JudgeResult:
 class PromptBackend(Protocol):
     """What the autorater needs of a backend: one bare prompt in, its answer out.
 
-    The ``run_prompt`` half of the backend seam, plus the ``login_command`` a
-    lapsed judge login names. Every ``HarnessBackend`` satisfies it; a test
-    answers the prompt itself.
+    The ``run_prompt`` half of the backend seam. Every ``HarnessBackend``
+    satisfies it; a test answers the prompt itself.
     """
 
     def run_prompt(
         self, prompt: str, *, model: str | None = None, cwd: str, timeout: int = 60
     ) -> PromptResult: ...
-
-    def login_command(self) -> list[str] | None: ...
 
 
 class Judge(Protocol):

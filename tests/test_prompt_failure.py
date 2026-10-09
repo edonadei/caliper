@@ -113,14 +113,26 @@ def test_claude_prompt_output_unclassified_is_error_passes_text_through(
     assert '"mode": "verdict"' in result.text
 
 
-def test_claude_judge_with_an_expired_login_stops_the_run(monkeypatch) -> None:
-    """The CLI's expired-OAuth envelope carries no status, only its own words."""
+# An expired OAuth login carries no status, only its words; a bare 401 the reverse.
+@pytest.mark.parametrize(
+    ("status", "said", "quoted"),
+    [
+        (
+            None,
+            "Failed to authenticate: OAuth session expired and could not be refreshed",
+            "OAuth session expired and could not be refreshed",
+        ),
+        (401, "Request failed", "API error 401: Request failed"),
+    ],
+)
+def test_claude_judge_with_a_lapsed_login_stops_the_run(
+    monkeypatch, status, said, quoted
+) -> None:
     envelope = {
         "type": "result",
         "is_error": True,
-        "api_error_status": None,
-        "result": "Failed to authenticate: OAuth session expired and could not be "
-        "refreshed",
+        "api_error_status": status,
+        "result": said,
         "modelUsage": {},
     }
 
@@ -140,7 +152,7 @@ def test_claude_judge_with_an_expired_login_stops_the_run(monkeypatch) -> None:
 
     message = str(exc.value)
     assert message.startswith("The claude-code judge cannot run.")
-    assert "OAuth session expired and could not be refreshed" in message
+    assert quoted in message
     assert "Run `/opt/bin/claude auth login`" in message
     assert exc.value.command == ["/opt/bin/claude", "auth", "login"]
 
