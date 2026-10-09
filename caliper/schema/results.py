@@ -100,7 +100,9 @@ class TokenUsage(BaseModel):
 
 
 class FileSnapshot(BaseModel):
-    content: str
+    # None for a file that is not UTF-8 text (an image, say): the hash still
+    # covers its bytes, there is just no text to show.
+    content: str | None = None
     hash: str
 
 

@@ -325,6 +325,12 @@ The footer of the results table, then the notes under it:
   `git_repo`/`git_sha`, so a saved run says how each member of the neighbourhood
   was obtained and, for a git source, the exact commit. Older JSON without the
   field still loads and reads as `"path"`.
+- Each `SkillSnapshot.files` entry is one file the install copied, keyed by its
+  path in the skill directory: every installed file, not only the ones
+  `SKILL.md` names. `hash` is over the file's bytes, and `content` is `null` for
+  a file that is not UTF-8 text. Runs saved by v0.17 and earlier captured fewer
+  files and hashed their decoded text, so comparing one with a newer run can
+  report drift once even when nothing was edited.
 
 ### Judge input fields
 
