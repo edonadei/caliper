@@ -415,17 +415,19 @@ def install_skills(
 def installed_files(directory: Path, sandbox: SpecSandbox) -> list[Path]:
     """The files of a skill directory an install copies, relative to it, sorted.
 
-    This is the single answer to "what the agent can see of this skill".
-    ``rglob`` does not descend into directory symlinks, so nothing below one is
-    listed; a file symlink is listed under its own name and copied as its
-    target's bytes (docs/adr/0027).
+    This is the single answer to "what the agent can see of this skill": the
+    install copies exactly this list and the run's snapshot hashes exactly this
+    list, so no file the agent could read drifts unreported (docs/CONTEXT.md →
+    Skill drift). ``rglob`` does not descend into directory symlinks, so nothing
+    below one is listed; a file symlink is listed under its own name and copied
+    as its target's bytes (docs/adr/0027).
     """
     files: list[Path] = []
     for item in sorted(directory.rglob("*")):
         if not item.is_file():
             continue
         rel = item.relative_to(directory)
-        if not installs(directory, rel, sandbox):
+        if not _installs(directory, rel, sandbox):
             continue
         try:
             if item.stat().st_size > _MAX_FILE_BYTES:
@@ -436,7 +438,7 @@ def installed_files(directory: Path, sandbox: SpecSandbox) -> list[Path]:
     return files
 
 
-def installs(directory: Path, rel: Path, sandbox: SpecSandbox) -> bool:
+def _installs(directory: Path, rel: Path, sandbox: SpecSandbox) -> bool:
     """Whether the file at ``directory / rel`` passes the install exclusions.
 
     A file symlink is judged twice, by its own path and by its target's. The

@@ -1,9 +1,9 @@
 """Capturing what a member of the [[skill neighbourhood]] *was* when a run used it.
 
-A snapshot is the run's own record of the text that produced its score: the
-``SKILL.md``, the companion files it points at (progressive disclosure is the
-normal shape), and the provenance of the whole. It is what ``compare`` reads to
-report [[skill drift]] — see docs/CONTEXT.md → Skill drift and docs/adr/0017.
+A snapshot is the run's own record of the text that produced its score: every
+file the install copied (``SKILL.md`` and whatever travels with it, referenced
+or not) and the provenance of the whole. It is what ``compare`` reads to report
+[[skill drift]] — see docs/CONTEXT.md → Skill drift and docs/adr/0017.
 
 Lives beside :mod:`caliper.skillfetch` rather than in the runner: a git source
 already knows its commit because the fetcher resolved it, and only a *path*
@@ -13,18 +13,12 @@ source has to be interrogated with ``git`` at all.
 from __future__ import annotations
 
 import hashlib
-import os
-import re
 import subprocess
 from pathlib import Path
 
 from caliper.sandbox import SpecSandbox
 from caliper.schema.results import FileSnapshot, SkillSnapshot
-from caliper.skills import SkillRef, installs
-
-# A relative or home-anchored pointer to a companion file, as a SKILL.md writes
-# one: `./REFERENCE.md`, `references/style.md`, `~/bin/check.sh`.
-_REF_PATTERN = re.compile(r'[./~][^\s"\'<>]+\.(sh|py|md|js|ts)')
+from caliper.skills import SkillRef, installed_files
 
 
 def snapshot_skill(
@@ -32,8 +26,10 @@ def snapshot_skill(
 ) -> SkillSnapshot:
     """Capture ``ref``'s files and provenance as they are right now.
 
-    ``forbidden_files`` is the spec's ``sandbox.forbidden_files``: a companion
-    file the install excludes was never seen by the run, so it is not captured.
+    The files are exactly those the install copies, asked of
+    :func:`caliper.skills.installed_files` rather than re-derived, so the
+    snapshot cannot disagree with what the agent could read. ``forbidden_files``
+    is the spec's ``sandbox.forbidden_files``, which the install honours too.
     """
     path = Path(ref.path).expanduser().resolve()
     if not path.exists():
@@ -41,53 +37,11 @@ def snapshot_skill(
             name=ref.name, path=str(path), source_kind=ref.source_kind, files={}
         )
 
-    # Use the skill directory exactly as the spec wrote it, symlinks left in
-    # place. That is the directory `install_skills` copies from, so it is the
-    # one that decides which files the run actually saw. `path` above is
-    # resolved because provenance wants the real location, but if we judged
-    # references against that resolved path, a skill living behind a symlinked
-    # directory (`~/.claude/skills/foo` -> some repo) would lose references
-    # written with the symlink's name, even though they were installed.
-    directory = Path(os.path.abspath(Path(ref.path).expanduser().parent))
-
     sandbox = SpecSandbox(declared=list(forbidden_files or []))
-    content = path.read_text()
-    files: dict[str, FileSnapshot] = {path.name: _file_snapshot(content)}
-
-    # `referenced`, not `ref`: the parameter is the SkillRef, and reusing the
-    # name here silently rebound it to a Path for every skill whose SKILL.md
-    # points at a companion file — which is most real ones.
-    for match in _REF_PATTERN.finditer(content):
-        referenced = Path(match.group()).expanduser()
-        if not referenced.is_absolute():
-            referenced = directory / referenced
-        # Clean up `..` segments but do not follow symlinks. When a companion
-        # file is a symlink, `install_skills` copies the target's bytes under
-        # the link's own name, so the link's path is what the run saw. If we
-        # resolved the link here, a companion pointing outside the directory
-        # would be dropped, and later edits to its target would never show up
-        # as drift.
-        referenced = Path(os.path.normpath(referenced))
-        # Skip the SKILL.md itself by comparing paths as written, not by what
-        # they resolve to. An `alias.md -> SKILL.md` symlink is installed as a
-        # second file, and a change to it later is real drift, so it must stay.
-        if not referenced.exists() or referenced == directory / Path(ref.path).name:
-            continue
-        rel = _installed_relative_path(directory, referenced)
-        if rel is None:
-            # The reference points outside the skill directory (a shared style
-            # guide, for example). Only the skill directory is installed, so
-            # the run never saw that file and it does not belong in the
-            # snapshot. See docs/CONTEXT.md → Progressive disclosure.
-            continue
-        if _reached_through_directory_symlink(directory, rel):
-            # Files under a symlinked directory are never installed either.
-            continue
-        if not installs(directory, rel, sandbox):
-            # Excluded from the install (an answer key, a `.git` file, or a
-            # link to one), so the run never saw it.
-            continue
-        files[str(rel)] = _file_snapshot(referenced.read_text())
+    files = {
+        rel.as_posix(): _file_snapshot((ref.directory / rel).read_bytes())
+        for rel in installed_files(ref.directory, sandbox)
+    }
 
     # A git source already knows its provenance exactly — caliper resolved the
     # ref and cloned that commit — so it is taken from the ref rather than
@@ -108,50 +62,15 @@ def snapshot_skill(
     )
 
 
-def _installed_relative_path(directory: Path, referenced: Path) -> Path | None:
-    """Return the path of ``referenced`` relative to the installed skill.
-
-    Returns ``None`` when the file is not inside the skill directory.
-
-    When the skill directory is a symlink (`~/.claude/skills/foo` -> some
-    repo), the same file has two valid absolute paths: one through the link
-    and one through the real location. A SKILL.md may use either, and both
-    are installed at the same relative path, so both are accepted here.
-
-    The real-location form gets one extra check: the file must also exist at
-    that relative path under ``directory`` and be the same file. Otherwise a
-    symlink somewhere in the middle could make the two paths point at
-    different things.
-    """
-    if referenced.is_relative_to(directory):
-        return referenced.relative_to(directory)
-    resolved = Path(os.path.normpath(directory.resolve()))
-    if not referenced.is_relative_to(resolved):
-        return None
-    rel = referenced.relative_to(resolved)
-    installed = directory / rel
-    if installed.exists() and installed.resolve() == referenced.resolve():
-        return rel
-    return None
-
-
-def _reached_through_directory_symlink(directory: Path, rel: Path) -> bool:
-    """Return True if any directory on the way to ``rel`` is a symlink.
-
-    ``install_skills`` uses ``rglob``, which does not follow directory
-    symlinks. A file below one is never installed, so the agent never saw it
-    and the snapshot must not track it.
-    """
-    return any(
-        (directory / Path(*rel.parts[:i])).is_symlink()
-        for i in range(1, len(rel.parts))
-    )
-
-
-def _file_snapshot(content: str) -> FileSnapshot:
+def _file_snapshot(data: bytes) -> FileSnapshot:
+    # Hashed as bytes because the install copies bytes: a line-ending change is
+    # drift the agent would see.
+    try:
+        content = data.decode("utf-8")
+    except UnicodeDecodeError:
+        content = None
     return FileSnapshot(
-        content=content,
-        hash="sha256:" + hashlib.sha256(content.encode()).hexdigest(),
+        content=content, hash="sha256:" + hashlib.sha256(data).hexdigest()
     )
 
 

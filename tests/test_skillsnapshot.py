@@ -1,5 +1,8 @@
 """Snapshotting a neighbourhood member — files captured, provenance recorded.
 
+The files captured are the files the install copies, so most tests here assert
+the exact set of keys a skill tree produces.
+
 See docs/CONTEXT.md → Skill drift and
 docs/adr/0017-unpinned-git-sources-are-allowed-because-drift-is-reported.md.
 """
@@ -9,7 +12,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from caliper.skills import SkillRef
+from caliper.schema.results import SkillSnapshot
+from caliper.skills import SkillRef, install_skills
 from caliper.skillsnapshot import snapshot_skill
 
 
@@ -28,33 +32,6 @@ def _write_skill(directory: Path, name: str, body: str | None = None) -> Path:
         else f"---\nname: {name}\ndescription: A skill for testing.\n---\n\nBody.\n"
     )
     return path
-
-
-def test_a_skill_referencing_companion_files_still_snapshots(tmp_path: Path):
-    """Progressive disclosure is the normal shape, so the snapshot must survive it.
-
-    Every other snapshot test uses a SKILL.md that points at nothing, which is
-    what let a name collision in the referenced-file loop reach a real run.
-    """
-    directory = tmp_path / "mine"
-    directory.mkdir()
-    (directory / "REFERENCE.md").write_text("# Reference\n")
-    (directory / "SKILL.md").write_text(
-        "---\nname: mine\ndescription: d.\n---\n\nSee [ref](./REFERENCE.md).\n"
-    )
-    ref = SkillRef(
-        name="mine",
-        path=directory / "SKILL.md",
-        source_kind="git",
-        git_repo="owner/name",
-        git_sha="a" * 40,
-    )
-
-    snap = snapshot_skill(ref)
-
-    assert snap.source_kind == "git"
-    assert snap.git_sha == "a" * 40
-    assert set(snap.files) == {"SKILL.md", "REFERENCE.md"}
 
 
 def test_a_git_sources_provenance_comes_from_the_ref_not_the_checkout(tmp_path: Path):
@@ -111,133 +88,98 @@ def test_a_missing_skill_file_snapshots_as_empty(tmp_path: Path):
     assert snap.name == "gone"
 
 
-def test_a_reference_outside_the_skill_directory_is_not_captured(tmp_path: Path):
-    """A reference outside the skill directory must not crash the run.
-
-    Only the skill directory is installed, so the run never saw that file and
-    the snapshot leaves it out. See docs/CONTEXT.md → Progressive disclosure.
-    """
-    shared = tmp_path / "shared"
-    shared.mkdir()
-    (shared / "style.md").write_text("# Shared style guide\n")
+def _mine(tmp_path: Path) -> Path:
+    """A skill directory ``mine`` whose SKILL.md names nothing else."""
     directory = tmp_path / "mine"
-    directory.mkdir()
-    (directory / "SKILL.md").write_text(
-        "---\nname: mine\ndescription: d.\n---\n\nRead `../shared/style.md` first.\n"
-    )
+    _write_skill(directory, "mine")
+    return directory
+
+
+def test_every_installed_file_is_captured_whether_or_not_skill_md_names_it(
+    tmp_path: Path,
+):
+    """A companion SKILL.md never names was still installed, so the agent saw it.
+
+    A script referenced only from REFERENCE.md, a data fixture, a plain-text
+    reference: editing any of them changes what the agent could read.
+    """
+    directory = _mine(tmp_path)
+    (directory / "REFERENCE.md").write_text("Run `scripts/run.sh`.\n")
+    (directory / "scripts").mkdir()
+    (directory / "scripts" / "run.sh").write_text("echo hi\n")
+    (directory / "fixtures").mkdir()
+    (directory / "fixtures" / "data.json").write_text('{"a": 1}\n')
+    (directory / "references").mkdir()
+    (directory / "references" / "x.txt").write_text("notes\n")
 
     snap = snapshot_skill(SkillRef(name="mine", path=directory / "SKILL.md"))
 
-    assert set(snap.files) == {"SKILL.md"}
+    assert set(snap.files) == {
+        "SKILL.md",
+        "REFERENCE.md",
+        "scripts/run.sh",
+        "fixtures/data.json",
+        "references/x.txt",
+    }
+    assert snap.files["scripts/run.sh"].content == "echo hi\n"
 
 
-def test_an_installed_symlink_is_captured_under_its_link_name(tmp_path: Path):
-    """A symlinked companion file is stored under the link's name.
-
-    ``install_skills`` copies the target's content to the link's own path
-    (``shutil.copy2`` follows file symlinks), so that is the file the agent
-    read. If the snapshot resolved the link instead, the file would fall
-    outside the skill directory and be dropped.
-    """
-    shared = tmp_path / "shared"
-    shared.mkdir()
-    (shared / "guide.md").write_text("# Shared guide v1\n")
-    directory = tmp_path / "mine"
-    directory.mkdir()
-    (directory / "SKILL.md").write_text(
-        "---\nname: mine\ndescription: d.\n---\n\nRead [guide](./guide.md).\n"
-    )
-    (directory / "guide.md").symlink_to(Path("../shared/guide.md"))
-
-    snap = snapshot_skill(SkillRef(name="mine", path=directory / "SKILL.md"))
-
-    assert set(snap.files) == {"SKILL.md", "guide.md"}
-    assert snap.files["guide.md"].content == "# Shared guide v1\n"
-
-
-def test_a_symlink_to_a_forbidden_file_is_not_captured(tmp_path: Path):
-    """The install skips it, so the run never saw it."""
-    directory = tmp_path / "mine"
-    (directory / "answers").mkdir(parents=True)
-    (directory / "answers" / "key.md").write_text("the answer is 42\n")
-    (directory / "SKILL.md").write_text(
-        "---\nname: mine\ndescription: d.\n---\n\nRead [hint](./hint.md).\n"
-    )
-    (directory / "hint.md").symlink_to(Path("answers/key.md"))
-
-    snap = snapshot_skill(
-        SkillRef(name="mine", path=directory / "SKILL.md"), ["answers/"]
-    )
-
-    assert set(snap.files) == {"SKILL.md"}
-
-
-def test_a_forbidden_companion_file_is_not_captured(tmp_path: Path):
-    directory = tmp_path / "mine"
-    (directory / "answers").mkdir(parents=True)
-    (directory / "answers" / "key.md").write_text("the answer is 42\n")
-    (directory / "SKILL.md").write_text(
-        "---\nname: mine\ndescription: d.\n---\n\nNever read ./answers/key.md.\n"
-    )
-
-    snap = snapshot_skill(
-        SkillRef(name="mine", path=directory / "SKILL.md"), ["answers/"]
-    )
-
-    assert set(snap.files) == {"SKILL.md"}
-
-
-def test_a_changed_symlink_target_shows_as_drift(tmp_path: Path):
-    """Editing the symlink's target after the run shows up as drift."""
-    shared = tmp_path / "shared"
-    shared.mkdir()
-    (shared / "guide.md").write_text("# Shared guide v1\n")
-    directory = tmp_path / "mine"
-    directory.mkdir()
-    (directory / "SKILL.md").write_text(
-        "---\nname: mine\ndescription: d.\n---\n\nRead [guide](./guide.md).\n"
-    )
-    (directory / "guide.md").symlink_to(Path("../shared/guide.md"))
+def test_editing_an_unreferenced_file_changes_the_digest(tmp_path: Path):
+    directory = _mine(tmp_path)
+    (directory / "fixtures").mkdir()
+    (directory / "fixtures" / "data.json").write_text('{"a": 1}\n')
     ref = SkillRef(name="mine", path=directory / "SKILL.md")
 
     before = snapshot_skill(ref)
-    (shared / "guide.md").write_text("# Shared guide v2\n")
+    (directory / "fixtures" / "data.json").write_text('{"a": 2}\n')
     after = snapshot_skill(ref)
 
-    assert before.files["guide.md"].hash != after.files["guide.md"].hash
+    assert before.content_digest != after.content_digest
 
 
-def test_a_symlink_inside_the_directory_keeps_its_link_name(tmp_path: Path):
-    """A symlink inside the directory is keyed by its own name, not its target's."""
-    directory = tmp_path / "mine"
-    directory.mkdir()
-    (directory / "REAL.md").write_text("# Real\n")
-    (directory / "SKILL.md").write_text(
-        "---\nname: mine\ndescription: d.\n---\n\nSee [alias](./alias.md).\n"
+def test_a_line_ending_change_is_drift(tmp_path: Path):
+    """The install copies bytes, so CRLF and LF are different files to the agent."""
+    directory = _mine(tmp_path)
+    (directory / "REFERENCE.md").write_bytes(b"one\r\ntwo\r\n")
+    ref = SkillRef(name="mine", path=directory / "SKILL.md")
+
+    before = snapshot_skill(ref)
+    (directory / "REFERENCE.md").write_bytes(b"one\ntwo\n")
+    after = snapshot_skill(ref)
+
+    assert before.content_digest != after.content_digest
+
+
+def test_cheat_surfaces_and_forbidden_files_are_not_captured(tmp_path: Path):
+    """The install skips them for every member, so the run never saw them."""
+    directory = _mine(tmp_path)
+    (directory / ".git").mkdir()
+    (directory / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+    (directory / "mine.eval.yaml").write_text("tasks: []\n")
+    (directory / ".caliper").mkdir()
+    (directory / ".caliper" / "run.json").write_text("{}\n")
+    (directory / "answers").mkdir()
+    (directory / "answers" / "key.md").write_text("the answer is 42\n")
+    (directory / "hint.md").symlink_to(Path("answers/key.md"))
+    (directory / "config.md").symlink_to(Path(".git/HEAD"))
+
+    snap = snapshot_skill(
+        SkillRef(name="mine", path=directory / "SKILL.md"), ["answers/"]
     )
-    (directory / "alias.md").symlink_to(Path("REAL.md"))
 
-    snap = snapshot_skill(SkillRef(name="mine", path=directory / "SKILL.md"))
-
-    assert set(snap.files) == {"SKILL.md", "alias.md"}
-    assert snap.files["alias.md"].content == "# Real\n"
+    assert set(snap.files) == {"SKILL.md"}
 
 
-def test_a_reference_below_a_directory_symlink_is_not_snapshotted(tmp_path: Path):
-    """Files under a symlinked directory are not snapshotted.
+def test_a_file_below_a_directory_symlink_is_not_captured(tmp_path: Path):
+    """Nothing below a directory symlink is installed, so nothing is captured.
 
-    ``install_skills`` uses ``rglob``, which does not follow directory
-    symlinks, so those files were never installed. Tracking them would report
-    drift for a change the agent never saw.
+    ``rglob`` does not descend into directory symlinks. Tracking those files
+    would report drift for a change the agent never saw.
     """
     shared = tmp_path / "shared"
     shared.mkdir()
     (shared / "style.md").write_text("# Shared style v1\n")
-    directory = tmp_path / "mine"
-    directory.mkdir()
-    (directory / "SKILL.md").write_text(
-        "---\nname: mine\ndescription: d.\n---\n\nRead ./references/style.md.\n"
-    )
+    directory = _mine(tmp_path)
     (directory / "references").symlink_to(Path("../shared"), target_is_directory=True)
     ref = SkillRef(name="mine", path=directory / "SKILL.md")
 
@@ -247,22 +189,22 @@ def test_a_reference_below_a_directory_symlink_is_not_snapshotted(tmp_path: Path
 
     (shared / "style.md").write_text("# Shared style v2\n")
 
-    assert snapshot_skill(ref).files == snap.files
+    assert snapshot_skill(ref).content_digest == snap.content_digest
 
 
-def test_an_absolute_reference_outside_the_skill_directory_is_skipped(tmp_path: Path):
-    """The exact case from issue #103: an absolute path to a shared guide.
+def test_a_file_outside_the_skill_directory_is_not_captured(tmp_path: Path):
+    """Naming a shared guide is not installing it.
 
-    The relative-path test above hits the same branch, but the reported crash
-    used an absolute path, so the repro is kept as its own test.
+    See docs/CONTEXT.md → Progressive disclosure.
     """
     shared = tmp_path / "shared"
     shared.mkdir()
-    (shared / "style.md").write_text("shared style guide\n")
+    (shared / "style.md").write_text("# Shared style guide\n")
     directory = tmp_path / "mine"
-    directory.mkdir()
-    (directory / "SKILL.md").write_text(
-        f"---\nname: mine\ndescription: d.\n---\n\nRead `{shared / 'style.md'}`.\n"
+    _write_skill(
+        directory,
+        "mine",
+        "---\nname: mine\ndescription: d.\n---\n\nRead `../shared/style.md`.\n",
     )
 
     snap = snapshot_skill(SkillRef(name="mine", path=directory / "SKILL.md"))
@@ -270,89 +212,113 @@ def test_an_absolute_reference_outside_the_skill_directory_is_skipped(tmp_path: 
     assert set(snap.files) == {"SKILL.md"}
 
 
-def test_a_home_anchored_reference_outside_the_skill_directory_is_skipped(
-    tmp_path: Path, monkeypatch
-):
-    """A `~/...` reference is expanded to an absolute path and then skipped.
-
-    This takes a different code path than `../`, so it gets its own test.
-    """
-    home = tmp_path / "home"
-    (home / ".claude" / "reference").mkdir(parents=True)
-    (home / ".claude" / "reference" / "style.md").write_text("shared style guide\n")
-    monkeypatch.setenv("HOME", str(home))
-    directory = tmp_path / "mine"
-    directory.mkdir()
-    (directory / "SKILL.md").write_text(
-        "---\nname: mine\ndescription: d.\n---\n\n"
-        "Read `~/.claude/reference/style.md`.\n"
-    )
-
-    snap = snapshot_skill(SkillRef(name="mine", path=directory / "SKILL.md"))
-
-    assert set(snap.files) == {"SKILL.md"}
-
-
-def test_a_skill_reached_through_a_linked_directory_keeps_its_references(
+def test_a_file_symlink_is_captured_under_its_link_name_with_its_targets_bytes(
     tmp_path: Path,
 ):
-    """A skill behind a symlinked directory keeps references written via the link.
+    """The agent read the target's bytes at the link's path.
 
-    ``install_skills`` copies from the directory as the spec named it, so the
-    companions install normally. Checking references against the resolved
-    directory instead would drop a path written with the symlink's name.
+    ``shutil.copy2`` follows the link, even when the target lives outside the
+    directory, so a later edit to that target is drift.
     """
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "guide.md").write_text("# Shared guide v1\n")
+    directory = _mine(tmp_path)
+    (directory / "guide.md").symlink_to(Path("../shared/guide.md"))
+    (directory / "alias.md").symlink_to(Path("SKILL.md"))
+    ref = SkillRef(name="mine", path=directory / "SKILL.md")
+
+    before = snapshot_skill(ref)
+    (shared / "guide.md").write_text("# Shared guide v2\n")
+    after = snapshot_skill(ref)
+
+    assert set(before.files) == {"SKILL.md", "alias.md", "guide.md"}
+    assert before.files["guide.md"].content == "# Shared guide v1\n"
+    assert before.files["alias.md"] == before.files["SKILL.md"]
+    assert before.content_digest != after.content_digest
+
+
+def test_a_skill_reached_through_a_linked_directory_captures_the_same_files(
+    tmp_path: Path,
+):
     real = tmp_path / "real" / "mine"
-    real.mkdir(parents=True)
-    (real / "guide.md").write_text("# Guide\n")
+    _write_skill(real, "mine")
+    (real / "references").mkdir()
+    (real / "references" / "guide.md").write_text("# Guide\n")
     linked = tmp_path / "linked"
     linked.symlink_to(tmp_path / "real", target_is_directory=True)
-    (real / "SKILL.md").write_text(
-        f"---\nname: mine\ndescription: d.\n---\n\n"
-        f"Read `{linked / 'mine' / 'guide.md'}`.\n"
+
+    through_link = snapshot_skill(
+        SkillRef(name="mine", path=linked / "mine" / "SKILL.md")
     )
+    direct = snapshot_skill(SkillRef(name="mine", path=real / "SKILL.md"))
 
-    snap = snapshot_skill(SkillRef(name="mine", path=linked / "mine" / "SKILL.md"))
-
-    assert set(snap.files) == {"SKILL.md", "guide.md"}
-    assert snap.files["guide.md"].content == "# Guide\n"
+    assert set(through_link.files) == {"SKILL.md", "references/guide.md"}
+    assert through_link.files == direct.files
 
 
-def test_a_companion_symlinked_to_the_skill_file_keeps_its_own_key(tmp_path: Path):
-    """An `alias.md -> SKILL.md` symlink is snapshotted as its own file.
-
-    ``shutil.copy2`` follows the link, so the alias is installed as a second
-    file. Skipping it because it resolves to SKILL.md would hide any later
-    change to it.
-    """
-    directory = tmp_path / "mine"
-    directory.mkdir()
-    (directory / "SKILL.md").write_text(
-        "---\nname: mine\ndescription: d.\n---\n\nSee [alias](./alias.md).\n"
-    )
-    (directory / "alias.md").symlink_to(Path("SKILL.md"))
+def test_a_binary_file_is_captured_by_its_bytes_without_text(tmp_path: Path):
+    directory = _mine(tmp_path)
+    (directory / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\xff\xfe")
 
     snap = snapshot_skill(SkillRef(name="mine", path=directory / "SKILL.md"))
 
-    assert set(snap.files) == {"SKILL.md", "alias.md"}
-
-
-def test_a_linked_skill_keeps_a_reference_written_in_resolved_terms(tmp_path: Path):
-    """A skill behind a symlinked directory also keeps references via the real path.
-
-    The companion is installed at the same relative path whichever spelling the
-    SKILL.md uses, so both spellings must be accepted.
-    """
-    real = tmp_path / "real" / "mine"
-    real.mkdir(parents=True)
-    (real / "guide.md").write_text("# Guide\n")
-    linked = tmp_path / "linked"
-    linked.symlink_to(tmp_path / "real", target_is_directory=True)
-    (real / "SKILL.md").write_text(
-        f"---\nname: mine\ndescription: d.\n---\n\nRead `{real / 'guide.md'}`.\n"
+    assert snap.files["logo.png"].content is None
+    assert snap.files["logo.png"].hash == (
+        "sha256:608b46bb11fb3fd7be889e6e75fb4deee0ea15be13ad778fef9d04007828b877"
     )
+    assert SkillSnapshot.model_validate_json(snap.model_dump_json()) == snap
 
-    snap = snapshot_skill(SkillRef(name="mine", path=linked / "mine" / "SKILL.md"))
 
-    assert set(snap.files) == {"SKILL.md", "guide.md"}
-    assert snap.files["guide.md"].content == "# Guide\n"
+def test_a_file_too_large_to_install_is_not_captured(tmp_path: Path):
+    directory = _mine(tmp_path)
+    (directory / "blob.bin").write_bytes(b"x" * (6 * 1024 * 1024))
+
+    snap = snapshot_skill(SkillRef(name="mine", path=directory / "SKILL.md"))
+
+    assert set(snap.files) == {"SKILL.md"}
+
+
+def test_the_snapshot_holds_exactly_the_files_the_install_wrote(tmp_path: Path):
+    """The invariant drift rests on: what was hashed is what the agent got."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "guide.md").write_text("# Shared guide\n")
+    directory = _mine(tmp_path)
+    (directory / "REFERENCE.md").write_text("# Reference\n")
+    (directory / "scripts").mkdir()
+    (directory / "scripts" / "run.sh").write_text("echo hi\n")
+    (directory / "fixtures").mkdir()
+    (directory / "fixtures" / "data.json").write_text('{"a": 1}\n')
+    (directory / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\xff\xfe")
+    (directory / "blob.bin").write_bytes(b"x" * (6 * 1024 * 1024))
+    (directory / ".git").mkdir()
+    (directory / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+    (directory / "mine.eval.yaml").write_text("tasks: []\n")
+    (directory / ".caliper").mkdir()
+    (directory / ".caliper" / "run.json").write_text("{}\n")
+    (directory / "answers").mkdir()
+    (directory / "answers" / "key.md").write_text("the answer is 42\n")
+    (directory / "hint.md").symlink_to(Path("answers/key.md"))
+    (directory / "guide.md").symlink_to(Path("../shared/guide.md"))
+    (directory / "references").symlink_to(Path("../shared"), target_is_directory=True)
+    ref = SkillRef(name="mine", path=directory / "SKILL.md")
+    root = tmp_path / "root"
+
+    snap = snapshot_skill(ref, ["answers/"])
+    install_skills([ref], root, ["answers/"])
+
+    installed = {
+        item.relative_to(root / "mine").as_posix()
+        for item in (root / "mine").rglob("*")
+        if item.is_file()
+    }
+    assert installed == {
+        "SKILL.md",
+        "REFERENCE.md",
+        "scripts/run.sh",
+        "fixtures/data.json",
+        "logo.png",
+        "guide.md",
+    }
+    assert set(snap.files) == installed
