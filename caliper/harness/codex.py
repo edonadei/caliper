@@ -439,12 +439,16 @@ class CodexHarness(CliHarness):
             "Caliper uses `codex exec` for `--model codex` and does not fall "
             "back to the OpenAI API. The Codex CLI returned:\n"
             "  {text}\n\n"
-            "Run `codex login` and verify `codex exec` works in your normal "
+            "Run `{login}` and verify `codex exec` works in your normal "
             "shell, then retry the eval. For API billing, configure the "
             "Codex CLI with an API key rather than selecting a separate "
             "backend.",
+            login=True,
         ),
     )
+
+    def login_command(self) -> list[str]:
+        return [self.cli_path() or "codex", "login"]
 
     def _diagnose(
         self, proc: ProcessResult, report: AgentReport, cli_text: str

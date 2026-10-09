@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import os
+import shlex
 import signal
+import subprocess
+import sys
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import NoReturn
 
 import typer
 from pydantic import ValidationError
@@ -12,10 +17,10 @@ from rich.console import Console
 from rich.markup import escape
 
 from caliper import cancel
-from caliper.commands.diagnosis import BadInput, CannotRun, ExitCode, fail
+from caliper.commands.diagnosis import BadInput, CannotRun, ExitCode, fail, render
 from caliper.environment import choose_user_customizations
 from caliper.harness import get_harness
-from caliper.harness.base import HarnessConfigurationError
+from caliper.harness.base import HarnessConfigurationError, LoginRequired
 from caliper.judge import EvalJudge
 from caliper.reporter import (
     SEP_GLYPH,
@@ -316,7 +321,7 @@ def run_cmd(
                 by_attempt={a.attempt: a.outcome for a in result.attempts},
             )
 
-    aborted: RunAborted | None = None
+    stopped: Exception | None = None
     with progress, _interrupt_guard(progress.console):
         try:
             results = run(
@@ -337,19 +342,19 @@ def run_cmd(
                 before_attempts=check_judge_cli,
             )
         except (SkillResolutionError, HarnessConfigurationError) as exc:
-            fail(exc)
+            # Shown once the live view has closed, since a login stop may ask.
+            stopped, results = exc, None
         except RunAborted as exc:
             # A fatal error mid-run. The attempts that already ran are on the
             # exception, and they get saved and rendered exactly like any other
             # run before the cause is shown.
-            aborted, results = exc, exc.results
+            stopped, results = exc, exc.results
 
-    _save_and_report(results, spec_file, output, verbose)
+    if results is not None:
+        _save_and_report(results, spec_file, output, verbose)
 
-    if aborted is not None:
-        # Which of the two causes it was, and what that exits with, is the
-        # diagnosis table's call — not this module's.
-        fail(aborted)
+    if stopped is not None:
+        _stop(stopped)
     if results.run.interrupted:
         raise typer.Exit(ExitCode.INTERRUPTED)
     nothing_measured = _nothing_measured(results)
@@ -357,6 +362,65 @@ def run_cmd(
         fail(CannotRun(nothing_measured))
     if results.run.hook_failures:
         raise typer.Exit(ExitCode.CANNOT_RUN)
+
+
+def _stop(exc: Exception) -> NoReturn:
+    """Show why the run stopped, and exit with the code the diagnosis gives it.
+
+    A lapsed login in an interactive terminal is first offered its login
+    command, and the same command line reruns once that succeeds. A CI job or
+    an agent gets the command in the error, with nothing waiting for input.
+    """
+    code = render(exc)
+    login = exc.cause if isinstance(exc, RunAborted) else exc
+    if (
+        isinstance(login, LoginRequired)
+        and login.command is not None
+        and _interactive()
+        and _confirm(
+            f"Log in to {login.backend} now with `{shlex.join(login.command)}`?"
+        )
+        and _logged_in(login.command)
+    ):
+        console.print("Logged in. Rerunning the eval.")
+        # Through the interpreter, so `python -m caliper.main` reruns as well as
+        # the console script does.
+        os.execv(sys.executable, [sys.executable, *sys.orig_argv[1:]])
+    raise typer.Exit(code)
+
+
+def _logged_in(command: list[str]) -> bool:
+    try:
+        returncode = subprocess.run(command).returncode
+    except OSError as exc:
+        console.print(f"Could not run `{shlex.join(command)}`: {exc}", soft_wrap=True)
+        return False
+    if returncode != 0:
+        console.print(
+            f"`{shlex.join(command)}` did not complete the login.", soft_wrap=True
+        )
+    return returncode == 0
+
+
+def _interactive() -> bool:
+    if "CI" in os.environ or not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return False
+    try:
+        # A job sent to the background with `&` still has the terminal, but
+        # reading from it would suspend the run until someone types `fg`.
+        return os.tcgetpgrp(sys.stdin.fileno()) == os.getpgrp()
+    except (AttributeError, OSError):
+        # No job control (Windows): a terminal on both ends is all there is.
+        return True
+
+
+def _confirm(question: str) -> bool:
+    try:
+        return typer.confirm(question, default=False)
+    except typer.Abort:
+        # Ctrl-D or Ctrl-C at the prompt declines. Left to typer, it would exit
+        # 1, which the exit-code contract reserves for bad input.
+        return False
 
 
 def _judge_cli_missing(judge_backend: str, skill_backend: str, *, named: bool) -> str:

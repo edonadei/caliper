@@ -35,7 +35,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from caliper.compare import IncomparableRunsError
-from caliper.harness.base import HarnessConfigurationError
+from caliper.harness.base import HarnessConfigurationError, LoginRequired
 from caliper.retry import SpendingCapReached
 from caliper.runner import RunAborted
 from caliper.runstore import UnreadableRun
@@ -130,6 +130,8 @@ def diagnose(exc: Exception) -> Diagnosis:
         return Diagnosis(f"Error parsing results: {exc}", ExitCode.BAD_INPUT)
     if isinstance(exc, SpendingCapReached):
         return Diagnosis(str(exc), ExitCode.CANNOT_RUN, title="Spending cap reached")
+    if isinstance(exc, LoginRequired):
+        return Diagnosis(str(exc), ExitCode.CANNOT_RUN, title="Not logged in")
     if isinstance(exc, HarnessConfigurationError):
         return Diagnosis(
             str(exc), ExitCode.CANNOT_RUN, title="Backend configuration error"
@@ -152,6 +154,11 @@ def fail(exc: Exception) -> NoReturn:
     turns a diagnosed failure into some other code path. Where a helper that
     can ``fail`` is used inside a ``try``, hoist the call out of it.
     """
+    raise typer.Exit(render(exc))
+
+
+def render(exc: Exception) -> ExitCode:
+    """Show ``exc`` as :func:`fail` does, and return the code it exits with."""
     diagnosis = diagnose(exc)
     if diagnosis.title:
         console.print(
@@ -163,4 +170,4 @@ def fail(exc: Exception) -> NoReturn:
         )
     else:
         console.print(f"[bold red]Error:[/bold red] {diagnosis.body}")
-    raise typer.Exit(diagnosis.code)
+    return diagnosis.code

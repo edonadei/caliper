@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from conftest import patch_cli_calls, run_context
 
-from caliper.harness.base import HarnessConfigurationError
+from caliper.harness.base import HarnessConfigurationError, LoginRequired
 from caliper.harness.pi import PiHarness
 from caliper.harness.refusal import RefusalKind
 from caliper.skills import resolve_skills
@@ -292,9 +292,11 @@ def _run_with_stream(monkeypatch, tmp_path, stdout: str):
 def test_pi_expired_oauth_on_a_zero_exit_raises_configuration_error(
     monkeypatch, tmp_path
 ) -> None:
-    with pytest.raises(HarnessConfigurationError, match="/login") as exc:
+    with pytest.raises(LoginRequired, match="/login") as exc:
         _run_with_stream(monkeypatch, tmp_path, _OAUTH_EXPIRED.read_text())
     assert "OAuth refresh failed" in str(exc.value)
+    # pi logs in only from its own terminal UI: there is no command to offer.
+    assert exc.value.command is None
     # The stack trace pi appends is noise to whoever has to fix their login.
     assert "processTicksAndRejections" not in str(exc.value)
 

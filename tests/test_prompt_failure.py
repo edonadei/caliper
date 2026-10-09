@@ -9,6 +9,7 @@ from conftest import patch_cli_calls
 from caliper.harness.base import (
     ConversationTurn,
     HarnessConfigurationError,
+    LoginRequired,
     ProcessResult,
 )
 from caliper.harness.claude_code import (
@@ -142,13 +143,18 @@ def test_claude_judge_with_a_lapsed_login_stops_the_run(
 
     patch_cli_calls(monkeypatch, fake_run)
 
-    with pytest.raises(HarnessConfigurationError) as exc:
+    monkeypatch.setattr(
+        "caliper.harness.claude_code.shutil.which",
+        lambda name, path=None: f"/opt/bin/{name}",
+    )
+    with pytest.raises(LoginRequired) as exc:
         ClaudeCodeHarness().run_prompt("anything", cwd=".")
 
     message = str(exc.value)
     assert message.startswith("The claude-code judge cannot run.")
     assert quoted in message
-    assert "Run `claude`, then `/login`" in message
+    assert "Run `/opt/bin/claude auth login`" in message
+    assert exc.value.command == ["/opt/bin/claude", "auth", "login"]
 
 
 def test_claude_judge_answer_about_a_login_failure_is_an_answer(monkeypatch) -> None:
@@ -195,6 +201,8 @@ def test_eval_judge_stops_the_run_on_an_unavailable_model(
             workdir=attempt_workdir,
         )
 
+    # Logging in again cannot bring a retired model back.
+    assert type(exc.value) is HarnessConfigurationError
     message = str(exc.value)
     assert "--judge-model" in message
     assert "claude-sonnet-4-20250514" in message

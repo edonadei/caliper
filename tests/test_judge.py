@@ -19,6 +19,7 @@ from caliper.harness.base import (
     CliHarness,
     ConversationTurn,
     HarnessConfigurationError,
+    LoginRequired,
     ProcessResult,
     PromptResult,
 )
@@ -426,13 +427,15 @@ def test_codex_judge_with_a_lapsed_login_stops_the_run(monkeypatch, tmp_path) ->
         ),
     )
 
-    with pytest.raises(HarnessConfigurationError) as exc:
+    with pytest.raises(LoginRequired) as exc:
         CodexHarness().run_prompt("anything", cwd=str(tmp_path))
 
     message = str(exc.value)
     assert message.startswith("The codex judge cannot run.")
     assert "Your access token could not be refreshed." in message
-    assert "Run `codex login`" in message
+    assert "Run `codex.cmd login`" in message
+    # The binary caliper resolved, not whatever `codex` the shell finds first.
+    assert exc.value.command == ["codex.cmd", "login"]
 
 
 def test_codex_judge_prompt_echoed_on_stderr_is_not_a_login(
@@ -662,13 +665,15 @@ def test_pi_judge_with_a_rejected_key_stops_the_run(monkeypatch, tmp_path) -> No
     }
     _spawn(monkeypatch, stdout=json.dumps(message_end))
 
-    with pytest.raises(HarnessConfigurationError) as exc:
+    with pytest.raises(LoginRequired) as exc:
         PiHarness().run_prompt("anything", cwd=str(tmp_path))
 
     message = str(exc.value)
     assert message.startswith("The pi judge cannot run.")
     assert "API key is invalid." in message
     assert "`pi` then `/login`" in message
+    # pi logs in only from its own terminal UI: there is no command to offer.
+    assert exc.value.command is None
 
 
 def test_a_judge_answer_about_a_login_failure_is_a_verdict(

@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest
 from conftest import patch_cli_calls, run_context
 
-from caliper.harness.base import HarnessConfigurationError, ProcessResult
+from caliper.harness.base import (
+    HarnessConfigurationError,
+    LoginRequired,
+    ProcessResult,
+)
 from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
@@ -750,12 +754,17 @@ def test_claude_harness_expired_login_is_configuration_error(
         )
 
     patch_cli_calls(monkeypatch, fake_run)
-    with pytest.raises(HarnessConfigurationError) as exc:
+    monkeypatch.setattr(
+        "caliper.harness.claude_code.shutil.which",
+        lambda name, path=None: f"/opt/bin/{name}",
+    )
+    with pytest.raises(LoginRequired) as exc:
         ClaudeCodeHarness().run(run_context(isolated_home=str(tmp_path / "home")))
 
     assert message in str(exc.value)
-    assert "Run `claude`, then `/login`" in str(exc.value)
+    assert "Run `/opt/bin/claude auth login`" in str(exc.value)
     assert "retry" in str(exc.value)
+    assert exc.value.command == ["/opt/bin/claude", "auth", "login"]
 
 
 def test_claude_harness_bare_401_is_configuration_error(monkeypatch, tmp_path):
@@ -771,11 +780,35 @@ def test_claude_harness_bare_401_is_configuration_error(monkeypatch, tmp_path):
         )
 
     patch_cli_calls(monkeypatch, fake_run)
-    with pytest.raises(HarnessConfigurationError) as exc:
+    monkeypatch.setattr(
+        "caliper.harness.claude_code.shutil.which",
+        lambda name, path=None: f"/opt/bin/{name}",
+    )
+    with pytest.raises(LoginRequired) as exc:
         ClaudeCodeHarness().run(run_context(isolated_home=str(tmp_path / "home")))
 
     assert "API error 401: Request failed" in str(exc.value)
-    assert "Run `claude`, then `/login`" in str(exc.value)
+    assert "Run `/opt/bin/claude auth login`" in str(exc.value)
+    assert exc.value.command == ["/opt/bin/claude", "auth", "login"]
+
+
+def test_claude_harness_org_without_access_is_not_a_login(monkeypatch, tmp_path):
+    """Logging in again cannot fix an organization that turned Claude Code off."""
+
+    def fake_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            1,
+            stdout="",
+            stderr="Your organization does not have access to Claude Code.",
+        )
+
+    patch_cli_calls(monkeypatch, fake_run)
+    with pytest.raises(HarnessConfigurationError) as exc:
+        ClaudeCodeHarness().run(run_context(isolated_home=str(tmp_path / "home")))
+
+    assert type(exc.value) is HarnessConfigurationError
+    assert "ask your admin" in str(exc.value)
 
 
 @pytest.mark.parametrize("exit_code", [0, 1])
@@ -861,3 +894,16 @@ def test_prompt_cli_missing_looks_up_claude_on_the_prompt_path(
         cli.chmod(0o755)
 
     assert not harness.prompt_cli_missing()
+
+
+def test_claude_login_uses_the_claude_an_attempt_reaches(monkeypatch, tmp_path):
+    # A Homebrew-only claude is on the attempt's PATH prefixes, not the caller's.
+    claude = tmp_path / "claude"
+    claude.write_text("#!/bin/sh\n")
+    claude.chmod(0o755)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setattr(
+        ClaudeCodeHarness, "_path_prefixes", lambda self: [str(tmp_path)]
+    )
+
+    assert ClaudeCodeHarness().login_command() == [str(claude), "auth", "login"]

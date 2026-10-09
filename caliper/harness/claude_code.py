@@ -56,7 +56,7 @@ _NOT_LOGGED_IN = (
     "caliper runs Claude Code in an isolated HOME so each attempt has no "
     "session history. The Claude CLI returned:\n"
     "  {text}\n\n"
-    "Run `claude`, then `/login`, and retry the eval. If "
+    "Run `{login}` and retry the eval. If "
     "`claude -p 'Reply OK'` works in your normal shell but caliper still "
     "fails, the harness is not finding or copying the credential store "
     "that your Claude Code install uses."
@@ -364,6 +364,7 @@ class ClaudeCodeHarness(CliHarness):
                 "api error 401",
             ),
             _NOT_LOGGED_IN,
+            login=True,
         ),
         ConfigSignal(
             (
@@ -457,6 +458,11 @@ class ClaudeCodeHarness(CliHarness):
         return (
             shutil.which("claude", path=self._prompt_environment().get("PATH")) is None
         )
+
+    def login_command(self) -> list[str]:
+        # The `claude` an attempt reaches: the same prefixes, ahead of PATH.
+        path = os.pathsep.join([*self._path_prefixes(), os.environ.get("PATH", "")])
+        return [shutil.which("claude", path=path) or "claude", "auth", "login"]
 
     def _prompt_environment(self) -> dict[str, str]:
         env = dict(os.environ)

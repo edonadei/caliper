@@ -101,6 +101,8 @@ class CliRefusal:
     # What to tell the user: the line that names a cap, the throttle text, or
     # the full diagnosis of a misconfiguration.
     message: str
+    # A CONFIG refusal that logging in to the backend fixes.
+    login: bool = False
 
 
 @dataclass(frozen=True)
@@ -108,11 +110,13 @@ class ConfigSignal:
     """A misconfiguration a backend's CLI reports, and what to do about it.
 
     ``diagnosis`` is shown when any marker appears in what the CLI wrote;
-    ``{text}`` in it is replaced by that text.
+    ``{text}`` in it is replaced by that text. ``login`` marks a missing or
+    lapsed login, which the backend's login command fixes.
     """
 
     markers: tuple[str, ...]
     diagnosis: str
+    login: bool = False
 
 
 # The words every CLI uses for a login that is missing or has lapsed.
@@ -160,5 +164,5 @@ def classify(
     for signal in config_signals:
         if any(marker in lowered for marker in signal.markers):
             diagnosis = signal.diagnosis.replace("{text}", text[:_QUOTED])
-            return CliRefusal(RefusalKind.CONFIG, diagnosis)
+            return CliRefusal(RefusalKind.CONFIG, diagnosis, login=signal.login)
     return None
