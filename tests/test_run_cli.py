@@ -921,3 +921,25 @@ def test_a_stop_with_no_login_command_never_asks(monkeypatch, tmp_path, stop) ->
     assert result.exit_code == 2, result.output
     assert "Log in to" not in result.output
     assert (logins, reruns) == ([], [])
+
+
+class _Tty:
+    def isatty(self) -> bool:
+        return True
+
+    def fileno(self) -> int:
+        return 0
+
+
+@pytest.mark.parametrize(("terminal_group", "asks"), [(4242, True), (999, False)])
+def test_only_the_foreground_job_is_asked(monkeypatch, terminal_group, asks) -> None:
+    # A run started with `&` keeps the terminal but would stop on reading it.
+    import caliper.commands.run as run_module
+
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setattr("sys.stdin", _Tty())
+    monkeypatch.setattr("sys.stdout", _Tty())
+    monkeypatch.setattr("os.getpgrp", lambda: 4242)
+    monkeypatch.setattr("os.tcgetpgrp", lambda _fd: terminal_group)
+
+    assert run_module._interactive() is asks

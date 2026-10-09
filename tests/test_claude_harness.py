@@ -894,3 +894,16 @@ def test_prompt_cli_missing_looks_up_claude_on_the_prompt_path(
         cli.chmod(0o755)
 
     assert not harness.prompt_cli_missing()
+
+
+def test_claude_login_uses_the_claude_an_attempt_reaches(monkeypatch, tmp_path):
+    # A Homebrew-only claude is on the attempt's PATH prefixes, not the caller's.
+    claude = tmp_path / "claude"
+    claude.write_text("#!/bin/sh\n")
+    claude.chmod(0o755)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setattr(
+        ClaudeCodeHarness, "_path_prefixes", lambda self: [str(tmp_path)]
+    )
+
+    assert ClaudeCodeHarness().login_command() == [str(claude), "auth", "login"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -376,7 +377,9 @@ def _stop(exc: Exception) -> NoReturn:
         isinstance(login, LoginRequired)
         and login.command is not None
         and _interactive()
-        and _confirm(f"Log in to {login.backend} now with `{' '.join(login.command)}`?")
+        and _confirm(
+            f"Log in to {login.backend} now with `{shlex.join(login.command)}`?"
+        )
         and _logged_in(login.command)
     ):
         console.print("Logged in. Rerunning the eval.")
@@ -390,17 +393,28 @@ def _logged_in(command: list[str]) -> bool:
     try:
         if subprocess.run(command).returncode == 0:
             return True
-        console.print(f"`{' '.join(command)}` did not complete the login.")
+        console.print(
+            f"`{shlex.join(command)}` did not complete the login.", soft_wrap=True
+        )
         return False
     except OSError as exc:
         console.print(
-            f"[bold red]Could not run[/bold red] `{' '.join(command)}`: {exc}"
+            f"[bold red]Could not run[/bold red] `{shlex.join(command)}`: {exc}",
+            soft_wrap=True,
         )
         return False
 
 
 def _interactive() -> bool:
-    return sys.stdin.isatty() and sys.stdout.isatty() and "CI" not in os.environ
+    if "CI" in os.environ or not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return False
+    try:
+        # A job sent to the background with `&` still has the terminal, but
+        # reading from it would suspend the run until someone types `fg`.
+        return os.tcgetpgrp(sys.stdin.fileno()) == os.getpgrp()
+    except (AttributeError, OSError):
+        # No job control (Windows): a terminal on both ends is all there is.
+        return True
 
 
 def _confirm(question: str) -> bool:
