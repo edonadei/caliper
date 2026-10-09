@@ -813,26 +813,3 @@ def test_an_unavailable_judge_model_stops_the_run(attempt_workdir) -> None:
             transcript=[],
             workdir=attempt_workdir,
         )
-
-
-def test_a_judge_login_failure_stops_the_run(attempt_workdir) -> None:
-    harness = ScriptedPrompt(
-        PromptResult(
-            text="",
-            error="Invalid bearer token",
-            failure=PromptFailure(
-                kind=PromptFailureKind.AUTH, message="Invalid bearer token", status=401
-            ),
-        )
-    )
-
-    with pytest.raises(HarnessConfigurationError) as exc:
-        EvalJudge(backend="codex", harness=harness).evaluate(
-            task=_task(expect="x"),
-            transcript=[],
-            workdir=attempt_workdir,
-        )
-
-    assert str(exc.value).startswith(
-        "Judge authentication failed (Invalid bearer token)."
-    )

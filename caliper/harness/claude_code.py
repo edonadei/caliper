@@ -359,6 +359,7 @@ class ClaudeCodeHarness(CliHarness):
                 "failed to authenticate",
                 "oauth session expired",
                 "invalid api key",
+                "api error 401",
             ),
             _NOT_LOGGED_IN,
         ),
@@ -386,9 +387,6 @@ class ClaudeCodeHarness(CliHarness):
         # write about a 404 without being one. Same classification the judge's
         # prompt path uses (issue #75, docs/adr/0001).
         failure = report.cli_failure
-        if failure is not None and failure.kind is PromptFailureKind.AUTH:
-            # A bare 401 may carry no login words for config_signals to match.
-            return _NOT_LOGGED_IN.replace("{text}", cli_text)
         if failure is not None and failure.kind is PromptFailureKind.MODEL_UNAVAILABLE:
             model_part = f" '{self._model}'" if self._model else ""
             return (
