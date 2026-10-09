@@ -57,6 +57,8 @@ _MODERN_META = {
     "io.modelcontextprotocol/clientCapabilities": {},
 }
 _UNSUPPORTED_PROTOCOL_VERSION = -32022
+# Claude Code reads ``ttlMs`` as a JavaScript number, so 1.0 is a valid integer.
+_MAX_SAFE_INTEGER = 2**53 - 1
 # Claude Code gives up on ``server/discover`` after about 3 seconds.
 _DISCOVER_TIMEOUT = 3.0
 
@@ -341,8 +343,15 @@ def _list_tools(
     request: dict = {"jsonrpc": "2.0", "id": request_id, "method": "tools/list"}
     if meta is not None:
         request["params"] = {"_meta": meta}
-    result = _exchange(process, request, name, deadline, timeout).get("result")
-    if not isinstance(result, dict) or not isinstance(result.get("tools"), list):
+    response = _exchange(process, request, name, deadline, timeout)
+    result = response.get("result")
+    if (
+        not isinstance(result, dict)
+        or not isinstance(result.get("tools"), list)
+        # Claude Code ignores a 2026-07-28 reply that carries ``error: null``
+        # beside its result; codex accepts one on the legacy path.
+        or (meta is not None and "error" in response)
+    ):
         raise HarnessConfigurationError(f"MCP server '{name}' did not list tools")
     return result
 
@@ -417,7 +426,7 @@ def _discover(
         raise _unsupported(
             name, data.get("supported") if isinstance(data, dict) else None
         )
-    if not (
+    if "error" in response or not (
         isinstance(result, dict)
         and isinstance(result.get("supportedVersions"), list)
         and isinstance(result.get("capabilities"), dict)
@@ -440,12 +449,14 @@ def _discover(
     ttl = tools.get("ttlMs")
     if (
         tools.get("resultType") != "complete"
-        or type(ttl) is not int
-        or ttl < 0
+        or type(ttl) not in (int, float)
+        or not 0 <= ttl <= _MAX_SAFE_INTEGER
+        or ttl != int(ttl)
         or tools.get("cacheScope") not in ("public", "private")
     ):
         raise HarnessConfigurationError(
-            f"MCP server '{name}' listed tools without resultType, ttlMs and cacheScope"
+            f"MCP server '{name}' listed tools without a valid resultType, ttlMs "
+            "or cacheScope"
         )
 
 

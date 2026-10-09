@@ -685,6 +685,7 @@ def test_preflight_rejects_a_modern_server_that_does_not_list_its_tools(
         {"tools": [], "ttlMs": 0, "cacheScope": "public"},
         {"resultType": "complete", "tools": [], "ttlMs": 1.5, "cacheScope": "public"},
         {"resultType": "complete", "tools": [], "ttlMs": 0, "cacheScope": "shared"},
+        {"resultType": "complete", "tools": [], "ttlMs": 2**60, "cacheScope": "public"},
     ],
 )
 def test_preflight_rejects_a_modern_tool_list_claude_code_would_drop(
@@ -692,11 +693,39 @@ def test_preflight_rejects_a_modern_tool_list_claude_code_would_drop(
 ) -> None:
     with pytest.raises(
         HarnessConfigurationError,
-        match=r"^MCP server 'modern' listed tools without resultType, ttlMs and "
-        r"cacheScope$",
+        match=r"^MCP server 'modern' listed tools without a valid resultType, "
+        r"ttlMs or cacheScope$",
     ):
         preflight_stdio_servers(
             _modern_server(tmp_path, _DISCOVERED_TOOLS, tools_reply={"result": tools}),
+            speaks_modern=True,
+        )
+
+
+def test_preflight_accepts_a_whole_ttl_written_as_a_float(tmp_path) -> None:
+    tools = {"result": {**_MODERN_TOOLS["result"], "ttlMs": 1.0}}
+
+    preflight_stdio_servers(
+        _modern_server(tmp_path, _DISCOVERED_TOOLS, tools_reply=tools),
+        speaks_modern=True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("discover_reply", "tools_reply", "error"),
+    [
+        ({**_DISCOVERED_TOOLS, "error": None}, _MODERN_TOOLS, "rejected initialize"),
+        (_DISCOVERED_TOOLS, {**_MODERN_TOOLS, "error": None}, "did not list tools"),
+    ],
+)
+def test_preflight_rejects_a_modern_reply_with_a_null_error(
+    tmp_path, discover_reply, tools_reply, error
+) -> None:
+    with pytest.raises(
+        HarnessConfigurationError, match=rf"^MCP server 'modern' {error}$"
+    ):
+        preflight_stdio_servers(
+            _modern_server(tmp_path, discover_reply, tools_reply),
             speaks_modern=True,
         )
 
@@ -815,7 +844,7 @@ def test_preflight_fails_fast_when_a_rejecting_server_ignores_discovery(
             timeout=60,
         )
 
-    assert time.monotonic() - start < 15
+    assert time.monotonic() - start < 8
 
 
 def test_setup_can_stage_an_mcp_server_before_attempt_preflight(tmp_path) -> None:
