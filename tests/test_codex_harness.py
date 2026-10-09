@@ -402,7 +402,7 @@ def test_codex_read_last_message_classifies_nonzero_exit_as_failure(
     )
 
     result = CodexHarness()._read_last_message(
-        proc, "test-model", tmp_path / "missing-output.txt"
+        proc, "test-model", tmp_path / "missing-output.txt", "prompt"
     )
 
     assert result.failure is not None
@@ -418,7 +418,7 @@ def test_codex_read_last_message_leaves_success_unclassified(tmp_path) -> None:
     output_path.write_text("42\n")
     proc = ProcessResult(stdout="", stderr="", returncode=0, timed_out=False)
 
-    result = CodexHarness()._read_last_message(proc, "gpt-5", output_path)
+    result = CodexHarness()._read_last_message(proc, "gpt-5", output_path, "prompt")
 
     assert result.failure is None
     assert result.error is None
@@ -437,7 +437,7 @@ def test_codex_read_last_message_decodes_utf8_under_a_non_utf8_locale(
     output_path.write_bytes("Verdict: réussi ✓\n".encode())
     proc = ProcessResult(stdout="", stderr="", returncode=0, timed_out=False)
 
-    result = CodexHarness()._read_last_message(proc, "gpt-5", output_path)
+    result = CodexHarness()._read_last_message(proc, "gpt-5", output_path, "prompt")
 
     assert result.text == "Verdict: réussi ✓"
 

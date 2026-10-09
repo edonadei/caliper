@@ -530,8 +530,9 @@ of six values, classified once at the seam where an attempt is assembled:
 - `task_fail` — the skill genuinely failed the task.
 - `judge_error` — the judge could not produce a verdict at all (unparseable
   autorater response, an assertion that ran past its time limit, or the judge
-  call threw — including the judge's *own* rate-limit). An unavailable judge *model* is not a
-  `judge_error`: it would fail every attempt alike, so it stops the run.
+  call threw — including the judge's *own* rate-limit). An unavailable judge *model* or a failed
+  judge login is not a `judge_error`: either would fail every attempt alike, so
+  it stops the run.
 - `infra_error` — the attempt could not be run fairly: a `setup:` that failed or
   ran past its time limit, or the skill-under-test's harness failed it with a
   nonzero exit (non-timeout), a detected transient throttle/overload signal

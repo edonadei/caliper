@@ -16,6 +16,7 @@ import pytest
 from conftest import patch_cli_calls
 
 from caliper.harness.base import (
+    CliHarness,
     ConversationTurn,
     HarnessConfigurationError,
     ProcessResult,
@@ -28,7 +29,7 @@ from caliper.harness.prompt_failure import PromptFailure, PromptFailureKind
 from caliper.judge.eval_judge import EvalJudge, render_judge_prompt
 from caliper.schema.results import TranscriptTurn
 from caliper.schema.spec import TaskSpec
-from caliper.workdir import _STEP_TIMEOUTS
+from caliper.workdir import _STEP_TIMEOUTS, StepCancelled
 
 
 def _task(**overrides) -> TaskSpec:
@@ -413,6 +414,100 @@ def test_codex_judge_timeout_removes_its_output_file(monkeypatch, tmp_path) -> N
     assert not staged[0].exists()
 
 
+def test_codex_judge_with_a_lapsed_login_stops_the_run(monkeypatch, tmp_path) -> None:
+    _codex_cli_present(monkeypatch, tmp_path)
+    _spawn(
+        monkeypatch,
+        returncode=1,
+        stderr=(
+            "OpenAI Codex v0.132.0\n"
+            "ERROR: Your access token could not be refreshed. "
+            "Please log out and sign in again.\n"
+        ),
+    )
+
+    with pytest.raises(HarnessConfigurationError) as exc:
+        CodexHarness().run_prompt("anything", cwd=str(tmp_path))
+
+    message = str(exc.value)
+    assert message.startswith("The codex judge cannot run.")
+    assert "Your access token could not be refreshed." in message
+    assert "Run `codex login`" in message
+
+
+def test_codex_judge_prompt_echoed_on_stderr_is_not_a_login(
+    monkeypatch, tmp_path
+) -> None:
+    # codex echoes the judge prompt to stderr; an answer about a 401 is not one.
+    _codex_cli_present(monkeypatch, tmp_path)
+    _spawn(
+        monkeypatch,
+        returncode=1,
+        stderr=(
+            "OpenAI Codex v0.132.0\n"
+            "user\nThe middleware returns 401 Unauthorized when the API key is "
+            "missing. Authentication works.\n"
+            "ERROR: stream disconnected before completion\n"
+        ),
+    )
+
+    result = CodexHarness().run_prompt("anything", cwd=str(tmp_path))
+
+    assert result.error == ("codex judge failed: stream disconnected before completion")
+
+
+def test_codex_judge_crash_does_not_read_the_echoed_prompt(
+    monkeypatch, tmp_path
+) -> None:
+    # A crash prints no ERROR line of codex's own; the echoed answer has one.
+    prompt = 'The agent said:\n{"error":{"message":"Incorrect API key provided"}}'
+    _codex_cli_present(monkeypatch, tmp_path)
+    _spawn(
+        monkeypatch,
+        returncode=101,
+        stderr=f"OpenAI Codex v0.145.0\n--------\nuser\n{prompt}\n\nthread 'main' panicked\n",
+    )
+
+    result = CodexHarness().run_prompt(prompt, cwd=str(tmp_path))
+
+    assert result.error == "codex judge exited 101"
+
+
+def test_codex_judge_refused_model_is_not_a_login(monkeypatch, tmp_path) -> None:
+    _codex_cli_present(monkeypatch, tmp_path)
+    _spawn(
+        monkeypatch,
+        returncode=1,
+        stderr=(
+            'ERROR: {"type":"error","status":400,"error":{"type":'
+            '"invalid_request_error","message":"The \'bad-model\' model is not '
+            'supported when using Codex with a ChatGPT account."}}\n'
+        ),
+    )
+
+    with pytest.raises(HarnessConfigurationError) as exc:
+        CodexHarness().run_prompt("anything", cwd=str(tmp_path))
+
+    message = str(exc.value)
+    assert "Codex CLI cannot run the requested model" in message
+    assert "codex login" not in message
+    assert "Pass `--judge-model codex` (no model)" in message
+    assert "`--model codex`" not in message
+
+
+def test_a_cancelled_judge_call_is_not_a_verdict(monkeypatch, tmp_path) -> None:
+    # The run's cancellation killed the judge: it saw nothing, so no judge_error.
+    _codex_cli_present(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        CliHarness,
+        "_execute",
+        lambda self, *a, **k: ProcessResult("", "", -9, False, cancelled=True),
+    )
+
+    with pytest.raises(StepCancelled):
+        CodexHarness().run_prompt("anything", cwd=str(tmp_path))
+
+
 def test_codex_error_extraction_from_noisy_cli_output() -> None:
     output = """
 2026-05-21T02:05:29Z WARN lots of startup noise
@@ -479,12 +574,12 @@ def test_judge_strips_markdown_fence(monkeypatch, tmp_path, attempt_workdir) -> 
 
 def test_hermes_judge_reports_cli_error_as_errored(monkeypatch, tmp_path) -> None:
     _hermes_cli_present(monkeypatch)
-    _spawn(monkeypatch, returncode=1, stderr="not logged in")
+    _spawn(monkeypatch, returncode=1, stderr="connection reset by peer")
 
     result = HermesHarness().run_prompt("anything", cwd=str(tmp_path))
 
     assert result.error is not None
-    assert "not logged in" in result.error
+    assert "connection reset by peer" in result.error
 
 
 def test_hermes_judge_missing_cli_errors(monkeypatch, tmp_path) -> None:
@@ -540,12 +635,63 @@ def test_pi_backend_is_a_valid_judge(monkeypatch, tmp_path, attempt_workdir) -> 
 def test_pi_judge_reports_cli_error_as_errored(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _: "/usr/bin/pi")
     monkeypatch.delenv("PI_CLI_PATH", raising=False)
-    _spawn(monkeypatch, returncode=1, stderr="not logged in")
+    _spawn(monkeypatch, returncode=1, stderr="connection reset by peer")
 
     result = PiHarness().run_prompt("anything", cwd=str(tmp_path))
 
     assert result.error is not None
-    assert "not logged in" in result.error
+    assert "connection reset by peer" in result.error
+
+
+def test_pi_judge_with_a_rejected_key_stops_the_run(monkeypatch, tmp_path) -> None:
+    """pi exits 0 and reports the 401 only as an errored message in its stream."""
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _: "/usr/bin/pi")
+    monkeypatch.delenv("PI_CLI_PATH", raising=False)
+    error = (
+        '401 {"type":"error","error":{"type":"authentication_error",'
+        '"message":"API key is invalid."},"request_id":null}'
+    )
+    message_end = {
+        "type": "message_end",
+        "message": {
+            "role": "assistant",
+            "content": [],
+            "stopReason": "error",
+            "errorMessage": error,
+        },
+    }
+    _spawn(monkeypatch, stdout=json.dumps(message_end))
+
+    with pytest.raises(HarnessConfigurationError) as exc:
+        PiHarness().run_prompt("anything", cwd=str(tmp_path))
+
+    message = str(exc.value)
+    assert message.startswith("The pi judge cannot run.")
+    assert "API key is invalid." in message
+    assert "`pi` then `/login`" in message
+
+
+def test_a_judge_answer_about_a_login_failure_is_a_verdict(
+    monkeypatch, attempt_workdir
+) -> None:
+    """Only what the CLI wrote can stop the run, never what the judge answered."""
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _: "/usr/bin/pi")
+    monkeypatch.delenv("PI_CLI_PATH", raising=False)
+    answer = {
+        "mode": "verdict",
+        "passed": False,
+        "reasoning": "The agent stopped at a 401: not logged in.",
+    }
+    _spawn(monkeypatch, stdout=_pi_stream(json.dumps(answer)))
+
+    result = EvalJudge(backend="pi").evaluate(
+        task=_task(),
+        transcript=[ConversationTurn(role="assistant", content="not logged in")],
+        workdir=attempt_workdir,
+    )
+
+    assert (result.passed, result.errored) == (False, False)
+    assert result.autorater_reasoning == "The agent stopped at a 401: not logged in."
 
 
 def test_pi_judge_missing_cli_errors(monkeypatch, tmp_path) -> None:

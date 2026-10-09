@@ -112,6 +112,61 @@ def test_claude_prompt_output_unclassified_is_error_passes_text_through(
     assert '"mode": "verdict"' in result.text
 
 
+# An expired OAuth login carries no status, only its words; a bare 401 the reverse.
+@pytest.mark.parametrize(
+    ("status", "said", "quoted"),
+    [
+        (
+            None,
+            "Failed to authenticate: OAuth session expired and could not be refreshed",
+            "OAuth session expired and could not be refreshed",
+        ),
+        (401, "Request failed", "API error 401: Request failed"),
+    ],
+)
+def test_claude_judge_with_a_lapsed_login_stops_the_run(
+    monkeypatch, status, said, quoted
+) -> None:
+    envelope = {
+        "type": "result",
+        "is_error": True,
+        "api_error_status": status,
+        "result": said,
+        "modelUsage": {},
+    }
+
+    def fake_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 1, stdout=json.dumps(envelope), stderr=""
+        )
+
+    patch_cli_calls(monkeypatch, fake_run)
+
+    with pytest.raises(HarnessConfigurationError) as exc:
+        ClaudeCodeHarness().run_prompt("anything", cwd=".")
+
+    message = str(exc.value)
+    assert message.startswith("The claude-code judge cannot run.")
+    assert quoted in message
+    assert "Run `claude`, then `/login`" in message
+
+
+def test_claude_judge_answer_about_a_login_failure_is_an_answer(monkeypatch) -> None:
+    answer = '{"mode": "verdict", "passed": false, "reasoning": "401: not logged in"}'
+    envelope = {"type": "result", "is_error": False, "result": answer}
+
+    def fake_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(envelope), stderr=""
+        )
+
+    patch_cli_calls(monkeypatch, fake_run)
+
+    result = ClaudeCodeHarness().run_prompt("anything", cwd=".")
+
+    assert result.text == answer
+
+
 def _task(**overrides) -> TaskSpec:
     fields = {"id": "t1", "name": "t", "prompt": "p", "expect": "says ok"}
     fields.update(overrides)
