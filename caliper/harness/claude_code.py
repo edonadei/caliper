@@ -68,6 +68,8 @@ class ClaudeCodeHarness(CliHarness):
         self._model = model
 
     supports_mcp = True
+    # Claude Code 2.1.292 made MCP 2026-07-28 its default for stdio servers.
+    speaks_modern_mcp = True
     user_rules = ("CLAUDE.md",)
     user_settings_file = "settings.json"
     # The CLI classifies a real skill only at .claude/skills/<name>/SKILL.md and

@@ -48,6 +48,19 @@ _PREFLIGHT_TIMEOUT = 15.0
 _KNOWN_PROTOCOL_VERSIONS = frozenset(
     {"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"}
 )
+# 2026-07-28 drops the initialize handshake: every request carries the version
+# and client identity in ``params._meta`` instead (docs/adr/0035).
+_MODERN_PROTOCOL_VERSION = "2026-07-28"
+_MODERN_META = {
+    "io.modelcontextprotocol/protocolVersion": _MODERN_PROTOCOL_VERSION,
+    "io.modelcontextprotocol/clientInfo": {"name": "caliper-preflight", "version": "1"},
+    "io.modelcontextprotocol/clientCapabilities": {},
+}
+_UNSUPPORTED_PROTOCOL_VERSION = -32022
+# Claude Code reads ``ttlMs`` as a JavaScript number, so 1.0 is a valid integer.
+_MAX_SAFE_INTEGER = 2**53 - 1
+# Claude Code gives up on ``server/discover`` after about 3 seconds.
+_DISCOVER_TIMEOUT = 3.0
 
 
 class McpPreflightInterrupted(Exception):
@@ -86,6 +99,7 @@ def preflight_stdio_servers(
     env: dict[str, str] | None = None,
     cwd: str | None = None,
     timeout: float = _PREFLIGHT_TIMEOUT,
+    speaks_modern: bool = False,
 ) -> None:
     """Verify each local server in its prepared attempt before the agent starts.
 
@@ -94,7 +108,8 @@ def preflight_stdio_servers(
     neither failure becomes a scored attempt or a hanging agent. ``timeout``
     bounds the whole check across every server; an attempt passes its
     ``--timeout`` so a server that starts slowly gets the same budget the agent
-    would.
+    would. A server that speaks only MCP 2026-07-28 passes only when
+    ``speaks_modern`` says the agent's own client can connect to it.
     """
     if os.name == "nt":
         from caliper.harness import windows_job
@@ -161,54 +176,27 @@ def preflight_stdio_servers(
                         response = _exchange(
                             process, initialize, name, deadline, timeout
                         )
-                        result = response.get("result")
-                        if (
-                            not isinstance(result, dict)
-                            or result.get("protocolVersion")
-                            not in _KNOWN_PROTOCOL_VERSIONS
-                            or not isinstance(result.get("capabilities"), dict)
-                            or not isinstance(result.get("serverInfo"), dict)
-                            or not isinstance(result["serverInfo"].get("name"), str)
-                            or not isinstance(result["serverInfo"].get("version"), str)
-                        ):
-                            raise HarnessConfigurationError(
-                                f"MCP server '{name}' returned an invalid initialization"
-                            )
-                        _bounded(
-                            lambda: _send(
-                                process,  # noqa: B023 - _bounded calls it right away
-                                {
-                                    "jsonrpc": "2.0",
-                                    "method": "notifications/initialized",
-                                },
-                            ),
-                            deadline,
-                            f"MCP server '{name}' did not accept "
-                            f"notifications/initialized within {timeout:g} seconds",
-                        )
-                        capabilities = result.get("capabilities")
-                        if isinstance(capabilities, dict) and "tools" in capabilities:
-                            response = _exchange(
+                        if "result" not in response:
+                            _discover(
                                 process,
-                                {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
                                 name,
                                 deadline,
                                 timeout,
+                                speaks_modern=speaks_modern,
                             )
-                            tools_result = response.get("result")
-                            if not isinstance(tools_result, dict) or not isinstance(
-                                tools_result.get("tools"), list
-                            ):
-                                raise HarnessConfigurationError(
-                                    f"MCP server '{name}' did not list tools"
-                                )
+                            stage = "discovery"
+                        else:
+                            _initialized(
+                                process, response.get("result"), name, deadline, timeout
+                            )
+                            stage = "initialization"
                         try:
                             process.wait(timeout=0.05)
                         except subprocess.TimeoutExpired:
                             pass
                         else:
                             raise HarnessConfigurationError(
-                                f"MCP server '{name}' exited after initialization"
+                                f"MCP server '{name}' exited after {stage}"
                             )
                 finally:
                     if os.name == "posix":
@@ -289,7 +277,11 @@ def _exchange(
     deadline: float,
     timeout: float,
 ) -> dict:
-    """Read the matching MCP response, ignoring intervening notifications."""
+    """Read the matching MCP response, ignoring intervening notifications.
+
+    The response may carry ``result`` or ``error``; the caller decides what a
+    rejection means.
+    """
 
     def work() -> dict:
         _send(process, request)
@@ -330,10 +322,6 @@ def _exchange(
                 )
                 continue
             if response.get("id") == request["id"]:
-                if "result" not in response:
-                    raise HarnessConfigurationError(
-                        f"MCP server '{name}' rejected {request['method']}"
-                    )
                 return response
 
     return _bounded(
@@ -342,6 +330,142 @@ def _exchange(
         f"MCP server '{name}' did not answer {request['method']} within "
         f"{timeout:g} seconds",
     )
+
+
+def _list_tools(
+    process: subprocess.Popen,
+    request_id: int,
+    name: str,
+    deadline: float,
+    timeout: float,
+    meta: dict | None = None,
+) -> dict:
+    request: dict = {"jsonrpc": "2.0", "id": request_id, "method": "tools/list"}
+    if meta is not None:
+        request["params"] = {"_meta": meta}
+    response = _exchange(process, request, name, deadline, timeout)
+    result = response.get("result")
+    if (
+        not isinstance(result, dict)
+        or not isinstance(result.get("tools"), list)
+        # Claude Code ignores a 2026-07-28 reply that carries ``error: null``
+        # beside its result; codex accepts one on the legacy path.
+        or (meta is not None and "error" in response)
+    ):
+        raise HarnessConfigurationError(f"MCP server '{name}' did not list tools")
+    return result
+
+
+def _initialized(
+    process: subprocess.Popen,
+    result: object,
+    name: str,
+    deadline: float,
+    timeout: float,
+) -> None:
+    """Check a server that answered ``initialize``, as the agent's client would."""
+    if (
+        not isinstance(result, dict)
+        or result.get("protocolVersion") not in _KNOWN_PROTOCOL_VERSIONS
+        or not isinstance(result.get("capabilities"), dict)
+        or not isinstance(result.get("serverInfo"), dict)
+        or not isinstance(result["serverInfo"].get("name"), str)
+        or not isinstance(result["serverInfo"].get("version"), str)
+    ):
+        raise HarnessConfigurationError(
+            f"MCP server '{name}' returned an invalid initialization"
+        )
+    _bounded(
+        lambda: _send(
+            process, {"jsonrpc": "2.0", "method": "notifications/initialized"}
+        ),
+        deadline,
+        f"MCP server '{name}' did not accept "
+        f"notifications/initialized within {timeout:g} seconds",
+    )
+    if "tools" in result["capabilities"]:
+        _list_tools(process, 2, name, deadline, timeout)
+
+
+def _discover(
+    process: subprocess.Popen,
+    name: str,
+    deadline: float,
+    timeout: float,
+    *,
+    speaks_modern: bool,
+) -> None:
+    """Check a server that rejected ``initialize`` as a 2026-07-28 server.
+
+    Discovery runs only after that rejection so a legacy server never sees a
+    request it may not handle (docs/adr/0035).
+    """
+    # A legacy server may stay silent or exit on an unknown request; either way
+    # it already rejected initialize, so wait only briefly before saying so.
+    try:
+        response = _exchange(
+            process,
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "server/discover",
+                "params": {"_meta": _MODERN_META},
+            },
+            name,
+            min(deadline, time.monotonic() + _DISCOVER_TIMEOUT),
+            _DISCOVER_TIMEOUT,
+        )
+    except (HarnessConfigurationError, ValueError) as exc:
+        raise HarnessConfigurationError(
+            f"MCP server '{name}' rejected initialize"
+        ) from exc
+    result = response.get("result")
+    error = response.get("error")
+    if isinstance(error, dict) and error.get("code") == _UNSUPPORTED_PROTOCOL_VERSION:
+        data = error.get("data")
+        raise _unsupported(
+            name, data.get("supported") if isinstance(data, dict) else None
+        )
+    if "error" in response or not (
+        isinstance(result, dict)
+        and isinstance(result.get("supportedVersions"), list)
+        and isinstance(result.get("capabilities"), dict)
+    ):
+        raise HarnessConfigurationError(f"MCP server '{name}' rejected initialize")
+    if _MODERN_PROTOCOL_VERSION not in result["supportedVersions"]:
+        raise _unsupported(name, result["supportedVersions"])
+    if not speaks_modern:
+        raise HarnessConfigurationError(
+            f"MCP server '{name}' speaks only MCP {_MODERN_PROTOCOL_VERSION}, "
+            "which this backend's agent cannot connect to. Use a server that "
+            "also answers initialize, or a backend that speaks "
+            f"{_MODERN_PROTOCOL_VERSION}."
+        )
+    if "tools" not in result["capabilities"]:
+        return
+    tools = _list_tools(process, 3, name, deadline, timeout, _MODERN_META)
+    # 2026-07-28 requires these fields, and Claude Code drops the server's tools
+    # when one is missing.
+    ttl = tools.get("ttlMs")
+    if (
+        tools.get("resultType") != "complete"
+        or type(ttl) not in (int, float)
+        or not 0 <= ttl <= _MAX_SAFE_INTEGER
+        or ttl != int(ttl)
+        or tools.get("cacheScope") not in ("public", "private")
+    ):
+        raise HarnessConfigurationError(
+            f"MCP server '{name}' listed tools without a valid resultType, ttlMs "
+            "or cacheScope"
+        )
+
+
+def _unsupported(name: str, supported: object) -> HarnessConfigurationError:
+    """A live 2026-era server that shares no protocol version with preflight."""
+    message = f"MCP server '{name}' does not support MCP {_MODERN_PROTOCOL_VERSION}"
+    if isinstance(supported, list) and supported:
+        message += f" (it supports {', '.join(map(str, supported))})"
+    return HarnessConfigurationError(message)
 
 
 def interpolate(value: str, *, server_name: str, field_label: str) -> str:
