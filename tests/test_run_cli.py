@@ -65,10 +65,10 @@ tasks:
         )
 
     monkeypatch.setattr(
-        "caliper.commands.run.get_harness", lambda *args, **kwargs: ScriptedHarness()
+        "caliper.commands.engine.get_harness", lambda *args, **kwargs: ScriptedHarness()
     )
     monkeypatch.setattr(
-        "caliper.commands.run.EvalJudge", lambda *args, **kwargs: object()
+        "caliper.commands.engine.EvalJudge", lambda *args, **kwargs: object()
     )
     monkeypatch.setattr(
         "caliper.commands.run.make_progress", lambda *args, **kwargs: (_Progress(), {})
@@ -138,8 +138,8 @@ def test_run_cli_resolves_backend_and_judge_model_targets(
         judge_args["backend"], judge_args["model"] = backend, model
         return object()
 
-    monkeypatch.setattr("caliper.commands.run.get_harness", fake_get_harness)
-    monkeypatch.setattr("caliper.commands.run.EvalJudge", fake_eval_judge)
+    monkeypatch.setattr("caliper.commands.engine.get_harness", fake_get_harness)
+    monkeypatch.setattr("caliper.commands.engine.EvalJudge", fake_eval_judge)
     monkeypatch.setattr(
         "caliper.commands.run.make_progress", lambda *a, **k: (_Progress(), {})
     )
@@ -189,9 +189,9 @@ def test_run_cli_collects_repeated_ablate_flags(monkeypatch, tmp_path) -> None:
         )
 
     monkeypatch.setattr(
-        "caliper.commands.run.get_harness", lambda *a, **k: ScriptedHarness()
+        "caliper.commands.engine.get_harness", lambda *a, **k: ScriptedHarness()
     )
-    monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **k: object())
+    monkeypatch.setattr("caliper.commands.engine.EvalJudge", lambda *a, **k: object())
     monkeypatch.setattr(
         "caliper.commands.run.make_progress", lambda *a, **k: (_Progress(), {})
     )
@@ -238,9 +238,9 @@ def _finished(timestamp: datetime) -> RunResults:
 
 def _stub_a_run(monkeypatch, finished: RunResults) -> None:
     monkeypatch.setattr(
-        "caliper.commands.run.get_harness", lambda *a, **k: ScriptedHarness()
+        "caliper.commands.engine.get_harness", lambda *a, **k: ScriptedHarness()
     )
-    monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **k: object())
+    monkeypatch.setattr("caliper.commands.engine.EvalJudge", lambda *a, **k: object())
     monkeypatch.setattr(
         "caliper.commands.run.make_progress", lambda *a, **k: (_Progress(), {})
     )
@@ -273,7 +273,7 @@ def test_run_cli_user_customizations_notice(
     finished = _finished(datetime(2026, 7, 3, tzinfo=timezone.utc))
     _stub_a_run(monkeypatch, finished)
     monkeypatch.setattr(
-        "caliper.commands.run.get_harness",
+        "caliper.commands.engine.get_harness",
         lambda *a, **k: ScriptedHarness(supports_mcp=True),
     )
     monkeypatch.setattr(
@@ -587,7 +587,9 @@ def test_run_refuses_an_expect_spec_when_the_judge_cli_is_missing(
         kwargs["before_attempts"]()
         raise AssertionError("no attempt should be scheduled")
 
-    monkeypatch.setattr(run_module, "get_harness", lambda *a, **k: _NoPromptCli())
+    monkeypatch.setattr(
+        "caliper.commands.engine.get_harness", lambda *a, **k: _NoPromptCli()
+    )
     monkeypatch.setattr(run_module, "make_progress", lambda *a, **k: (_Progress(), {}))
     monkeypatch.setattr(run_module, "run", refuse_before_any_attempt)
     spec = tmp_path / "s.eval.yaml"
@@ -599,64 +601,8 @@ def test_run_refuses_an_expect_spec_when_the_judge_cli_is_missing(
 
     assert result.exit_code == 2, result.output
     # CliRunner's capture crops the panel to its first line; the full wording is
-    # asserted on the message itself.
+    # asserted in tests/test_engine.py.
     assert "--judge-model pi" in result.output
-    message = run_module._judge_cli_missing("pi", "codex", named=True)
-    assert "the pi CLI isn't installed" in message
-    # Names the way out: without --judge-model the judge is the --model backend.
-    assert "remove --judge-model and codex (your --model) will grade" in message
-
-
-def test_the_missing_judge_message_matches_how_the_judge_was_chosen() -> None:
-    import caliper.commands.run as run_module
-
-    # --judge-model named the same missing CLI as --model: neither removing the
-    # flag nor changing --model alone would help.
-    same = run_module._judge_cli_missing("codex", "codex", named=True)
-    assert "--judge-model codex asks codex" in same
-    assert "point --judge-model at an installed backend" in same
-    assert "with no --judge-model" not in same
-
-    # No --judge-model: the judge follows --model, so --model is the way out.
-    default = run_module._judge_cli_missing("codex", "codex", named=False)
-    assert "with no --judge-model" in default
-    assert "pick an installed one with --model" in default
-
-
-@pytest.mark.parametrize(
-    ("flags", "judge"),
-    [
-        ([], ("claude-code", None)),
-        # The backend is followed, the skill's model is not.
-        (["--model", "codex:gpt-5-codex"], ("codex", None)),
-        (["--model", "codex", "--judge-model", "pi:m"], ("pi", "m")),
-        # A bare --judge-model reads like a bare --model: a claude-code model.
-        (["--model", "codex", "--judge-model", "opus"], ("claude-code", "opus")),
-    ],
-)
-def test_the_judge_follows_the_skill_backend_unless_named(
-    monkeypatch, tmp_path, flags, judge
-) -> None:
-    import caliper.commands.run as run_module
-
-    judged = []
-
-    def fake_eval_judge(backend, model, **_):
-        judged.append((backend, model))
-        return object()
-
-    def stop_here(**_: object):
-        raise AssertionError("resolved; nothing further to check")
-
-    monkeypatch.setattr(run_module, "get_harness", lambda *a, **k: ScriptedHarness())
-    monkeypatch.setattr(run_module, "EvalJudge", fake_eval_judge)
-    monkeypatch.setattr(run_module, "run", stop_here)
-    spec = tmp_path / "s.eval.yaml"
-    spec.write_text("tasks:\n  - {name: t, prompt: p, expect: it worked}\n")
-
-    runner.invoke(app, ["run", str(spec), *flags])
-
-    assert judged == [judge]
 
 
 def test_run_ignores_a_missing_judge_cli_when_no_task_has_expect(
@@ -682,8 +628,10 @@ def test_run_ignores_a_missing_judge_cli_when_no_task_has_expect(
             aggregate=AggregateScore(avg_score=0.0, per_task=[]),
         )
 
-    monkeypatch.setattr(run_module, "get_harness", lambda *a, **k: _NoPromptCli())
-    monkeypatch.setattr(run_module, "EvalJudge", lambda *a, **k: object())
+    monkeypatch.setattr(
+        "caliper.commands.engine.get_harness", lambda *a, **k: _NoPromptCli()
+    )
+    monkeypatch.setattr("caliper.commands.engine.EvalJudge", lambda *a, **k: object())
     monkeypatch.setattr(run_module, "make_progress", lambda *a, **k: (_Progress(), {}))
     monkeypatch.setattr(run_module, "print_banner", lambda *a, **k: None)
     monkeypatch.setattr(run_module, "print_results", lambda *a, **k: None)
@@ -748,9 +696,9 @@ def test_a_cheat_stays_flagged_in_live_progress_after_later_attempts(
         )
 
     monkeypatch.setattr(
-        "caliper.commands.run.get_harness", lambda *a, **k: ScriptedHarness()
+        "caliper.commands.engine.get_harness", lambda *a, **k: ScriptedHarness()
     )
-    monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **k: object())
+    monkeypatch.setattr("caliper.commands.engine.EvalJudge", lambda *a, **k: object())
     monkeypatch.setattr(
         "caliper.commands.run.make_progress", lambda *a, **k: (_Progress(), {})
     )

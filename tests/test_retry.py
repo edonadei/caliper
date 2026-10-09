@@ -333,11 +333,11 @@ def test_a_run_that_measured_nothing_is_not_saved(tmp_path, monkeypatch) -> None
         "tasks:\n  - name: One\n    prompt: Do it\n    assert: 'assert True'\n"
     )
     monkeypatch.setattr(
-        "caliper.commands.run.get_harness",
+        "caliper.commands.engine.get_harness",
         lambda *a, **kw: ScriptedHarness(_result(**CAPPED)),
     )
     monkeypatch.setattr(
-        "caliper.commands.run.EvalJudge", lambda *a, **kw: ScriptedJudge()
+        "caliper.commands.engine.EvalJudge", lambda *a, **kw: ScriptedJudge()
     )
 
     from typer.testing import CliRunner

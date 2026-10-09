@@ -690,9 +690,9 @@ def test_run_cli_exits_130_and_saves_an_interrupted_run(monkeypatch, tmp_path) -
         return _one_attempt_run(k=kwargs["k"])
 
     monkeypatch.setattr(
-        "caliper.commands.run.get_harness", lambda *a, **kw: ScriptedHarness()
+        "caliper.commands.engine.get_harness", lambda *a, **kw: ScriptedHarness()
     )
-    monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **kw: object())
+    monkeypatch.setattr("caliper.commands.engine.EvalJudge", lambda *a, **kw: object())
     monkeypatch.setattr("caliper.commands.run.run", fake_run)
 
     result = runner.invoke(app, ["run", str(spec_file)])
@@ -718,9 +718,9 @@ def test_run_cli_saves_before_reporting_a_fatal_error(monkeypatch, tmp_path) -> 
         raise RunAborted(HarnessConfigurationError("credentials expired"), partial)
 
     monkeypatch.setattr(
-        "caliper.commands.run.get_harness", lambda *a, **kw: ScriptedHarness()
+        "caliper.commands.engine.get_harness", lambda *a, **kw: ScriptedHarness()
     )
-    monkeypatch.setattr("caliper.commands.run.EvalJudge", lambda *a, **kw: object())
+    monkeypatch.setattr("caliper.commands.engine.EvalJudge", lambda *a, **kw: object())
     monkeypatch.setattr("caliper.commands.run.run", fake_run)
 
     result = runner.invoke(app, ["run", str(spec_file)])
