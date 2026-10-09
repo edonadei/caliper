@@ -237,6 +237,52 @@ def test_judge_error_when_only_check_errors(attempt_workdir) -> None:
     assert result.passed is False
 
 
+_MALFORMED_ANSWERS = [
+    '{"mode": "verdict", "passed": "false", "reasoning": "a string, not a bool"}',
+    '{"mode": "verdict", "passed": 1}',
+    '{"mode": "verdict", "reasoning": "no passed field"}',
+    "{}",
+    "[]",
+    '"passed"',
+    "null",
+    '{"mode": "banana", "passed": true}',
+    '{"mode": "script", "code": 42}',
+    '{"mode": "script", "code": ["assert True"]}',
+]
+
+
+@pytest.mark.parametrize("answer", _MALFORMED_ANSWERS)
+def test_malformed_judge_answer_is_no_verdict(answer, attempt_workdir) -> None:
+    """Valid JSON is not a verdict: anything off the two modes' shapes errors."""
+    judge = EvalJudge(backend="codex", harness=ScriptedPrompt(PromptResult(answer)))
+    result = judge.evaluate(task=_task(), transcript=[], workdir=attempt_workdir)
+
+    assert (result.passed, result.errored) == (False, True)
+    assert result.autorater_passed is None
+
+
+@pytest.mark.parametrize("answer", _MALFORMED_ANSWERS)
+def test_static_assert_survives_a_malformed_judge_answer(
+    answer, attempt_workdir
+) -> None:
+    """Rule B: the assert's verdict stands when the autorater gives none."""
+    judge = EvalJudge(backend="codex", harness=ScriptedPrompt(PromptResult(answer)))
+    result = judge.evaluate(
+        task=_task(assert_script="assert True"), transcript=[], workdir=attempt_workdir
+    )
+
+    assert (result.passed, result.errored) == (True, False)
+    assert result.autorater_passed is None
+
+
+def test_verdict_without_a_mode_is_still_a_verdict(attempt_workdir) -> None:
+    answer = '{"passed": true, "reasoning": "ok"}'
+    judge = EvalJudge(backend="codex", harness=ScriptedPrompt(PromptResult(answer)))
+    result = judge.evaluate(task=_task(), transcript=[], workdir=attempt_workdir)
+
+    assert (result.passed, result.errored) == (True, False)
+
+
 def test_unknown_judge_backend_errors(tmp_path, attempt_workdir) -> None:
     judge = EvalJudge(backend="not-a-backend")
     result = judge.evaluate(
