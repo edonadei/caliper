@@ -141,8 +141,13 @@ Failed tasks are shown automatically with their output and `assert_evidence`.
 
 ## Troubleshooting
 
+**`Not logged in`**
+The agent's or the judge's CLI login lapsed, so the run stopped with exit `2`.
+The error names the backend's login command. Ask the user before running it,
+then rerun.
+
 **`Judge model ... is unavailable` / `Judge authentication failed` / `Judge rate limited`**
 The judge CLI reached the provider and the call was refused. Pass
 `--judge-model <backend[:model]>` to pick an available judge engine or model. An
-unavailable judge model stops the run with exit `2`; an authentication failure or
-a rate limit stays a per-attempt `judge_error`.
+unavailable judge model or a failed judge login stops the run with exit `2`; a
+rate limit stays a per-attempt `judge_error`.

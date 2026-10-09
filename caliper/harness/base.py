@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -28,6 +29,7 @@ from caliper.harness.refusal import (
 from caliper.schema.results import TokenUsage
 from caliper.schema.spec import McpServer
 from caliper.skills import SkillRef, frontmatter_name, install_skills
+from caliper.workdir import StepCancelled
 
 _POST_KILL_DRAIN_TIMEOUT = 1
 
@@ -36,6 +38,19 @@ _Fact = TypeVar("_Fact")
 
 class HarnessConfigurationError(RuntimeError):
     """Raised when a harness cannot run because local configuration is invalid."""
+
+
+class LoginRequired(HarnessConfigurationError):
+    """The backend's CLI is not logged in, or its login has lapsed.
+
+    ``command`` is the argv that logs in, or ``None`` when the backend has no
+    command for it (pi logs in only from its terminal UI).
+    """
+
+    def __init__(self, message: str, *, backend: str, command: list[str] | None):
+        super().__init__(message)
+        self.backend = backend
+        self.command = command
 
 
 @dataclass
@@ -380,6 +395,11 @@ class HarnessBackend(ABC):
     # wires MCP support.
     supports_mcp: bool = False
 
+    # Whether the agent's own MCP client connects to a stdio server that speaks
+    # only MCP 2026-07-28. Preflight accepts such a server only when this is
+    # ``True`` (docs/adr/0035).
+    speaks_modern_mcp: bool = False
+
     # Optional backend-specific guidance appended to the run seam's refusal when
     # this backend cannot honor ``mcp:``. Left ``None`` by a backend whose lack
     # of support is merely a not-yet-implemented slice (it gets the generic "not
@@ -429,6 +449,10 @@ class HarnessBackend(ABC):
             resolved_model=model,
             error=f"backend {self.name!r} cannot run a bare prompt",
         )
+
+    def login_command(self) -> list[str] | None:
+        """The argv that logs this backend's CLI in, or ``None`` if it has none."""
+        return None
 
     def prompt_cli_missing(self) -> bool:
         """True when the CLI a bare prompt would spawn is not installed here.
@@ -502,7 +526,11 @@ class CliHarness(HarnessBackend):
                 # before the agent starts. A server can fail after the run's
                 # initial preflight or depend on the backend's isolated env.
                 preflight_stdio_servers(
-                    ctx.mcp_servers, env=env, cwd=ctx.workdir, timeout=ctx.timeout
+                    ctx.mcp_servers,
+                    env=env,
+                    cwd=ctx.workdir,
+                    timeout=ctx.timeout,
+                    speaks_modern=self.speaks_modern_mcp,
                 )
             proc = self._execute(
                 cmd, env=env, cwd=ctx.workdir, timeout=ctx.timeout, stdin=stdin
@@ -520,7 +548,7 @@ class CliHarness(HarnessBackend):
         # A timeout is the process outcome, whatever the CLI said before it hung.
         refusal = None if proc.timed_out else self._refusal(proc, report)
         if refusal is not None and refusal.kind is RefusalKind.CONFIG:
-            raise HarnessConfigurationError(refusal.message)
+            raise self._configuration_error(refusal.message, refusal)
 
         # Whether the agent actually conversed, captured before the salvage below
         # can paper over the difference.
@@ -584,9 +612,30 @@ class CliHarness(HarnessBackend):
                     resolved_model=model,
                     error=f"{self.name} prompt call timed out after {timeout}s",
                 )
+            if proc.cancelled:
+                # Killed by the run's cancellation: no verdict, and no
+                # judge_error either.
+                raise StepCancelled("judge")
             if call.read is not None:
-                return call.read(proc)
-            return self._prompt_output(proc, model)
+                result = call.read(proc)
+            else:
+                result = self._prompt_output(proc, model)
+            # The attempt path's rule (docs/adr/0030): a misconfiguration the
+            # CLI reported would fail every attempt's judge alike, so it stops
+            # the run instead of recording a judge_error per attempt.
+            refusal = classify(
+                self._prompt_cli_text(proc, result),
+                self.config_signals,
+                diagnose=lambda text: self._diagnose(proc, AgentReport(), text),
+            )
+            if refusal is not None and refusal.kind is RefusalKind.CONFIG:
+                # Advice written for the agent names --model; the judge's flag
+                # is --judge-model.
+                advice = refusal.message.replace("`--model ", "`--judge-model ")
+                raise self._configuration_error(
+                    f"The {self.name} judge cannot run.\n\n{advice}", refusal
+                )
+            return result
         finally:
             if call.cleanup is not None:
                 call.cleanup()
@@ -716,6 +765,17 @@ class CliHarness(HarnessBackend):
             diagnose=lambda text: self._diagnose(proc, report, text),
         )
 
+    def _configuration_error(
+        self, message: str, refusal: CliRefusal
+    ) -> HarnessConfigurationError:
+        if refusal.login:
+            # The panel names the same resolved binary the prompt would run.
+            command = self.login_command()
+            if command is not None:
+                message = message.replace("{login}", shlex.join(command))
+            return LoginRequired(message, backend=self.name, command=command)
+        return HarnessConfigurationError(message)
+
     def _diagnose(
         self, proc: ProcessResult, report: AgentReport, cli_text: str
     ) -> str | None:
@@ -783,6 +843,18 @@ class CliHarness(HarnessBackend):
     def _prompt_text(self, proc: ProcessResult) -> str:
         """The final answer text on a clean exit. Default: raw stdout."""
         return proc.stdout.strip()
+
+    def _prompt_cli_text(self, proc: ProcessResult, result: PromptResult) -> str:
+        """What the CLI itself wrote for a prompt call, never the model's answer.
+
+        Default: the failure the backend read out, and stderr when the call
+        failed or produced no answer, unless that failure already quotes it.
+        """
+        error = (result.error or "").strip()
+        stderr = proc.stderr.strip()
+        if (proc.returncode != 0 or not result.text) and stderr not in error:
+            return f"{error}\n{stderr}".strip()
+        return error
 
     # --- shared machinery -------------------------------------------------
 

@@ -7,6 +7,7 @@ import re
 import shutil
 import sys
 from collections.abc import Callable
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
 
@@ -55,7 +56,7 @@ _NOT_LOGGED_IN = (
     "caliper runs Claude Code in an isolated HOME so each attempt has no "
     "session history. The Claude CLI returned:\n"
     "  {text}\n\n"
-    "Run `claude`, then `/login`, and retry the eval. If "
+    "Run `{login}` and retry the eval. If "
     "`claude -p 'Reply OK'` works in your normal shell but caliper still "
     "fails, the harness is not finding or copying the credential store "
     "that your Claude Code install uses."
@@ -67,6 +68,8 @@ class ClaudeCodeHarness(CliHarness):
         self._model = model
 
     supports_mcp = True
+    # Claude Code 2.1.292 made MCP 2026-07-28 its default for stdio servers.
+    speaks_modern_mcp = True
     user_rules = ("CLAUDE.md",)
     user_settings_file = "settings.json"
     # The CLI classifies a real skill only at .claude/skills/<name>/SKILL.md and
@@ -358,8 +361,10 @@ class ClaudeCodeHarness(CliHarness):
                 "failed to authenticate",
                 "oauth session expired",
                 "invalid api key",
+                "api error 401",
             ),
             _NOT_LOGGED_IN,
+            login=True,
         ),
         ConfigSignal(
             (
@@ -385,9 +390,6 @@ class ClaudeCodeHarness(CliHarness):
         # write about a 404 without being one. Same classification the judge's
         # prompt path uses (issue #75, docs/adr/0001).
         failure = report.cli_failure
-        if failure is not None and failure.kind is PromptFailureKind.AUTH:
-            # A bare 401 may carry no login words for config_signals to match.
-            return _NOT_LOGGED_IN.replace("{text}", cli_text)
         if failure is not None and failure.kind is PromptFailureKind.MODEL_UNAVAILABLE:
             model_part = f" '{self._model}'" if self._model else ""
             return (
@@ -457,6 +459,11 @@ class ClaudeCodeHarness(CliHarness):
             shutil.which("claude", path=self._prompt_environment().get("PATH")) is None
         )
 
+    def login_command(self) -> list[str]:
+        # The `claude` an attempt reaches: the same prefixes, ahead of PATH.
+        path = os.pathsep.join([*self._path_prefixes(), os.environ.get("PATH", "")])
+        return [shutil.which("claude", path=path) or "claude", "auth", "login"]
+
     def _prompt_environment(self) -> dict[str, str]:
         env = dict(os.environ)
         nvm_bin = preferred_nvm_node_bin()
@@ -473,6 +480,17 @@ class ClaudeCodeHarness(CliHarness):
         # parse can report an unusable response (see PR #61).
         text, resolved = _extract_verdict_and_model(proc.stdout, model)
         return PromptResult(text=text, resolved_model=resolved, error=None)
+
+    def _prompt_cli_text(self, proc: ProcessResult, result: PromptResult) -> str:
+        # An ``is_error`` envelope is the CLI talking, whatever its status: a
+        # lapsed OAuth login carries none, so its text arrives as the answer.
+        # It stands in for ``result.error``, which only ever copies it.
+        try:
+            envelope = json.loads(proc.stdout.strip())
+        except json.JSONDecodeError:
+            envelope = None
+        error = _stream_error(envelope) if isinstance(envelope, dict) else None
+        return super()._prompt_cli_text(proc, replace(result, error=error))
 
     def _looks_like_cli_startup_crash(self, text: str, lowered: str) -> bool:
         return (

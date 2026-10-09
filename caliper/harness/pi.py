@@ -11,6 +11,7 @@ from caliper.harness.base import (
     HarnessConfigurationError,
     ProcessResult,
     PromptCall,
+    PromptResult,
     RunContext,
     stream_events,
 )
@@ -233,6 +234,12 @@ class PiHarness(CliHarness):
         # the same stream an attempt run reads, tail and all.
         return self._read_stream(proc.stdout).answer
 
+    def _prompt_cli_text(self, proc: ProcessResult, result: PromptResult) -> str:
+        # pi exits 0 when it never reached the model, and says why only as an
+        # errored message in its stream (#132).
+        errors = self._read_stream(proc.stdout).cli_errors
+        return "\n".join([*errors, super()._prompt_cli_text(proc, result)]).strip()
+
     config_signals = (
         ConfigSignal(
             (
@@ -255,6 +262,7 @@ class PiHarness(CliHarness):
             "Authenticate pi (e.g. `pi` then `/login`, or set the provider "
             "API key), verify `pi --print 'Reply OK'` works in your normal "
             "shell, then rerun caliper.",
+            login=True,
         ),
     )
 

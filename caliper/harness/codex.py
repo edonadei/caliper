@@ -322,12 +322,17 @@ class CodexHarness(CliHarness):
         return PromptCall(
             cmd,
             stdin=prompt,
-            read=lambda proc: self._read_last_message(proc, model, output_path),
+            read=lambda proc: self._read_last_message(proc, model, output_path, prompt),
             cleanup=lambda: output_path.unlink(missing_ok=True),
         )
 
+    def _prompt_cli_text(self, proc: ProcessResult, result: PromptResult) -> str:
+        # Only the error line the reader picked out: `codex exec` echoes the
+        # whole judge prompt to stderr, and the graded answer can say "401".
+        return result.error or ""
+
     def _read_last_message(
-        self, proc: ProcessResult, model: str | None, output_path: Path
+        self, proc: ProcessResult, model: str | None, output_path: Path, prompt: str
     ) -> PromptResult:
         raw = (
             output_path.read_text(encoding="utf-8").strip()
@@ -335,8 +340,11 @@ class CodexHarness(CliHarness):
             else ""
         )
         raw = raw or proc.stdout.strip()
+        # codex echoes the prompt to stderr verbatim, and the graded answer
+        # inside it may hold an error line of its own.
+        stderr = proc.stderr.replace(prompt.strip(), "")
         if proc.returncode != 0:
-            detail = _extract_codex_error(proc.stderr) or _extract_codex_error(raw)
+            detail = _extract_codex_error(stderr) or _extract_codex_error(raw)
             message = detail or f"codex judge exited {proc.returncode}"
             return PromptResult.unclassified_failure(message, model)
         # Codex doesn't surface the resolved model in this mode, so we can only
@@ -419,18 +427,28 @@ class CodexHarness(CliHarness):
 
     config_signals = (
         ConfigSignal(
-            (*AUTH_MARKERS, "401 unauthorized", "api key", "chatgpt account"),
+            (
+                *AUTH_MARKERS,
+                "401 unauthorized",
+                "api key",
+                "chatgpt account",
+                "sign in again",
+            ),
             "Codex CLI cannot run with the current subscription/authentication "
             "configuration.\n\n"
             "Caliper uses `codex exec` for `--model codex` and does not fall "
             "back to the OpenAI API. The Codex CLI returned:\n"
             "  {text}\n\n"
-            "Run `codex login` and verify `codex exec` works in your normal "
+            "Run `{login}` and verify `codex exec` works in your normal "
             "shell, then retry the eval. For API billing, configure the "
             "Codex CLI with an API key rather than selecting a separate "
             "backend.",
+            login=True,
         ),
     )
+
+    def login_command(self) -> list[str]:
+        return [self.cli_path() or "codex", "login"]
 
     def _diagnose(
         self, proc: ProcessResult, report: AgentReport, cli_text: str

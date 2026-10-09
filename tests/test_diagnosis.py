@@ -15,7 +15,7 @@ from caliper.commands.diagnosis import (
     fail,
 )
 from caliper.compare import IncomparableRunsError
-from caliper.harness.base import HarnessConfigurationError
+from caliper.harness.base import HarnessConfigurationError, LoginRequired
 from caliper.retry import SpendingCapReached
 from caliper.runner import RunAborted
 from caliper.runstore import UnreadableRun
@@ -86,6 +86,14 @@ def test_a_misconfigured_backend_cannot_run() -> None:
 
     assert diagnosis.code is ExitCode.CANNOT_RUN
     assert diagnosis.title == "Backend configuration error"
+
+
+def test_a_lapsed_login_cannot_run() -> None:
+    login = LoginRequired("expired", backend="codex", command=["codex", "login"])
+
+    assert diagnose(login).code is ExitCode.CANNOT_RUN
+    assert diagnose(login).title == "Not logged in"
+    assert diagnose(RunAborted(login, _results())).title == "Run stopped: Not logged in"
 
 
 def test_a_spending_cap_cannot_run() -> None:

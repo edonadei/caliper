@@ -44,8 +44,9 @@ aren't scored as task failure:
 | `judge_error` | the judge produced no verdict (unparseable or errored autorater) | ❌ unusable |
 | `not_checked` | the task has no `expect:`/`assert:`, so it's a trigger probe | ⊘ not asked |
 
-An unavailable model, for the agent or the judge, isn't an outcome: it would
-fail every attempt alike, so it stops the run with exit `2` instead.
+An unavailable model or a failed login, for the agent or the judge, isn't an
+outcome: either would fail every attempt alike, so it stops the run with exit
+`2` instead.
 
 `not_checked` is neither a result nor an error. It leaves the denominator like an
 unusable attempt, but nothing went wrong, so it's never reported as an error and

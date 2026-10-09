@@ -46,6 +46,13 @@ There is no direct-API backend. To run against API-priced billing, configure one
 of these CLIs with an API key (for example `ANTHROPIC_API_KEY` or
 `OPENAI_API_KEY`).
 
+When a run stops because the agent's or the judge's CLI is not logged in, it
+exits `2` with a `Not logged in` error that says how to log in. In an
+interactive terminal, `caliper run` also offers to run that backend's login
+command (`claude auth login`, `codex login` or `hermes model`) and reruns the
+eval once the login succeeds. pi logs in only from its own terminal UI, so it
+gets no offer.
+
 ### What gets recorded
 
 Each saved run's `RunMeta` records the engine that was actually used: the skill
@@ -76,7 +83,7 @@ entry wins over `~/.claude/.credentials.json`, as it does for the CLI itself, so
 a stale file left next to a valid Keychain login doesn't break attempts.
 
 An expired OAuth session or invalid API key stops the run as a configuration
-error. Run `claude`, then `/login`, and retry the eval. Caliper reads these
+error. Run `claude auth login` and retry the eval. Caliper reads these
 failures from the CLI's error output, not from an agent discussing authentication.
 
 The CLI ships skills of its own (`claude-api`, `debug` and others) that stay
@@ -125,8 +132,8 @@ pi's agent dir, where pi discovers them.
 
 ```bash
 curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
-hermes login   # authenticate
-hermes model   # pick a default model/provider you have credits for
+hermes model                  # pick a default provider you have credits for, and log in
+hermes auth add <provider>    # or add a provider's credentials directly
 ```
 
 Hermes is a stateful, always-on agent with persistent memory, a persona, and
@@ -181,6 +188,10 @@ error, never a silent no-op.
   so it sees only the declared set.
 - **Remote OAuth** isn't supported on `codex` or `hermes`: it needs an
   interactive browser flow the harness can't drive.
+- **A stdio server that speaks only MCP 2026-07-28** works only on `claude-code`
+  2.1.292 or later. On `codex` and `hermes`, the preflight stops the run with a
+  configuration error
+  ([ADR 0035](adr/0035-mcp-preflight-gates-modern-only-servers-on-the-backend.md)).
 - **`pi`** has no MCP by design
   ([ADR 0010](adr/0010-pi-mcp-unsupported-by-design.md)). Expose the capability
   as a CLI tool your skill drives, or as a pi extension, or run the eval on

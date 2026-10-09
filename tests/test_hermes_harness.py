@@ -8,7 +8,11 @@ import yaml
 from conftest import patch_cli_calls, run_context
 
 from caliper.activation import ActivationDetector
-from caliper.harness.base import HarnessConfigurationError, ProcessResult
+from caliper.harness.base import (
+    HarnessConfigurationError,
+    LoginRequired,
+    ProcessResult,
+)
 from caliper.harness.hermes import HermesHarness
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
@@ -405,7 +409,7 @@ def test_hermes_diagnoses_model_selection_error(monkeypatch, tmp_path) -> None:
         )
 
     _install(monkeypatch, home, fake_run)
-    with pytest.raises(HarnessConfigurationError, match="hermes model"):
+    with pytest.raises(LoginRequired, match="hermes model") as exc:
         HermesHarness().run(
             run_context(
                 prompt="Hello",
@@ -414,6 +418,7 @@ def test_hermes_diagnoses_model_selection_error(monkeypatch, tmp_path) -> None:
                 isolated_home=str(iso),
             )
         )
+    assert exc.value.command == ["hermes", "model"]
 
 
 def test_hermes_passes_the_requested_model_to_the_attempt(
@@ -829,7 +834,7 @@ def test_hermes_credit_failure_raises_configuration_error(
 
     _install(monkeypatch, home, fake_run)
 
-    with pytest.raises(HarnessConfigurationError, match="provider/credential"):
+    with pytest.raises(HarnessConfigurationError, match="provider/credential") as exc:
         HermesHarness().run(
             run_context(
                 prompt="Hello",
@@ -838,3 +843,5 @@ def test_hermes_credit_failure_raises_configuration_error(
                 isolated_home=str(iso),
             )
         )
+    # Credits are bought, not logged into.
+    assert type(exc.value) is HarnessConfigurationError

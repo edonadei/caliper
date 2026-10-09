@@ -384,6 +384,12 @@ A run that stopped before **any** attempt finished writes no results file,
 unless a lifecycle hook failed and its diagnostic needs saving. Exits `2` and
 `130` can therefore leave nothing on disk.
 
+A run that stops because the agent's or the judge's CLI is not logged in exits
+`2` with a `Not logged in` error naming the backend's login command. In an
+interactive terminal, `caliper run` first offers to run that command, and reruns
+the eval if the login succeeds. Elsewhere (CI, an agent), nothing waits for
+input.
+
 `caliper compare` deliberately never fails on a regression. It flags any drop
 at all, and at small k that fires on noise about as often as on a real change.
 Gating belongs on a bar you set before the run, which is what exit `3` is
@@ -430,7 +436,9 @@ passing `--judge-model <backend[:model]>` to pick an available judge. Example:
   the run at the first attempt that reaches the judge (exit `2`) instead of
   recording `judge_error` on each one. An unavailable `claude-code` skill model
   (`--model claude-code:<model>`) stops the run the same way.
-- An authentication failure or a rate limit stays a per-attempt `judge_error`.
+- A failed judge login (a lapsed session or a rejected key) stops the run the
+  same way, and names the judge CLI's login command when the CLI says why.
+- A rate limit stays a per-attempt `judge_error`.
 - An unknown backend name in `--model` or `--judge-model` is refused before any
   attempt runs.
 
