@@ -602,8 +602,11 @@ class CliHarness(HarnessBackend):
                 diagnose=lambda text: self._diagnose(proc, AgentReport(), text),
             )
             if refusal is not None and refusal.kind is RefusalKind.CONFIG:
+                # Advice written for the agent names --model; the judge's flag
+                # is --judge-model.
+                advice = refusal.message.replace("`--model ", "`--judge-model ")
                 raise HarnessConfigurationError(
-                    f"The {self.name} judge cannot run.\n\n{refusal.message}"
+                    f"The {self.name} judge cannot run.\n\n{advice}"
                 )
             return result
         finally:
