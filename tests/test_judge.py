@@ -462,6 +462,23 @@ def test_codex_judge_prompt_echoed_on_stderr_is_not_a_login(
     assert result.error == ("codex judge failed: stream disconnected before completion")
 
 
+def test_codex_judge_crash_does_not_read_the_echoed_prompt(
+    monkeypatch, tmp_path
+) -> None:
+    # A crash prints no ERROR line of codex's own; the echoed answer has one.
+    prompt = 'The agent said:\n{"error":{"message":"Incorrect API key provided"}}'
+    _codex_cli_present(monkeypatch, tmp_path)
+    _spawn(
+        monkeypatch,
+        returncode=101,
+        stderr=f"OpenAI Codex v0.145.0\n--------\nuser\n{prompt}\n\nthread 'main' panicked\n",
+    )
+
+    result = CodexHarness().run_prompt(prompt, cwd=str(tmp_path))
+
+    assert result.error == "codex judge exited 101"
+
+
 def test_codex_judge_refused_model_is_not_a_login(monkeypatch, tmp_path) -> None:
     _codex_cli_present(monkeypatch, tmp_path)
     _spawn(
@@ -480,6 +497,8 @@ def test_codex_judge_refused_model_is_not_a_login(monkeypatch, tmp_path) -> None
     message = str(exc.value)
     assert "Codex CLI cannot run the requested model" in message
     assert "codex login" not in message
+    assert "Pass `--judge-model codex` (no model)" in message
+    assert "`--model codex`" not in message
 
 
 def test_a_cancelled_judge_call_is_not_a_verdict(monkeypatch, tmp_path) -> None:

@@ -322,7 +322,7 @@ class CodexHarness(CliHarness):
         return PromptCall(
             cmd,
             stdin=prompt,
-            read=lambda proc: self._read_last_message(proc, model, output_path),
+            read=lambda proc: self._read_last_message(proc, model, output_path, prompt),
             cleanup=lambda: output_path.unlink(missing_ok=True),
         )
 
@@ -332,7 +332,7 @@ class CodexHarness(CliHarness):
         return result.error or ""
 
     def _read_last_message(
-        self, proc: ProcessResult, model: str | None, output_path: Path
+        self, proc: ProcessResult, model: str | None, output_path: Path, prompt: str
     ) -> PromptResult:
         raw = (
             output_path.read_text(encoding="utf-8").strip()
@@ -340,8 +340,11 @@ class CodexHarness(CliHarness):
             else ""
         )
         raw = raw or proc.stdout.strip()
+        # codex echoes the prompt to stderr verbatim, and the graded answer
+        # inside it may hold an error line of its own.
+        stderr = proc.stderr.replace(prompt.strip(), "")
         if proc.returncode != 0:
-            detail = _extract_codex_error(proc.stderr) or _extract_codex_error(raw)
+            detail = _extract_codex_error(stderr) or _extract_codex_error(raw)
             message = detail or f"codex judge exited {proc.returncode}"
             return PromptResult.unclassified_failure(message, model)
         # Codex doesn't surface the resolved model in this mode, so we can only
