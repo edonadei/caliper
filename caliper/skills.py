@@ -406,21 +406,34 @@ def install_skills(
     sandbox = SpecSandbox(declared=list(forbidden_files))
 
     for ref in refs:
-        dest = skills_root / ref.name
-        for item in sorted(ref.directory.rglob("*")):
-            if not item.is_file():
-                continue
-            rel = item.relative_to(ref.directory)
-            if not installs(ref.directory, rel, sandbox):
-                continue
-            try:
-                if item.stat().st_size > _MAX_FILE_BYTES:
-                    continue
-            except OSError:
-                continue
-            target = dest / rel
+        for rel in installed_files(ref.directory, sandbox):
+            target = skills_root / ref.name / rel
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(item, target)
+            shutil.copy2(ref.directory / rel, target)
+
+
+def installed_files(directory: Path, sandbox: SpecSandbox) -> list[Path]:
+    """The files of a skill directory an install copies, relative to it, sorted.
+
+    This is the single answer to "what the agent can see of this skill".
+    ``rglob`` does not descend into directory symlinks, so nothing below one is
+    listed; a file symlink is listed under its own name and copied as its
+    target's bytes (docs/adr/0027).
+    """
+    files: list[Path] = []
+    for item in sorted(directory.rglob("*")):
+        if not item.is_file():
+            continue
+        rel = item.relative_to(directory)
+        if not installs(directory, rel, sandbox):
+            continue
+        try:
+            if item.stat().st_size > _MAX_FILE_BYTES:
+                continue
+        except OSError:
+            continue
+        files.append(rel)
+    return files
 
 
 def installs(directory: Path, rel: Path, sandbox: SpecSandbox) -> bool:
