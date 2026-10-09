@@ -85,6 +85,8 @@ def test_hermes_seeds_only_neutral_config_and_ignores_rules(
     assert env["HERMES_HOME"] == str(seeded)
     assert env["HOME"] == str(iso)
     assert env["CALIPER_PROMPT"] == "Hello"
+    # A fresh home must not trigger hermes' source-update dependency sync.
+    assert env["HERMES_DISABLE_LAZY_INSTALLS"] == "1"
 
 
 def test_hermes_installs_the_skill_without_preloading_it(monkeypatch, tmp_path) -> None:

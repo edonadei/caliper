@@ -223,6 +223,12 @@ class HermesHarness(CliHarness):
             "HERMES_HOME": str(self._hermes_home(ctx)),
             "CALIPER_HERMES": self.cli_path() or "hermes",
             "CALIPER_PROMPT": ctx.prompt,
+            # A source-checkout hermes keeps its dependency state under
+            # HERMES_HOME, so a fresh attempt home looks stale and hermes starts
+            # rebuilding the shared install's venv before answering, which
+            # outlasts the attempt timeout. The attempt must not repair the
+            # install, only run it.
+            "HERMES_DISABLE_LAZY_INSTALLS": "1",
         }
         if ctx.model:
             extra["CALIPER_MODEL"] = ctx.model
