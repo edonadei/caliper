@@ -200,7 +200,7 @@ def test_run_rejects_the_spec_before_its_first_attempt(
     def no_attempt(*args, **kwargs):
         raise AssertionError("run reached the harness with a broken spec")
 
-    monkeypatch.setattr("caliper.commands.run.get_harness", no_attempt)
+    monkeypatch.setattr("caliper.commands.engine.get_harness", no_attempt)
     result = CliRunner().invoke(
         app, ["run", str(_write(tmp_path, _BROKEN_SPECS[case])), "--k", "1"]
     )
