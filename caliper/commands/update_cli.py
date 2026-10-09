@@ -4,56 +4,22 @@ import os
 import re
 import shutil
 import subprocess
-from dataclasses import dataclass
-from pathlib import Path
 from typing import Annotated
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
+from caliper.backends import BACKENDS, Backend, Npm, SelfUpdate, normalize_backend
+from caliper.harness import get_harness
+
 console = Console()
-
-
-@dataclass(frozen=True)
-class CliTarget:
-    name: str
-    binary: str
-    npm_package: str
-    app_bundle: Path | None = None
-
-
-CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
-
-TARGETS = {
-    "codex": CliTarget(
-        name="codex",
-        binary="codex",
-        npm_package="@openai/codex",
-        app_bundle=CODEX_APP_CLI,
-    ),
-    "claude-code": CliTarget(
-        name="claude-code",
-        binary="claude",
-        npm_package="@anthropic-ai/claude-code",
-    ),
-    "pi": CliTarget(
-        name="pi",
-        binary="pi",
-        npm_package="@earendil-works/pi-coding-agent",
-    ),
-}
-
-ALIASES = {
-    "claude": "claude-code",
-    "claude_code": "claude-code",
-}
 
 
 def update_cli_cmd(
     target: Annotated[
         str | None,
-        typer.Argument(help="CLI to update: codex, claude-code, pi, or all"),
+        typer.Argument(help="CLI to update: claude-code, codex, hermes, pi, or all"),
     ] = None,
     check: Annotated[
         bool,
@@ -78,22 +44,29 @@ def update_cli_cmd(
         raise typer.Exit(1)
 
     for cli in targets:
-        _update(cli, yes=yes)
+        if isinstance(cli.updater, SelfUpdate):
+            console.print(
+                f"{cli.name} updates itself. Run [bold]{cli.updater.command}[/bold] "
+                "to update it."
+            )
+            if target != "all":
+                raise typer.Exit(1)
+            continue
+        _update(cli, cli.updater, yes=yes)
 
 
-def _resolve_targets(target: str | None) -> list[CliTarget]:
+def _resolve_targets(target: str | None) -> list[Backend]:
     if target is None or target == "all":
-        return list(TARGETS.values())
+        return list(BACKENDS.values())
 
-    normalized = ALIASES.get(target, target)
-    cli = TARGETS.get(normalized)
+    cli = BACKENDS.get(normalize_backend(target))
     if cli is None:
-        valid = ", ".join([*TARGETS.keys(), "all"])
+        valid = ", ".join([*BACKENDS, "all"])
         raise typer.BadParameter(f"unsupported CLI {target!r}. Choose one of: {valid}")
     return [cli]
 
 
-def _print_checks(targets: list[CliTarget]) -> None:
+def _print_checks(targets: list[Backend]) -> None:
     table = Table(header_style="bold cyan", expand=False)
     table.add_column("CLI")
     table.add_column("Used by Caliper")
@@ -104,7 +77,11 @@ def _print_checks(targets: list[CliTarget]) -> None:
     for cli in targets:
         command = _command_for(cli)
         current = _current_version(command) if command else "not found"
-        latest = _latest_npm_version(cli.npm_package) or "unknown"
+        latest = (
+            (_latest_npm_version(cli.updater.package) or "unknown")
+            if isinstance(cli.updater, Npm)
+            else "-"
+        )
         update = (
             "up to date"
             if _same_version(current, latest)
@@ -115,19 +92,16 @@ def _print_checks(targets: list[CliTarget]) -> None:
     console.print(table)
 
 
-def _update(cli: CliTarget, *, yes: bool) -> None:
+def _update(cli: Backend, updater: Npm, *, yes: bool) -> None:
     command = _command_for(cli)
-    app_bundle = _app_bundle_for(cli)
-    if (
-        app_bundle
-        and command == str(app_bundle)
-        and not os.environ.get("CODEX_CLI_PATH")
-    ):
+    env_var = _app_bundle_env_var(cli, command)
+    if env_var:
         console.print(
-            "[bold yellow]Codex app bundle detected.[/bold yellow] "
-            "Caliper currently uses the Codex CLI inside the desktop app, so "
-            "`npm install -g @openai/codex` would not update the binary Caliper runs. "
-            "Update the Codex app, or set CODEX_CLI_PATH to an npm-installed Codex CLI."
+            "[bold yellow]App bundle detected.[/bold yellow] "
+            f"Caliper uses the {cli.name} CLI inside the desktop app, so "
+            f"`npm install -g {updater.package}` would not update the binary "
+            f"Caliper runs. Update the app, or set {env_var} to an "
+            "npm-installed CLI."
         )
         raise typer.Exit(1)
 
@@ -138,7 +112,7 @@ def _update(cli: CliTarget, *, yes: bool) -> None:
         )
         raise typer.Exit(1)
 
-    install_cmd = [npm, "install", "-g", cli.npm_package]
+    install_cmd = [npm, "install", "-g", updater.package]
     if not yes:
         confirmed = typer.confirm(
             f"Run {' '.join(install_cmd)} to update {cli.name}?",
@@ -157,15 +131,9 @@ def _update(cli: CliTarget, *, yes: bool) -> None:
     console.print(f"[bold green]Updated {cli.name}[/bold green] ({version})")
 
 
-def _command_for(cli: CliTarget) -> str | None:
-    if cli.name == "codex":
-        configured = os.environ.get("CODEX_CLI_PATH")
-        if configured and Path(configured).exists():
-            return configured
-        app_bundle = _app_bundle_for(cli)
-        if app_bundle and app_bundle.exists():
-            return str(app_bundle)
-    return shutil.which(cli.binary)
+def _command_for(cli: Backend) -> str | None:
+    """The CLI caliper itself would run: the harness's own lookup."""
+    return get_harness(cli.name).cli_path()
 
 
 def _current_version(command: str | None) -> str:
@@ -216,18 +184,24 @@ def _same_version(current: str, latest: str) -> bool:
     return found is not None and found.group() == latest.strip()
 
 
-def _update_hint(cli: CliTarget, command: str | None) -> str:
-    app_bundle = _app_bundle_for(cli)
-    if (
-        app_bundle
-        and command == str(app_bundle)
-        and not os.environ.get("CODEX_CLI_PATH")
-    ):
-        return "update desktop app or set CODEX_CLI_PATH"
+def _update_hint(cli: Backend, command: str | None) -> str:
+    if isinstance(cli.updater, SelfUpdate):
+        return cli.updater.command
+    env_var = _app_bundle_env_var(cli, command)
+    if env_var:
+        return f"update desktop app or set {env_var}"
     return f"caliper update-cli {cli.name}"
 
 
-def _app_bundle_for(cli: CliTarget) -> Path | None:
-    if cli.name == "codex":
-        return CODEX_APP_CLI
-    return cli.app_bundle
+def _app_bundle_env_var(cli: Backend, command: str | None) -> str | None:
+    """The override to suggest when caliper runs a CLI bundled in an app.
+
+    npm cannot update a bundled CLI. ``None`` when ``command`` is not one of the
+    harness's install candidates, or an override already points elsewhere.
+    """
+    harness = get_harness(cli.name)
+    bundled = {str(path) for path in harness.cli_candidates()}
+    env_var = harness.cli_path_env_var
+    if command not in bundled or (env_var and os.environ.get(env_var)):
+        return None
+    return env_var
