@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -756,9 +757,11 @@ class CliHarness(HarnessBackend):
         self, message: str, refusal: CliRefusal
     ) -> HarnessConfigurationError:
         if refusal.login:
-            return LoginRequired(
-                message, backend=self.name, command=self.login_command()
-            )
+            # The panel names the same resolved binary the prompt would run.
+            command = self.login_command()
+            if command is not None:
+                message = message.replace("{login}", shlex.join(command))
+            return LoginRequired(message, backend=self.name, command=command)
         return HarnessConfigurationError(message)
 
     def _diagnose(

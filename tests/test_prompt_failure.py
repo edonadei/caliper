@@ -141,7 +141,7 @@ def test_claude_judge_with_an_expired_login_stops_the_run(monkeypatch) -> None:
     message = str(exc.value)
     assert message.startswith("The claude-code judge cannot run.")
     assert "OAuth session expired and could not be refreshed" in message
-    assert "Run `claude auth login`" in message
+    assert "Run `/opt/bin/claude auth login`" in message
     assert exc.value.command == ["/opt/bin/claude", "auth", "login"]
 
 

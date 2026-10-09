@@ -414,7 +414,7 @@ def test_codex_with_a_lapsed_login_names_its_login_command(
 
     assert exc.value.backend == "codex"
     assert exc.value.command == ["/opt/bin/codex", "login"]
-    assert "Run `codex login`" in str(exc.value)
+    assert "Run `/opt/bin/codex login`" in str(exc.value)
 
 
 @pytest.mark.parametrize(

@@ -436,7 +436,7 @@ def test_codex_judge_with_a_lapsed_login_stops_the_run(monkeypatch, tmp_path) ->
     message = str(exc.value)
     assert message.startswith("The codex judge cannot run.")
     assert "Your access token could not be refreshed." in message
-    assert "Run `codex login`" in message
+    assert "Run `codex.cmd login`" in message
     # The binary caliper resolved, not whatever `codex` the shell finds first.
     assert exc.value.command == ["codex.cmd", "login"]
 
@@ -827,3 +827,4 @@ def test_a_judge_login_failure_stops_the_run(attempt_workdir) -> None:
     assert str(exc.value).startswith(
         "Judge authentication failed (Invalid bearer token)."
     )
+    assert str(exc.value).endswith("Log in with `scripted-cli login`.")

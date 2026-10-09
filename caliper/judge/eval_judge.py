@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shlex
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
@@ -329,9 +330,10 @@ class EvalJudge(Judge):
             # so a per-attempt judge_error would pay for each agent run only to
             # discard it. Stop the run instead (issues #139, #245).
             if result.failure.kind is PromptFailureKind.AUTH:
-                raise LoginRequired(
-                    reasoning, backend=self.backend, command=harness.login_command()
-                )
+                command = harness.login_command()
+                if command is not None:
+                    reasoning += f" Log in with `{shlex.join(command)}`."
+                raise LoginRequired(reasoning, backend=self.backend, command=command)
             if result.failure.kind is PromptFailureKind.MODEL_UNAVAILABLE:
                 raise HarnessConfigurationError(reasoning)
             return _AutoraterVerdict.error(

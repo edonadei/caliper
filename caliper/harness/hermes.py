@@ -397,7 +397,7 @@ class HermesHarness(CliHarness):
             "Caliper copies your `~/.hermes` auth and config into an isolated "
             "home and runs `hermes -z`. The hermes CLI returned:\n"
             "  {text}\n\n"
-            "Select and authenticate a model provider with `hermes model` "
+            "Select and authenticate a model provider with `{login}` "
             "(pick your model and complete its login), verify `hermes -z "
             "'Reply OK'` works in your normal shell, then rerun caliper. Pass "
             "`--model hermes:<model>` to override the default for one run.",
@@ -433,8 +433,8 @@ class HermesHarness(CliHarness):
             "Caliper drives the local hermes CLI and reuses its `~/.hermes` "
             "credentials. The hermes CLI returned:\n"
             "  {text}\n\n"
-            "Authenticate hermes (`hermes auth add <provider>`, or `hermes "
-            "model` to pick a provider and log in), verify `hermes -z 'Reply "
+            "Authenticate hermes (`hermes auth add <provider>`, or `{login}` "
+            "to pick a provider and log in), verify `hermes -z 'Reply "
             "OK'` works in your normal shell, then rerun caliper.",
             login=True,
         ),

@@ -762,7 +762,7 @@ def test_claude_harness_expired_login_is_configuration_error(
         ClaudeCodeHarness().run(run_context(isolated_home=str(tmp_path / "home")))
 
     assert message in str(exc.value)
-    assert "Run `claude auth login`" in str(exc.value)
+    assert "Run `/opt/bin/claude auth login`" in str(exc.value)
     assert "retry" in str(exc.value)
     assert exc.value.command == ["/opt/bin/claude", "auth", "login"]
 
@@ -788,7 +788,7 @@ def test_claude_harness_bare_401_is_configuration_error(monkeypatch, tmp_path):
         ClaudeCodeHarness().run(run_context(isolated_home=str(tmp_path / "home")))
 
     assert "API error 401: Request failed" in str(exc.value)
-    assert "Run `claude auth login`" in str(exc.value)
+    assert "Run `/opt/bin/claude auth login`" in str(exc.value)
     assert exc.value.command == ["/opt/bin/claude", "auth", "login"]
 
 
