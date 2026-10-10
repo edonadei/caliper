@@ -123,3 +123,29 @@ def test_update_cli_check_says_up_to_date_when_versions_match(
     assert result.exit_code == 0, result.output
     assert "up to date" in result.output
     assert "caliper update-cli" not in result.output
+
+
+def test_update_cli_check_names_the_cli_a_run_would_use(monkeypatch, tmp_path) -> None:
+    """A ``PI_CLI_PATH`` override is what runs, not the ``pi`` on ``PATH``."""
+    on_path, override = tmp_path / "path-pi", tmp_path / "override-pi"
+    on_path.write_text("")
+    override.write_text("")
+    monkeypatch.setenv("PI_CLI_PATH", str(override))
+
+    def fake_which(name: str) -> str | None:
+        return {"npm": "npm", "pi": str(on_path)}.get(name)
+
+    def fake_run(cmd, **kwargs):
+        versions = {str(on_path): "1.0.0", str(override): "9.9.9", "npm": "9.9.9"}
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=versions[cmd[0]] + "\n", stderr=""
+        )
+
+    monkeypatch.setattr("caliper.commands.update_cli.shutil.which", fake_which)
+    monkeypatch.setattr("caliper.commands.update_cli.subprocess.run", fake_run)
+
+    result = runner.invoke(app, ["update-cli", "pi", "--check"])
+
+    assert result.exit_code == 0, result.output
+    assert "1.0.0" not in result.output
+    assert "up to date" in result.output
