@@ -24,6 +24,7 @@ The chores are now declared:
 | `cli_unavailable_message` / `cli_version_timeout` | what to say when the CLI is missing, and how long `--version` may take | finds the CLI, probes it, raises the message (amended below) |
 | `env_passthrough` (+ `_isolated_env`) | any extra vars, any extra `PATH` prefixes | isolated `HOME`, deduplicated `PATH`, allowlisted passthrough |
 | `_read` | what its finished process said, read once into an `AgentReport` | supplies the last-assistant tail, salvages raw stdout, classifies refusals; `AgentReport` guards usage and the MCP inventory |
+| `_read_prompt` (or `PromptCall.read`) | what a finished judge prompt said, into the same `AgentReport` | classifies its refusals and retries a throttle as for an attempt ([0030](0030-a-cli-refusal-is-read-from-what-the-cli-wrote.md)) |
 
 The reason the chores stayed duplicated for so long is that each backend has an
 *exception* — and an exception looks like a reason to keep your own copy. Every

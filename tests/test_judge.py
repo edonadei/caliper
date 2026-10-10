@@ -26,7 +26,6 @@ from caliper.harness.base import (
 from caliper.harness.codex import CodexHarness, _extract_codex_error
 from caliper.harness.hermes import HermesHarness
 from caliper.harness.pi import PiHarness
-from caliper.harness.prompt_failure import PromptFailure, PromptFailureKind
 from caliper.judge.eval_judge import EvalJudge, render_judge_prompt
 from caliper.schema.results import TranscriptTurn
 from caliper.schema.spec import TaskSpec
@@ -844,23 +843,3 @@ def test_an_assert_only_task_records_no_autorater_time(attempt_workdir) -> None:
 
     assert result.autorater_seconds is None
     assert harness.calls == 0
-
-
-def test_an_unavailable_judge_model_stops_the_run(attempt_workdir) -> None:
-    harness = ScriptedPrompt(
-        PromptResult(
-            text="",
-            resolved_model="bad-model",
-            error="unavailable",
-            failure=PromptFailure(
-                kind=PromptFailureKind.MODEL_UNAVAILABLE, message="no such model"
-            ),
-        )
-    )
-
-    with pytest.raises(HarnessConfigurationError):
-        EvalJudge(backend="codex", harness=harness).evaluate(
-            task=_task(expect="x"),
-            transcript=[],
-            workdir=attempt_workdir,
-        )

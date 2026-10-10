@@ -9,8 +9,7 @@ from pathlib import Path
 
 from caliper.backends import DEFAULT_BACKEND
 from caliper.harness import get_harness
-from caliper.harness.base import ConversationTurn, HarnessConfigurationError
-from caliper.harness.prompt_failure import PromptFailureKind, format_judge_failure
+from caliper.harness.base import ConversationTurn
 from caliper.judge.base import Judge, JudgeResult, PromptBackend
 from caliper.schema.results import TranscriptTurn
 from caliper.schema.spec import (
@@ -329,19 +328,13 @@ class EvalJudge(Judge):
         # harness is not judge time (docs/CONTEXT.md → Judge time).
         started = time.monotonic()
         result = harness.run_prompt(prompt, cwd=workdir.path, timeout=60)
-        seconds = time.monotonic() - started
-        if result.failure is not None:
-            # Switch on the typed kind here, in the judge — provider status codes
-            # never leak past the harness boundary (issue #75, ADR-0001).
-            reasoning = format_judge_failure(result.failure, result.resolved_model)
-            if result.failure.kind is PromptFailureKind.MODEL_UNAVAILABLE:
-                # The same model fails every attempt's judge the same way, so a
-                # per-attempt judge_error would pay for each agent run only to
-                # discard it. Stop the run instead (issue #139).
-                raise HarnessConfigurationError(reasoning)
-            return _AutoraterVerdict.error(
-                reasoning, resolved_model=result.resolved_model, seconds=seconds
-            )
+        # The harness times its own spawns, the waits between retries excluded.
+        seconds = (
+            result.seconds if result.seconds is not None else time.monotonic() - started
+        )
+        # A refusal that would fail every attempt's judge alike (a misconfigured
+        # judge, an unavailable model, a spending cap) has already raised inside
+        # the harness; what is left here is this one attempt's (docs/adr/0030).
         if result.error:
             return _AutoraterVerdict.error(
                 result.error, resolved_model=result.resolved_model, seconds=seconds

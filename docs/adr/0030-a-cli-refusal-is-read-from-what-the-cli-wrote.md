@@ -50,3 +50,18 @@ pre-judge outcome act on that field instead of matching text themselves.
   there during a good run refuses nothing. hermes prints its reply on stderr
   whatever the exit code, so its stderr is ignored on any exit once the agent
   gave a real answer.
+
+## The judge reads its refusals the same way
+
+The judge's bare prompt used to have its own taxonomy (`PromptFailure`:
+model unavailable, auth, rate limited) beside `CliRefusal`, and acted only on a
+misconfiguration. A spending cap at the judge was recorded as a `judge_error` on
+every remaining attempt, and a throttle was never retried.
+
+A prompt call is now read into the same `AgentReport` an attempt's is, classified
+by the same `classify`, and answered by the same retry loop: a misconfiguration
+(an unavailable model included) and a spending cap stop the run, and a throttle
+is retried under [0019](0019-an-attempt-may-be-invoked-more-than-once.md)'s
+policy before it becomes that attempt's `judge_error`. Waits between retries are
+not judge time. This supersedes the "rate limit stays a per-attempt
+`judge_error`" line in [0001](0001-attempt-outcome-taxonomy.md).

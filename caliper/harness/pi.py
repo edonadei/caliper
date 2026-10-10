@@ -11,7 +11,6 @@ from caliper.harness.base import (
     HarnessConfigurationError,
     ProcessResult,
     PromptCall,
-    PromptResult,
     RunContext,
     stream_events,
 )
@@ -229,16 +228,11 @@ class PiHarness(CliHarness):
         # otherwise blocks reading stdin and hangs until timeout.
         return PromptCall(cmd)
 
-    def _prompt_text(self, proc: ProcessResult) -> str:
-        # The answer is the last assistant message of pi's JSON event stream —
-        # the same stream an attempt run reads, tail and all.
-        return self._read_stream(proc.stdout).answer
-
-    def _prompt_cli_text(self, proc: ProcessResult, result: PromptResult) -> str:
-        # pi exits 0 when it never reached the model, and says why only as an
+    def _read_prompt(self, proc: ProcessResult) -> AgentReport:
+        # The same JSON event stream an attempt run reads, tail and all. pi
+        # exits 0 when it never reached the model, and says why only as an
         # errored message in its stream (#132).
-        errors = self._read_stream(proc.stdout).cli_errors
-        return "\n".join([*errors, super()._prompt_cli_text(proc, result)]).strip()
+        return self._read_stream(proc.stdout)
 
     config_signals = (
         ConfigSignal(

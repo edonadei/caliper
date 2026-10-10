@@ -16,10 +16,6 @@ from pathlib import Path
 from typing import IO, TypeVar
 
 from caliper import cancel
-from caliper.harness.prompt_failure import (
-    PromptFailure,
-    PromptFailureKind,
-)
 from caliper.harness.refusal import (
     CliRefusal,
     ConfigSignal,
@@ -216,9 +212,9 @@ class AgentReport:
     # Failures the CLI reported *inside* its stream (an ``is_error`` result, an
     # ``error`` event), the CLI talking beside the agent (docs/adr/0030).
     cli_errors: list[str] = field(default_factory=list)
-    # A provider failure the CLI reported structurally, by status code, for a
-    # ``_diagnose`` that must not read it off the agent's words.
-    cli_failure: PromptFailure | None = None
+    # The provider status code the CLI reported structurally beside its error,
+    # for a ``_diagnose`` that must not read it off the agent's words.
+    api_error_status: int | None = None
     # The concrete model, when the output names it; else the requested one.
     resolved_model: str | None = None
     # Every skill the CLI exposed to the attempt, whatever its source.
@@ -322,47 +318,35 @@ class PromptResult:
     The judge's half of the backend seam: ``text`` is the agent's final answer,
     ``resolved_model`` the concrete model when the backend can report it (else
     the requested one, ``None`` on an unobserved CLI default), and ``error`` a
-    human-readable reason when no answer was produced at all. When the harness
-    classifies an upstream API failure, ``failure`` carries the typed kind and
-    ``error`` is the formatted judge-facing message.
+    human-readable reason when no answer was produced at all. ``refusal`` is a
+    throttle that outlasted its retries; every other refusal raises instead,
+    as it does for an attempt (docs/adr/0030).
     """
 
     text: str
     resolved_model: str | None = None
     error: str | None = None
-    failure: PromptFailure | None = None
-
-    @classmethod
-    def unclassified_failure(cls, message: str, model: str | None) -> PromptResult:
-        """Carry an unclassified failure with no answer text.
-
-        The judge reads the failure instead of text on this path; discarding
-        partial output keeps it from being mistaken for a usable answer.
-        """
-        return cls(
-            text="",
-            resolved_model=model,
-            error=message,
-            failure=PromptFailure(kind=PromptFailureKind.OTHER, message=message),
-        )
+    refusal: CliRefusal | None = None
+    # Time spent inside the CLI calls, the waits between retries excluded
+    # (docs/CONTEXT.md → Judge time). ``None`` when the backend did not time it.
+    seconds: float | None = None
 
 
 @dataclass
 class PromptCall:
     """How to spawn one bare prompt, and how to read its answer back.
 
-    ``read`` is how the backend turns the finished process into a
-    :class:`PromptResult`; ``None`` means its ``_prompt_output``. A backend
-    whose answer lives somewhere the process left behind (codex writes it to a
-    file named on argv) closes over that location here, so no scratch state
-    has to cross between the command hook and the output hook. ``cleanup``
-    runs once the call is over — answered, timed out, or raised — so a staged
-    file is removed however the process ended.
+    ``read`` is how the backend reads the finished process; ``None`` means its
+    ``_read_prompt``. A backend whose answer lives somewhere the process left
+    behind (codex writes it to a file named on argv) closes over that location
+    here, so no scratch state has to cross between the command hook and the
+    reader. ``cleanup`` runs once the call is over — answered, timed out, or
+    raised — so a staged file is removed however the process ended.
     """
 
     argv: list[str]
     stdin: str | None = None
-    read: Callable[[ProcessResult], PromptResult] | None = None
+    read: Callable[[ProcessResult], AgentReport] | None = None
     cleanup: Callable[[], None] | None = None
 
 
@@ -588,17 +572,41 @@ class CliHarness(HarnessBackend):
         Unlike ``run`` there is no isolated home, no skill staging, and no MCP:
         the call runs in the caller's real environment (a judge deliberately
         reuses the developer's own auth/config). A backend fills in the argv
-        (``_prompt_command``) and how to read the answer out of its output
-        (``_prompt_output``); spawning, timeout, and error normalization live
-        here.
+        (``_prompt_command``) and how to read its output (``_read_prompt``);
+        spawning, timeout, refusals and error normalization live here.
+
+        A refusal gets the response an attempt's gets, from the same classifier:
+        a throttle is retried, a spending cap raises ``SpendingCapReached``, and
+        a misconfiguration raises ``HarnessConfigurationError`` — each would
+        fail every attempt's judge alike (docs/adr/0019, docs/adr/0030).
         """
+        # Imported here: the retry module reads this module's types.
+        from caliper.retry import invoke_through_throttles
+
         model = model or self._model
+        calls = invoke_through_throttles(
+            lambda: self._prompt_once(prompt, model, cwd, timeout),
+            lambda result: result.refusal,
+        )
+        last = calls[-1]
+        if last.refusal is not None and cancel.requested():
+            # The run stopped during a backoff: the judge saw nothing, so this
+            # is no judge_error either.
+            raise StepCancelled("judge")
+        spawned = [call.seconds for call in calls if call.seconds is not None]
+        return replace(last, seconds=sum(spawned) if spawned else None)
+
+    def _prompt_once(
+        self, prompt: str, model: str | None, cwd: str, timeout: int
+    ) -> PromptResult:
+        """One spawn of a bare prompt, read and classified."""
         try:
             call = self._prompt_command(prompt, model)
         except HarnessConfigurationError as exc:
             return PromptResult(text="", resolved_model=model, error=str(exc))
 
         try:
+            start = time.monotonic()
             proc = self._execute(
                 call.argv,
                 env=self._prompt_environment(),
@@ -606,27 +614,24 @@ class CliHarness(HarnessBackend):
                 timeout=timeout,
                 stdin=call.stdin,
             )
+            seconds = time.monotonic() - start
             if proc.timed_out:
                 return PromptResult(
                     text="",
                     resolved_model=model,
                     error=f"{self.name} prompt call timed out after {timeout}s",
+                    seconds=seconds,
                 )
             if proc.cancelled:
                 # Killed by the run's cancellation: no verdict, and no
                 # judge_error either.
                 raise StepCancelled("judge")
-            if call.read is not None:
-                result = call.read(proc)
-            else:
-                result = self._prompt_output(proc, model)
-            # The attempt path's rule (docs/adr/0030): a misconfiguration the
-            # CLI reported would fail every attempt's judge alike, so it stops
-            # the run instead of recording a judge_error per attempt.
+            report = call.read(proc) if call.read else self._read_prompt(proc)
+            cli_text = self._prompt_cli_text(proc, report)
             refusal = classify(
-                self._prompt_cli_text(proc, result),
+                cli_text,
                 self.config_signals,
-                diagnose=lambda text: self._diagnose(proc, AgentReport(), text),
+                diagnose=lambda text: self._diagnose(proc, report, text),
             )
             if refusal is not None and refusal.kind is RefusalKind.CONFIG:
                 # Advice written for the agent names --model; the judge's flag
@@ -635,7 +640,32 @@ class CliHarness(HarnessBackend):
                 raise self._configuration_error(
                     f"The {self.name} judge cannot run.\n\n{advice}", refusal
                 )
-            return result
+            resolved = report.resolved_model or model
+            if refusal is not None:
+                # The retry loop acts on it once this returns: it retries a
+                # throttle and raises on a spending cap.
+                error = refusal.message
+                if refusal.kind is RefusalKind.THROTTLE:
+                    error = f"The {self.name} judge was rate limited: {error}"
+                return PromptResult(
+                    text="",
+                    resolved_model=resolved,
+                    error=error,
+                    refusal=refusal,
+                    seconds=seconds,
+                )
+            if proc.returncode != 0:
+                detail = next(iter(report.cli_errors), None)
+                if detail is None:
+                    detail = f"{self.name} judge exited {proc.returncode}"
+                    if cli_text:
+                        detail += f": {cli_text[:200]}"
+                return PromptResult(
+                    text="", resolved_model=resolved, error=detail, seconds=seconds
+                )
+            return PromptResult(
+                text=report.answer, resolved_model=resolved, seconds=seconds
+            )
         finally:
             if call.cleanup is not None:
                 call.cleanup()
@@ -824,37 +854,25 @@ class CliHarness(HarnessBackend):
         """The env for a bare prompt call. Default: the caller's real environment."""
         return dict(os.environ)
 
-    def _prompt_output(self, proc: ProcessResult, model: str | None) -> PromptResult:
-        """Read the agent's final answer out of a finished prompt call.
+    def _read_prompt(self, proc: ProcessResult) -> AgentReport:
+        """Read a finished prompt call: the default ``PromptCall.read``.
 
-        The default ``PromptCall.read``; a backend that needs more than the
-        process itself supplies its own ``read`` instead.
+        The same report an attempt's ``_read`` fills in, so the judge's refusal
+        is classified the way an attempt's is. Default: a clean exit's stdout is
+        the answer, and a failed call answered nothing.
         """
-        if proc.returncode != 0:
-            detail = (proc.stderr or proc.stdout).strip()
-            suffix = f": {detail[:200]}" if detail else ""
-            return PromptResult.unclassified_failure(
-                f"{self.name} judge exited {proc.returncode}{suffix}", model
-            )
-        return PromptResult(
-            text=self._prompt_text(proc), resolved_model=model, error=None
-        )
+        answer = proc.stdout.strip() if proc.returncode == 0 else ""
+        if not answer:
+            return AgentReport()
+        return AgentReport(transcript=[ConversationTurn("assistant", answer)])
 
-    def _prompt_text(self, proc: ProcessResult) -> str:
-        """The final answer text on a clean exit. Default: raw stdout."""
-        return proc.stdout.strip()
-
-    def _prompt_cli_text(self, proc: ProcessResult, result: PromptResult) -> str:
+    def _prompt_cli_text(self, proc: ProcessResult, report: AgentReport) -> str:
         """What the CLI itself wrote for a prompt call, never the model's answer.
 
-        Default: the failure the backend read out, and stderr when the call
-        failed or produced no answer, unless that failure already quotes it.
+        Default: the attempt's rule (:meth:`_cli_text`). A backend whose prompt
+        mode echoes the graded transcript onto a CLI channel narrows it.
         """
-        error = (result.error or "").strip()
-        stderr = proc.stderr.strip()
-        if (proc.returncode != 0 or not result.text) and stderr not in error:
-            return f"{error}\n{stderr}".strip()
-        return error
+        return self._cli_text(proc, report)
 
     # --- shared machinery -------------------------------------------------
 

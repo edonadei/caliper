@@ -427,9 +427,10 @@ exits successfully in this case, so Caliper reads the rejection from its output
 and stops the run rather than grading an empty answer. Check the model ID with
 `hermes -z 'Reply OK' --model <model>`.
 
-**`Judge model ... is unavailable` / `Judge authentication failed` / `Judge rate limited`**
-The judge CLI reached the provider and the call was refused. Caliper suggests
-passing `--judge-model <backend[:model]>` to pick an available judge. Example:
+**`The <backend> judge cannot run` / `The <backend> judge was rate limited`**
+The judge CLI reached the provider and the call was refused. Caliper reads the
+refusal the same way it reads an attempt's, and suggests passing
+`--judge-model <backend[:model]>` to pick an available judge. Example:
 `caliper run my-skill.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001`.
 
 - An unavailable judge model would fail every attempt the same way, so it stops
@@ -438,7 +439,9 @@ passing `--judge-model <backend[:model]>` to pick an available judge. Example:
   (`--model claude-code:<model>`) stops the run the same way.
 - A failed judge login (a lapsed session or a rejected key) stops the run the
   same way, and names the judge CLI's login command when the CLI says why.
-- A rate limit stays a per-attempt `judge_error`.
+- A spending cap stops the run, as it does for an attempt.
+- A rate limit is retried like an attempt's. One that outlasts the retries is a
+  per-attempt `judge_error`.
 - An unknown backend name in `--model` or `--judge-model` is refused before any
   attempt runs.
 
