@@ -31,8 +31,8 @@ caliper run my-skill.eval.yaml --model codex
 caliper run my-skill.eval.yaml --model codex --judge-model claude-code:claude-haiku-4-5-20251001
 ```
 
-Accepted backends: `claude-code`, `codex`, `pi`, `hermes` (alias: `claude` →
-`claude-code`).
+Accepted backends: `claude-code`, `codex`, `pi`, `hermes` (aliases: `claude` and
+`claude_code` → `claude-code`).
 
 With no `--judge-model` the judge runs on the backend of the model being
 evaluated (`--model`), on that CLI's default model rather than the `--model`
@@ -155,8 +155,8 @@ for.
 
 If a run fails because no model is selected or a provider login lapsed, Caliper
 tells you to run `hermes model`. Set `HERMES_CLI_PATH` to force a specific
-binary. Hermes updates itself (`hermes update`), so it isn't part of
-`caliper update-cli`.
+binary. Hermes updates itself, so `caliper update-cli hermes` points you at
+`hermes update` instead of running npm.
 
 ## Checking CLI versions
 
