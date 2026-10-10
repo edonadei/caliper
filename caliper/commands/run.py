@@ -5,6 +5,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -31,7 +32,7 @@ from caliper.reporter import (
     update_progress,
 )
 from caliper.runner import AttemptEvent, RunAborted, run
-from caliper.runstore import RunStore
+from caliper.runstore import RunStore, UnusableResultsRoot
 from caliper.schema.results import Outcome, RunResults, TaskResult
 from caliper.schema.spec import load_spec, spec_name
 from caliper.skillfetch import SkillFetcher
@@ -168,6 +169,10 @@ def run_cmd(
     try:
         engine = resolve_engine(model, judge_model)
     except CannotRun as exc:
+        fail(exc)
+    try:
+        RunStore.discover().check()
+    except UnusableResultsRoot as exc:
         fail(exc)
 
     def refuse_without_judge_cli() -> None:
@@ -309,11 +314,14 @@ def run_cmd(
             # run before the cause is shown.
             stopped, results = exc, exc.results
 
+    saved = True
     if results is not None:
-        _save_and_report(results, spec_file, output, verbose)
+        saved = _save_and_report(results, spec_file, output, verbose)
 
     if stopped is not None:
         _stop(stopped)
+    if saved is False:
+        raise typer.Exit(ExitCode.CANNOT_RUN)
     if results.run.interrupted:
         raise typer.Exit(ExitCode.INTERRUPTED)
     nothing_measured = _nothing_measured(results)
@@ -398,7 +406,7 @@ def _nothing_measured(results: RunResults) -> str | None:
 
 def _save_and_report(
     results: RunResults, spec_file: Path, output: Path | None, verbose: bool
-) -> None:
+) -> bool:
     """Persist the run and render it — the same path for a whole or partial run.
 
     An interrupted run is saved as an ordinary run file: every metric already
@@ -409,17 +417,32 @@ def _save_and_report(
     A run where **nothing** ran is usually omitted — a spending cap on the
     first invocation, a Ctrl-C during skill fetching. A hook failure is the
     exception: its diagnostic must be saved even if no attempt was recorded.
+
+    False when the results root refused the run. The attempts are paid for, so
+    the run is then written to a temporary file rather than lost.
     """
     if (
         not any(task.attempts for task in results.task_results)
         and not results.run.hook_failures
     ):
         console.print("[dim]Nothing ran — no results saved.[/dim]")
-        return
+        return True
 
     # The same root every reading command resolves, discovered the same way
     # (docs/adr/0022-saved-runs-live-at-a-discovered-results-root.md).
-    saved_path = RunStore.discover().save(results)
+    try:
+        saved_path = RunStore.discover().save(results)
+        not_saved = None
+    except (OSError, UnusableResultsRoot) as exc:
+        not_saved = exc
+        with tempfile.NamedTemporaryFile(
+            "w",
+            prefix=f"caliper-{results.run.spec}-",
+            suffix=".json",
+            delete=False,
+        ) as kept:
+            kept.write(results.model_dump_json(indent=2))
+        saved_path = Path(kept.name)
     if output:
         try:
             output.parent.mkdir(parents=True, exist_ok=True)
@@ -428,4 +451,14 @@ def _save_and_report(
             console.print(f"[yellow]Could not write --output {output}: {exc}[/yellow]")
 
     print_results(results, verbose=verbose)
+    if not_saved is not None:
+        render(
+            CannotRun(
+                f"Could not save the run under the results root: {not_saved}\n\n"
+                f"It was written to {saved_path} instead.",
+                title="Run not saved",
+            )
+        )
+        return False
     console.print(f"[dim]Results saved to {saved_path}[/dim]")
+    return True

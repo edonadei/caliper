@@ -63,6 +63,10 @@ class UnreadableRun(Exception):
         self.cause = cause
 
 
+class UnusableResultsRoot(Exception):
+    """Something other than a directory sits where runs are filed."""
+
+
 @dataclass(frozen=True)
 class RunStore:
     """The saved runs under one root directory."""
@@ -113,6 +117,19 @@ class RunStore:
     @property
     def results_dir(self) -> Path:
         return self.caliper_dir / RESULTS_DIR
+
+    def check(self) -> None:
+        """Raise :class:`UnusableResultsRoot` when runs cannot be filed here.
+
+        Asked before a run's first attempt, so the attempts are not paid for
+        only for the save to fail.
+        """
+        for path in (self.caliper_dir, self.results_dir):
+            if path.exists() and not path.is_dir():
+                raise UnusableResultsRoot(
+                    f"{path} is not a directory, so caliper cannot file runs "
+                    f"under {self.root}.\n\nMove or delete it, then retry."
+                )
 
     def spec_dir(self, spec: str) -> Path:
         """Where this spec's runs are filed. May not exist yet."""
@@ -177,6 +194,7 @@ class RunStore:
         """
         if not is_usable_spec_name(results.run.spec):
             raise ValueError(f"cannot file a run under spec name {results.run.spec!r}")
+        self.check()
         out_dir = self.spec_dir(results.run.spec)
         out_dir.mkdir(parents=True, exist_ok=True)
         payload = results.model_dump_json(indent=2)
@@ -243,6 +261,7 @@ class RunStore:
         answers "what can I report on", and a name with nothing behind it is a
         row that leads nowhere.
         """
+        self.check()
         if not self.results_dir.exists():
             return []
         return sorted(

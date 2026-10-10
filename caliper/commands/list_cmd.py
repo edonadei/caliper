@@ -10,7 +10,7 @@ from rich.table import Table
 
 from caliper.commands.diagnosis import BadInput, fail
 from caliper.reporter import RULE_GLYPH, UNUSABLE_GLYPH
-from caliper.runstore import RunStore, UnreadableRun
+from caliper.runstore import RunStore, UnreadableRun, UnusableResultsRoot
 from caliper.schema.results import RunResults
 
 console = Console()
@@ -81,6 +81,10 @@ def list_cmd_fn(
     # that pointed the listing at a root `report` and `compare` could not follow
     # was the asymmetry discovery removes. To read another project, work from it.
     store = RunStore.discover()
+    try:
+        store.check()
+    except UnusableResultsRoot as exc:
+        fail(exc)
 
     if spec:
         _list_runs(store, store.spec_ref(spec))
