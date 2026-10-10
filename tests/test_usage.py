@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
+import pytest
+from pydantic import ValidationError
+
 from caliper.compare import diff_runs
 from caliper.harness.base import ProcessResult, RunContext
 from caliper.harness.claude_code import ClaudeCodeHarness
@@ -473,3 +476,12 @@ def test_print_comparison_renders_usage_rows(capsys) -> None:
     out = capsys.readouterr().out
     assert "Tokens" in out
     assert "Wall" in out
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens"],
+)
+def test_a_negative_token_count_is_refused(field):
+    with pytest.raises(ValidationError):
+        TokenUsage(**{field: -1})
