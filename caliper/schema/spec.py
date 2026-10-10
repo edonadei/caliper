@@ -292,6 +292,18 @@ class EvalSpec(BaseModel):
                     "unique, because `compare` matches tasks across runs by name"
                 )
             seen.add(task.name)
+        # Attempts are filed by task id, so two tasks sharing one would pool
+        # their attempts. A caller building tasks directly gets the ids the
+        # loader assigns.
+        value = [
+            task if task.id else task.model_copy(update={"id": f"task-{i:03d}"})
+            for i, task in enumerate(value, 1)
+        ]
+        ids: set[str] = set()
+        for task in value:
+            if task.id in ids:
+                raise ValueError(f"two tasks have the id {task.id!r}")
+            ids.add(task.id)
         return value
 
 
