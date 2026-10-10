@@ -181,6 +181,7 @@ _BROKEN_SPECS = {
     "missing-assert": "tasks:\n  - name: t\n    prompt: p\n    assert: ./nope.py\n",
     "unknown-sandbox-key": "sandbox:\n  forbiden_files: ['x']\n" + _TASK,
     "unknown-key": "tasks:\n  - name: t\n    prompt: p\n    expect: ok\n    asert: x\n",
+    "markup-key": "tasks:\n  - name: t\n    prompt: p\n    expect: ok\n    a[/b]: x\n",
 }
 
 

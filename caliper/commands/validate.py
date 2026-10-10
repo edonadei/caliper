@@ -118,5 +118,5 @@ def _format_validation_errors(exc: ValidationError) -> str:
     lines = []
     for err in exc.errors():
         loc = f" {ARROW} ".join(str(p) for p in err["loc"])
-        lines.append(f"  [dim]{loc}[/dim]  {err['msg']}")
+        lines.append(f"  {loc}  {err['msg']}")
     return "\n".join(lines)
