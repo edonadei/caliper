@@ -181,6 +181,8 @@ _BROKEN_SPECS = {
     "missing-assert": "tasks:\n  - name: t\n    prompt: p\n    assert: ./nope.py\n",
     "unknown-sandbox-key": "sandbox:\n  forbiden_files: ['x']\n" + _TASK,
     "unknown-key": "tasks:\n  - name: t\n    prompt: p\n    expect: ok\n    asert: x\n",
+    "blank-assert": "tasks:\n  - name: t\n    prompt: p\n    assert: '   '\n",
+    "blank-expect": "tasks:\n  - name: t\n    prompt: p\n    expect: '  '\n",
 }
 
 
@@ -296,4 +298,13 @@ def test_task_names_must_be_unique(tmp_path) -> None:
         "  - {name: a, prompt: y, assert: assert True}\n"
     )
     with pytest.raises(ValidationError, match="two tasks are named 'a'"):
+        load_spec(_write(tmp_path, text))
+
+
+@pytest.mark.parametrize("key", ["assert", "expect"])
+def test_a_blank_check_is_refused_even_beside_a_real_one(tmp_path, key) -> None:
+    """A blank check would pass vacuously, or ask the judge about nothing."""
+    other = "expect: ok" if key == "assert" else "assert: assert True"
+    text = f"tasks:\n  - name: t\n    prompt: p\n    {other}\n    {key}: '  '\n"
+    with pytest.raises(ValidationError, match=f"`{key}:` is blank"):
         load_spec(_write(tmp_path, text))

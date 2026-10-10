@@ -63,7 +63,8 @@ tasks:
     activates: []                 # nothing should fire
 ```
 
-Each task needs at least one of `expect`, `assert` or `activates`. A spec needs
+Each task needs at least one of `expect`, `assert` or `activates`, and a blank
+`expect:` or `assert:` is refused rather than passing vacuously. A spec needs
 at least one task, and task names must be unique: `caliper compare` matches
 tasks across runs by name. Task IDs are assigned automatically as `task-001`,
 `task-002`, and so on.

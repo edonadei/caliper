@@ -80,6 +80,18 @@ class TaskSpec(BaseModel):
     # without a word.
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
+    @field_validator("expect", "assert_script")
+    @classmethod
+    def refuse_a_blank_check(
+        cls, value: str | None, info: ValidationInfo
+    ) -> str | None:
+        # A blank assert runs no code and passes; a blank expect asks the judge
+        # about nothing. Either would also satisfy the at-least-one-check rule.
+        if value is not None and not value.strip():
+            key = "assert" if info.field_name == "assert_script" else "expect"
+            raise ValueError(f"`{key}:` is blank: give it a check or remove it")
+        return value
+
     @field_validator("assert_script")
     @classmethod
     def check_assert_script_exists(

@@ -164,7 +164,7 @@ def test_direct_verdict_has_no_autorater_script(attempt_workdir) -> None:
 def test_eval_judge_assert_only_runs_script_no_llm(tmp_path, attempt_workdir) -> None:
     judge = EvalJudge(backend="codex")
     result = judge.evaluate(
-        task=_task(expect="", assert_script="assert 1 == 1"),
+        task=_task(expect=None, assert_script="assert 1 == 1"),
         transcript=[],
         workdir=attempt_workdir,
     )
@@ -179,7 +179,7 @@ def test_eval_judge_assert_failure_makes_overall_fail(
 ) -> None:
     judge = EvalJudge(backend="codex")
     result = judge.evaluate(
-        task=_task(expect="", assert_script="assert False, 'nope'"),
+        task=_task(expect=None, assert_script="assert False, 'nope'"),
         transcript=[],
         workdir=attempt_workdir,
     )
@@ -720,7 +720,7 @@ def test_assert_script_file_resolves_from_spec_dir_and_runs_in_workdir(
     Path(attempt_workdir.path, "out.txt").write_text("banana")
 
     result = EvalJudge().evaluate(
-        task=_task(expect="", assert_script="./check.py"),
+        task=_task(expect=None, assert_script="./check.py"),
         transcript=[],
         workdir=attempt_workdir,
     )
@@ -751,7 +751,7 @@ def test_an_assertion_that_hangs_has_no_verdict(attempt_workdir, monkeypatch) ->
     # A check that hung did not show the agent failed (docs/adr/0029).
     monkeypatch.setitem(_STEP_TIMEOUTS, "assert", 1)
     result = EvalJudge().evaluate(
-        task=_task(expect="", assert_script="import time\ntime.sleep(30)"),
+        task=_task(expect=None, assert_script="import time\ntime.sleep(30)"),
         transcript=[],
         workdir=attempt_workdir,
     )
@@ -791,7 +791,7 @@ def test_an_assert_script_beside_the_autorater_is_not_judge_time(
 def test_an_assert_only_task_records_no_autorater_time(attempt_workdir) -> None:
     harness = _verdict(True)
     result = EvalJudge(backend="codex", harness=harness).evaluate(
-        task=_task(expect="", assert_script="assert True"),
+        task=_task(expect=None, assert_script="assert True"),
         transcript=[],
         workdir=attempt_workdir,
     )
