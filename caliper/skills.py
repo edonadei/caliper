@@ -184,8 +184,18 @@ def resolve_skills(
             )
         if not path.exists():
             raise SkillResolutionError(f"skill '{raw}' does not exist: {path}")
+        if not path.is_file():
+            raise SkillResolutionError(f"skill '{raw}' is not a file: {path}")
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise SkillResolutionError(
+                f"{path} is not UTF-8 text ({exc.reason} at byte {exc.start})."
+            ) from exc
+        except OSError as exc:
+            raise SkillResolutionError(f"cannot read {path}: {exc.strerror}") from exc
 
-        name = frontmatter_name(path.read_text())
+        name = frontmatter_name(text)
         if not name:
             raise SkillResolutionError(
                 f"{path} has no frontmatter name:.\n"
