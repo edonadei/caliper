@@ -7,6 +7,7 @@ and docs/CONTEXT.md → Skill source, Skill drift.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -219,6 +220,77 @@ def test_a_hex_named_branch_is_resolved_not_assumed_to_be_a_commit(
 
     assert fetched is not None
     assert fetched.sha == _head(origin)
+
+
+def test_an_annotated_tag_records_the_commit_it_points_at(tmp_path: Path, origin: Path):
+    """Not the tag object: the recorded sha must be what was checked out."""
+    _git("tag", "-a", "v1", "-m", "release", cwd=origin)
+
+    fetched = SkillFetcher(cache_dir=tmp_path / "cache").materialize(
+        GitSkillSource(repo=str(origin), ref="v1")
+    )
+
+    assert fetched.sha == _head(origin)
+    assert _git("rev-parse", "HEAD", cwd=fetched.checkout) == fetched.sha
+
+
+def test_a_hex_branch_named_after_a_cached_commit_is_still_resolved(
+    tmp_path: Path, origin: Path
+):
+    """A cached checkout under ``abcdef1…`` does not make ``ref: abcdef1`` a pin."""
+    cache = tmp_path / "cache"
+    first = SkillFetcher(cache_dir=cache).materialize(
+        GitSkillSource(repo=str(origin), ref="main")
+    )
+    _write_skill(origin, "tdd", SKILL_BODY.format(name="tdd") + "\nv2\n")
+    _git("commit", "-qam", "second", cwd=origin)
+    _git("branch", first.sha[:7], cwd=origin)
+
+    fetched = SkillFetcher(cache_dir=cache).materialize(
+        GitSkillSource(repo=str(origin), ref=first.sha[:7])
+    )
+
+    assert fetched.sha == _head(origin)
+    assert "v2" in fetched.path.read_text()
+
+
+def test_a_short_pin_is_served_from_cache_once_known_to_be_a_commit(
+    tmp_path: Path, origin: Path
+):
+    cache = tmp_path / "cache"
+    full = (
+        SkillFetcher(cache_dir=cache)
+        .materialize(GitSkillSource(repo=str(origin), ref="main"))
+        .sha
+    )
+    src = GitSkillSource(repo=str(origin), ref=full[:7])
+    assert SkillFetcher(cache_dir=cache).materialize(src).sha == full
+
+    origin.rename(tmp_path / "origin-gone")
+    fetcher = SkillFetcher(cache_dir=cache)
+
+    assert fetcher.materialize(src).sha == full
+    assert not fetcher.warnings
+
+
+def test_concurrent_cold_fetches_of_one_commit_all_succeed(
+    tmp_path: Path, origin: Path
+):
+    """Separate runs share the cache, so two may clone the same commit at once."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    cache = tmp_path / "cache"
+    src = GitSkillSource(repo=str(origin), ref="main")
+
+    def fetch(_):
+        return SkillFetcher(cache_dir=cache).materialize(src)
+
+    for _ in range(3):
+        shutil.rmtree(cache, ignore_errors=True)
+        with ThreadPoolExecutor(6) as pool:
+            fetched = list(pool.map(fetch, range(6)))
+        assert {f.sha for f in fetched} == {_head(origin)}
+        assert all(f.path.is_file() for f in fetched)
 
 
 def test_a_warning_is_pushed_out_as_it_happens(tmp_path: Path, origin: Path):

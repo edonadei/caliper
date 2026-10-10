@@ -33,6 +33,7 @@ import typer
 from pydantic import ValidationError
 from rich.console import Console
 from rich.panel import Panel
+from rich.text import Text
 
 from caliper.compare import IncomparableRunsError
 from caliper.harness.base import HarnessConfigurationError, LoginRequired
@@ -162,14 +163,17 @@ def fail(exc: Exception) -> NoReturn:
 def render(exc: Exception) -> ExitCode:
     """Show ``exc`` as :func:`fail` does, and return the code it exits with."""
     diagnosis = diagnose(exc)
+    # Plain text, not markup: a body quotes user input, and a key or path
+    # holding ``[/x]`` would otherwise crash the renderer.
+    body = Text(diagnosis.body)
     if diagnosis.title:
         console.print(
             Panel(
-                diagnosis.body,
+                body,
                 title=f"[bold red]{diagnosis.title}[/bold red]",
                 border_style="red",
             )
         )
     else:
-        console.print(f"[bold red]Error:[/bold red] {diagnosis.body}")
+        console.print(Text.assemble(("Error:", "bold red"), " ", body))
     return diagnosis.code

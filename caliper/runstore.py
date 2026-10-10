@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from caliper.schema.results import RunResults
-from caliper.schema.spec import spec_name
+from caliper.schema.spec import is_usable_spec_name, spec_name
 
 #: Caliper's own directory, and the marker that says "a results root is here".
 CALIPER_DIR = ".caliper"
@@ -192,6 +192,8 @@ class RunStore:
         what says the sample is short, and nothing about the file's location or
         name marks it (see ``_save_and_report``).
         """
+        if not is_usable_spec_name(results.run.spec):
+            raise ValueError(f"cannot file a run under spec name {results.run.spec!r}")
         self.check()
         out_dir = self.spec_dir(results.run.spec)
         out_dir.mkdir(parents=True, exist_ok=True)
