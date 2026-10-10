@@ -103,6 +103,7 @@ def resolve_skills(
     spec_dir: Path,
     *,
     fetcher: SkillFetcher | None = None,
+    forbidden_files: list[str] | None = None,
 ) -> list[SkillRef]:
     """Turn a spec's ``skills:`` sources into named refs, or explain the refusal.
 
@@ -118,8 +119,13 @@ def resolve_skills(
     An offline ``fetcher`` (what ``validate`` passes) **skips** an uncached git
     source rather than raising, recording it on ``fetcher.unresolved`` — a
     schema check should not become a connectivity check.
+
+    ``forbidden_files`` is the spec's ``sandbox.forbidden_files``: a skill whose
+    own ``SKILL.md`` it would keep out of the install is refused, because the
+    agent could never discover it.
     """
     fetcher = fetcher or SkillFetcher()
+    sandbox = SpecSandbox(declared=list(forbidden_files or []))
     refs: list[SkillRef] = []
     seen: dict[str, Path] = {}
 
@@ -184,6 +190,13 @@ def resolve_skills(
                 f"{path} has an unusable frontmatter name: {name!r}.\n"
                 "The name becomes a directory component, so it must contain "
                 "only letters, digits, dot, dash or underscore."
+            )
+        if not _copies(path.parent, Path(path.name), sandbox):
+            raise SkillResolutionError(
+                f"{path}: this SKILL.md would not be installed, so the agent "
+                "could never discover the skill.\n"
+                f"It is over {_MAX_FILE_BYTES // (1024 * 1024)} MB or matched by "
+                "sandbox.forbidden_files."
             )
         if name in seen:
             raise SkillResolutionError(
@@ -427,15 +440,19 @@ def installed_files(directory: Path, sandbox: SpecSandbox) -> list[Path]:
         if not item.is_file():
             continue
         rel = item.relative_to(directory)
-        if not _installs(directory, rel, sandbox):
-            continue
-        try:
-            if item.stat().st_size > _MAX_FILE_BYTES:
-                continue
-        except OSError:
-            continue
-        files.append(rel)
+        if _copies(directory, rel, sandbox):
+            files.append(rel)
     return files
+
+
+def _copies(directory: Path, rel: Path, sandbox: SpecSandbox) -> bool:
+    """Whether an install copies the file at ``directory / rel``."""
+    if not _installs(directory, rel, sandbox):
+        return False
+    try:
+        return (directory / rel).stat().st_size <= _MAX_FILE_BYTES
+    except OSError:
+        return False
 
 
 def _installs(directory: Path, rel: Path, sandbox: SpecSandbox) -> bool:

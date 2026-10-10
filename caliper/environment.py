@@ -164,7 +164,10 @@ def resolve_environment(
     # Resolve the neighbourhood up front: a bad entry (a lone .md, a missing
     # frontmatter name:, a duplicate) should fail before any paid attempt.
     declared_refs = resolve_skills(
-        list(spec.skills), spec_path.parent, fetcher=fetcher or SkillFetcher()
+        list(spec.skills),
+        spec_path.parent,
+        fetcher=fetcher or SkillFetcher(),
+        forbidden_files=spec.sandbox.forbidden_files,
     )
     # Validated against the *declared* set, not the installed one: under
     # --ablate an `activates:` naming the removed skill has its expectation
