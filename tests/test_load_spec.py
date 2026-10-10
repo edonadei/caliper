@@ -189,6 +189,7 @@ _BROKEN_SPECS = {
     "duplicate-tasks": _TASK + _TASK,
     "blank-assert": "tasks:\n  - name: t\n    prompt: p\n    assert: '   '\n",
     "blank-expect": "tasks:\n  - name: t\n    prompt: p\n    expect: '  '\n",
+    "markup-key": "tasks:\n  - name: t\n    prompt: p\n    expect: ok\n    a[/b]: x\n",
 }
 
 
