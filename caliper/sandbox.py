@@ -41,6 +41,11 @@ from caliper.runstore import CALIPER_DIR, RESULTS_DIR
 # How deep into an agent-supplied ``tool_input`` the scan walks. The input is
 # arbitrary JSON the agent wrote, so the walk is bounded rather than trusted.
 _MAX_DEPTH = 5
+# Keys a tool names its file or command under, across backends. Every string
+# beneath one is a candidate, so ``cat SECRET`` is scanned like ``./SECRET``.
+_PATH_KEYS = frozenset(
+    {"path", "paths", "file", "file_path", "filename", "command", "cmd"}
+)
 
 #: Any saved run, wherever it is filed — a real regex, unlike the ``auto``
 #: entries, and the only forbidden rule that is not a resolved path.
@@ -147,25 +152,32 @@ class SpecSandbox:
         ]
 
 
-def _paths_in(obj: object, depth: int = 0) -> list[str]:
+def _paths_in(
+    obj: object, depth: int = 0, *, under_path_key: bool = False
+) -> list[str]:
     """Every string in ``obj`` that could name a path.
 
-    A string qualifies on containing a ``/`` or a ``.`` — deliberately loose,
-    because a missed candidate is a missed cheat, while a false candidate only
-    reaches the patterns and fails to match.
+    A string qualifies on sitting under one of :data:`_PATH_KEYS`, or on
+    containing a ``/`` or a ``.`` — deliberately loose, because a missed
+    candidate is a missed cheat, while a false candidate only reaches the
+    patterns and fails to match.
     """
     if depth > _MAX_DEPTH:
         return []
     if isinstance(obj, str):
-        return [obj] if ("/" in obj or "." in obj) else []
+        return [obj] if (under_path_key or "/" in obj or "." in obj) else []
     if isinstance(obj, dict):
         found: list[str] = []
-        for value in obj.values():
-            found.extend(_paths_in(value, depth + 1))
+        for key, value in obj.items():
+            found.extend(
+                _paths_in(
+                    value, depth + 1, under_path_key=str(key).lower() in _PATH_KEYS
+                )
+            )
         return found
     if isinstance(obj, list):
         found = []
         for item in obj:
-            found.extend(_paths_in(item, depth + 1))
+            found.extend(_paths_in(item, depth + 1, under_path_key=under_path_key))
         return found
     return []

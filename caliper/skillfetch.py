@@ -20,6 +20,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -169,7 +170,7 @@ class SkillFetcher:
             return cached, False
 
         if self.offline:
-            remembered = self._remembered(src)
+            remembered = self._remembered(src) or self._cached_prefix(src)
             return (remembered, remembered is not None)
 
         try:
@@ -178,16 +179,19 @@ class SkillFetcher:
             # The remote answered and has no such ref. A commit-shaped ref is
             # then exactly what it looks like — asking the remote first (rather
             # than assuming) is what keeps a hex-named *branch* from being
-            # silently pinned as though it were a commit.
+            # silently pinned as though it were a commit. Remembered, so the
+            # cache answers for it from now on.
             if src.ref and _SHA_RE.match(src.ref):
-                return src.ref, False
+                sha = self._cached_prefix(src) or src.ref
+                self._remember(src, sha)
+                return sha, False
             raise
         except SkillFetchError as exc:
             # The remote is unreachable. A cached commit for this ref is fully
             # auditable — it lands in the run's snapshot and `compare` reports
             # the drift — so serving it beats blocking the local loop for a
             # network reason unrelated to what is being measured (ADR 0017).
-            remembered = self._remembered(src)
+            remembered = self._remembered(src) or self._cached_prefix(src)
             if remembered is not None:
                 return remembered, True
             raise SkillFetchError(
@@ -206,14 +210,30 @@ class SkillFetcher:
         "a pinned entry is offline once fetched", and it must run *before* the
         offline check so a pinned entry never reaches the network at all.
 
-        The prefix scan lets ``ref: a1b2c3d`` hit a checkout stored under its
-        full commit.
+        A full commit answers from its checkout. A short one answers only once
+        the remote has confirmed it names no branch or tag (the memo then holds
+        the commit it expands to): a hex-named branch can share its name with
+        the prefix of a commit already cached.
+        """
+        if not (src.ref and _SHA_RE.match(src.ref)):
+            return None
+        if len(src.ref) == 40:
+            exact = self._checkout_dir(src.repo, src.ref)
+            return src.ref if (exact / ".git").exists() else None
+        remembered = self._remembered(src)
+        if remembered is not None and remembered.startswith(src.ref):
+            return remembered
+        return None
+
+    def _cached_prefix(self, src: GitSkillSource) -> str | None:
+        """A cached checkout whose commit starts with this commit-shaped ref.
+
+        ``git fetch`` cannot fetch an abbreviated commit, so ``ref: a1b2c3d``
+        is served from a checkout stored under its full commit.
         """
         if not (src.ref and _SHA_RE.match(src.ref)):
             return None
         repo_dir = self._repo_dir(src.repo)
-        if (repo_dir / src.ref / ".git").exists():
-            return src.ref
         if repo_dir.is_dir():
             for child in sorted(repo_dir.iterdir()):
                 if child.name.startswith(src.ref) and (child / ".git").exists():
@@ -222,12 +242,24 @@ class SkillFetcher:
 
     def _ls_remote(self, src: GitSkillSource) -> str:
         ref = src.ref or "HEAD"
-        out = self._git("ls-remote", self.clone_url(src.repo), ref)
+        # ``ref^{}`` too: a pattern of ``ref`` alone omits a tag's peeled line.
+        out = self._git("ls-remote", self.clone_url(src.repo), ref, f"{ref}^{{}}")
+        shas = {}
         for line in out.splitlines():
             sha, _, name = line.partition("\t")
-            if name.strip() in (ref, f"refs/heads/{ref}", f"refs/tags/{ref}"):
-                self._remember(src, sha.strip())
-                return sha.strip()
+            shas[name.strip()] = sha.strip()
+        # An annotated tag lists the tag object and then, peeled (``^{}``), the
+        # commit it points at. The commit is what gets checked out, so it is
+        # what the run records.
+        for name in (
+            ref,
+            f"refs/heads/{ref}",
+            f"refs/tags/{ref}^{{}}",
+            f"refs/tags/{ref}",
+        ):
+            if name in shas:
+                self._remember(src, shas[name])
+                return shas[name]
         if src.ref:
             raise _NoSuchRef(
                 f"{self._label(src)}: the remote has no ref '{src.ref}'.\n\n"
@@ -241,18 +273,28 @@ class SkillFetcher:
 
         ``init`` + ``fetch <sha>`` rather than ``clone --branch``: one code path
         serves a branch, a tag and a commit, and all three stay shallow.
+
+        Built in a private directory and renamed into place: a half-written
+        checkout would be indistinguishable from a good one, since the cache key
+        is the commit, and separate runs share the cache, so another process
+        may be cloning the same commit at the same moment.
         """
-        dest.mkdir(parents=True, exist_ok=True)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        staging = Path(tempfile.mkdtemp(prefix=f".{dest.name}-", dir=dest.parent))
         try:
-            self._git("init", "-q", cwd=dest)
-            self._git("remote", "add", "origin", self.clone_url(src.repo), cwd=dest)
-            self._git("fetch", "-q", "--depth", "1", "origin", sha, cwd=dest)
-            self._git("checkout", "-q", "FETCH_HEAD", cwd=dest)
-        except SkillFetchError:
-            # A half-written checkout would be indistinguishable from a good one
-            # on the next run, since the cache key is the commit.
-            shutil.rmtree(dest, ignore_errors=True)
-            raise
+            self._git("init", "-q", cwd=staging)
+            self._git("remote", "add", "origin", self.clone_url(src.repo), cwd=staging)
+            self._git("fetch", "-q", "--depth", "1", "origin", sha, cwd=staging)
+            self._git("checkout", "-q", "FETCH_HEAD", cwd=staging)
+            try:
+                staging.rename(dest)
+            except OSError:
+                # Another process published this commit first: its checkout is
+                # the same bytes.
+                if not (dest / ".git").exists():
+                    raise
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
 
     # ── the ref → commit memo ────────────────────────────────────────────────
     #
