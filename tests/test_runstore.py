@@ -33,6 +33,15 @@ def test_save_round_trips_through_load(tmp_path) -> None:
     assert store.load(saved).run.spec == "my-skill"
 
 
+@pytest.mark.parametrize("spec", ["", ".", "..", "../outside", "a/b"])
+def test_save_refuses_a_spec_name_that_is_not_one_directory(tmp_path, spec) -> None:
+    """Such a name files the run beside, or outside, every spec's directory."""
+    with pytest.raises(ValueError, match="spec name"):
+        RunStore(tmp_path).save(_results(spec))
+
+    assert not (tmp_path / ".caliper").exists()
+
+
 def test_save_files_a_run_under_its_spec(tmp_path) -> None:
     store = RunStore(tmp_path)
     saved = store.save(_results("my-skill"))

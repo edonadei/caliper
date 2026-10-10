@@ -891,3 +891,64 @@ def test_only_the_foreground_job_is_asked(monkeypatch, terminal_group, asks) -> 
     monkeypatch.setattr("os.tcgetpgrp", lambda _fd: terminal_group)
 
     assert run_module._interactive() is asks
+
+
+def _results_root_is_a_file(tmp_path, monkeypatch) -> None:
+    (tmp_path / ".caliper").mkdir()
+    (tmp_path / ".caliper" / "results").write_text("")
+    monkeypatch.chdir(tmp_path)
+
+
+def test_run_refuses_an_unusable_results_root_before_any_attempt(
+    monkeypatch, tmp_path
+) -> None:
+    """Otherwise every attempt is paid for and then the save fails."""
+    spec_file = tmp_path / "sample.eval.yaml"
+    spec_file.write_text("tasks:\n  - name: One\n    prompt: Do it\n    assert: x\n")
+    _stub_a_run(monkeypatch, _finished(datetime(2026, 7, 3, tzinfo=timezone.utc)))
+
+    def no_run(**kwargs):
+        raise AssertionError("ran with an unusable results root")
+
+    monkeypatch.setattr("caliper.commands.run.run", no_run)
+    _results_root_is_a_file(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["run", str(spec_file)])
+
+    assert result.exit_code == 2, result.output
+    assert "Cannot save runs" in result.output
+
+
+def test_a_run_whose_save_fails_is_kept_elsewhere(monkeypatch, tmp_path) -> None:
+    spec_file = tmp_path / "sample.eval.yaml"
+    spec_file.write_text("tasks:\n  - name: One\n    prompt: Do it\n    assert: x\n")
+    _stub_a_run(monkeypatch, _finished(datetime(2026, 7, 3, tzinfo=timezone.utc)))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
+    (tmp_path / "tmp").mkdir()
+    monkeypatch.setattr("tempfile.tempdir", None)
+
+    def disk_full(self, results):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr("caliper.runstore.RunStore.save", disk_full)
+
+    result = runner.invoke(app, ["run", str(spec_file)])
+
+    assert result.exit_code == 2, result.output
+    assert "Run not saved" in result.output
+    kept = list((tmp_path / "tmp").glob("caliper-sample-*.json"))
+    assert len(kept) == 1
+    assert RunResults.model_validate_json(kept[0].read_text()).run.spec == "sample"
+
+
+@pytest.mark.parametrize("argv", [["list"], ["report", "sample"]])
+def test_reading_commands_diagnose_an_unusable_results_root(
+    monkeypatch, tmp_path, argv
+) -> None:
+    _results_root_is_a_file(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, argv)
+
+    assert result.exit_code == 2, result.output
+    assert "Cannot save runs" in result.output

@@ -322,6 +322,16 @@ def _exchange(
                 )
                 continue
             if response.get("id") == request["id"]:
+                # What the agents' JSON-RPC clients drop: either way the agent
+                # would never see this answer. ``error: null`` beside a result
+                # is let through, as codex accepts it.
+                if response.get("jsonrpc") != "2.0" or (
+                    "result" in response and response.get("error") is not None
+                ):
+                    raise HarnessConfigurationError(
+                        f"MCP server '{name}' sent an invalid response to "
+                        f"{request['method']}"
+                    )
                 return response
 
     return _bounded(
@@ -353,6 +363,17 @@ def _list_tools(
         or (meta is not None and "error" in response)
     ):
         raise HarnessConfigurationError(f"MCP server '{name}' did not list tools")
+    # The agents' MCP clients refuse a tool without these, so it would never
+    # reach the agent.
+    if not all(
+        isinstance(tool, dict)
+        and isinstance(tool.get("name"), str)
+        and isinstance(tool.get("inputSchema"), dict)
+        for tool in result["tools"]
+    ):
+        raise HarnessConfigurationError(
+            f"MCP server '{name}' listed a tool without a name and inputSchema"
+        )
     return result
 
 

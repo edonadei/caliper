@@ -10,11 +10,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from caliper.backends import DEFAULT_BACKEND, VALID_BACKENDS
 from caliper.commands.diagnosis import CannotRun
 from caliper.harness import get_harness
 from caliper.harness.base import HarnessBackend
 from caliper.judge import EvalJudge
-from caliper.schema.spec import DEFAULT_BACKEND, VALID_BACKENDS, EvalSpec, parse_target
+from caliper.schema.spec import EvalSpec, parse_target
 
 
 @dataclass(frozen=True)

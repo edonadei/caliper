@@ -8,7 +8,7 @@ from rich.console import Console
 
 from caliper.commands.diagnosis import BadInput, fail
 from caliper.reporter import print_results
-from caliper.runstore import RunStore, UnreadableRun
+from caliper.runstore import RunStore, UnreadableRun, UnusableResultsRoot
 
 console = Console()
 
@@ -36,6 +36,10 @@ def report_cmd(
     store = RunStore.discover()
     results_path = store.resolve(spec_or_file, run)
     if results_path is None:
+        try:
+            store.check()
+        except UnusableResultsRoot as exc:
+            fail(exc)
         fail(BadInput(store.no_results(spec_or_file)))
 
     try:
