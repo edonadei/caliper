@@ -42,7 +42,7 @@ _MAX_FILE_BYTES = 5 * 1024 * 1024
 _FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---", re.DOTALL)
 _NAME_RE = re.compile(r"^name:\s*(.+?)\s*$", re.MULTILINE)
 # A name becomes a directory component, so it must not traverse or nest.
-_SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_SAFE_NAME_RE = re.compile(r"[A-Za-z0-9._-]+")
 
 
 class SkillResolutionError(ValueError):
@@ -179,7 +179,7 @@ def resolve_skills(
                 "name the spec wrote. Without it nothing can match an "
                 "activation to a skills: entry."
             )
-        if not _SAFE_NAME_RE.match(name) or name in (".", ".."):
+        if not _SAFE_NAME_RE.fullmatch(name) or name in (".", ".."):
             raise SkillResolutionError(
                 f"{path} has an unusable frontmatter name: {name!r}.\n"
                 "The name becomes a directory component, so it must contain "
