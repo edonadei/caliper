@@ -75,6 +75,19 @@ def test_lone_slash_command_file_is_rejected(tmp_path):
     assert "install" in str(exc.value).lower()
 
 
+def test_a_skill_md_that_is_a_directory_is_rejected(tmp_path):
+    (tmp_path / "a" / "SKILL.md").mkdir(parents=True)
+    with pytest.raises(SkillResolutionError, match="is not a file"):
+        resolve_skills(["./a/SKILL.md"], tmp_path)
+
+
+def test_a_skill_md_that_is_not_utf8_is_rejected(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a" / "SKILL.md").write_bytes(b"---\nname: a\n---\n\xff\xfe\n")
+    with pytest.raises(SkillResolutionError, match="UTF-8"):
+        resolve_skills(["./a/SKILL.md"], tmp_path)
+
+
 def test_skill_without_frontmatter_name_is_rejected(tmp_path):
     (tmp_path / "nameless").mkdir()
     (tmp_path / "nameless" / "SKILL.md").write_text("---\ndescription: x\n---\nbody")
