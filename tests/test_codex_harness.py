@@ -4,6 +4,7 @@ import io
 import json
 import os
 import subprocess
+from pathlib import Path
 
 try:
     import tomllib
@@ -20,7 +21,6 @@ from caliper.harness.base import (
     RunContext,
 )
 from caliper.harness.codex import NO_ACCOUNT_CONNECTORS, CodexHarness
-from caliper.harness.prompt_failure import PromptFailureKind
 from caliper.harness.user_layer import UNLISTED_MCP
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
@@ -426,36 +426,45 @@ def test_codex_with_a_lapsed_login_names_its_login_command(
         ("synthetic error without a marker", "codex judge exited 7"),
     ],
 )
-def test_codex_read_last_message_classifies_nonzero_exit_as_failure(
-    tmp_path, stderr, expected_message
+def test_codex_judge_reports_a_nonzero_exit_as_its_error(
+    monkeypatch, tmp_path, stderr, expected_message
 ) -> None:
-    proc = ProcessResult(
-        stdout="synthetic partial output",
-        stderr=stderr,
-        returncode=7,
-        timed_out=False,
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "codex")
+    monkeypatch.setattr(
+        "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )
+    monkeypatch.delenv("CODEX_CLI_PATH", raising=False)
 
-    result = CodexHarness()._read_last_message(
-        proc, "test-model", tmp_path / "missing-output.txt", "prompt"
-    )
+    def fake_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 7, stdout="synthetic partial output", stderr=stderr
+        )
 
-    assert result.failure is not None
-    assert result.failure.kind is PromptFailureKind.OTHER
-    assert result.error == result.failure.message
-    assert result.failure.message == expected_message
+    patch_cli_calls(monkeypatch, fake_run)
+
+    result = CodexHarness(model="test-model").run_prompt("prompt", cwd=str(tmp_path))
+
+    assert result.error == expected_message
+    assert result.refusal is None
     assert result.resolved_model == "test-model"
     assert result.text == ""
 
 
-def test_codex_read_last_message_leaves_success_unclassified(tmp_path) -> None:
-    output_path = tmp_path / "last-message.txt"
-    output_path.write_text("42\n")
-    proc = ProcessResult(stdout="", stderr="", returncode=0, timed_out=False)
+def test_codex_judge_answers_from_its_last_message_file(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "codex")
+    monkeypatch.setattr(
+        "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
+    )
+    monkeypatch.delenv("CODEX_CLI_PATH", raising=False)
 
-    result = CodexHarness()._read_last_message(proc, "gpt-5", output_path, "prompt")
+    def fake_run(cmd, **kwargs):
+        Path(cmd[cmd.index("--output-last-message") + 1]).write_text("42\n")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-    assert result.failure is None
+    patch_cli_calls(monkeypatch, fake_run)
+
+    result = CodexHarness(model="gpt-5").run_prompt("prompt", cwd=str(tmp_path))
+
     assert result.error is None
     assert result.text == "42"
 
@@ -472,9 +481,9 @@ def test_codex_read_last_message_decodes_utf8_under_a_non_utf8_locale(
     output_path.write_bytes("Verdict: réussi ✓\n".encode())
     proc = ProcessResult(stdout="", stderr="", returncode=0, timed_out=False)
 
-    result = CodexHarness()._read_last_message(proc, "gpt-5", output_path, "prompt")
+    report = CodexHarness()._read_last_message(proc, output_path, "prompt")
 
-    assert result.text == "Verdict: réussi ✓"
+    assert report.answer == "Verdict: réussi ✓"
 
 
 _AMBIENT_CONFIG = (

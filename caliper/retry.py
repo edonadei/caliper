@@ -15,6 +15,10 @@ docs/adr/0019-an-attempt-may-be-invoked-more-than-once.md.
 A spending cap is deliberately *not* retried here: it does not clear inside a
 run, so it raises :class:`SpendingCapReached` and the runner stops the whole run
 rather than spending every remaining attempt on the same wall.
+
+The judge's bare prompt goes through the same loop
+(:func:`invoke_through_throttles`), so a throttle or a cap at the judge gets the
+response an attempt's does (docs/adr/0030).
 """
 
 from __future__ import annotations
@@ -22,11 +26,14 @@ from __future__ import annotations
 import random
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from typing import TypeVar
 
 from caliper import cancel
 from caliper.harness.base import AttemptResult
-from caliper.harness.refusal import RefusalKind
+from caliper.harness.refusal import CliRefusal, RefusalKind
 from caliper.schema.results import TokenUsage
+
+_Result = TypeVar("_Result")
 
 
 class SpendingCapReached(RuntimeError):
@@ -135,22 +142,35 @@ def invoke_with_retry(
     agent that *wrote about* rate limits: the harness reads a refusal only from
     what the CLI said (docs/adr/0030).
     """
+    # A timeout is never a retry or an abort, whatever its output happens to
+    # say. Checked explicitly rather than left to the refusal: a backend that
+    # returns partial output alongside a timeout would otherwise be respawned on
+    # the strength of text the agent wrote before it hung.
+    invocations = invoke_through_throttles(
+        invoke, lambda result: None if result.timed_out else result.refusal, policy
+    )
+    return RetriedInvocation(merge(invocations), retries=len(invocations) - 1)
+
+
+def invoke_through_throttles(
+    invoke: Callable[[], _Result],
+    refusal_of: Callable[[_Result], CliRefusal | None],
+    policy: RetryPolicy | None = None,
+) -> list[_Result]:
+    """Every invocation it took to get past a throttle, the last one last.
+
+    The loop an attempt and a judge call share, so the two respond to a refusal
+    alike: a throttle is retried up to the policy, and a spending cap raises
+    :class:`SpendingCapReached` before any wait.
+    """
     policy = policy or RetryPolicy()
-    invocations: list[AttemptResult] = []
+    invocations: list[_Result] = []
 
     for retry_index in range(policy.max_retries + 1):
         result = invoke()
         invocations.append(result)
 
-        # A timeout is never a retry or an abort, whatever its output happens to
-        # say. Checked explicitly rather than left to fall through the signal
-        # match: a backend that returns partial output alongside a timeout would
-        # otherwise be respawned on the strength of text the agent wrote before
-        # it hung.
-        if result.timed_out:
-            break
-
-        refusal = result.refusal
+        refusal = refusal_of(result)
         if refusal is not None and refusal.kind is RefusalKind.SPENDING_CAP:
             raise SpendingCapReached(
                 "The provider reports a spending cap or usage limit reached:\n\n"
@@ -165,4 +185,4 @@ def invoke_with_retry(
         if cancel.sleep_unless_stopped(policy.delay_for(retry_index)):
             break
 
-    return RetriedInvocation(merge(invocations), retries=len(invocations) - 1)
+    return invocations

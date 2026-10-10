@@ -23,7 +23,6 @@ from caliper.harness.base import (
     HarnessConfigurationError,
     ProcessResult,
     PromptCall,
-    PromptResult,
     RunContext,
     stream_events,
 )
@@ -322,34 +321,35 @@ class CodexHarness(CliHarness):
         return PromptCall(
             cmd,
             stdin=prompt,
-            read=lambda proc: self._read_last_message(proc, model, output_path, prompt),
+            read=lambda proc: self._read_last_message(proc, output_path, prompt),
             cleanup=lambda: output_path.unlink(missing_ok=True),
         )
 
-    def _prompt_cli_text(self, proc: ProcessResult, result: PromptResult) -> str:
+    def _prompt_cli_text(self, proc: ProcessResult, report: AgentReport) -> str:
         # Only the error line the reader picked out: `codex exec` echoes the
         # whole judge prompt to stderr, and the graded answer can say "401".
-        return result.error or ""
+        return "\n".join(report.cli_errors)
 
     def _read_last_message(
-        self, proc: ProcessResult, model: str | None, output_path: Path, prompt: str
-    ) -> PromptResult:
+        self, proc: ProcessResult, output_path: Path, prompt: str
+    ) -> AgentReport:
         raw = (
             output_path.read_text(encoding="utf-8").strip()
             if output_path.exists()
             else ""
         )
         raw = raw or proc.stdout.strip()
-        # codex echoes the prompt to stderr verbatim, and the graded answer
-        # inside it may hold an error line of its own.
-        stderr = proc.stderr.replace(prompt.strip(), "")
         if proc.returncode != 0:
+            # codex echoes the prompt to stderr verbatim, and the graded answer
+            # inside it may hold an error line of its own.
+            stderr = proc.stderr.replace(prompt.strip(), "")
             detail = _extract_codex_error(stderr) or _extract_codex_error(raw)
-            message = detail or f"codex judge exited {proc.returncode}"
-            return PromptResult.unclassified_failure(message, model)
-        # Codex doesn't surface the resolved model in this mode, so we can only
-        # report the one that was requested (None when its own default ran).
-        return PromptResult(text=raw, resolved_model=model, error=None)
+            return AgentReport(cli_errors=[detail] if detail else [])
+        # Codex doesn't surface the resolved model in this mode, so the caller
+        # reports the one that was requested (None when its own default ran).
+        if not raw:
+            return AgentReport()
+        return AgentReport(transcript=[ConversationTurn("assistant", raw)])
 
     def _materialize_config(
         self, ctx: RunContext, codex_home: Path, real_config: Path

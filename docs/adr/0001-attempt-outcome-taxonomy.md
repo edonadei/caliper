@@ -82,4 +82,5 @@ definitions.
   recording it as `infra_error` or `judge_error` per attempt would pay for each
   agent run only to discard it. The attempt that hit it is dropped, including
   any surviving `assert:` verdict, because the run is stopping anyway. A judge
-  auth failure or rate limit stays a per-attempt `judge_error`.
+  auth failure or rate limit stays a per-attempt `judge_error` (since amended:
+  see [0030](0030-a-cli-refusal-is-read-from-what-the-cli-wrote.md)).

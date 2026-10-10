@@ -7,7 +7,6 @@ import re
 import shutil
 import sys
 from collections.abc import Callable
-from dataclasses import replace
 from functools import partial
 from pathlib import Path
 
@@ -18,16 +17,10 @@ from caliper.harness.base import (
     HarnessConfigurationError,
     ProcessResult,
     PromptCall,
-    PromptResult,
     RunContext,
     stream_events,
 )
 from caliper.harness.mcp import merge_user_servers, resolve_servers
-from caliper.harness.prompt_failure import (
-    PromptFailure,
-    PromptFailureKind,
-    classify_claude_api_error_status,
-)
 from caliper.harness.refusal import ConfigSignal
 from caliper.schema.results import TokenUsage
 from caliper.skills import frontmatter_name
@@ -390,15 +383,15 @@ class ClaudeCodeHarness(CliHarness):
         self, proc: ProcessResult, report: AgentReport, cli_text: str
     ) -> str | None:
         # Read off the CLI's own result envelope, not the text: an agent can
-        # write about a 404 without being one. Same classification the judge's
-        # prompt path uses (issue #75, docs/adr/0001).
-        failure = report.cli_failure
-        if failure is not None and failure.kind is PromptFailureKind.MODEL_UNAVAILABLE:
+        # write about a 404 without being one. The attempt and the judge both
+        # get here (issue #75, docs/adr/0030).
+        if report.api_error_status == _MODEL_UNAVAILABLE_STATUS:
+            said = next(iter(report.cli_errors), cli_text)
             model_part = f" '{self._model}'" if self._model else ""
             return (
                 f"Claude Code cannot run the requested model{model_part}.\n\n"
                 "The Claude CLI returned:\n"
-                f"  {failure.message}\n\n"
+                f"  {said}\n\n"
                 "Pass `--model claude-code:<model>` with a model this account "
                 "can use, or `--model claude-code` for the CLI default, then "
                 "retry the eval."
@@ -474,26 +467,17 @@ class ClaudeCodeHarness(CliHarness):
             env["PATH"] = nvm_bin + os.pathsep + env.get("PATH", "")
         return env
 
-    def _prompt_output(self, proc: ProcessResult, model: str | None) -> PromptResult:
-        classified = _classify_claude_prompt_failure(proc.stdout, model)
-        if classified is not None:
-            return classified
-
-        # Unclassified errors still flow text through so the caller's verdict
-        # parse can report an unusable response (see PR #61).
-        text, resolved = _extract_verdict_and_model(proc.stdout, model)
-        return PromptResult(text=text, resolved_model=resolved, error=None)
-
-    def _prompt_cli_text(self, proc: ProcessResult, result: PromptResult) -> str:
-        # An ``is_error`` envelope is the CLI talking, whatever its status: a
-        # lapsed OAuth login carries none, so its text arrives as the answer.
-        # It stands in for ``result.error``, which only ever copies it.
-        try:
-            envelope = json.loads(proc.stdout.strip())
-        except json.JSONDecodeError:
-            envelope = None
-        error = _stream_error(envelope) if isinstance(envelope, dict) else None
-        return super()._prompt_cli_text(proc, replace(result, error=error))
+    def _read_prompt(self, proc: ProcessResult) -> AgentReport:
+        # `--output-format json` writes the stream's closing ``result`` event
+        # alone, so the attempt's reader reads it; ``modelUsage`` names the
+        # concrete model.
+        report = self._read_stream(proc.stdout)
+        if not report.answer and proc.returncode == 0:
+            # Not an envelope at all: keep stdout as the answer, so a CLI change
+            # cannot break the judge outright.
+            report.final_output = proc.stdout.strip()
+        report.resolved_model = _envelope_model(proc.stdout)
+        return report
 
     def _looks_like_cli_startup_crash(self, text: str, lowered: str) -> bool:
         return (
@@ -550,6 +534,9 @@ class ClaudeCodeHarness(CliHarness):
             dst.chmod(0o600)
 
     def _read(self, proc: ProcessResult, ctx: RunContext) -> AgentReport:
+        return self._read_stream(proc.stdout)
+
+    def _read_stream(self, stdout: str) -> AgentReport:
         """One walk of the stream-json events.
 
         The ``system``/``init`` event lists the attempt's MCP servers and
@@ -563,7 +550,7 @@ class ClaudeCodeHarness(CliHarness):
         first_result: dict | None = None
         closing: dict | None = None
 
-        for event in stream_events(proc.stdout):
+        for event in stream_events(stdout):
             etype = event.get("type", "")
 
             if etype == "system" and event.get("subtype") == "init":
@@ -614,7 +601,7 @@ class ClaudeCodeHarness(CliHarness):
                 if error is not None:
                     report.cli_errors.append(error)
 
-        report.cli_failure = _envelope_failure(closing)
+        report.api_error_status = _api_error_status(closing)
         if first_result is not None:
             report.read_usage = partial(_usage, first_result)
         if init is not None:
@@ -667,21 +654,16 @@ def _tool_result_text(content: object) -> str:
     return content if isinstance(content, str) else ""
 
 
-def _envelope_failure(envelope: object) -> PromptFailure | None:
-    """The classified provider failure a CLI ``result`` envelope reports, if any."""
-    if not isinstance(envelope, dict) or not envelope.get("is_error"):
-        return None
+# The ``api_error_status`` a retired or inaccessible model comes back with.
+_MODEL_UNAVAILABLE_STATUS = 404
 
+
+def _api_error_status(envelope: dict | None) -> int | None:
+    """The provider status a ``result`` envelope flagged ``is_error`` reports."""
+    if envelope is None or not envelope.get("is_error"):
+        return None
     status = envelope.get("api_error_status")
-    if not isinstance(status, int):
-        return None
-
-    kind = classify_claude_api_error_status(status)
-    if kind is None:
-        return None
-
-    message = str(envelope.get("result", "")).strip() or f"API error {status}"
-    return PromptFailure(kind=kind, message=message, status=status)
+    return status if isinstance(status, int) else None
 
 
 def _stream_error(event: dict) -> str | None:
@@ -700,47 +682,15 @@ def _stream_error(event: dict) -> str | None:
     return text or None
 
 
-def _classify_claude_prompt_failure(
-    stdout: str, model: str | None
-) -> PromptResult | None:
-    """Return a classified upstream failure, or None to keep today's text path."""
+def _envelope_model(stdout: str) -> str | None:
+    """The concrete model a ``--output-format json`` envelope's usage names."""
     try:
         envelope = json.loads(stdout.strip())
     except json.JSONDecodeError:
         return None
-    failure = _envelope_failure(envelope)
-    if failure is None:
-        return None
-    # Carry the structural failure; the judge switches on ``failure.kind`` to
-    # build the user-facing message (see caliper/judge/eval_judge.py).
-    return PromptResult(
-        text="",
-        resolved_model=model,
-        error=failure.message,
-        failure=failure,
-    )
-
-
-def _extract_verdict_and_model(
-    stdout: str, requested_model: str | None
-) -> tuple[str, str | None]:
-    """Pull the answer text and concrete model from Claude's JSON envelope.
-
-    Falls back to treating stdout as the raw answer (and the requested model)
-    if the envelope is missing or unparseable, so a CLI change can't break the
-    caller outright.
-    """
-    stripped = stdout.strip()
-    try:
-        envelope = json.loads(stripped)
-    except json.JSONDecodeError:
-        return stripped, requested_model
     if not isinstance(envelope, dict):
-        return stripped, requested_model
-
-    verdict = str(envelope.get("result", "")).strip() or stripped
+        return None
     model_usage = envelope.get("modelUsage")
-    resolved = None
     if isinstance(model_usage, dict) and model_usage:
-        resolved = next(iter(model_usage))
-    return verdict, resolved or requested_model
+        return next(iter(model_usage))
+    return None

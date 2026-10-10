@@ -408,9 +408,9 @@ The agent's or the judge's CLI login lapsed, so the run stopped with exit `2`.
 The error names the backend's login command. Ask the user before running it,
 then rerun.
 
-**`Judge model ... is unavailable` / `Judge authentication failed` / `Judge rate limited`**
+**`The <backend> judge cannot run` / `The <backend> judge was rate limited`**
 The judge CLI reached the provider and the call was refused. Pass
 `--judge-model <backend[:model]>` to pick an available judge engine or model. An
-unavailable judge model or a failed judge login stops the run at the first
-attempt that reaches the judge (exit `2`); a rate limit stays a per-attempt
-`judge_error`.
+unavailable judge model, a failed judge login, or a spending cap stops the run
+at the first attempt that reaches the judge (exit `2`); a rate limit is retried,
+and one that outlasts the retries is a per-attempt `judge_error`.
