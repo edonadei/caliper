@@ -41,7 +41,7 @@ aren't scored as task failure:
 | `cheat` | a forbidden-file read was detected | ✅ attempt |
 | `infra_error` | harness failure: nonzero exit, a detected rate limit or spending cap, or no model call observed (nothing parsed, no tokens) | ❌ unusable |
 | `timeout` | exceeded the time budget with no result | ❌ unusable |
-| `judge_error` | the judge produced no verdict (unparseable or errored autorater) | ❌ unusable |
+| `judge_error` | the judge produced no verdict (unparseable, malformed or errored autorater) | ❌ unusable |
 | `not_checked` | the task has no `expect:`/`assert:`, so it's a trigger probe | ⊘ not asked |
 
 An unavailable model or a failed login, for the agent or the judge, isn't an
@@ -305,6 +305,10 @@ The footer of the results table, then the notes under it:
   token/wall deltas.
 
 ## Results JSON
+
+A results file whose numbers are impossible — a negative count or duration,
+a score outside 0–1, `k` below 1, or NaN — is refused as unreadable rather
+than rendered.
 
 ### Usage and transcript fields
 

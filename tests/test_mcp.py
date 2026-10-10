@@ -66,7 +66,7 @@ def test_mcp_server_defaults_args_and_env() -> None:
     assert server.env == {}
 
 
-@pytest.mark.parametrize("bad_name", ["wea ther", "we/ather", "wea.ther", ""])
+@pytest.mark.parametrize("bad_name", ["wea ther", "we/ather", "wea.ther", "", "good\n"])
 def test_mcp_rejects_bad_server_name(bad_name: str) -> None:
     with pytest.raises(ValidationError, match="invalid MCP server name"):
         EvalSpec.model_validate(
@@ -1274,4 +1274,76 @@ def test_guard_still_refuses_when_a_server_survives_ablation(tmp_path) -> None:
             workers=1,
             timeout=30,
             ablate=["mcp:wiki"],
+        )
+
+
+_LEGACY_INIT = {
+    "result": {
+        "protocolVersion": "2025-03-26",
+        "capabilities": {"tools": {}},
+        "serverInfo": {"name": "test", "version": "1"},
+    }
+}
+_A_TOOL = {"name": "echo", "inputSchema": {"type": "object"}}
+
+
+def _legacy_server(
+    tmp_path, init_reply: dict, tools_reply: dict | None = None
+) -> dict[str, McpServer]:
+    """A server answering initialize, then tools/list, with these envelopes.
+
+    ``jsonrpc`` and ``id`` are filled in unless the envelope sets them.
+    """
+    tools_reply = tools_reply or {"result": {"tools": [_A_TOOL]}}
+    script = tmp_path / "legacy.py"
+    script.write_text(
+        "import json, sys\n"
+        "def answer(body):\n"
+        "    request = json.loads(sys.stdin.readline())\n"
+        "    print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], **body}), "
+        "flush=True)\n"
+        f"answer({init_reply!r})\n"
+        "sys.stdin.readline()\n"  # notifications/initialized
+        f"answer({tools_reply!r})\n"
+        "sys.stdin.readline()\n"
+    )
+    return {"legacy": McpServer(command=sys.executable, args=[str(script)])}
+
+
+def test_preflight_accepts_a_well_formed_tool_list(tmp_path) -> None:
+    preflight_stdio_servers(_legacy_server(tmp_path, _LEGACY_INIT))
+
+
+@pytest.mark.parametrize(
+    "init_reply",
+    [
+        {**_LEGACY_INIT, "jsonrpc": "1.0"},
+        {**_LEGACY_INIT, "error": {"code": -32603, "message": "boom"}},
+    ],
+    ids=["wrong-jsonrpc-version", "result-and-error"],
+)
+def test_preflight_rejects_a_malformed_response_envelope(tmp_path, init_reply) -> None:
+    with pytest.raises(
+        HarnessConfigurationError, match=r"^MCP server 'legacy' sent an invalid"
+    ):
+        preflight_stdio_servers(_legacy_server(tmp_path, init_reply))
+
+
+def test_preflight_tolerates_a_null_error_beside_a_legacy_result(tmp_path) -> None:
+    """codex accepts ``error: null`` on the legacy path, so preflight does too."""
+    preflight_stdio_servers(_legacy_server(tmp_path, {**_LEGACY_INIT, "error": None}))
+
+
+@pytest.mark.parametrize(
+    "tools",
+    [[42], [{"name": "echo"}], [{"inputSchema": {}}], [{"name": 1, "inputSchema": {}}]],
+    ids=["not-an-object", "no-schema", "no-name", "non-string-name"],
+)
+def test_preflight_rejects_a_tool_the_agent_could_not_use(tmp_path, tools) -> None:
+    with pytest.raises(
+        HarnessConfigurationError,
+        match=r"^MCP server 'legacy' listed a tool without a name and inputSchema",
+    ):
+        preflight_stdio_servers(
+            _legacy_server(tmp_path, _LEGACY_INIT, {"result": {"tools": tools}})
         )

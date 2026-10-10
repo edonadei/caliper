@@ -145,6 +145,17 @@ def test_no_title_renders_as_one_line() -> None:
     assert diagnose(BadInput("File not found: x")).title is None
 
 
+@pytest.mark.parametrize("title", [None, "Validation failed"])
+def test_a_body_is_shown_as_written_not_as_markup(capsys, title) -> None:
+    """A body quotes user input, such as a key or path holding ``[/x]``."""
+    with pytest.raises(typer.Exit):
+        fail(BadInput("unknown key bad[/broken] in [bold]x[/bold]", title=title))
+
+    out = capsys.readouterr().out
+    assert "bad[/broken]" in out
+    assert "[bold]x[/bold]" in out
+
+
 def test_fail_raises_typer_exit_with_the_code() -> None:
     with pytest.raises(typer.Exit) as caught:
         fail(CannotRun("nope"))
