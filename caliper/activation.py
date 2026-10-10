@@ -34,10 +34,14 @@ _MAX_DEPTH = 5
 
 
 def _path_pattern(suffix: str) -> re.Pattern[str]:
-    """``suffix`` at a path boundary, matching either separator: Windows reads
-    arrive with backslashes."""
+    """``suffix`` as a whole path at a path boundary, matching either separator:
+    Windows reads arrive with backslashes.
+
+    The path must end there: not ``\\b``, which also stops at the dot of
+    ``SKILL.md.bak`` or the slash of ``SKILL.md/x``, neither of them the skill.
+    """
     body = r"[/\\]".join(re.escape(part) for part in suffix.strip("/").split("/"))
-    return re.compile(r"(?:^|[/\\\s\"'])" + body + r"\b")
+    return re.compile(r"(?:^|[/\\\s\"'])" + body + r"(?!\.?[\w/\\-])")
 
 
 class ActivationDetector:

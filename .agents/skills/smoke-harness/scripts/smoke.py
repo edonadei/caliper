@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[4]
 # `python -m caliper.main` below runs from ROOT for the same reason.
 sys.path.insert(0, str(ROOT))
 
+from caliper.backends import BACKENDS as REGISTERED  # noqa: E402
 from caliper.harness import get_harness  # noqa: E402
 from caliper.schema.results import Outcome, RunResults  # noqa: E402
 from caliper.schema.spec import load_spec, parse_target  # noqa: E402
@@ -41,7 +42,7 @@ SPECS = {
     "mcp-header-smoke.eval.yaml": {"claude-code", "hermes"},
     "mcp-remote-smoke.eval.yaml": {"claude-code"},
 }
-BACKENDS = ["claude-code", "codex", "hermes", "pi"]
+BACKENDS = list(REGISTERED)
 BACKEND_FILES = {
     f"caliper/harness/{name.replace('-', '_')}.py": name for name in BACKENDS
 }

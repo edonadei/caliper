@@ -7,13 +7,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from caliper.backends import DEFAULT_BACKEND
 from caliper.harness import get_harness
 from caliper.harness.base import ConversationTurn, HarnessConfigurationError
 from caliper.harness.prompt_failure import PromptFailureKind, format_judge_failure
 from caliper.judge.base import Judge, JudgeResult, PromptBackend
 from caliper.schema.results import TranscriptTurn
 from caliper.schema.spec import (
-    DEFAULT_BACKEND,
     TaskSpec,
     assert_script_path,
 )
@@ -188,11 +188,18 @@ def _parse_rich_response(raw: str, workdir: AttemptWorkdir) -> _AutoraterVerdict
             f"Judge returned unparseable response: {raw[:200]}"
         )
 
+    # Valid JSON is not yet a verdict: anything off the two modes' shapes is no
+    # verdict at all, never a pass or a fail (docs/adr/0001).
+    if not isinstance(verdict, dict):
+        return _AutoraterVerdict.error(f"Judge returned a non-object: {raw[:200]}")
+
     mode = verdict.get("mode", "verdict")
     reasoning = str(verdict.get("reasoning", ""))
 
     if mode == "script":
         code = verdict.get("code", "")
+        if not isinstance(code, str):
+            return _AutoraterVerdict.error(f"Judge returned non-string code: {code!r}")
         if not code:
             return _AutoraterVerdict.error("Judge returned empty script")
         passed, evidence = _run_inline_script(code, workdir, "check")
@@ -201,9 +208,15 @@ def _parse_rich_response(raw: str, workdir: AttemptWorkdir) -> _AutoraterVerdict
             return _AutoraterVerdict.error(detail, script=code)
         return _AutoraterVerdict(passed=passed, reasoning=detail, script=code)
 
-    return _AutoraterVerdict(
-        passed=bool(verdict.get("passed", False)), reasoning=reasoning
-    )
+    if mode != "verdict":
+        return _AutoraterVerdict.error(f"Judge returned unknown mode: {mode!r}")
+    passed = verdict.get("passed")
+    # Not bool(): the string "false" is truthy.
+    if not isinstance(passed, bool):
+        return _AutoraterVerdict.error(
+            f"Judge verdict has no boolean 'passed': {passed!r}"
+        )
+    return _AutoraterVerdict(passed=passed, reasoning=reasoning)
 
 
 def _run_assert_from_task(
