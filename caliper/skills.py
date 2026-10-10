@@ -40,7 +40,9 @@ _EXCLUDE_DIRS = {".caliper", ".git", "__pycache__", "node_modules", ".venv"}
 _MAX_FILE_BYTES = 5 * 1024 * 1024
 
 _FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---", re.DOTALL)
-_NAME_RE = re.compile(r"^name:\s*(.+?)\s*$", re.MULTILINE)
+# The name line alone, for frontmatter that is not valid YAML. ``[ \t]``, not
+# ``\s``: an empty ``name:`` must not read the next line as the name.
+_NAME_LINE_RE = re.compile(r"^name:[ \t]*(\S.*?)(?:[ \t]+#.*)?[ \t]*$", re.MULTILINE)
 # A name becomes a directory component, so it must not traverse or nest.
 _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
@@ -89,13 +91,20 @@ class SkillRef:
 
 def frontmatter_name(text: str) -> str | None:
     """The ``name:`` from a SKILL.md's YAML frontmatter, or ``None``."""
+    import yaml
+
     block = _FRONTMATTER_RE.match(text)
     if not block:
         return None
-    match = _NAME_RE.search(block.group(1))
-    if not match:
-        return None
-    return match.group(1).strip().strip("\"'")
+    try:
+        fields = yaml.safe_load(block.group(1))
+    except yaml.YAMLError:
+        # Agents read hand-written frontmatter leniently (an unquoted
+        # ``description: Use when: x`` is not YAML), so fall back to the line.
+        match = _NAME_LINE_RE.search(block.group(1))
+        return match.group(1).strip("\"'") if match else None
+    name = fields.get("name") if isinstance(fields, dict) else None
+    return name.strip() if isinstance(name, str) else None
 
 
 def resolve_skills(

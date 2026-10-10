@@ -858,9 +858,10 @@ class CliHarness(HarnessBackend):
 
     # --- shared machinery -------------------------------------------------
 
-    #: The binary :meth:`cli_path` looks for on ``PATH``. ``None`` for a backend
-    #: that resolves its command some other way (claude-code spawns ``claude``
-    #: through the shell's own lookup).
+    #: The binary :meth:`cli_path` looks for on ``PATH``. A backend may declare one
+    #: without spawning through :meth:`cli_path`: claude-code spawns a bare
+    #: ``claude`` and leaves the lookup to the attempt's ``PATH``, and declares
+    #: the name so `caliper update-cli` can report which binary that is.
     cli_name: str | None = None
 
     #: The env var that overrides :attr:`cli_name` with an explicit path. Honored
