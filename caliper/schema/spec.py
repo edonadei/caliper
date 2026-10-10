@@ -349,10 +349,37 @@ def _reject_removed_keys(raw: dict) -> None:
     )
 
 
-def load_spec(path: Path) -> EvalSpec:
+def _load_yaml(text: str) -> object:
+    """``yaml.safe_load``, refusing a key repeated in one mapping.
+
+    YAML keeps the last of two equal keys, so a second ``assert:`` would
+    silently replace the first, failing check rather than add to it.
+    """
     import yaml
 
-    raw = yaml.safe_load(path.read_text())
+    class UniqueKeyLoader(yaml.SafeLoader):
+        def construct_mapping(self, node, deep=False):
+            seen = set()
+            for key_node, _ in node.value:
+                # A merge key (``<<: *base``) is meant to be overridden.
+                if key_node.tag == "tag:yaml.org,2002:merge":
+                    continue
+                key = self.construct_object(key_node, deep=deep)
+                if key in seen:
+                    raise yaml.constructor.ConstructorError(
+                        "while constructing a mapping",
+                        node.start_mark,
+                        f"found duplicate key {key!r}",
+                        key_node.start_mark,
+                    )
+                seen.add(key)
+            return super().construct_mapping(node, deep=deep)
+
+    return yaml.load(text, Loader=UniqueKeyLoader)
+
+
+def load_spec(path: Path) -> EvalSpec:
+    raw = _load_yaml(path.read_text())
     if raw is None:
         raise ValueError("the spec is empty: it needs at least a `tasks:` list")
     if not isinstance(raw, dict):
