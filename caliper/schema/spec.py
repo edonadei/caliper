@@ -352,6 +352,13 @@ def _reject_removed_keys(raw: dict) -> None:
 def load_spec(path: Path) -> EvalSpec:
     import yaml
 
+    # Refused before the run, not when it saves: the attempts are paid for.
+    if not is_usable_spec_name(spec_name(path)):
+        raise ValueError(
+            f"{path.name!r} gives no usable spec name, which names its results "
+            "directory. Rename it to <name>.eval.yaml"
+        )
+
     raw = yaml.safe_load(path.read_text())
     if raw is None:
         raise ValueError("the spec is empty: it needs at least a `tasks:` list")
@@ -392,3 +399,13 @@ def spec_name(path: Path) -> str:
     if name.endswith(".eval"):
         name = name[: -len(".eval")]
     return name
+
+
+def is_usable_spec_name(name: str) -> bool:
+    """Whether a spec name is one directory under the results root.
+
+    ``""``, ``.`` and ``..`` (from ``.eval.yaml``, ``..eval.yaml``,
+    ``...eval.yaml``) would file runs beside or outside every spec's directory,
+    where ``list`` never finds them.
+    """
+    return name not in ("", ".", "..") and not any(sep in name for sep in "/\\")
