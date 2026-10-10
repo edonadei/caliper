@@ -7,13 +7,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from caliper.backends import DEFAULT_BACKEND
 from caliper.harness import get_harness
 from caliper.harness.base import ConversationTurn, HarnessConfigurationError
 from caliper.harness.prompt_failure import PromptFailureKind, format_judge_failure
 from caliper.judge.base import Judge, JudgeResult, PromptBackend
 from caliper.schema.results import TranscriptTurn
 from caliper.schema.spec import (
-    DEFAULT_BACKEND,
     TaskSpec,
     assert_script_path,
 )
