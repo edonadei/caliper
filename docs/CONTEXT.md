@@ -95,8 +95,8 @@ project-level default lands (the unified-harness-config direction).
 
 An adapter that runs the skill-under-test once and returns an `AttemptResult`
 (transcript + final output + exit code). Each backend implements
-`HarnessBackend.run(...)`. Current backends: `claude-code`, `codex`, `pi` — all
-CLI agents that can actually load and run a skill. Direct API access is *not* a
+`HarnessBackend.run(...)`. Current backends: `claude-code`, `codex`, `hermes`,
+`pi` — all CLI agents that can actually load and run a skill. Direct API access is *not* a
 backend: to run against API-priced billing you configure one of these CLI
 harnesses with an API key (see [[cli-agent-backends-only]]).
 
@@ -111,7 +111,7 @@ flat.
 A backend whose underlying agent carries **persistent state across invocations**
 — cross-session memory, a personality/persona file, an auto-generated skill
 store — so that, run as its user really runs it, its attempts are *not*
-independent. `hermes` (proposed) is the first: it injects a `SOUL.md` persona and
+independent. `hermes` is the first: it injects a `SOUL.md` persona and
 an always-on `MEMORY.md` into every turn and auto-generates skills. Because a
 score is only meaningful when the k attempts are independent (see
 [[single-shot harness]]), a stateful backend is only admitted after being
