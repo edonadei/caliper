@@ -853,3 +853,41 @@ def test_a_hanging_setup_is_an_infra_error_not_a_stuck_worker(
     assert record.outcome is Outcome.INFRA_ERROR
     assert record.assert_evidence == "setup timed out after 1s"
     assert record.hook_failures[0].output == "[caliper: setup timed out after 1s]"
+
+
+def test_tasks_built_without_ids_keep_their_own_attempts(tmp_path) -> None:
+    """A caller building ``TaskSpec`` directly gets the ids the loader assigns."""
+    spec_path = tmp_path / "s.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    spec = EvalSpec(
+        tasks=[
+            TaskSpec(name="passes", prompt="p", assert_script="assert True"),
+            TaskSpec(name="fails", prompt="p", assert_script="assert False"),
+        ]
+    )
+
+    results = run(
+        spec=spec,
+        spec_path=spec_path,
+        harness=ScriptedHarness(agent_result()),
+        judge=EvalJudge(),
+        k=1,
+        workers=1,
+    )
+
+    outcomes = {
+        t.task_name: [a.outcome for a in t.attempts] for t in results.task_results
+    }
+    assert outcomes == {"passes": [Outcome.PASS], "fails": [Outcome.TASK_FAIL]}
+
+
+@pytest.mark.parametrize("k", [0, -1])
+def test_run_refuses_fewer_than_one_attempt(tmp_path, k) -> None:
+    with pytest.raises(ValueError, match="k must be at least 1"):
+        run(
+            spec=_one_task_spec(),
+            spec_path=tmp_path / "s.eval.yaml",
+            harness=ScriptedHarness(agent_result()),
+            judge=ScriptedJudge(),
+            k=k,
+        )

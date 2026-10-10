@@ -297,3 +297,27 @@ def test_task_names_must_be_unique(tmp_path) -> None:
     )
     with pytest.raises(ValidationError, match="two tasks are named 'a'"):
         load_spec(_write(tmp_path, text))
+
+
+def test_tasks_without_ids_are_numbered_like_the_loader_does() -> None:
+    from caliper.schema.spec import EvalSpec, TaskSpec
+
+    spec = EvalSpec(
+        tasks=[
+            TaskSpec(name="a", prompt="p", assert_script="assert True"),
+            TaskSpec(id="mine", name="b", prompt="p", assert_script="assert True"),
+        ]
+    )
+    assert [t.id for t in spec.tasks] == ["task-001", "mine"]
+
+
+def test_two_tasks_sharing_an_id_are_refused() -> None:
+    from caliper.schema.spec import EvalSpec, TaskSpec
+
+    with pytest.raises(ValidationError, match="two tasks have the id 'x'"):
+        EvalSpec(
+            tasks=[
+                TaskSpec(id="x", name="a", prompt="p", assert_script="assert True"),
+                TaskSpec(id="x", name="b", prompt="p", assert_script="assert True"),
+            ]
+        )

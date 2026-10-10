@@ -122,6 +122,9 @@ def run(
     # spec is diagnosed first and a missing judge still costs nothing.
     before_attempts: Callable[[], None] | None = None,
 ) -> RunResults:
+    # The CLI bounds --k; a direct caller would otherwise get an empty run.
+    if k < 1:
+        raise ValueError(f"k must be at least 1, not {k}")
     # Before anything that can block: a Ctrl-C during skill fetching has to be
     # honoured by the attempts that would otherwise start right after it.
     cancel.reset()
