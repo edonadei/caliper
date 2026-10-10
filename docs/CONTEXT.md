@@ -95,8 +95,8 @@ project-level default lands (the unified-harness-config direction).
 
 An adapter that runs the skill-under-test once and returns an `AttemptResult`
 (transcript + final output + exit code). Each backend implements
-`HarnessBackend.run(...)`. Current backends: `claude-code`, `codex`, `pi` — all
-CLI agents that can actually load and run a skill. Direct API access is *not* a
+`HarnessBackend.run(...)`. Current backends: `claude-code`, `codex`, `hermes`,
+`pi` — all CLI agents that can actually load and run a skill. Direct API access is *not* a
 backend: to run against API-priced billing you configure one of these CLI
 harnesses with an API key (see [[cli-agent-backends-only]]).
 
