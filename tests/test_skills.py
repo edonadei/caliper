@@ -39,6 +39,36 @@ def test_frontmatter_name_strips_quotes():
     assert frontmatter_name('---\nname: "quoted-skill"\n---\n') == "quoted-skill"
 
 
+@pytest.mark.parametrize(
+    ("frontmatter", "name"),
+    [
+        ("name: my-skill # the skill\n", "my-skill"),
+        ('"name": my-skill\n', "my-skill"),
+        ("name: >-\n  my-skill\n", "my-skill"),
+        ("name: 'it''s'\n", "it's"),
+        # Not valid YAML, as many hand-written descriptions are not: the name
+        # line is still read.
+        ("name: my-skill\ndescription: Use when: x\n", "my-skill"),
+    ],
+)
+def test_frontmatter_name_reads_yaml(frontmatter, name):
+    assert frontmatter_name(f"---\n{frontmatter}---\n") == name
+
+
+@pytest.mark.parametrize(
+    "frontmatter",
+    [
+        "name:\ndescription: d\n",
+        "name:\ndescription: Use when: x\n",
+        "meta:\n  name: nested\n",
+        "name: [a, b]\n",
+    ],
+)
+def test_frontmatter_name_is_none_when_the_name_is_not_a_string(frontmatter):
+    """An empty name: must not read the next line as the name."""
+    assert frontmatter_name(f"---\n{frontmatter}---\n") is None
+
+
 # --- resolve_skills -------------------------------------------------------
 
 
