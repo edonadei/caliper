@@ -111,7 +111,7 @@ flat.
 A backend whose underlying agent carries **persistent state across invocations**
 — cross-session memory, a personality/persona file, an auto-generated skill
 store — so that, run as its user really runs it, its attempts are *not*
-independent. `hermes` (proposed) is the first: it injects a `SOUL.md` persona and
+independent. `hermes` is the first: it injects a `SOUL.md` persona and
 an always-on `MEMORY.md` into every turn and auto-generates skills. Because a
 score is only meaningful when the k attempts are independent (see
 [[single-shot harness]]), a stateful backend is only admitted after being
