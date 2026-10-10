@@ -293,3 +293,26 @@ def test_a_file_that_is_not_a_results_file_says_so(tmp_path) -> None:
 
     assert store.resolve(str(other)) is None
     assert "is not a results file" in store.no_results(str(other))
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("aggregate", "avg_score"), 2.5),
+        (("aggregate", "avg_score"), float("nan")),
+        (("aggregate", "avg_score"), -0.1),
+        (("aggregate", "scored_tasks"), -1),
+        (("run", "k"), 0),
+    ],
+)
+def test_a_run_holding_an_impossible_number_is_unreadable(tmp_path, path, value):
+    """A 250% score would otherwise render as a figure, and NaN crash rounding."""
+    import json
+
+    saved = RunStore(tmp_path).save(_results())
+    data = json.loads(saved.read_text())
+    data[path[0]][path[1]] = value
+    saved.write_text(json.dumps(data))
+
+    with pytest.raises(UnreadableRun):
+        RunStore.load(saved)

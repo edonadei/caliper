@@ -4,9 +4,16 @@ import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, computed_field, model_validator
+
+# What a saved run's numbers can be. A results file is read back and may have
+# been edited or corrupted since: a negative count or a 250% score would
+# otherwise render as a plausible figure, and NaN crashes the rounding.
+Count = Annotated[int, Field(ge=0)]
+Seconds = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+Fraction = Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)]
 
 
 class Outcome(str, Enum):
@@ -80,10 +87,10 @@ class TokenUsage(BaseModel):
     out of scope; see docs/adr/0006 and docs/CONTEXT.md → Attempt usage.
     """
 
-    input_tokens: int | None = None
-    output_tokens: int | None = None
-    cache_read_tokens: int | None = None
-    cache_creation_tokens: int | None = None
+    input_tokens: Count | None = None
+    output_tokens: Count | None = None
+    cache_read_tokens: Count | None = None
+    cache_creation_tokens: Count | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -177,7 +184,7 @@ class HookFailure(BaseModel):
 class RunMeta(BaseModel):
     spec: str
     timestamp: datetime
-    k: int
+    k: Annotated[int, Field(ge=1)]
     backend: str
     model: str | None = None
     # ``None`` = a legacy run; ``compare`` refuses to diff across this boundary.
@@ -263,7 +270,7 @@ class RunMeta(BaseModel):
 class AttemptRecord(BaseModel):
     attempt: int
     output: str
-    duration_seconds: float
+    duration_seconds: Seconds
     outcome: Outcome
     hook_failures: list[HookFailure] = Field(default_factory=list)
     # Token accounting for this attempt, when the backend reports it. Optional so
@@ -323,14 +330,14 @@ class AttemptRecord(BaseModel):
     # widening it would silently redefine every saved run's latency figure.
     # ``None`` when no judge ran — an assert-only task, or an attempt that
     # exited before the judge (timeout, infra, cheat, not_checked).
-    judge_seconds: float | None = None
+    judge_seconds: Seconds | None = None
     # Extra invocations this attempt needed because the provider was throttling
     # (docs/adr/0019). Still **one** attempt: a throttled invocation produced no
     # measurement, so counting it would put the provider's queue depth into the
     # score's denominator. Recorded rather than hidden because it is the one
     # signal that says a run was fighting the API — which a reader needs before
     # trusting its timings. 0 on the overwhelming majority of attempts.
-    retries: int = 0
+    retries: Count = 0
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -714,11 +721,11 @@ class UsageTotals(BaseModel):
 class TaskScore(BaseModel):
     task_id: str
     task_name: str
-    k: int
-    successes: int
+    k: Count
+    successes: Count
     # The raw success rate (Caliper's primary metric). None when every attempt was
     # unusable (excluded from the aggregate average).
-    score: float | None
+    score: Fraction | None
 
 
 class SkillActivationStats(BaseModel):
@@ -733,13 +740,13 @@ class SkillActivationStats(BaseModel):
     skill: str
     # Every activation-scored attempt this skill was in scope for. The
     # denominator both directions are carved out of.
-    total: int = 0
+    total: Count = 0
     # Attempts where this skill was in the expected set.
-    expected: int
+    expected: Count
     # Attempts where it was observed to activate.
-    fired: int
+    fired: Count
     # Attempts where both were true.
-    hits: int
+    hits: Count
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -789,20 +796,20 @@ class SkillActivationStats(BaseModel):
 
 class AggregateScore(BaseModel):
     # Average raw success rate over measured tasks (the primary aggregate).
-    avg_score: float
+    avg_score: Fraction
     # How many tasks that average is over. Zero means *nothing was measured* —
     # an all-trigger-probe spec, say — and the headline must then render skipped
     # rather than 0.0%, which would be a fabricated failure of the same kind the
     # activation side is careful to avoid.
-    scored_tasks: int = 0
+    scored_tasks: Count = 0
     per_task: list[TaskScore]
     # The activation scoreboard. Kept beside the execution one but never blended
     # into it: a bad `description` and a bad body have opposite fixes, so a
     # single headline mixing them would point at neither (docs/adr/0014).
     # ``None`` when no task asserted `activates:` — rendered skipped, not 0%.
-    avg_activation_score: float | None = None
-    activation_tasks: int = 0
-    activation_asserted: int = 0
+    avg_activation_score: Fraction | None = None
+    activation_tasks: Count = 0
+    activation_asserted: Count = 0
     activation_per_skill: list[SkillActivationStats] = Field(default_factory=list)
 
     @classmethod

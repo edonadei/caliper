@@ -306,6 +306,10 @@ The footer of the results table, then the notes under it:
 
 ## Results JSON
 
+A results file whose numbers are impossible — a negative count or duration,
+a score outside 0–1, `k` below 1, or NaN — is refused as unreadable rather
+than rendered.
+
 ### Usage and transcript fields
 
 - Each `AttemptRecord` has an optional `usage` object that splits tokens four
