@@ -33,7 +33,7 @@ def test_update_cli_check_prints_versions(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr("caliper.commands.update_cli.shutil.which", fake_which)
     monkeypatch.setattr(
-        "caliper.commands.update_cli.CODEX_APP_CLI", tmp_path / "missing-codex"
+        "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )
     monkeypatch.setattr("caliper.commands.update_cli.subprocess.run", fake_run)
 
@@ -76,7 +76,7 @@ def test_update_cli_updates_with_npm_when_confirmed(monkeypatch, tmp_path) -> No
 
     monkeypatch.setattr("caliper.commands.update_cli.shutil.which", fake_which)
     monkeypatch.setattr(
-        "caliper.commands.update_cli.CODEX_APP_CLI", tmp_path / "missing-codex"
+        "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )
     monkeypatch.setattr("caliper.commands.update_cli.subprocess.run", fake_run)
 
@@ -92,12 +92,12 @@ def test_update_cli_refuses_codex_app_bundle(monkeypatch, tmp_path) -> None:
     app_codex.parent.mkdir(parents=True)
     app_codex.write_text("")
 
-    monkeypatch.setattr("caliper.commands.update_cli.CODEX_APP_CLI", app_codex)
+    monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", app_codex)
 
     result = runner.invoke(app, ["update-cli", "codex", "--yes"])
 
     assert result.exit_code == 1
-    assert "Codex app bundle detected" in result.output
+    assert "App bundle detected" in result.output
 
 
 def test_update_cli_check_says_up_to_date_when_versions_match(

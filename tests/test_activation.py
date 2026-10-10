@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from caliper.activation import ActivationDetector, check_activation
 from caliper.harness.base import ConversationTurn
 
@@ -67,6 +69,35 @@ def test_a_similarly_named_skill_does_not_match():
     detector = ActivationDetector(["normalizer"], frozenset())
     turns = [tool("read", {"path": "/x/skills/unit-normalizer/SKILL.md"})]
     assert detector.detect(turns) == []
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat skills/alpha/SKILL.md.bak",
+        "ls skills/alpha/SKILL.md/x",
+        "cat skills/alpha/SKILL.md-old",
+    ],
+)
+def test_a_path_that_only_starts_with_the_skill_file_does_not_match(command):
+    detector = ActivationDetector(["alpha"], frozenset())
+    assert detector.detect([tool("shell", {"command": command})]) == []
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat skills/alpha/SKILL.md",
+        "cat 'skills/alpha/SKILL.md'",
+        "cat skills/alpha/SKILL.md; ls",
+        "cat skills/alpha/SKILL.md && ls",
+        "head -5 skills/alpha/SKILL.md\n",
+        "cat skills\\alpha\\SKILL.md",
+    ],
+)
+def test_the_skill_file_still_matches_wherever_its_path_ends(command):
+    detector = ActivationDetector(["alpha"], frozenset())
+    assert detector.detect([tool("shell", {"command": command})]) == ["alpha"]
 
 
 # --- the union rule -------------------------------------------------------
