@@ -41,9 +41,9 @@ from caliper.schema.spec import EvalSpec, TaskSpec
 
 ALL_BACKENDS = [ClaudeCodeHarness, CodexHarness, HermesHarness, PiHarness]
 
-# The three backends that locate their binary through ``cli_path``. claude-code
-# is absent on purpose: it spawns a bare ``claude`` and leaves the lookup to the
-# shell, so it declares no ``cli_name``.
+# The three backends that spawn the binary ``cli_path`` finds. claude-code is
+# absent on purpose: it spawns a bare ``claude`` and leaves the lookup to the
+# attempt's PATH, declaring ``cli_name`` only for `caliper update-cli`.
 DISCOVERING_BACKENDS = [CodexHarness, HermesHarness, PiHarness]
 
 

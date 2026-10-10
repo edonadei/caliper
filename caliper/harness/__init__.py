@@ -1,3 +1,6 @@
+import importlib
+
+from caliper.backends import BACKENDS, normalize_backend
 from caliper.harness.base import (
     AttemptResult,
     CliHarness,
@@ -5,27 +8,14 @@ from caliper.harness.base import (
     HarnessBackend,
 )
 from caliper.harness.claude_code import ClaudeCodeHarness
-from caliper.schema.spec import normalize_backend
 
 
 def get_harness(backend: str, model: str | None = None) -> HarnessBackend:
-    match normalize_backend(backend):
-        case "claude-code":
-            return ClaudeCodeHarness(model=model)
-        case "codex":
-            from caliper.harness.codex import CodexHarness
-
-            return CodexHarness(model=model)
-        case "pi":
-            from caliper.harness.pi import PiHarness
-
-            return PiHarness(model=model)
-        case "hermes":
-            from caliper.harness.hermes import HermesHarness
-
-            return HermesHarness(model=model)
-        case _:
-            raise ValueError(f"Unknown backend: {backend!r}")
+    entry = BACKENDS.get(normalize_backend(backend))
+    if entry is None:
+        raise ValueError(f"Unknown backend: {backend!r}")
+    module, _, cls = entry.harness.partition(":")
+    return getattr(importlib.import_module(module), cls)(model=model)
 
 
 __all__ = [
