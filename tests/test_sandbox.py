@@ -68,6 +68,24 @@ def test_non_path_strings_are_not_candidates() -> None:
     assert sandbox.violations([turn]) == []
 
 
+@pytest.mark.parametrize(
+    "tool_input",
+    [
+        {"file_path": "SECRET"},
+        {"path": "SECRET"},
+        {"command": "cat SECRET"},
+        {"command": ["bash", "-lc", "cat SECRET"]},
+    ],
+)
+def test_an_extensionless_path_or_command_is_a_candidate(tool_input) -> None:
+    """Where a tool names its file, the name need not look like a path."""
+    sandbox = SpecSandbox(declared=["SECRET"])
+    turn = ConversationTurn(
+        role="tool_use", content="", tool_name="Read", tool_input=tool_input
+    )
+    assert sandbox.violations([turn]) != []
+
+
 def test_from_spec_forbids_the_spec_file_itself(tmp_path: Path) -> None:
     """Reading the spec is reading the answer key, whatever the spec declared."""
     spec_file = tmp_path / "demo.eval.yaml"

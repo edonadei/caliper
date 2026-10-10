@@ -69,7 +69,8 @@ tasks:
     activates: []                # trigger probe
 ```
 
-Each task needs at least one of `expect`, `assert` or `activates`. A spec needs
+Each task needs at least one of `expect`, `assert` or `activates`, and a blank
+`expect:` or `assert:` is refused. A spec needs
 at least one task, and task names must be unique: `compare` matches tasks across
 runs by name. A spec that pins `backend`, `model` or a `judge:` block fails
 validation.

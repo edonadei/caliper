@@ -85,7 +85,8 @@ Rules that `validate` enforces or the run depends on (`run` repeats the same
 checks before its first attempt):
 
 - **Each task needs at least one of `expect`, `assert` or `activates`.** Both
-  `expect:` and `assert:` must pass when both are present.
+  `expect:` and `assert:` must pass when both are present. A blank one is
+  refused.
 - **At least one task, and unique task names**: `compare` matches tasks across
   runs by name.
 - **No unknown keys.** A typo like `asert:` in a task or `sandbox:` is rejected,
