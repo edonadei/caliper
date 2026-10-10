@@ -187,6 +187,8 @@ _BROKEN_SPECS = {
         "    assert: assert False\n    assert: assert True\n"
     ),
     "duplicate-tasks": _TASK + _TASK,
+    "blank-assert": "tasks:\n  - name: t\n    prompt: p\n    assert: '   '\n",
+    "blank-expect": "tasks:\n  - name: t\n    prompt: p\n    expect: '  '\n",
 }
 
 
@@ -323,3 +325,12 @@ def test_a_merge_key_may_still_override_what_it_merges(tmp_path) -> None:
         "  - <<: *base\n    name: b\n"
     )
     assert load_spec(_write(tmp_path, text)).tasks[1].name == "b"
+
+
+@pytest.mark.parametrize("key", ["assert", "expect"])
+def test_a_blank_check_is_refused_even_beside_a_real_one(tmp_path, key) -> None:
+    """A blank check would pass vacuously, or ask the judge about nothing."""
+    other = "expect: ok" if key == "assert" else "assert: assert True"
+    text = f"tasks:\n  - name: t\n    prompt: p\n    {other}\n    {key}: '  '\n"
+    with pytest.raises(ValidationError, match=f"`{key}:` is blank"):
+        load_spec(_write(tmp_path, text))
