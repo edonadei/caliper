@@ -66,7 +66,7 @@ def test_mcp_server_defaults_args_and_env() -> None:
     assert server.env == {}
 
 
-@pytest.mark.parametrize("bad_name", ["wea ther", "we/ather", "wea.ther", ""])
+@pytest.mark.parametrize("bad_name", ["wea ther", "we/ather", "wea.ther", "", "good\n"])
 def test_mcp_rejects_bad_server_name(bad_name: str) -> None:
     with pytest.raises(ValidationError, match="invalid MCP server name"):
         EvalSpec.model_validate(

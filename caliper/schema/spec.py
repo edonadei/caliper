@@ -208,7 +208,7 @@ class McpServer(BaseModel):
 
 # Server names become the ``mcp__<name>__<tool>`` handle in the transcript, so
 # they must be restricted to characters that keep that handle well-formed.
-_MCP_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_MCP_NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
 
 
 # One member of the neighbourhood fetched from git rather than read off the
@@ -268,7 +268,8 @@ class EvalSpec(BaseModel):
     @classmethod
     def validate_server_names(cls, value: dict[str, McpServer]) -> dict[str, McpServer]:
         for name in value:
-            if not _MCP_NAME_RE.match(name):
+            # fullmatch: ``$`` would also match before a trailing newline.
+            if not _MCP_NAME_RE.fullmatch(name):
                 raise ValueError(
                     f"invalid MCP server name '{name}': names must match "
                     "[A-Za-z0-9_-]+ so the mcp__<name>__<tool> handle is well-formed"
