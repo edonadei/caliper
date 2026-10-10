@@ -44,6 +44,7 @@ from rich.progress import (
 from rich.table import Column, Table
 from rich.text import Text
 
+from caliper.backends import mcp_tool_separator
 from caliper.schema.results import (
     ObservedActivation,
     Outcome,
@@ -905,15 +906,15 @@ def _mcp_calls(results: RunResults) -> dict[str, tuple[int, int, int]]:
 def _mcp_server(tool_name: str, servers: list[str], backend: str) -> str | None:
     """The one known server a tool call belongs to, or ``None``.
 
-    The separator is the producing backend's, never guessed from the name:
-    hermes writes ``mcp_<server>_<tool>``, claude-code and codex
+    The separator is the producing backend's (caliper/backends.py), never
+    guessed from the name: hermes writes ``mcp_<server>_<tool>``, claude-code and codex
     ``mcp__<server>__<tool>`` (docs/CONTEXT.md → MCP server (declared)), and a
     server name may itself contain ``_`` or ``__`` — so ``mcp__mail_read`` is
     hermes calling ``_mail``, or claude-code calling ``mail_read``'s server.
     Within one form the longest known server wins: ``mcp_mail_archive_read``
     starts with both ``mail_`` and ``mail_archive_``.
     """
-    sep = "_" if backend == "hermes" else "__"
+    sep = mcp_tool_separator(backend)
     matches = [s for s in servers if tool_name.startswith(f"mcp{sep}{s}{sep}")]
     return max(matches, key=len) if matches else None
 
