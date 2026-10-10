@@ -39,6 +39,36 @@ def test_frontmatter_name_strips_quotes():
     assert frontmatter_name('---\nname: "quoted-skill"\n---\n') == "quoted-skill"
 
 
+@pytest.mark.parametrize(
+    ("frontmatter", "name"),
+    [
+        ("name: my-skill # the skill\n", "my-skill"),
+        ('"name": my-skill\n', "my-skill"),
+        ("name: >-\n  my-skill\n", "my-skill"),
+        ("name: 'it''s'\n", "it's"),
+        # Not valid YAML, as many hand-written descriptions are not: the name
+        # line is still read.
+        ("name: my-skill\ndescription: Use when: x\n", "my-skill"),
+    ],
+)
+def test_frontmatter_name_reads_yaml(frontmatter, name):
+    assert frontmatter_name(f"---\n{frontmatter}---\n") == name
+
+
+@pytest.mark.parametrize(
+    "frontmatter",
+    [
+        "name:\ndescription: d\n",
+        "name:\ndescription: Use when: x\n",
+        "meta:\n  name: nested\n",
+        "name: [a, b]\n",
+    ],
+)
+def test_frontmatter_name_is_none_when_the_name_is_not_a_string(frontmatter):
+    """An empty name: must not read the next line as the name."""
+    assert frontmatter_name(f"---\n{frontmatter}---\n") is None
+
+
 # --- resolve_skills -------------------------------------------------------
 
 
@@ -239,6 +269,27 @@ def test_install_skips_oversized_files(tmp_path):
     install_skills(refs, root, [])
 
     assert not (root / "big" / "blob.bin").exists()
+
+
+def test_a_skill_whose_skill_md_is_forbidden_is_refused(tmp_path):
+    """Declared but never installed: the agent could not discover it."""
+    write_skill(tmp_path / "a", "alpha")
+    with pytest.raises(SkillResolutionError, match="SKILL.md would not be installed"):
+        resolve_skills(["./a/SKILL.md"], tmp_path, forbidden_files=[r"SKILL\.md$"])
+
+
+def test_a_skill_whose_skill_md_is_oversized_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr("caliper.skills._MAX_FILE_BYTES", 10)
+    write_skill(tmp_path / "a", "alpha")
+    with pytest.raises(SkillResolutionError, match="SKILL.md would not be installed"):
+        resolve_skills(["./a/SKILL.md"], tmp_path)
+
+
+def test_a_forbidden_companion_file_still_resolves(tmp_path):
+    write_skill(tmp_path / "a", "alpha")
+    (tmp_path / "a" / "answers.md").write_text("key")
+    refs = resolve_skills(["./a/SKILL.md"], tmp_path, forbidden_files=["answers"])
+    assert [r.name for r in refs] == ["alpha"]
 
 
 def test_install_of_nothing_creates_no_root(tmp_path):
