@@ -38,7 +38,7 @@ from caliper.compare import IncomparableRunsError
 from caliper.harness.base import HarnessConfigurationError, LoginRequired
 from caliper.retry import SpendingCapReached
 from caliper.runner import RunAborted
-from caliper.runstore import UnreadableRun
+from caliper.runstore import UnreadableRun, UnusableResultsRoot
 from caliper.skills import SkillResolutionError
 
 console = Console()
@@ -126,6 +126,8 @@ def diagnose(exc: Exception) -> Diagnosis:
         # A hard stop, unlike the k/spec/neighbourhood warnings: a cross-era diff
         # looks entirely normal and would be believed (docs/adr/0013).
         return Diagnosis(str(exc), ExitCode.BAD_INPUT, title="Refusing to compare")
+    if isinstance(exc, UnusableResultsRoot):
+        return Diagnosis(str(exc), ExitCode.CANNOT_RUN, title="Cannot save runs")
     if isinstance(exc, UnreadableRun):
         return Diagnosis(f"Error parsing results: {exc}", ExitCode.BAD_INPUT)
     if isinstance(exc, SpendingCapReached):
