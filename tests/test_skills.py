@@ -258,6 +258,27 @@ def test_install_skips_oversized_files(tmp_path):
     assert not (root / "big" / "blob.bin").exists()
 
 
+def test_a_skill_whose_skill_md_is_forbidden_is_refused(tmp_path):
+    """Declared but never installed: the agent could not discover it."""
+    write_skill(tmp_path / "a", "alpha")
+    with pytest.raises(SkillResolutionError, match="SKILL.md would not be installed"):
+        resolve_skills(["./a/SKILL.md"], tmp_path, forbidden_files=[r"SKILL\.md$"])
+
+
+def test_a_skill_whose_skill_md_is_oversized_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr("caliper.skills._MAX_FILE_BYTES", 10)
+    write_skill(tmp_path / "a", "alpha")
+    with pytest.raises(SkillResolutionError, match="SKILL.md would not be installed"):
+        resolve_skills(["./a/SKILL.md"], tmp_path)
+
+
+def test_a_forbidden_companion_file_still_resolves(tmp_path):
+    write_skill(tmp_path / "a", "alpha")
+    (tmp_path / "a" / "answers.md").write_text("key")
+    refs = resolve_skills(["./a/SKILL.md"], tmp_path, forbidden_files=["answers"])
+    assert [r.name for r in refs] == ["alpha"]
+
+
 def test_install_of_nothing_creates_no_root(tmp_path):
     root = tmp_path / "root"
     install_skills([], root, [])

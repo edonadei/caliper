@@ -52,7 +52,12 @@ def validate_cmd(
     # otherwise — never fetched. See docs/adr/0016.
     fetcher = SkillFetcher(offline=True)
     try:
-        refs = resolve_skills(list(spec.skills), spec_file.parent, fetcher=fetcher)
+        refs = resolve_skills(
+            list(spec.skills),
+            spec_file.parent,
+            fetcher=fetcher,
+            forbidden_files=spec.sandbox.forbidden_files,
+        )
         # An uncached git source leaves the neighbourhood *unknown*, not empty,
         # so the closed-set check has to stand down: refusing an `activates:`
         # naming a skill we simply could not see would fail a correct spec for a
