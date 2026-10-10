@@ -528,8 +528,8 @@ of six values, classified once at the seam where an attempt is assembled:
 
 - `pass` — the attempt satisfied the task's judge(s).
 - `task_fail` — the skill genuinely failed the task.
-- `judge_error` — the judge could not produce a verdict at all (unparseable
-  autorater response, an assertion that ran past its time limit, or the judge
+- `judge_error` — the judge could not produce a verdict at all (unparseable or
+  malformed autorater response, an assertion that ran past its time limit, or the judge
   call threw — including the judge's *own* rate-limit). An unavailable judge *model* or a failed
   judge login is not a `judge_error`: either would fail every attempt alike, so
   it stops the run.

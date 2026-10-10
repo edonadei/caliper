@@ -318,7 +318,9 @@ spec with `expect:` is refused before the first attempt rather than recording a
 `judge_error` on every one.
 
 The judge either gives a direct verdict or writes a Python assertion script that
-runs in the attempt workdir. A saved run keeps what you need to debug a verdict:
+runs in the attempt workdir. An answer that fits neither shape, such as
+`"passed": "false"` or an unknown `mode`, is no verdict: the autorater is
+dropped, as if it had errored. A saved run keeps what you need to debug a verdict:
 the `expect` text, the prompt template version, and any script the judge wrote.
 See [Judge input fields](results.md#judge-input-fields).
 
