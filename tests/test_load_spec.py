@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 import pytest
+import yaml
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
@@ -181,6 +182,11 @@ _BROKEN_SPECS = {
     "missing-assert": "tasks:\n  - name: t\n    prompt: p\n    assert: ./nope.py\n",
     "unknown-sandbox-key": "sandbox:\n  forbiden_files: ['x']\n" + _TASK,
     "unknown-key": "tasks:\n  - name: t\n    prompt: p\n    expect: ok\n    asert: x\n",
+    "duplicate-assert": (
+        "tasks:\n  - name: t\n    prompt: p\n"
+        "    assert: assert False\n    assert: assert True\n"
+    ),
+    "duplicate-tasks": _TASK + _TASK,
 }
 
 
@@ -297,3 +303,23 @@ def test_task_names_must_be_unique(tmp_path) -> None:
     )
     with pytest.raises(ValidationError, match="two tasks are named 'a'"):
         load_spec(_write(tmp_path, text))
+
+
+def test_a_duplicate_key_is_refused_with_its_line(tmp_path) -> None:
+    """YAML keeps the last of two equal keys: the first check would vanish."""
+    text = (
+        "tasks:\n  - name: t\n    prompt: p\n"
+        "    assert: assert False\n    assert: assert True\n"
+    )
+    with pytest.raises(yaml.YAMLError, match="duplicate key 'assert'") as exc:
+        load_spec(_write(tmp_path, text))
+    assert "line 5" in str(exc.value)
+
+
+def test_a_merge_key_may_still_override_what_it_merges(tmp_path) -> None:
+    text = (
+        "tasks:\n"
+        "  - &base {name: a, prompt: base, assert: assert True}\n"
+        "  - <<: *base\n    name: b\n"
+    )
+    assert load_spec(_write(tmp_path, text)).tasks[1].name == "b"
