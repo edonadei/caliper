@@ -72,6 +72,9 @@ class ClaudeCodeHarness(CliHarness):
     speaks_modern_mcp = True
     user_rules = ("CLAUDE.md",)
     user_settings_file = "settings.json"
+    # Only for `caliper update-cli`; attempts spawn a bare `claude` (see
+    # CliHarness.cli_name).
+    cli_name = "claude"
     # The CLI classifies a real skill only at .claude/skills/<name>/SKILL.md and
     # exposes the agent's choice as a dedicated Skill tool call naming it.
     activation_tool_names = frozenset({"Skill"})
