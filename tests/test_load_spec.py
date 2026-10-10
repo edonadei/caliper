@@ -334,3 +334,13 @@ def test_a_blank_check_is_refused_even_beside_a_real_one(tmp_path, key) -> None:
     text = f"tasks:\n  - name: t\n    prompt: p\n    {other}\n    {key}: '  '\n"
     with pytest.raises(ValidationError, match=f"`{key}:` is blank"):
         load_spec(_write(tmp_path, text))
+
+
+@pytest.mark.parametrize("filename", [".eval.yaml", "..eval.yaml", "...eval.yaml"])
+def test_a_spec_file_name_that_gives_no_spec_name_is_refused(
+    tmp_path, filename
+) -> None:
+    path = tmp_path / filename
+    path.write_text(_TASK)
+    with pytest.raises(ValueError, match="no usable spec name"):
+        load_spec(path)
