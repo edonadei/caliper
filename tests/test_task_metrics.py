@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from conftest import task_result as _task
 
-from caliper.schema.results import AggregateScore, Outcome, TaskResult
+from caliper.schema.results import AggregateScore, Outcome, TaskComparison, TaskResult
 
 
 def test_counts_split_usable_from_noise() -> None:
@@ -206,3 +206,27 @@ def test_a_stored_zero_stays_a_real_claim() -> None:
     }
 
     assert AggregateScore.model_validate(current).measured is False
+
+
+def test_a_compared_side_reads_the_same_numbers_as_its_task() -> None:
+    # A comparison stores only each side's outcomes; counting them again must
+    # give the numbers the task itself reported.
+    a = _task(Outcome.PASS, Outcome.TASK_FAIL, Outcome.TIMEOUT)
+    b = _task(Outcome.NOT_CHECKED, Outcome.TIMEOUT)
+    tc = TaskComparison(
+        task_name="t",
+        a_score=a.score,
+        b_score=b.score,
+        delta=None,
+        regression=False,
+        a_outcomes=[att.outcome for att in a.attempts],
+        b_outcomes=[att.outcome for att in b.attempts],
+    )
+
+    assert (tc.a_counts.score, tc.a_counts.pass_at_k, tc.a_counts.pass_hat_k) == (
+        a.score,
+        a.pass_at_k,
+        a.pass_hat_k,
+    )
+    assert tc.b_counts.trigger_only == b.trigger_only is True
+    assert not tc.probe

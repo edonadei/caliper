@@ -16,6 +16,7 @@ from caliper.schema.results import (
     AggregateScore,
     AttemptRecord,
     HookFailure,
+    McpUsage,
     Outcome,
     OutcomeCounts,
     RunMeta,
@@ -700,9 +701,15 @@ def _mcp_run(transcript, servers, backend="claude-code") -> RunResults:
     return results
 
 
-def test_a_hermes_tool_result_is_not_counted_as_a_second_call() -> None:
-    from caliper.reporter import _mcp_calls
+def _mcp_calls(results):
+    """Per server: (attempts that called it, attempts observed, total calls)."""
+    return {
+        row.server: (row.used, row.observed, row.calls)
+        for row in McpUsage.from_run_results(results)
+    }
 
+
+def test_a_hermes_tool_result_is_not_counted_as_a_second_call() -> None:
     results = _mcp_run(
         [("tool_use", "mcp_mail_read"), ("tool_result", "mcp_mail_read")],
         ["mail"],
@@ -712,8 +719,6 @@ def test_a_hermes_tool_result_is_not_counted_as_a_second_call() -> None:
 
 
 def test_a_hermes_call_is_credited_to_the_longest_matching_server() -> None:
-    from caliper.reporter import _mcp_calls
-
     results = _mcp_run(
         [("tool_use", "mcp_mail_archive_read")],
         ["mail", "mail_archive"],
@@ -751,8 +756,6 @@ def test_a_cost_from_a_zero_baseline_is_shown_absolute() -> None:
 
 
 def test_a_server_name_containing_the_separator_is_matched_whole() -> None:
-    from caliper.reporter import _mcp_calls
-
     # Server names may contain "__": split on the first one and this call
     # would land on `mail`.
     results = _mcp_run(
@@ -764,8 +767,6 @@ def test_a_server_name_containing_the_separator_is_matched_whole() -> None:
 
 
 def test_a_hermes_server_with_a_leading_underscore_is_counted() -> None:
-    from caliper.reporter import _mcp_calls
-
     # `mcp__mail_read` is hermes' single-underscore form for server `_mail`;
     # the backend, not the name, says which form it is.
     results = _mcp_run([("tool_use", "mcp__mail_read")], ["_mail"], backend="hermes")
