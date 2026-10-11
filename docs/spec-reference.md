@@ -125,7 +125,8 @@ and one fetch.
 `https://github.com/owner/name`. A URL, an `scp`-style `git@host:owner/name`, or
 a filesystem path is passed through untouched. To point at a *local* repo by
 relative path, write `./owner/name`; the leading `./` is what tells it apart
-from the shorthand.
+from the shorthand. A relative path resolves against the directory you run
+`caliper` from, not the spec's directory.
 
 `ref:` is optional. Without it, the entry tracks the default branch, so it
 *will* move. That's allowed because Caliper records the commit it resolved and

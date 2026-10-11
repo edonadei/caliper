@@ -422,13 +422,23 @@ def test_only_bare_owner_name_is_treated_as_shorthand(repo: str):
 def test_a_local_repo_is_still_reachable_by_relative_path(
     tmp_path: Path, origin: Path, monkeypatch
 ):
+    """`./owner/name` is the escape hatch from shorthand expansion."""
     monkeypatch.chdir(tmp_path)
-    fetched = SkillFetcher(cache_dir=tmp_path / "cache").materialize(
-        GitSkillSource(repo="./origin", ref="main")
-    )
+    fetcher = SkillFetcher(cache_dir=tmp_path / "cache")
+    fetched = fetcher.materialize(GitSkillSource(repo="./origin", ref="main"))
     assert fetched is not None
     assert fetched.sha == _head(origin)
     assert fetched.path.read_text() == SKILL_BODY.format(name="tdd")
+    assert fetched.repo == "./origin"
+    assert fetched.checkout.parent == fetcher._repo_dir("./origin")
+
+
+@pytest.mark.parametrize("repo", [".", "..", "./origin", "../origin"])
+def test_a_relative_remote_is_pinned_to_the_caller_s_directory(
+    tmp_path: Path, monkeypatch, repo: str
+):
+    monkeypatch.chdir(tmp_path)
+    assert SkillFetcher._remote(repo) == str((tmp_path / repo).resolve())
 
 
 def test_the_cache_key_and_messages_keep_the_spec_s_own_string(tmp_path: Path):

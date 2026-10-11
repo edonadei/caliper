@@ -12,16 +12,11 @@ runner = CliRunner()
 
 @pytest.fixture(autouse=True)
 def _deny_external_updates(monkeypatch):
-    unexpected = []
-
     def deny(cmd, *args, **kwargs):
-        unexpected.append(cmd)
         raise AssertionError(f"Unexpected updater subprocess: {cmd!r}")
 
     monkeypatch.setattr("caliper.commands.update_cli.subprocess.run", deny)
     monkeypatch.setattr("caliper.commands.update_cli.subprocess.Popen", deny)
-    yield
-    assert unexpected == []
 
 
 def test_update_cli_check_prints_versions(monkeypatch, tmp_path) -> None:

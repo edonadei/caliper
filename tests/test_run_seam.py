@@ -93,6 +93,11 @@ def test_an_empty_model_falls_back_like_an_absent_one(monkeypatch, tmp_path) -> 
 
 
 def test_each_invocation_gets_its_own_context(monkeypatch, tmp_path) -> None:
+    """A retry is a second invocation, and it is handed a second context.
+
+    The harness object is shared across worker threads and retries, so the
+    context is the only per-attempt state a backend has (docs/adr/0019).
+    """
     patch_cli_calls(monkeypatch, _agent_says("done"))
     harness = _Recording()
     caller = run_context(

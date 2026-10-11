@@ -152,13 +152,15 @@ def test_matching_is_by_name_not_positional_id() -> None:
 
 
 def test_lower_raw_score_from_unusable_attempts_is_not_a_regression() -> None:
+    # A: 4/5 pass. B: same 4 usable passes but its "misses" are infra_errors,
+    # excluded from the denominator -> B's raw rate is *higher*, not a regression.
     a = _run([_task("alpha", [P, P, P, P, F])])
     b = _run([_task("alpha", [P, P, P, P, INF])])
 
     comp = diff_runs(a, b)
     tc = comp.matched[0]
     assert not tc.regression
-    assert tc.b_score == 1.0
+    assert tc.b_score == 1.0  # over 4 usable, not 5
     assert tc.a_score == 0.8
 
 
@@ -263,6 +265,11 @@ def test_a_judge_that_never_graded_raises_no_warning() -> None:
 
 
 def test_verbose_comparison_renders_the_secondary_metric_columns(capsys) -> None:
+    """``compare --verbose`` adds pass@k / pass^k, derived from the stored outcomes.
+
+    Rendered nowhere else, so nothing else would catch this path breaking — which
+    is how a dead import of a deleted scorer survived a green suite.
+    """
     a = _run([_task("alpha", [P, P, F, F])])
     b = _run([_task("alpha", [P, P, P, F])])
 

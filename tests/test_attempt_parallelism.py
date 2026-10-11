@@ -91,17 +91,26 @@ def _spec(n_tasks: int = 1) -> EvalSpec:
     )
 
 
-def test_attempts_of_a_single_task_run_in_parallel(tmp_path) -> None:
+def test_attempts_of_a_single_task_run_in_parallel_and_record_in_order(
+    tmp_path,
+) -> None:
     spec_path = tmp_path / "solo.eval.yaml"
     spec_path.write_text("tasks: []\n")
     barrier = threading.Barrier(4, timeout=10)
     ready = {attempt: threading.Event() for attempt in range(1, 5)}
     ready[4].set()
     completed = []
+    # Recorded here rather than asserted: an assert on a worker thread would
+    # surface as an attempt error, not as the reason the test failed.
+    stalled = []
 
     def attempt(ctx):
-        barrier.wait()
-        assert ready[ctx.attempt].wait(10), "attempt completion was not released"
+        try:
+            barrier.wait()
+        except threading.BrokenBarrierError:
+            stalled.append(f"attempt {ctx.attempt} never met the others")
+        if not ready[ctx.attempt].wait(10):
+            stalled.append(f"attempt {ctx.attempt} was never released")
         return agent_result(final_output=f"answer {ctx.attempt}")
 
     def finished(event):
@@ -122,6 +131,7 @@ def test_attempts_of_a_single_task_run_in_parallel(tmp_path) -> None:
         on_attempt_done=finished,
     )
 
+    assert stalled == []
     assert [a.outcome for a in results.task_results[0].attempts] == [Outcome.PASS] * 4
     assert completed == [4, 3, 2, 1]
     assert [a.attempt for a in results.task_results[0].attempts] == [1, 2, 3, 4]

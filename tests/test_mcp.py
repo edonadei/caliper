@@ -611,10 +611,24 @@ def test_preflight_answers_server_ping_with_colliding_request_id(tmp_path) -> No
     ]
 
 
+@pytest.mark.skipif(os.name != "posix", reason="records stdin on SIGTERM")
 def test_preflight_accepts_resource_only_server(tmp_path) -> None:
     script = tmp_path / "resources.py"
+    # Preflight sends its last message and then terminates the server, so the
+    # server records whatever is still unread when SIGTERM lands rather than
+    # racing the kill to read it.
     script.write_text(
-        "import json, sys, threading\n"
+        "import json, os, signal, sys, threading\n"
+        "def _drain(*_):\n"
+        "    os.set_blocking(0, False)\n"
+        "    try:\n"
+        "        pending = os.read(0, 65536)\n"
+        "    except BlockingIOError:\n"
+        "        pending = b''\n"
+        "    for line in pending.splitlines():\n"
+        "        _record('client', json.loads(line))\n"
+        "    os._exit(0)\n"
+        "signal.signal(signal.SIGTERM, _drain)\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
         f"'result': {_RESOURCE_INITIALIZATION}}}), flush=True)\n"
@@ -640,6 +654,7 @@ def test_preflight_accepts_resource_only_server(tmp_path) -> None:
                 },
             },
         ],
+        _LEGACY_EXCHANGE[2],
     ]
 
 
@@ -1558,6 +1573,7 @@ _LEGACY_INIT = {
     }
 }
 _A_TOOL = {"name": "echo", "inputSchema": {"type": "object"}}
+_A_TOOL_REPLY = ["server", {"jsonrpc": "2.0", "id": 2, "result": {"tools": [_A_TOOL]}}]
 
 
 def _legacy_server(
@@ -1589,24 +1605,8 @@ def test_preflight_accepts_a_well_formed_tool_list(tmp_path) -> None:
     preflight_stdio_servers(servers)
 
     assert json.loads(marker.read_text())[1:] == [
-        _LEGACY_EXCHANGE[0],
-        _LEGACY_EXCHANGE[1],
-        *_LEGACY_EXCHANGE[2:4],
-        [
-            "server",
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "result": {
-                    "tools": [
-                        {
-                            "name": "echo",
-                            "inputSchema": {"type": "object"},
-                        }
-                    ]
-                },
-            },
-        ],
+        *_LEGACY_EXCHANGE[:4],
+        _A_TOOL_REPLY,
     ]
 
 
@@ -1635,21 +1635,7 @@ def test_preflight_tolerates_a_null_error_beside_a_legacy_result(tmp_path) -> No
         _LEGACY_EXCHANGE[0],
         ["server", {**_LEGACY_EXCHANGE[1][1], "error": None}],
         *_LEGACY_EXCHANGE[2:4],
-        [
-            "server",
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "result": {
-                    "tools": [
-                        {
-                            "name": "echo",
-                            "inputSchema": {"type": "object"},
-                        }
-                    ]
-                },
-            },
-        ],
+        _A_TOOL_REPLY,
     ]
 
 

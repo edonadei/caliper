@@ -87,6 +87,11 @@ def _no_keychain(monkeypatch):
 # --- seeding the isolated home ----------------------------------------------
 
 
+def test_every_backend_has_a_seed_inventory() -> None:
+    """The inventories are literal, so a new backend must add its own."""
+    assert [backend for backend, _ in SEED_INVENTORIES] == ALL_BACKENDS
+
+
 @pytest.mark.parametrize(("backend", "inventory"), SEED_INVENTORIES)
 def test_seeds_declared_files_verbatim(
     backend, inventory, monkeypatch, tmp_path
@@ -113,6 +118,7 @@ def test_seeds_declared_files_verbatim(
 def test_seeding_skips_files_the_user_does_not_have(
     backend, inventory, monkeypatch, tmp_path
 ) -> None:
+    """Missing real config files leave the isolated inventory empty."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "empty")
     home = tmp_path / "home"
 

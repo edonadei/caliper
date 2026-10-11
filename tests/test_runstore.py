@@ -78,54 +78,7 @@ def test_save_round_trips_through_load(tmp_path) -> None:
     results.aggregate = AggregateScore.from_task_results(results.task_results, k=3)
     saved = store.save(results)
 
-    loaded = store.load(saved)
-    assert loaded.run.spec == "my-skill"
-    assert loaded.run.timestamp == datetime(2026, 8, 29, 10, 30, tzinfo=timezone.utc)
-    assert (loaded.run.k, loaded.run.backend, loaded.run.model) == (
-        3,
-        "claude-code",
-        "claude-sonnet-5",
-    )
-    assert loaded.run.interrupted is True
-    assert loaded.run.mcp_servers == ["wiki"]
-    assert len(loaded.task_results) == 1
-    task = loaded.task_results[0]
-    assert (task.task_id, task.task_name, task.expect) == (
-        "task-007",
-        "Read the wiki",
-        "names the sections",
-    )
-    assert task.activation_expected == ["research"]
-    assert len(task.attempts) == 1
-    attempt = task.attempts[0]
-    assert (
-        attempt.attempt,
-        attempt.output,
-        attempt.duration_seconds,
-        attempt.outcome,
-    ) == (2, "Found intro", 3.25, Outcome.TASK_FAIL)
-    assert attempt.assert_evidence == "missing usage section"
-    assert attempt.activated == ["research"]
-    assert attempt.activation_passed is True
-    assert attempt.usage == TokenUsage(input_tokens=17, output_tokens=5)
-    assert attempt.transcript == [
-        TranscriptTurn(
-            role="tool_use",
-            content="read wiki",
-            tool_name="mcp__wiki__read",
-            tool_input={"repo": "caliper"},
-        ),
-        TranscriptTurn(
-            role="tool_result",
-            content="intro",
-            tool_name="mcp__wiki__read",
-            tool_output="intro",
-        ),
-    ]
-    assert loaded.aggregate.avg_score == 0.0
-    assert loaded.aggregate.scored_tasks == 1
-    assert loaded.aggregate.avg_activation_score == 1.0
-    assert loaded.aggregate.per_task[0].score == 0.0
+    assert store.load(saved) == results
 
 
 @pytest.mark.parametrize("spec", ["", ".", "..", "../outside", "a/b"])
@@ -161,6 +114,7 @@ def test_two_runs_of_one_spec_sit_side_by_side(tmp_path) -> None:
 
 
 def test_two_runs_in_the_same_second_both_survive(tmp_path) -> None:
+    """The second run takes a disambiguated id rather than overwriting the first."""
     store = RunStore(tmp_path)
     first_results = _results()
     first_results.run.model = "first-model"

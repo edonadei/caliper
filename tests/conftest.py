@@ -22,6 +22,7 @@ without knowing which of the two calls it is answering.
 
 from __future__ import annotations
 
+import importlib
 import subprocess
 import threading
 from collections.abc import Callable
@@ -30,6 +31,7 @@ from dataclasses import replace
 import pytest
 
 from caliper import cancel
+from caliper.backends import BACKENDS
 from caliper.harness.base import (
     AttemptResult,
     ConversationTurn,
@@ -252,9 +254,20 @@ def patch_cli_calls(
     )
 
 
+def _cli_path_env_vars() -> set[str]:
+    names = set()
+    for entry in BACKENDS.values():
+        module, _, cls = entry.harness.partition(":")
+        names.add(getattr(importlib.import_module(module), cls).cli_path_env_var)
+    return names - {None}
+
+
+_CLI_PATH_ENV_VARS = _cli_path_env_vars()
+
+
 @pytest.fixture(autouse=True)
 def _clear_host_cli_overrides(monkeypatch):
-    for name in ("CODEX_CLI_PATH", "CLAUDE_CLI_PATH", "HERMES_CLI_PATH", "PI_CLI_PATH"):
+    for name in _CLI_PATH_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
 
 

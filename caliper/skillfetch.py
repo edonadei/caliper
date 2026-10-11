@@ -39,6 +39,7 @@ _SLUG_RE = re.compile(r"[^A-Za-z0-9._-]+")
 # leading `.`/`/`/`~`, so a local repo is still reachable by writing `./owner/name`.
 _SHORTHAND_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
 _SHORTHAND_HOST = "https://github.com/"
+_RELATIVE_PREFIXES = tuple({f"{d}{sep}" for d in (".", "..") for sep in ("/", os.sep)})
 
 _GIT_TIMEOUT = 120
 
@@ -243,7 +244,7 @@ class SkillFetcher:
     def _ls_remote(self, src: GitSkillSource) -> str:
         ref = src.ref or "HEAD"
         # ``ref^{}`` too: a pattern of ``ref`` alone omits a tag's peeled line.
-        out = self._git("ls-remote", self.clone_url(src.repo), ref, f"{ref}^{{}}")
+        out = self._git("ls-remote", self._remote(src.repo), ref, f"{ref}^{{}}")
         shas = {}
         for line in out.splitlines():
             sha, _, name = line.partition("\t")
@@ -279,9 +280,7 @@ class SkillFetcher:
         is the commit, and separate runs share the cache, so another process
         may be cloning the same commit at the same moment.
         """
-        remote = self.clone_url(src.repo)
-        if remote.startswith(("./", "../")):
-            remote = str(Path(remote).resolve())
+        remote = self._remote(src.repo)
         dest.parent.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(prefix=f".{dest.name}-", dir=dest.parent))
         try:
@@ -347,6 +346,18 @@ class SkillFetcher:
         if _SHORTHAND_RE.match(repo):
             return f"{_SHORTHAND_HOST}{repo}"
         return repo
+
+    @classmethod
+    def _remote(cls, repo: str) -> str:
+        """`clone_url`, with a relative local path pinned to the caller's directory.
+
+        `_clone` runs git inside the cache, where `./owner/name` would point
+        somewhere else.
+        """
+        remote = cls.clone_url(repo)
+        if remote in (".", "..") or remote.startswith(_RELATIVE_PREFIXES):
+            return str(Path(remote).resolve())
+        return remote
 
     def _repo_dir(self, repo: str) -> Path:
         digest = hashlib.sha256(repo.encode()).hexdigest()[:12]
