@@ -233,17 +233,24 @@ at your own skill by editing a few commented lines.
   success rate + saved transcript
 ```
 
-Each attempt runs in an isolated temporary home with no session history, in a
-fresh empty working directory. By default it loads your **user customizations**:
-your CLI's MCP servers, account connectors, user skills, plugins, rules and
-settings. Declared skills and servers win name clashes, even when ablated.
-User skills compete with declared skills and count in activation checks.
-Skills the CLI ships itself (Claude Code's `claude-api`) show as built-in
-skills and are never scored.
-Hermes keeps its neutral memory/persona policy; see [backend details](docs/backends.md#loading-your-user-customizations).
-Hooks run as part of the attempt, subject to its timeout.
-Results are saved as JSON you can inspect and diff later, including which user
-customizations each run loaded (`mcp:(not listed)` when the backend can't list
+Each **attempt** starts clean: a temporary home with no session history and an
+empty working directory. Hooks run inside the attempt, under its timeout.
+
+By default the attempt still loads your **user customizations**, so the score
+reflects the agent you actually use:
+
+- **What loads:** your CLI's MCP servers, account connectors, user skills,
+  plugins, rules and settings.
+- **Name clashes:** declared skills and servers win, even when ablated.
+- **Activation:** user skills compete with declared ones and count in
+  activation checks.
+- **Built-in skills** that ship with the CLI (Claude Code's `claude-api`) are
+  listed but never scored.
+- **Hermes** keeps its neutral memory/persona policy. See
+  [backend details](docs/backends.md#loading-your-user-customizations).
+
+Results are saved as JSON you can inspect and diff later. Each run records which
+user customizations it loaded (`mcp:(not listed)` when the backend can't list
 its MCP servers).
 
 ### Portable scores
