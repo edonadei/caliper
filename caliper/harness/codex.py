@@ -9,13 +9,6 @@ from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 
-import tomli_w
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # Python 3.10, where tomllib is not yet stdlib
-    import tomli as tomllib
-
 from caliper.harness.base import (
     AgentReport,
     CliHarness,
@@ -26,7 +19,8 @@ from caliper.harness.base import (
     RunContext,
     stream_events,
 )
-from caliper.harness.mcp import merge_user_servers, resolve_servers
+from caliper.harness.cli_config import TOML, CliConfig
+from caliper.harness.mcp import ResolvedMcpServer
 from caliper.harness.refusal import AUTH_MARKERS, ConfigSignal
 from caliper.schema.results import TokenUsage
 
@@ -45,11 +39,51 @@ NO_ACCOUNT_CONNECTORS = ("-c", "features.apps=false", "-c", "features.plugins=fa
 CODEX_APPS_SERVER = "codex_apps"
 
 
+def _codex_entry(server: ResolvedMcpServer) -> dict:
+    """One declared server in codex's ``mcp_servers`` shape.
+
+    The common rendering, plus codex's one spelling difference: a remote
+    server's ``headers`` map is written as ``http_headers``, static literal
+    values per
+    docs/adr/0011-codex-remote-mcp-uses-static-http-headers-not-env-indirection.md.
+    Codex infers its one streamable-HTTP transport from ``url``, so caliper's
+    ``type`` is dropped (remote OAuth, which caliper's spec cannot express, is
+    out of reach).
+    """
+    entry = server.entry()
+    if "headers" in entry:
+        entry["http_headers"] = entry.pop("headers")
+    return entry
+
+
+# The top-level ``model`` is always dropped, so the seeded config never pins a
+# model over the invocation (docs/adr/0012). Isolated, provider tables survive
+# intact, endpoints and auth options included (docs/backends.md, docs/adr/0028).
+CODEX_CONFIG = CliConfig(
+    path=".codex/config.toml",
+    codec=TOML,
+    connection_keys=frozenset(
+        {
+            "model_provider",
+            "model_providers",
+            "cli_auth_credentials_store",
+            "forced_login_method",
+            "forced_chatgpt_workspace_id",
+            "chatgpt_base_url",
+            "openai_base_url",
+        }
+    ),
+    dropped_keys=frozenset({"model"}),
+    entry=_codex_entry,
+)
+
+
 class CodexHarness(CliHarness):
     def __init__(self, model: str | None = None) -> None:
         self._model = model
 
     supports_mcp = True
+    cli_config = CODEX_CONFIG
     user_rules = ("AGENTS.md", "AGENTS.override.md")
     user_settings_file = "config.toml"
     cli_name = "codex"
@@ -77,14 +111,13 @@ class CodexHarness(CliHarness):
         real = Path.home() / ".codex"
         codex_home = Path(ctx.isolated_home) / ".codex"
         # config.toml is deliberately absent: it is rewritten rather than copied
-        # (see ``_materialize_config``), so seeding it verbatim would leak the
-        # user's ambient model pin and MCP servers into the attempt.
+        # (``cli_config``), so seeding it verbatim would leak the user's ambient
+        # model pin and MCP servers into the attempt.
         return [(real / "auth.json", codex_home / "auth.json")]
 
     def _prepare(self, ctx: RunContext) -> None:
         real = Path.home() / ".codex"
         codex_home = Path(ctx.isolated_home) / ".codex"
-        self._materialize_config(ctx, codex_home, real / "config.toml")
         # Installed plugins, and the MCP servers they bring, live in this
         # directory rather than in config.toml; a copy keeps the user's own
         # untouched (docs/adr/0028).
@@ -351,80 +384,6 @@ class CodexHarness(CliHarness):
             return AgentReport()
         return AgentReport(transcript=[ConversationTurn("assistant", raw)])
 
-    def _materialize_config(
-        self, ctx: RunContext, codex_home: Path, real_config: Path
-    ) -> None:
-        """Seed the isolated ``config.toml`` from the user's, parsed and rewritten.
-
-        The top-level ``model`` is dropped, so the seeded config never pins a
-        model over the invocation (docs/adr/0012), and ``mcp_servers`` becomes
-        :func:`merge_user_servers` of the user's and the declared ones
-        (docs/adr/0028). Parsing rather than line-editing handles every TOML
-        spelling of a server. Nothing is written when there is neither a real
-        config nor a declared server. Kept ``0600``: it may hold resolved secrets.
-        """
-        servers = self._translate_mcp_servers(ctx)
-        real_exists = real_config.exists()
-        if not real_exists and not servers:
-            return
-
-        config: dict = {}
-        if real_exists:
-            try:
-                config = tomllib.loads(real_config.read_text())
-            except tomllib.TOMLDecodeError as exc:
-                raise HarnessConfigurationError(
-                    f"Codex's config at {real_config} is not valid TOML ({exc}).\n\n"
-                    "caliper copies it into each attempt, and codex would refuse "
-                    "it there too. Fix the file, then rerun caliper."
-                ) from exc
-        if not ctx.user_customizations:
-            # Connection allowlist: docs/backends.md and docs/adr/0028.
-            # Keep provider tables intact, including endpoints and auth options.
-            config = {
-                key: value
-                for key, value in config.items()
-                if key
-                in {
-                    "model_provider",
-                    "model_providers",
-                    "cli_auth_credentials_store",
-                    "forced_login_method",
-                    "forced_chatgpt_workspace_id",
-                    "chatgpt_base_url",
-                    "openai_base_url",
-                }
-            }
-        config.pop("model", None)
-        merged = merge_user_servers(config.pop("mcp_servers", None), servers, ctx)
-        if merged:
-            config["mcp_servers"] = merged
-
-        codex_home.mkdir(parents=True, exist_ok=True)
-        dst = codex_home / "config.toml"
-        dst.write_text(tomli_w.dumps(config))
-        dst.chmod(0o600)
-
-    def _translate_mcp_servers(self, ctx: RunContext) -> dict[str, dict]:
-        """Translate the declared ``mcp:`` servers into codex's ``mcp_servers`` shape.
-
-        The common rendering from ``resolve_servers`` (every ``${VAR}`` already
-        interpolated at the harness boundary), plus codex's one spelling
-        difference: a remote server's ``headers`` map is written as
-        ``http_headers`` — static literal values, per
-        docs/adr/0011-codex-remote-mcp-uses-static-http-headers-not-env-indirection.md.
-        Codex infers its one streamable-HTTP transport from ``url``, so caliper's
-        ``type`` is dropped (remote OAuth — which caliper's spec cannot express —
-        is out of reach).
-        """
-        servers: dict[str, dict] = {}
-        for name, resolved in resolve_servers(ctx.mcp_servers).items():
-            entry = resolved.entry()
-            if "headers" in entry:
-                entry["http_headers"] = entry.pop("headers")
-            servers[name] = entry
-        return servers
-
     config_signals = (
         ConfigSignal(
             (
@@ -558,14 +517,11 @@ def _configured_servers(ctx: RunContext) -> set[str] | None:
     ChatGPT login whose config leaves ``apps`` on. Such a login's plugins
     bring tools caliper can't list, so with plugins on the set is unknown.
     """
-    codex_home = Path(ctx.isolated_home) / ".codex"
-    config_path = codex_home / "config.toml"
-    config = tomllib.loads(config_path.read_text()) if config_path.exists() else {}
-    servers = config.get("mcp_servers")
-    names = set(servers) if isinstance(servers, dict) else set()
+    config = CODEX_CONFIG.read(ctx)
+    names = CODEX_CONFIG.servers(ctx)
     features = config.get("features")
     features = features if isinstance(features, dict) else {}
-    if _chatgpt_login(codex_home / "auth.json"):
+    if _chatgpt_login(Path(ctx.isolated_home) / ".codex" / "auth.json"):
         if features.get("plugins") is not False:
             return None
         if features.get("apps") is not False:

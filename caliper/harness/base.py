@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import IO, TypeVar
+from typing import IO, TYPE_CHECKING, TypeVar
 
 from caliper import cancel
 from caliper.harness.refusal import (
@@ -26,6 +26,9 @@ from caliper.schema.results import TokenUsage
 from caliper.schema.spec import McpServer
 from caliper.skills import SkillRef, frontmatter_name, install_skills
 from caliper.workdir import StepCancelled
+
+if TYPE_CHECKING:
+    from caliper.harness.cli_config import CliConfig
 
 _POST_KILL_DRAIN_TIMEOUT = 1
 
@@ -492,6 +495,8 @@ class CliHarness(HarnessBackend):
 
         self._ensure_ready(ctx)
         self._seed_home(ctx)
+        if self.cli_config is not None:
+            self.cli_config.write(ctx, backend=self.name)
         self._prepare(ctx)
         # Imported here: the user layer reads this module's types.
         from caliper.harness import user_layer
@@ -679,13 +684,18 @@ class CliHarness(HarnessBackend):
         same for every CLI agent (copy verbatim, skip what isn't there) while the
         file list is the only part that differs — including its deliberate
         omissions: hermes leaves out SOUL.md/MEMORY.md to normalize the agent
-        (docs/adr/0005), and codex's ``config.toml`` is absent here because it is
-        rewritten rather than copied. Default: nothing to seed.
+        (docs/adr/0005), and a backend's ``cli_config`` is absent here because it
+        is rewritten rather than copied. Default: nothing to seed.
 
         See docs/adr/0012-cli-harnesses-copy-cli-config-verbatim.md and
         docs/adr/0020-a-backend-declares-its-chores-rather-than-performing-them.md.
         """
         return []
+
+    # The config file this backend rewrites rather than copies, because it holds
+    # the CLI's MCP servers beside its login (:mod:`caliper.harness.cli_config`).
+    # Written after ``_seed_home`` and before ``_prepare``. Default: none.
+    cli_config: CliConfig | None = None
 
     def _seed_home(self, ctx: RunContext) -> None:
         """Copy each declared seed file that exists, creating parents as needed."""
@@ -697,11 +707,10 @@ class CliHarness(HarnessBackend):
     def _prepare(self, ctx: RunContext) -> None:
         """Seed the isolated home with anything ``seed_files`` cannot express.
 
-        Runs after :meth:`_seed_home`, so a backend that has to *rewrite* a
-        config (codex's stripped ``config.toml``, hermes' normalized
-        ``mcp_servers``) sees the verbatim copy already in place, and so
-        claude-code's Keychain credentials replace a seeded ``.credentials.json``
-        rather than being overwritten by it. That order is part of the contract
+        Runs after :meth:`_seed_home` and the ``cli_config`` rewrite, so a
+        backend sees its config already in place, and so claude-code's
+        Keychain credentials replace a seeded ``.credentials.json`` rather than
+        being overwritten by it. That order is part of the contract
         (docs/adr/0020).
         """
 
