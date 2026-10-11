@@ -2,11 +2,26 @@ from __future__ import annotations
 
 import subprocess
 
+import pytest
 from typer.testing import CliRunner
 
 from caliper.main import app
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def _deny_external_updates(monkeypatch):
+    unexpected = []
+
+    def deny(cmd, *args, **kwargs):
+        unexpected.append(cmd)
+        raise AssertionError(f"Unexpected updater subprocess: {cmd!r}")
+
+    monkeypatch.setattr("caliper.commands.update_cli.subprocess.run", deny)
+    monkeypatch.setattr("caliper.commands.update_cli.subprocess.Popen", deny)
+    yield
+    assert unexpected == []
 
 
 def test_update_cli_check_prints_versions(monkeypatch, tmp_path) -> None:
@@ -27,8 +42,6 @@ def test_update_cli_check_prints_versions(monkeypatch, tmp_path) -> None:
             )
         if cmd == ["npm", "view", "@openai/codex", "version"]:
             return subprocess.CompletedProcess(cmd, 0, stdout="0.133.0\n", stderr="")
-        if cmd == ["npm", "view", "@anthropic-ai/claude-code", "version"]:
-            return subprocess.CompletedProcess(cmd, 0, stdout="1.2.3\n", stderr="")
         raise AssertionError(cmd)
 
     monkeypatch.setattr("caliper.commands.update_cli.shutil.which", fake_which)
@@ -83,7 +96,10 @@ def test_update_cli_updates_with_npm_when_confirmed(monkeypatch, tmp_path) -> No
     result = runner.invoke(app, ["update-cli", "codex", "--yes"])
 
     assert result.exit_code == 0, result.output
-    assert ["npm", "install", "-g", "@openai/codex"] in calls
+    assert calls == [
+        ["npm", "install", "-g", "@openai/codex"],
+        [str(codex), "--version"],
+    ]
     assert "Updated codex" in result.output
 
 
@@ -93,6 +109,10 @@ def test_update_cli_refuses_codex_app_bundle(monkeypatch, tmp_path) -> None:
     app_codex.write_text("")
 
     monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", app_codex)
+    monkeypatch.setattr(
+        "caliper.commands.update_cli.shutil.which",
+        lambda name: "npm" if name == "npm" else None,
+    )
 
     result = runner.invoke(app, ["update-cli", "codex", "--yes"])
 
@@ -107,11 +127,11 @@ def test_update_cli_check_says_up_to_date_when_versions_match(
         return {"npm": "npm", "claude": "claude"}.get(name)
 
     def fake_run(cmd, **kwargs):
-        if cmd[-1] == "--version":
+        if cmd == ["claude", "--version"]:
             return subprocess.CompletedProcess(
                 cmd, 0, stdout="2.1.281 (Claude Code)\n", stderr=""
             )
-        if cmd[:2] == ["npm", "view"]:
+        if cmd == ["npm", "view", "@anthropic-ai/claude-code", "version"]:
             return subprocess.CompletedProcess(cmd, 0, stdout="2.1.281\n", stderr="")
         raise AssertionError(cmd)
 

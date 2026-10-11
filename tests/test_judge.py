@@ -11,6 +11,7 @@ import json
 import subprocess
 from dataclasses import asdict
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from conftest import patch_cli_calls
@@ -26,6 +27,7 @@ from caliper.harness.base import (
 from caliper.harness.codex import CodexHarness, _extract_codex_error
 from caliper.harness.hermes import HermesHarness
 from caliper.harness.pi import PiHarness
+from caliper.judge import eval_judge
 from caliper.judge.eval_judge import EvalJudge, render_judge_prompt
 from caliper.schema.results import TranscriptTurn
 from caliper.schema.spec import TaskSpec
@@ -76,12 +78,6 @@ def _flaky() -> ScriptedPrompt:
 
 
 # --- EvalJudge check-combination rules (backend-agnostic) -------------------
-
-
-def test_eval_judge_always_returns_eval_judge_instance() -> None:
-    for backend in ("codex", "claude-code", "pi", "hermes"):
-        judge = EvalJudge(backend=backend)
-        assert isinstance(judge, EvalJudge)
 
 
 def test_eval_judge_expect_only_calls_llm(attempt_workdir) -> None:
@@ -809,28 +805,58 @@ def test_an_assertion_that_hangs_has_no_verdict(attempt_workdir, monkeypatch) ->
 # --- the autorater's time ----------------------------------------------------
 
 
-def test_the_autorater_times_its_own_call(attempt_workdir) -> None:
-    result = EvalJudge(backend="codex", harness=_verdict(True)).evaluate(
+@pytest.mark.parametrize(
+    ("reported_seconds", "expected_seconds"),
+    [(None, 3.5), (1.25, 1.25)],
+    ids=["clock-fallback", "backend-time"],
+)
+def test_the_autorater_times_its_own_call(
+    attempt_workdir, monkeypatch, reported_seconds, expected_seconds
+) -> None:
+    readings = iter([40.0, 43.5])
+    monkeypatch.setattr(
+        eval_judge, "time", SimpleNamespace(monotonic=lambda: next(readings))
+    )
+    harness = _verdict(True)
+    harness.result.seconds = reported_seconds
+    result = EvalJudge(backend="codex", harness=harness).evaluate(
         task=_task(expect="x", assert_script="assert True"),
         transcript=[],
         workdir=attempt_workdir,
     )
 
-    assert result.autorater_seconds is not None
-    assert result.autorater_seconds >= 0
+    assert result.autorater_seconds == expected_seconds
 
 
 def test_an_assert_script_beside_the_autorater_is_not_judge_time(
-    attempt_workdir,
+    attempt_workdir, monkeypatch
 ) -> None:
-    result = EvalJudge(backend="codex", harness=_verdict(True)).evaluate(
-        task=_task(expect="x", assert_script="import time\ntime.sleep(0.3)"),
+    clock = [100.0]
+    monkeypatch.setattr(eval_judge, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    run_python = attempt_workdir.run_python
+
+    def timed_script(phase, code):
+        clock[0] += 7.0
+        return run_python(phase, code)
+
+    monkeypatch.setattr(attempt_workdir, "run_python", timed_script)
+    harness = _verdict(True)
+    run_prompt = harness.run_prompt
+
+    def timed_prompt(*args, **kwargs):
+        clock[0] += 2.5
+        return run_prompt(*args, **kwargs)
+
+    monkeypatch.setattr(harness, "run_prompt", timed_prompt)
+    result = EvalJudge(backend="codex", harness=harness).evaluate(
+        task=_task(expect="x", assert_script="assert True"),
         transcript=[],
         workdir=attempt_workdir,
     )
 
     assert result.assert_passed is True
-    assert result.autorater_seconds < 0.3
+    assert clock[0] == 109.5
+    assert result.autorater_seconds == 2.5
 
 
 def test_an_assert_only_task_records_no_autorater_time(attempt_workdir) -> None:

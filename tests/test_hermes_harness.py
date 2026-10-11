@@ -81,6 +81,7 @@ def test_hermes_seeds_only_neutral_config_and_ignores_rules(
     assert run_cmd[0] == "/bin/sh"
     script = run_cmd[2]
     assert "--ignore-rules" in script
+    assert "--yolo" in script
     env = run_kwargs["env"]
     assert env["HERMES_HOME"] == str(seeded)
     assert env["HOME"] == str(iso)
@@ -131,38 +132,6 @@ def test_hermes_installs_the_skill_without_preloading_it(monkeypatch, tmp_path) 
     # model meets the skill as a name + description and chooses for itself.
     assert "--skills" not in script
     assert "CALIPER_SKILL" not in run_kwargs["env"]
-
-
-def test_hermes_no_skills_flag_without_skill(monkeypatch, tmp_path) -> None:
-    home = _fake_home(tmp_path)
-    iso = tmp_path / "iso"
-    iso.mkdir()
-
-    def fake_run(cmd, **kwargs):
-        if cmd[1:] == ["--version"]:
-            return _version(cmd)
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-
-    _install(monkeypatch, home, fake_run)
-
-    result_calls = []
-    patch_cli_calls(
-        monkeypatch,
-        lambda cmd, **kw: result_calls.append((cmd, kw)) or fake_run(cmd, **kw),
-    )
-
-    HermesHarness().run(
-        run_context(
-            prompt="Hello",
-            model=None,
-            timeout=30,
-            isolated_home=str(iso),
-        )
-    )
-
-    script = result_calls[1][0][2]
-    assert "--skills" not in script
-    assert "CALIPER_SKILL" not in result_calls[1][1]["env"]
 
 
 def _fake_home_with_user_mcp(tmp_path):
@@ -370,30 +339,6 @@ def test_hermes_secret_config_is_locked_down(monkeypatch, tmp_path) -> None:
     assert (seeded.stat().st_mode & 0o077) == 0
 
 
-def test_hermes_passes_yolo_to_bypass_approval(monkeypatch, tmp_path) -> None:
-    home = _fake_home(tmp_path)
-    iso = tmp_path / "iso"
-    iso.mkdir()
-    calls = []
-
-    def fake_run(cmd, **kwargs):
-        calls.append((cmd, kwargs))
-        if cmd[1:] == ["--version"]:
-            return _version(cmd)
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-
-    _install(monkeypatch, home, fake_run)
-    HermesHarness().run(
-        run_context(
-            prompt="Hello",
-            model=None,
-            timeout=30,
-            isolated_home=str(iso),
-        )
-    )
-    assert "--yolo" in calls[1][0][2]
-
-
 def test_hermes_diagnoses_model_selection_error(monkeypatch, tmp_path) -> None:
     home = _fake_home(tmp_path)
     iso = tmp_path / "iso"
@@ -475,6 +420,8 @@ def test_hermes_omits_model_when_unspecified(monkeypatch, tmp_path) -> None:
     run_cmd, run_kwargs = calls[1]
     assert "--model" not in run_cmd[2]
     assert "CALIPER_MODEL" not in run_kwargs["env"]
+    assert "--skills" not in run_cmd[2]
+    assert "CALIPER_SKILL" not in run_kwargs["env"]
 
 
 def test_hermes_exports_the_session_whatever_its_source(monkeypatch, tmp_path) -> None:

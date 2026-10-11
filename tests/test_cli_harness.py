@@ -40,6 +40,29 @@ from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, TaskSpec
 
 ALL_BACKENDS = [ClaudeCodeHarness, CodexHarness, HermesHarness, PiHarness]
+SEED_INVENTORIES = [
+    (
+        ClaudeCodeHarness,
+        {".claude.json": "claude config", ".claude/.credentials.json": "claude auth"},
+    ),
+    (CodexHarness, {".codex/auth.json": "codex auth"}),
+    (
+        HermesHarness,
+        {
+            ".hermes/auth.json": "hermes auth",
+            ".hermes/config.yaml": "hermes config",
+            ".hermes/.env": "hermes env",
+        },
+    ),
+    (
+        PiHarness,
+        {
+            ".pi/agent/auth.json": "pi auth",
+            ".pi/agent/settings.json": "pi settings",
+            ".pi/agent/models.json": "pi models",
+        },
+    ),
+]
 
 # The three backends that spawn the binary ``cli_path`` finds. claude-code is
 # absent on purpose: it spawns a bare ``claude`` and leaves the lookup to the
@@ -65,38 +88,40 @@ def _no_keychain(monkeypatch):
 # --- seeding the isolated home ----------------------------------------------
 
 
-@pytest.mark.parametrize("backend", ALL_BACKENDS)
-def test_seeds_declared_files_verbatim(backend, monkeypatch, tmp_path) -> None:
-    """Every declared seed file that exists is copied byte-for-byte (ADR-0012)."""
+@pytest.mark.parametrize(("backend", "inventory"), SEED_INVENTORIES)
+def test_seeds_declared_files_verbatim(
+    backend, inventory, monkeypatch, tmp_path
+) -> None:
+    """The backend's required auth/config inventory is copied verbatim (ADR-0012)."""
     real_home = tmp_path / "real"
     monkeypatch.setattr(Path, "home", lambda: real_home)
+    for relative, contents in inventory.items():
+        source = real_home / relative
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(contents)
 
-    harness = backend()
-    ctx = run_context(isolated_home=str(tmp_path / "home"))
-    for src, _dst in harness.seed_files(ctx):
-        src.parent.mkdir(parents=True, exist_ok=True)
-        src.write_text(f"contents of {src.name}")
+    home = tmp_path / "home"
+    backend()._seed_home(run_context(isolated_home=str(home)))
 
-    harness._seed_home(ctx)
-
-    seeds = harness.seed_files(ctx)
-    assert seeds, f"{harness.name} declares no seed files"
-    for src, dst in seeds:
-        assert dst.read_text() == f"contents of {src.name}"
+    assert {
+        path.relative_to(home).as_posix(): path.read_text()
+        for path in home.rglob("*")
+        if path.is_file()
+    } == inventory
 
 
-@pytest.mark.parametrize("backend", ALL_BACKENDS)
+@pytest.mark.parametrize(("backend", "inventory"), SEED_INVENTORIES)
 def test_seeding_skips_files_the_user_does_not_have(
-    backend, monkeypatch, tmp_path
+    backend, inventory, monkeypatch, tmp_path
 ) -> None:
-    """A missing real config is not an error — the CLI falls back to its own."""
+    """Missing real config files leave the isolated inventory empty."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "empty")
+    home = tmp_path / "home"
 
-    harness = backend()
-    ctx = run_context(isolated_home=str(tmp_path / "home"))
-    harness._seed_home(ctx)
+    backend()._seed_home(run_context(isolated_home=str(home)))
 
-    assert not any(dst.exists() for _src, dst in harness.seed_files(ctx))
+    assert not any((home / relative).exists() for relative in inventory)
+    assert list(home.rglob("*")) == []
 
 
 # --- locating the CLI --------------------------------------------------------

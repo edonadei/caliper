@@ -568,10 +568,6 @@ def _run_codex_mcp(
     return iso / ".codex" / "config.toml"
 
 
-def test_codex_supports_mcp() -> None:
-    assert CodexHarness.supports_mcp is True
-
-
 def test_codex_translates_stdio_and_strips_ambient_servers(
     monkeypatch, tmp_path
 ) -> None:

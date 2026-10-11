@@ -253,6 +253,12 @@ def patch_cli_calls(
 
 
 @pytest.fixture(autouse=True)
+def _clear_host_cli_overrides(monkeypatch):
+    for name in ("CODEX_CLI_PATH", "CLAUDE_CLI_PATH", "HERMES_CLI_PATH", "PI_CLI_PATH"):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _clear_cancellation():
     """No test leaks a cancelled run into the next one.
 

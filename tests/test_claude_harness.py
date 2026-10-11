@@ -306,44 +306,11 @@ def test_claude_harness_errors_on_unset_remote_header_var(
         )
 
 
-def test_claude_harness_isolates_to_zero_servers_without_mcp_block(
-    monkeypatch, tmp_path
-) -> None:
-    # No mcp: block must not leave the account's claude.ai connectors in play
-    # (#129): the attempt sees an empty, strict server set.
-    captured: dict = {}
-
-    def fake_run(cmd, **kwargs):
-        if cmd[0] != "claude":
-            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
-        captured["cmd"] = cmd
-        idx = cmd.index("--mcp-config")
-        captured["config"] = json.loads(Path(cmd[idx + 1]).read_text())
-        return _ok_stream(cmd)
-
-    patch_cli_calls(monkeypatch, fake_run)
-    home = tmp_path / "home"
-    home.mkdir()
-
-    ClaudeCodeHarness().run(
-        run_context(
-            prompt="p",
-            model=None,
-            timeout=30,
-            isolated_home=str(home),
-            extra_path=[],
-        )
-    )
-
-    assert "--strict-mcp-config" in captured["cmd"]
-    assert captured["config"] == {"mcpServers": {}}
-
-
+@pytest.mark.parametrize("mcp_servers", [None, {}], ids=["no-block", "ablated"])
 def test_claude_harness_keeps_strict_mcp_when_every_server_is_ablated(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, mcp_servers
 ) -> None:
-    # An empty declared set is not "no mcp: block": the attempt must see zero
-    # servers, not whatever the seeded user config happens to carry.
+    # Both absent and ablated MCP blocks must exclude ambient connectors (#129).
     captured: dict = {}
 
     def fake_run(cmd, **kwargs):
@@ -366,7 +333,7 @@ def test_claude_harness_keeps_strict_mcp_when_every_server_is_ablated(
             timeout=30,
             isolated_home=str(home),
             extra_path=[],
-            mcp_servers={},
+            mcp_servers=mcp_servers,
         )
     )
 
@@ -470,19 +437,14 @@ def test_claude_harness_reports_the_cli_built_in_skills_apart_from_declared(
     assert result.builtin_skill_names == ["claude-api", "debug"]
 
 
-def test_claude_harness_cannot_list_built_in_skills_without_an_init_event() -> None:
-    proc = ProcessResult(
-        stdout='{"type": "result"}', stderr="", returncode=0, timed_out=False
-    )
-    assert ClaudeCodeHarness()._read(proc, run_context()).exposed_skills is None
-
-
 def test_claude_harness_records_unknown_without_an_init_event() -> None:
     proc = ProcessResult(
         stdout='{"type": "result"}', stderr="", returncode=0, timed_out=False
     )
     ctx = run_context(user_customizations=True)
-    assert ClaudeCodeHarness()._read(proc, ctx).mcp_servers is None
+    report = ClaudeCodeHarness()._read(proc, ctx)
+    assert report.mcp_servers is None
+    assert report.exposed_skills is None
 
 
 def test_claude_harness_user_customizations_still_ablates_a_server_the_user_also_has(
