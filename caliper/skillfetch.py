@@ -279,11 +279,14 @@ class SkillFetcher:
         is the commit, and separate runs share the cache, so another process
         may be cloning the same commit at the same moment.
         """
+        remote = self.clone_url(src.repo)
+        if remote.startswith(("./", "../")):
+            remote = str(Path(remote).resolve())
         dest.parent.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(prefix=f".{dest.name}-", dir=dest.parent))
         try:
             self._git("init", "-q", cwd=staging)
-            self._git("remote", "add", "origin", self.clone_url(src.repo), cwd=staging)
+            self._git("remote", "add", "origin", remote, cwd=staging)
             self._git("fetch", "-q", "--depth", "1", "origin", sha, cwd=staging)
             self._git("checkout", "-q", "FETCH_HEAD", cwd=staging)
             try:
