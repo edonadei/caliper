@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from conftest import run_context
+from conftest import patch_cli_calls, run_context
 
 from caliper.harness.base import (
     AgentReport,
@@ -35,6 +35,7 @@ from caliper.harness.codex import CodexHarness
 from caliper.harness.hermes import HermesHarness
 from caliper.harness.pi import PiHarness
 from caliper.harness.refusal import RefusalKind
+from caliper.harness.spawn import Spawner
 from caliper.runner import run
 from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, TaskSpec
@@ -59,7 +60,7 @@ def _prepared(harness: CliHarness, tmp_path: Path):
 @pytest.fixture(autouse=True)
 def _no_keychain(monkeypatch):
     """No backend shells out to the macOS Keychain during these tests."""
-    monkeypatch.setattr(CliHarness, "_capture_output", lambda *a, **k: None)
+    monkeypatch.setattr(Spawner, "capture", lambda *a, **k: None)
 
 
 # --- seeding the isolated home ----------------------------------------------
@@ -108,7 +109,7 @@ def test_cli_path_env_var_overrides_discovery(backend, monkeypatch, tmp_path) ->
     override = tmp_path / "custom-cli"
     override.write_text("")
     monkeypatch.setenv(harness.cli_path_env_var, str(override))
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "/usr/bin/x")
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _n: "/usr/bin/x")
 
     assert harness.cli_path() == str(override)
 
@@ -126,7 +127,7 @@ def test_stale_cli_path_falls_through_to_discovery(
     harness = backend()
     monkeypatch.setenv(harness.cli_path_env_var, str(tmp_path / "deleted"))
     monkeypatch.setattr(backend, "cli_candidates", lambda _self: ())
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "/usr/bin/x")
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _n: "/usr/bin/x")
 
     assert harness.cli_path() == "/usr/bin/x"
 
@@ -136,7 +137,7 @@ def test_cli_path_is_none_when_nothing_is_installed(backend, monkeypatch) -> Non
     harness = backend()
     monkeypatch.delenv(harness.cli_path_env_var, raising=False)
     monkeypatch.setattr(backend, "cli_candidates", lambda _self: ())
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: None)
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _n: None)
 
     assert harness.cli_path() is None
 
@@ -366,12 +367,13 @@ def test_timeout_keeps_each_output_stream_once_with_universal_newlines(
         "time.sleep(30)"
     )
 
-    result = CodexHarness()._execute(
+    result = Spawner().execute(
         [sys.executable, "-u", "-c", script],
         env=dict(os.environ),
         cwd=str(tmp_path),
         timeout=1,
         stdin=None,
+        label="codex",
     )
 
     assert result.timed_out is True
@@ -641,12 +643,12 @@ def _probe_exits(monkeypatch, code: int) -> list[list[str]]:
         probes.append(cmd)
         return subprocess.CompletedProcess(cmd, code, stdout="", stderr="")
 
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+    patch_cli_calls(monkeypatch, fake_run)
     return probes
 
 
 def test_a_missing_cli_stops_the_run_with_the_backends_message(monkeypatch, tmp_path):
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: None)
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _n: None)
     monkeypatch.delenv("STUB_CLI_PATH", raising=False)
 
     with pytest.raises(HarnessConfigurationError) as raised:
@@ -656,7 +658,7 @@ def test_a_missing_cli_stops_the_run_with_the_backends_message(monkeypatch, tmp_
 
 
 def test_a_cli_whose_version_probe_fails_is_not_ready(monkeypatch, tmp_path):
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "/bin/stub")
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _n: "/bin/stub")
     probes = _probe_exits(monkeypatch, 1)
 
     with pytest.raises(HarnessConfigurationError, match="stub-cli is missing"):
@@ -666,7 +668,7 @@ def test_a_cli_whose_version_probe_fails_is_not_ready(monkeypatch, tmp_path):
 
 
 def test_a_runnable_cli_is_ready(monkeypatch, tmp_path):
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "/bin/stub")
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _n: "/bin/stub")
     _probe_exits(monkeypatch, 0)
 
     with pytest.raises(_PastReadiness):
@@ -679,7 +681,7 @@ def test_a_backend_with_no_unavailable_message_skips_the_readiness_check(
     class Undeclared(_ReadyHarness):
         cli_unavailable_message = None
 
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: None)
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _n: None)
 
     with pytest.raises(_PastReadiness):
         Undeclared().run(run_context(isolated_home=str(tmp_path)))

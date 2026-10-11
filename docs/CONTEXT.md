@@ -671,7 +671,7 @@ symmetrically if ever added.
 ## Wall-clock time
 
 The already-captured `AttemptRecord.duration_seconds` — wall-clock seconds around
-the harness's `_execute`. It is **not** part of [[attempt usage]]: it is universal
+the agent spawn. It is **not** part of [[attempt usage]]: it is universal
 (every backend times its run) whereas tokens are optional, so it stays a
 top-level field. It sits alongside tokens as the latency half of the cost/latency
 axis: a skill edit that holds the score while cutting tokens *or* wall-time is a win.

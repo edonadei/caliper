@@ -240,7 +240,7 @@ def test_a_judge_at_its_spending_cap_stops_the_run(monkeypatch) -> None:
 
 def test_a_codex_judge_at_its_spending_cap_stops_the_run(monkeypatch, tmp_path) -> None:
     # Every backend's judge gets the attempt's response, not just claude-code's.
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "codex")
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _name: "codex")
     monkeypatch.setattr(
         "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )

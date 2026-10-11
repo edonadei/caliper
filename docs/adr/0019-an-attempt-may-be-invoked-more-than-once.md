@@ -92,7 +92,7 @@ Folding several invocations into one record means deciding what each field
   ([0006](0006-track-token-volume-and-wall-time-not-dollar-cost.md)).
 - **How long it took** — `duration_seconds` — is the **sum of the spawns**, and
   excludes the waiting between them. That field is pinned to time inside
-  `_execute` (docs/CONTEXT.md → Wall-clock time); folding backoff into it would
+  the agent spawn (docs/CONTEXT.md → Wall-clock time); folding backoff into it would
   turn a latency figure into a measure of the provider's queue and stop it
   comparing across runs. The `retries` count is what tells a reader the wall
   time was fought for.

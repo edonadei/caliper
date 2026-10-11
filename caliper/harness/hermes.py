@@ -178,12 +178,13 @@ class HermesHarness(CliHarness):
         # persists the session as the turns happen: export what reached disk.
         # Best-effort, so a failed or unreadable export keeps the bare timeout.
         try:
-            exported = self._execute(
+            exported = self.spawner.execute(
                 [env["CALIPER_HERMES"], "sessions", "export", "-"],
                 env=env,
                 cwd=ctx.workdir,
                 timeout=_RECOVERY_EXPORT_TIMEOUT,
                 stdin=None,
+                label=self.name,
             )
             if exported.cancelled:
                 # Interrupted mid-recovery: drop the attempt (docs/adr/0018).

@@ -714,7 +714,7 @@ def test_claude_harness_credentials_source(
     monkeypatch.setattr(Path, "home", lambda: real)
     monkeypatch.setattr("caliper.harness.claude_code.sys.platform", platform)
     harness = ClaudeCodeHarness()
-    monkeypatch.setattr(harness, "_capture_output", lambda cmd, timeout: keychain)
+    monkeypatch.setattr(harness.spawner, "capture", lambda cmd, timeout: keychain)
     ctx = run_context(isolated_home=str(tmp_path / "iso"))
 
     harness._seed_home(ctx)

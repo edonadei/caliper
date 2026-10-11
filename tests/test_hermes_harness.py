@@ -39,7 +39,7 @@ def _fake_home(tmp_path):
 def _install(monkeypatch, home, on_run):
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("HERMES_CLI_PATH", raising=False)
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "hermes")
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _n: "hermes")
     patch_cli_calls(monkeypatch, on_run)
 
 
@@ -690,7 +690,7 @@ def test_hermes_timeout_recovers_the_persisted_session(
     _install(monkeypatch, home, lambda cmd, **_kw: _version(cmd))
     exports = []
 
-    def fake_execute(self, cmd, *, env, cwd, timeout, stdin):
+    def fake_execute(cmd, *, env, cwd, timeout, stdin, label):
         if cmd[0] == "/bin/sh":
             # The timeout kills the shell before its own export runs.
             return ProcessResult("", "", 124, timed_out=True)
@@ -705,7 +705,7 @@ def test_hermes_timeout_recovers_the_persisted_session(
         stdout = '{"messages": 42}' if export == "unreadable" else _PARTIAL_SESSION
         return ProcessResult(json.dumps(stdout), "", 0, timed_out=False)
 
-    monkeypatch.setattr(HermesHarness, "_execute", fake_execute)
+    monkeypatch.setattr(HermesHarness.spawner, "execute", fake_execute)
 
     result = HermesHarness().run(
         run_context(prompt="Load slowpoke", timeout=30, isolated_home=str(iso))
@@ -732,14 +732,14 @@ def test_hermes_timeout_recovers_the_persisted_session(
 def test_hermes_judge_timeout_never_exports(monkeypatch, tmp_path) -> None:
     # A bare prompt runs against the developer's real ~/.hermes, whose sessions
     # are not caliper's to export.
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "hermes")
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _n: "hermes")
     calls = []
 
-    def fake_execute(self, cmd, **kwargs):
+    def fake_execute(cmd, **kwargs):
         calls.append(cmd)
         return ProcessResult("", "", 124, timed_out=True)
 
-    monkeypatch.setattr(HermesHarness, "_execute", fake_execute)
+    monkeypatch.setattr(HermesHarness.spawner, "execute", fake_execute)
 
     result = HermesHarness().run_prompt("anything", cwd=str(tmp_path), timeout=1)
 
@@ -804,7 +804,7 @@ def test_hermes_run_captures_token_usage_end_to_end(monkeypatch, tmp_path) -> No
 
 
 def test_hermes_missing_cli_raises_configuration_error(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: None)
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _n: None)
     monkeypatch.delenv("HERMES_CLI_PATH", raising=False)
 
     with pytest.raises(HarnessConfigurationError, match="hermes CLI is not available"):

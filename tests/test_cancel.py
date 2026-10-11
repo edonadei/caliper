@@ -37,6 +37,7 @@ from caliper.harness.base import (
     ProcessResult,
     RunContext,
 )
+from caliper.harness.spawn import Spawner
 from caliper.judge.base import JudgeResult
 from caliper.main import app
 from caliper.runner import RunAborted, run
@@ -120,7 +121,7 @@ class SleepHarness(CliHarness):
     def skills_root(self, ctx) -> Path:  # pragma: no cover - never installs
         return Path(ctx.isolated_home) / "skills"
 
-    def _command(self, ctx):  # pragma: no cover - driven through _execute
+    def _command(self, ctx):  # pragma: no cover - driven through the spawner
         return ["sleep", "30"], None, None
 
     def _environment(self, ctx) -> dict[str, str]:  # pragma: no cover
@@ -319,12 +320,13 @@ def test_cancel_kills_an_agent_in_flight(tmp_path) -> None:
     box: dict[str, object] = {}
 
     def spawn() -> None:
-        box["result"] = harness._execute(
+        box["result"] = harness.spawner.execute(
             ["sleep", "30"],
             env=dict(os.environ),
             cwd=str(tmp_path),
             timeout=30,
             stdin=None,
+            label="sleep",
         )
         finished.set()
 
@@ -402,12 +404,13 @@ def _running_attempt(
     box: dict[str, ProcessResult] = {}
 
     def execute() -> None:
-        box["result"] = SleepHarness()._execute(
+        box["result"] = Spawner().execute(
             command,
             env=dict(os.environ),
             cwd=str(tmp_path),
             timeout=timeout,
             stdin=None,
+            label="sleep",
         )
         finished.set()
 
@@ -566,7 +569,7 @@ def test_stopping_does_not_hang_on_an_unidentifiable_pipe_holder(
 
 def test_large_prompt_reaches_agent_after_a_slow_stdin_start(tmp_path: Path) -> None:
     prompt = "x" * 1_000_000
-    result = SleepHarness()._execute(
+    result = Spawner().execute(
         [
             sys.executable,
             "-c",
@@ -576,6 +579,7 @@ def test_large_prompt_reaches_agent_after_a_slow_stdin_start(tmp_path: Path) -> 
         cwd=str(tmp_path),
         timeout=5,
         stdin=prompt,
+        label="sleep",
     )
 
     assert result.returncode == 0
@@ -586,12 +590,13 @@ def test_large_prompt_reaches_agent_after_a_slow_stdin_start(tmp_path: Path) -> 
 def test_prompt_stdin_works_from_read_only_workdir(tmp_path: Path) -> None:
     tmp_path.chmod(0o555)
     try:
-        result = SleepHarness()._execute(
+        result = Spawner().execute(
             [sys.executable, "-c", "import sys; print(sys.stdin.read())"],
             env=dict(os.environ),
             cwd=str(tmp_path),
             timeout=5,
             stdin="prompt",
+            label="sleep",
         )
     finally:
         tmp_path.chmod(0o755)
@@ -614,12 +619,13 @@ def test_prompt_is_staged_in_the_workdir_unless_it_is_full(
         return real(dir=dir)
 
     monkeypatch.setattr(tempfile, "TemporaryFile", temporary_file)
-    result = SleepHarness()._execute(
+    result = Spawner().execute(
         [sys.executable, "-c", "import sys; print(sys.stdin.read())"],
         env=dict(os.environ),
         cwd=str(tmp_path),
         timeout=5,
         stdin="prompt",
+        label="sleep",
     )
 
     assert result.stdout == "prompt"

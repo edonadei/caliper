@@ -40,7 +40,7 @@ def test_user_skills_are_copied_and_declared_names_win(
     source.mkdir()
     (source / "SKILL.md").write_text("---\nname: subject\ndescription: test\n---\nspec")
     monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda n: n)
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda n: n)
     monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing")
     monkeypatch.setattr(
         ClaudeCodeHarness, "_seed_credentials_from_keychain", lambda *a: None
@@ -122,7 +122,7 @@ def test_settings_and_rules_follow_the_switch(
     (real / "SOUL.md").write_text("Persona")
     (real / "MEMORY.md").write_text("Mutable memory")
     monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda n: n)
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda n: n)
     monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing")
     monkeypatch.setattr(
         ClaudeCodeHarness, "_seed_credentials_from_keychain", lambda *a: None
@@ -285,7 +285,7 @@ def test_cli_shipped_skills_are_not_user_skills(monkeypatch, tmp_path, backend, 
         )
     (skills / ".bundled_manifest").write_text("apple-notes:abc123\n")
     monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda n: n)
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda n: n)
     monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing")
     monkeypatch.setattr(
         ClaudeCodeHarness, "_seed_credentials_from_keychain", lambda *a: None

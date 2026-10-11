@@ -452,13 +452,14 @@ class ClaudeCodeHarness(CliHarness):
         # `claude` is spawned by name, so look it up on the PATH the prompt call
         # will actually get (with the nvm prefix), not the bare parent PATH.
         return (
-            shutil.which("claude", path=self._prompt_environment().get("PATH")) is None
+            self.spawner.which("claude", path=self._prompt_environment().get("PATH"))
+            is None
         )
 
     def login_command(self) -> list[str]:
         # The `claude` an attempt reaches: the same prefixes, ahead of PATH.
         path = os.pathsep.join([*self._path_prefixes(), os.environ.get("PATH", "")])
-        return [shutil.which("claude", path=path) or "claude", "auth", "login"]
+        return [self.spawner.which("claude", path=path) or "claude", "auth", "login"]
 
     def _prompt_environment(self) -> dict[str, str]:
         env = dict(os.environ)
@@ -518,7 +519,7 @@ class ClaudeCodeHarness(CliHarness):
         return compact[:500]
 
     def _seed_credentials_from_keychain(self, dst: Path) -> None:
-        out = self._capture_output(
+        out = self.spawner.capture(
             [
                 "security",
                 "find-generic-password",

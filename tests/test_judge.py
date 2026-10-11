@@ -2,7 +2,7 @@
 
 The autorater rides the backend seam's ``run_prompt`` half, so every backend's
 judge path is mocked at the single spawn chokepoint
-(``caliper.harness.base.subprocess.run``) rather than per judge module.
+(``tests.conftest.patch_cli_calls``) rather than per judge module.
 """
 
 from __future__ import annotations
@@ -370,7 +370,7 @@ def test_claude_judge_extracts_concrete_model_from_envelope(
 
 
 def _codex_cli_present(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "codex.cmd")
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _name: "codex.cmd")
     monkeypatch.setattr(
         "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )
@@ -422,7 +422,7 @@ def test_codex_judge_uses_output_last_message(
 
 
 def test_codex_missing_cli_errors(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: None)
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _name: None)
     monkeypatch.setattr(
         "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
     )
@@ -440,17 +440,17 @@ def test_codex_judge_timeout_removes_its_output_file(monkeypatch, tmp_path) -> N
     A timed-out call never reaches the reader that would otherwise consume and
     delete the file, so cleanup has to run regardless of how the call ended.
     """
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "codex")
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _name: "codex")
     monkeypatch.setattr("caliper.harness.codex.tempfile.tempdir", str(tmp_path))
     staged: list[Path] = []
 
-    def timed_out(self, cmd, **kwargs):
+    def timed_out(cmd, **kwargs):
         staged.append(Path(cmd[cmd.index("--output-last-message") + 1]))
         return ProcessResult(
             stdout="", stderr="timeout", returncode=124, timed_out=True
         )
 
-    monkeypatch.setattr(CodexHarness, "_execute", timed_out)
+    monkeypatch.setattr(CodexHarness.spawner, "execute", timed_out)
 
     result = CodexHarness().run_prompt("anything", cwd=str(tmp_path), timeout=1)
 
@@ -547,9 +547,9 @@ def test_a_cancelled_judge_call_is_not_a_verdict(monkeypatch, tmp_path) -> None:
     # The run's cancellation killed the judge: it saw nothing, so no judge_error.
     _codex_cli_present(monkeypatch, tmp_path)
     monkeypatch.setattr(
-        CliHarness,
-        "_execute",
-        lambda self, *a, **k: ProcessResult("", "", -9, False, cancelled=True),
+        CliHarness.spawner,
+        "execute",
+        lambda *a, **k: ProcessResult("", "", -9, False, cancelled=True),
     )
 
     with pytest.raises(StepCancelled):
@@ -574,7 +574,7 @@ ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","mes
 
 def _hermes_cli_present(monkeypatch) -> None:
     monkeypatch.setattr(
-        "caliper.harness.base.shutil.which", lambda _: "/usr/bin/hermes"
+        "caliper.harness.spawn.shutil.which", lambda _: "/usr/bin/hermes"
     )
     monkeypatch.delenv("HERMES_CLI_PATH", raising=False)
 
@@ -631,7 +631,7 @@ def test_hermes_judge_reports_cli_error_as_errored(monkeypatch, tmp_path) -> Non
 
 
 def test_hermes_judge_missing_cli_errors(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _: None)
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _: None)
     monkeypatch.delenv("HERMES_CLI_PATH", raising=False)
 
     result = HermesHarness().run_prompt("anything", cwd=str(tmp_path))
@@ -658,7 +658,7 @@ def _pi_stream(text: str) -> str:
 
 def test_pi_backend_is_a_valid_judge(monkeypatch, tmp_path, attempt_workdir) -> None:
     """Regression: `--judge-model pi` must dispatch, not report 'Unknown judge backend'."""
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _: "/usr/bin/pi")
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _: "/usr/bin/pi")
     monkeypatch.delenv("PI_CLI_PATH", raising=False)
     calls = _spawn(
         monkeypatch,
@@ -681,7 +681,7 @@ def test_pi_backend_is_a_valid_judge(monkeypatch, tmp_path, attempt_workdir) -> 
 
 
 def test_pi_judge_reports_cli_error_as_errored(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _: "/usr/bin/pi")
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _: "/usr/bin/pi")
     monkeypatch.delenv("PI_CLI_PATH", raising=False)
     _spawn(monkeypatch, returncode=1, stderr="connection reset by peer")
 
@@ -693,7 +693,7 @@ def test_pi_judge_reports_cli_error_as_errored(monkeypatch, tmp_path) -> None:
 
 def test_pi_judge_with_a_rejected_key_stops_the_run(monkeypatch, tmp_path) -> None:
     """pi exits 0 and reports the 401 only as an errored message in its stream."""
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _: "/usr/bin/pi")
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _: "/usr/bin/pi")
     monkeypatch.delenv("PI_CLI_PATH", raising=False)
     error = (
         '401 {"type":"error","error":{"type":"authentication_error",'
@@ -725,7 +725,7 @@ def test_a_judge_answer_about_a_login_failure_is_a_verdict(
     monkeypatch, attempt_workdir
 ) -> None:
     """Only what the CLI wrote can stop the run, never what the judge answered."""
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _: "/usr/bin/pi")
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _: "/usr/bin/pi")
     monkeypatch.delenv("PI_CLI_PATH", raising=False)
     answer = {
         "mode": "verdict",
@@ -745,7 +745,7 @@ def test_a_judge_answer_about_a_login_failure_is_a_verdict(
 
 
 def test_pi_judge_missing_cli_errors(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _: None)
+    monkeypatch.setattr("caliper.harness.spawn.shutil.which", lambda _: None)
     monkeypatch.delenv("PI_CLI_PATH", raising=False)
 
     result = PiHarness().run_prompt("anything", cwd=str(tmp_path))

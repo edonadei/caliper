@@ -4,16 +4,13 @@ import json
 import os
 import shlex
 import shutil
-import subprocess
 import sys
-import tempfile
 import time
-import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from caliper import cancel
 from caliper.harness.refusal import (
@@ -22,6 +19,7 @@ from caliper.harness.refusal import (
     RefusalKind,
     classify,
 )
+from caliper.harness.spawn import ProcessResult, Spawner
 from caliper.schema.results import TokenUsage
 from caliper.schema.spec import McpServer
 from caliper.skills import SkillRef, frontmatter_name, install_skills
@@ -29,8 +27,6 @@ from caliper.workdir import StepCancelled
 
 if TYPE_CHECKING:
     from caliper.harness.cli_config import CliConfig
-
-_POST_KILL_DRAIN_TIMEOUT = 1
 
 _Fact = TypeVar("_Fact")
 
@@ -178,27 +174,6 @@ class RunContext:
 
 
 @dataclass
-class ProcessResult:
-    """The normalized outcome of spawning a CLI agent once."""
-
-    stdout: str
-    stderr: str
-    returncode: int
-    timed_out: bool
-    # True when this process was killed by a cancellation rather than by its own
-    # failure or the timeout. Carried so the runner can drop the attempt instead
-    # of recording an interrupt as an infrastructure failure (docs/adr/0018).
-    cancelled: bool = False
-
-    @property
-    def error(self) -> str | None:
-        """The default ``AttemptResult.error``: a timeout marker, else stderr."""
-        if self.timed_out:
-            return "timeout"
-        return self.stderr or None
-
-
-@dataclass
 class AgentReport:
     """Everything a backend read out of one finished agent process, read once.
 
@@ -274,44 +249,6 @@ def _best_effort(read: Callable[[], _Fact | None] | None) -> _Fact | None:
         return read()
     except Exception:
         return None
-
-
-def _timeout_output(partial: bytes | str | None, drained: bytes | str | None) -> str:
-    """Keep output captured before and after killing a timed-out process.
-
-    A second ``communicate`` returns the complete stream, including bytes read
-    before timeout, with text-mode newlines already normalized. Fall back to
-    ``TimeoutExpired``'s raw bytes if draining yielded nothing.
-    """
-    output = drained or partial or ""
-    if isinstance(output, bytes):
-        output = output.decode("utf-8", errors="replace")
-    return output.replace("\r\n", "\n").replace("\r", "\n").strip()
-
-
-def _stage_prompt(text: str, cwd: str) -> IO[bytes]:
-    """Write a prompt to an unlinked temporary file, rewound for reading.
-
-    Prefer the attempt workdir, whose volume the run already relies on; fall
-    back to the system temp dir when the workdir is read-only or full.
-    """
-    data = text.encode("utf-8")
-    try:
-        return _write_temp(data, cwd)
-    except OSError:
-        return _write_temp(data, None)
-
-
-def _write_temp(data: bytes, directory: str | None) -> IO[bytes]:
-    staged = tempfile.TemporaryFile(dir=directory)  # noqa: SIM115 - caller owns it
-    try:
-        staged.write(data)
-        staged.flush()
-    except BaseException:
-        staged.close()
-        raise
-    staged.seek(0)
-    return staged
 
 
 @dataclass
@@ -521,8 +458,13 @@ class CliHarness(HarnessBackend):
                     timeout=ctx.timeout,
                     speaks_modern=self.speaks_modern_mcp,
                 )
-            proc = self._execute(
-                cmd, env=env, cwd=ctx.workdir, timeout=ctx.timeout, stdin=stdin
+            proc = self.spawner.execute(
+                cmd,
+                env=env,
+                cwd=ctx.workdir,
+                timeout=ctx.timeout,
+                stdin=stdin,
+                label=self.name,
             )
         finally:
             if cleanup is not None:
@@ -612,12 +554,13 @@ class CliHarness(HarnessBackend):
 
         try:
             start = time.monotonic()
-            proc = self._execute(
+            proc = self.spawner.execute(
                 call.argv,
                 env=self._prompt_environment(),
                 cwd=cwd,
                 timeout=timeout,
                 stdin=call.stdin,
+                label=self.name,
             )
             seconds = time.monotonic() - start
             if proc.timed_out:
@@ -905,6 +848,10 @@ class CliHarness(HarnessBackend):
     #: Seconds ``<cli> --version`` may take before the CLI counts as unrunnable.
     cli_version_timeout: int = 10
 
+    #: How this harness starts processes (:mod:`caliper.harness.spawn`). Shared
+    #: and stateless by default; a test sets its own on the harness.
+    spawner: Spawner = Spawner()
+
     def cli_candidates(self) -> tuple[Path, ...]:
         """Well-known install locations to try before ``PATH``. Default: none.
 
@@ -928,7 +875,7 @@ class CliHarness(HarnessBackend):
         for candidate in self.cli_candidates():
             if candidate.exists():
                 return str(candidate)
-        return shutil.which(self.cli_name) if self.cli_name else None
+        return self.spawner.which(self.cli_name) if self.cli_name else None
 
     def prompt_cli_missing(self) -> bool:
         return self.cli_name is not None and self.cli_path() is None
@@ -943,7 +890,9 @@ class CliHarness(HarnessBackend):
         if self.cli_unavailable_message is None:
             return
         cli = self.cli_path()
-        if cli is None or not self._version_ok(cli, timeout=self.cli_version_timeout):
+        if cli is None or not self.spawner.version_ok(
+            cli, timeout=self.cli_version_timeout
+        ):
             raise HarnessConfigurationError(self.cli_unavailable_message)
 
     #: Vars forwarded from the parent environment into an isolated run. Locale
@@ -984,117 +933,6 @@ class CliHarness(HarnessBackend):
         if sys.platform == "win32":
             self._passthrough(env, ("SystemRoot",))
         return self._passthrough(env, self.env_passthrough)
-
-    def _execute(
-        self,
-        cmd: list[str],
-        *,
-        env: dict[str, str],
-        cwd: str,
-        timeout: int,
-        stdin: str | None,
-    ) -> ProcessResult:
-        """Spawn the agent once, timing out into a 124/timeout ProcessResult.
-
-        ``Popen`` rather than ``subprocess.run`` so the live process is
-        registered with :mod:`caliper.cancel`: an interrupt has to be able to
-        kill an agent mid-flight, or Ctrl-C waits out the full ``--timeout`` of
-        every attempt already running. ``start_new_session`` gives each agent
-        its own process group; cancellation also walks descendants for tools
-        that create separate groups.
-        """
-        process_tag = uuid.uuid4().hex
-        process_env = dict(env)
-        process_env[cancel.PROCESS_TAG] = process_tag
-        # File-backed stdin lets communicate() be retried without abandoning
-        # a partially written prompt or leaving a blocked worker thread.
-        prompt_file = None
-        try:
-            if stdin is not None:
-                prompt_file = _stage_prompt(stdin, cwd)
-            with (
-                subprocess.Popen(
-                    cmd,
-                    stdin=prompt_file
-                    if prompt_file is not None
-                    else subprocess.DEVNULL,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    encoding="utf-8",
-                    text=True,
-                    env=process_env,
-                    cwd=cwd,
-                    start_new_session=True,
-                ) as proc,
-                cancel.track(proc, process_tag=process_tag),
-            ):
-                deadline = time.monotonic() + timeout
-                while True:
-                    try:
-                        stdout, stderr = proc.communicate(
-                            timeout=max(0.001, min(0.1, deadline - time.monotonic()))
-                        )
-                        break
-                    except subprocess.TimeoutExpired as exc:
-                        interrupted = cancel.requested()
-                        if not interrupted and time.monotonic() < deadline:
-                            continue
-                        cancel.kill(proc)
-                        try:
-                            stdout, stderr = proc.communicate(
-                                timeout=_POST_KILL_DRAIN_TIMEOUT
-                            )
-                        except subprocess.TimeoutExpired as drain:
-                            # An untagged detached tool may still hold the
-                            # pipes after its CLI parent has exited. Keep
-                            # what was read before giving up on them.
-                            stdout, stderr = drain.stdout, drain.stderr
-                            for pipe in (proc.stdout, proc.stderr):
-                                if pipe is not None:
-                                    pipe.close()
-                        if interrupted:
-                            return ProcessResult(
-                                "", "interrupted", -9, False, cancelled=True
-                            )
-                        return ProcessResult(
-                            _timeout_output(exc.stdout, stdout),
-                            _timeout_output(exc.stderr, stderr),
-                            124,
-                            True,
-                        )
-        except OSError as exc:
-            return ProcessResult("", f"{self.name} CLI failed: {exc}", 1, False)
-        finally:
-            if prompt_file is not None:
-                prompt_file.close()
-        return ProcessResult(
-            stdout=(stdout or "").strip(),
-            stderr=(stderr or "").strip(),
-            returncode=proc.returncode,
-            timed_out=False,
-            cancelled=cancel.was_killed(proc),
-        )
-
-    def _version_ok(self, cli: str, *, timeout: int) -> bool:
-        """True when ``cli --version`` exits 0 — the CLI is installed and runnable."""
-        try:
-            result = subprocess.run(
-                [cli, "--version"], capture_output=True, text=True, timeout=timeout
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return False
-        return result.returncode == 0
-
-    def _capture_output(self, cmd: list[str], *, timeout: int) -> str | None:
-        """Run a helper command, returning its stripped stdout on a clean exit."""
-        try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=timeout
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-        out = result.stdout.strip()
-        return out if result.returncode == 0 and out else None
 
     @staticmethod
     def _passthrough(env: dict[str, str], keys: tuple[str, ...]) -> dict[str, str]:

@@ -80,7 +80,7 @@ def merge(invocations: list[AttemptResult]) -> AttemptResult:
       heavily-retried run look cheaper than a clean one.
     * **How long it took** — ``duration_seconds`` — is the **sum of the spawns**
       and excludes the waiting between them. The field is pinned to time spent
-      inside ``_execute`` (docs/CONTEXT.md → Wall-clock time); folding backoff
+      inside the agent spawn (docs/CONTEXT.md → Wall-clock time); folding backoff
       into it would turn a latency figure into a measure of the provider's
       queue, and stop it comparing across runs.
     """

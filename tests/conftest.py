@@ -4,20 +4,13 @@
 a judge at the run seam, so a runner test states only the result it is about
 (:func:`agent_result`, :func:`failed_result`, :func:`in_turn`).
 
-A real harness reaches the outside world twice, and a test that fakes a CLI wants to
-answer both from one function:
-
-* short capability probes (``codex --version``) still go through
-  ``subprocess.run``;
-* the agent spawn goes through ``subprocess.Popen``, so a run can kill what is
-  in flight when it is cancelled (see :mod:`caliper.cancel`).
-
-:func:`patch_cli_calls` routes both at one ``fake_run(cmd, **kwargs)`` that
-returns a :class:`subprocess.CompletedProcess`, adapting it to the slice of the
-Popen protocol ``CliHarness._execute`` uses. The fake is called with
-``subprocess.run``-shaped keywords (``input``, ``timeout``, ``cwd``, ``env``),
-not Popen's, so a test can keep asserting on the arguments it cares about
-without knowing which of the two calls it is answering.
+A real harness starts every process through its :class:`~caliper.harness.spawn.Spawner`.
+:func:`patch_cli_calls` gives every harness a :class:`ScriptedSpawner`, which
+answers the probes and the agent spawn from one ``fake_run(cmd, **kwargs)``
+returning a :class:`subprocess.CompletedProcess`. The fake is called with
+``subprocess.run``-shaped keywords (``input``, ``timeout``, ``cwd``, ``env``), so a
+test asserts on the arguments it cares about without knowing which call it is
+answering.
 """
 
 from __future__ import annotations
@@ -32,10 +25,12 @@ import pytest
 from caliper import cancel
 from caliper.harness.base import (
     AttemptResult,
+    CliHarness,
     ConversationTurn,
     HarnessBackend,
     RunContext,
 )
+from caliper.harness.spawn import ProcessResult, Spawner
 from caliper.judge.base import JudgeResult
 from caliper.schema.results import AttemptRecord, Outcome, TaskResult
 
@@ -185,71 +180,49 @@ def run_context(**overrides) -> RunContext:
     return RunContext(**{**fields, **overrides})
 
 
-class _FakePopen:
-    """The bits of ``Popen`` that ``CliHarness._execute`` touches.
+class ScriptedSpawner(Spawner):
+    """A :class:`Spawner` whose every process is answered by ``fake_run``.
 
-    ``fake_run`` is deliberately not called until :meth:`communicate`. For a
-    file-backed stdin, read the payload the real child would have consumed so
-    existing prompt assertions can inspect it. A ``TimeoutExpired`` raised by
-    the fake propagates untouched to the harness timeout handler.
+    ``fake_run(cmd, **kwargs)`` gets ``subprocess.run``-shaped keywords
+    (``input``, ``timeout``, ``cwd``, ``env``, and ``stdin`` as ``DEVNULL`` when
+    the agent is given none) and returns a :class:`subprocess.CompletedProcess`.
     """
 
-    def __init__(
-        self, fake_run: Callable[..., subprocess.CompletedProcess], cmd, kwargs: dict
-    ) -> None:
+    def __init__(self, fake_run: Callable[..., subprocess.CompletedProcess]) -> None:
         self._fake_run = fake_run
-        self._cmd = cmd
-        # Popen-only plumbing that has no ``subprocess.run`` counterpart.
-        # ``stdin`` is kept: run takes it too, and a backend's choice between
-        # DEVNULL and a payload is a fact tests assert on.
-        self._kwargs = {
-            k: v
-            for k, v in kwargs.items()
-            if k not in ("stdout", "stderr", "start_new_session")
-        }
-        self._completed: subprocess.CompletedProcess | None = None
-        self.pid = 4242
 
-    def __enter__(self) -> _FakePopen:
-        return self
+    def _run(self, cmd, *, timeout):
+        return self._fake_run(cmd, capture_output=True, text=True, timeout=timeout)
 
-    def __exit__(self, *exc_info: object) -> None:
-        return None
-
-    def communicate(self, input=None, timeout=None):  # noqa: A002 - Popen's name
-        source = self._kwargs.get("stdin")
-        if input is None and hasattr(source, "read"):
-            source.seek(0)
-            input = source.read().decode("utf-8")
-        kwargs = dict(self._kwargs, input=input, timeout=timeout)
-        # What ``subprocess.run`` would have been given for the same spawn: the
-        # two pipes it sets itself, and whatever text handling the caller asked
-        # for (already in the Popen kwargs, hence setdefault).
-        kwargs.setdefault("capture_output", True)
-        kwargs.setdefault("text", True)
-        self._completed = self._fake_run(self._cmd, **kwargs)
-        return self._completed.stdout, self._completed.stderr
-
-    def poll(self) -> int | None:
-        return None if self._completed is None else self._completed.returncode
-
-    @property
-    def returncode(self) -> int | None:
-        return self.poll()
-
-    def kill(self) -> None:
-        return None
+    def execute(self, cmd, *, env, cwd, timeout, stdin, label):
+        kwargs = (
+            {"input": stdin} if stdin is not None else {"stdin": subprocess.DEVNULL}
+        )
+        try:
+            completed = self._fake_run(
+                cmd,
+                **kwargs,
+                env=env,
+                cwd=cwd,
+                timeout=timeout,
+                capture_output=True,
+                text=True,
+            )
+        except OSError as exc:
+            return ProcessResult("", f"{label} CLI failed: {exc}", 1, False)
+        return ProcessResult(
+            stdout=(completed.stdout or "").strip(),
+            stderr=(completed.stderr or "").strip(),
+            returncode=completed.returncode,
+            timed_out=False,
+        )
 
 
 def patch_cli_calls(
     monkeypatch, fake_run: Callable[..., subprocess.CompletedProcess]
 ) -> None:
-    """Answer both the probe (``subprocess.run``) and the spawn (``Popen``)."""
-    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
-    monkeypatch.setattr(
-        "caliper.harness.base.subprocess.Popen",
-        lambda cmd, **kwargs: _FakePopen(fake_run, cmd, kwargs),
-    )
+    """Answer every process a CLI harness starts from ``fake_run``."""
+    monkeypatch.setattr(CliHarness, "spawner", ScriptedSpawner(fake_run))
 
 
 @pytest.fixture(autouse=True)

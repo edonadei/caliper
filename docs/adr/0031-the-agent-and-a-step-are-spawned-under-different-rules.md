@@ -1,6 +1,6 @@
 # The agent and a step are spawned under different rules
 
-The agent under test is spawned by `CliHarness._execute`, and every
+The agent under test is spawned by `Spawner.execute` (`caliper/harness/spawn.py`), and every
 [[step]] by `AttemptWorkdir._run`. Both tag the process, track it for
 cancellation, and kill it at a deadline, so they look like one loop written
 twice. They are kept apart on purpose, because they disagree about **when a
