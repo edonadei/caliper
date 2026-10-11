@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 
 import pytest
 import yaml
@@ -156,7 +157,7 @@ def test_inline_assert_code_is_not_mistaken_for_a_path(tmp_path) -> None:
             "      import os\n      assert os.path.exists('x.py')\n",
         )
     )
-    assert spec.tasks[0].assert_script
+    assert spec.tasks[0].assert_script == "import os\nassert os.path.exists('x.py')\n"
 
 
 @pytest.mark.parametrize("typo", ["asert: assert True", "activate: [my-skill]"])
@@ -192,13 +193,28 @@ _BROKEN_SPECS = {
     "markup-key": "tasks:\n  - name: t\n    prompt: p\n    expect: ok\n    a[/b]: x\n",
 }
 
+_BROKEN_DIAGNOSTICS = {
+    "bad-regex": ("forbidden_files", "is not a valid", "[unclosed"),
+    "missing-assert": ("assert script not found", "nope.py"),
+    "unknown-sandbox-key": ("forbiden_files", "Extra inputs are not permitted"),
+    "unknown-key": ("asert", "Extra inputs are not permitted"),
+    "duplicate-assert": ("duplicate key 'assert'", "line 5"),
+    "duplicate-tasks": ("duplicate key 'tasks'", "line 5"),
+    "blank-assert": ("`assert:` is blank",),
+    "blank-expect": ("`expect:` is blank",),
+    "markup-key": ("a[/b]", "Extra inputs are not permitted"),
+}
+
 
 @pytest.mark.parametrize("case", sorted(_BROKEN_SPECS))
 def test_validate_rejects_the_spec(tmp_path, case) -> None:
     result = CliRunner().invoke(
         app, ["validate", str(_write(tmp_path, _BROKEN_SPECS[case]))]
     )
-    assert result.exit_code != 0
+    assert result.exit_code == 1, result.output
+    assert isinstance(result.exception, SystemExit)
+    for diagnostic in _BROKEN_DIAGNOSTICS[case]:
+        assert diagnostic in result.output
     assert "Spec is valid" not in result.output
 
 
@@ -283,9 +299,10 @@ def test_no_repo_eval_hook_relies_on_pwd() -> None:
     from pathlib import Path
 
     root = Path(__file__).parent.parent
-    specs = [
-        p for p in root.rglob("*.eval.yaml") if not {".venv", ".caliper"} & set(p.parts)
-    ]
+    tracked = subprocess.check_output(
+        ["git", "ls-files", "-z", "*.eval.yaml"], cwd=root
+    )
+    specs = [root / name.decode() for name in tracked.split(b"\0") if name]
     assert specs
     for path in specs:
         for task in load_spec(path).tasks:

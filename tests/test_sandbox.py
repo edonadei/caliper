@@ -69,21 +69,21 @@ def test_non_path_strings_are_not_candidates() -> None:
 
 
 @pytest.mark.parametrize(
-    "tool_input",
+    ("tool_input", "expected"),
     [
-        {"file_path": "SECRET"},
-        {"path": "SECRET"},
-        {"command": "cat SECRET"},
-        {"command": ["bash", "-lc", "cat SECRET"]},
+        ({"file_path": "SECRET"}, ["SECRET"]),
+        ({"path": "SECRET"}, ["SECRET"]),
+        ({"command": "cat SECRET"}, ["cat SECRET"]),
+        ({"command": ["bash", "-lc", "cat SECRET"]}, ["cat SECRET"]),
     ],
 )
-def test_an_extensionless_path_or_command_is_a_candidate(tool_input) -> None:
+def test_an_extensionless_path_or_command_is_a_candidate(tool_input, expected) -> None:
     """Where a tool names its file, the name need not look like a path."""
     sandbox = SpecSandbox(declared=["SECRET"])
     turn = ConversationTurn(
         role="tool_use", content="", tool_name="Read", tool_input=tool_input
     )
-    assert sandbox.violations([turn]) != []
+    assert sandbox.violations([turn]) == expected
 
 
 def test_from_spec_forbids_the_spec_file_itself(tmp_path: Path) -> None:
