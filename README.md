@@ -25,7 +25,7 @@ After the next model update? When another skill competes for the same prompt?
   <a href="#quick-start"><b>Quick start</b></a> &nbsp;•&nbsp;
   <a href="#how-it-works"><b>How it works</b></a> &nbsp;•&nbsp;
   <a href="#documentation"><b>Docs</b></a> &nbsp;•&nbsp;
-  <a href="examples/starter-pack/"><b>Starter pack</b></a>
+  <a href="examples/"><b>Examples</b></a>
 </p>
 
 <br>
@@ -188,11 +188,10 @@ failed. Full results are saved as JSON under `.caliper/results/<spec>/`.
 
 ### Not sure what to put in a spec?
 
-The **[Eval Starter Pack](examples/starter-pack/)** has five copy-paste
-templates, each catching a real agent failure (false success, tool misuse,
-runaway loops, prompt regressions, stale context treated as current). Every template runs green as-is against a
-bundled example, then points at your own skill by editing two or three
-commented lines.
+Start from one of the **[examples](examples/)**. Each catches a common agent
+failure (false success, tool misuse, runaway loops, prompt regressions, stale
+context treated as current), passes as-is against a bundled skill, and points
+at your own skill by editing a few commented lines.
 
 ## Documentation
 

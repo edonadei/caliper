@@ -3,7 +3,7 @@
 A spec is a `.eval.yaml` file that says which skills to install and what
 "working" means. This page is the full reference. For a first spec, start with
 the [README quick start](../README.md#quick-start) or the
-[Eval Starter Pack](../examples/starter-pack/).
+[examples](../examples/).
 
 ## Full format
 
