@@ -107,15 +107,18 @@ tasks:
       import json
       from pathlib import Path
 
-      data = json.loads(Path('receipt.json').read_text())
+      receipt_path = Path('receipt.json')
+      assert receipt_path.exists(), 'receipt.json was not created'
+      data = json.loads(receipt_path.read_text())
       # Exactly the two provided files, matched by basename — no more (which
-      # would mean an invented source), no fewer.
+      # would mean an invented source), no fewer. This is the whole check for
+      # invented sources: scanning the text for words like "transcript" would
+      # also fail a receipt that correctly notes no transcript was provided.
       loaded_names = {item['ref'].rsplit('/', 1)[-1] for item in data['loaded_context']}
-      assert loaded_names == {'AGENTS.md', 'release-note.md'}
+      assert loaded_names == {'AGENTS.md', 'release-note.md'}, \
+          f'loaded_context names unseen or missing sources: {sorted(loaded_names)}'
 
       full_text = json.dumps(data).lower()
       assert 'api v3' in full_text
-      for forbidden in ['transcript', 'dashboard', 'ticket', 'human confirmation']:
-          assert forbidden not in full_text, f'invented unseen source: {forbidden}'
       assert 'npm test -- billing' in full_text
       assert 'staging webhook logs' in full_text

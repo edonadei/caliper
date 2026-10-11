@@ -8,7 +8,9 @@
 # (an API log, a row in a table, a sent message) instead of this file.
 
 # Document the interface so any agent (with or without the skill loaded) can
-# discover that alerts require --channel.
+# discover that alerts require --channel. The help lists channels but does not
+# say which one operational alerts belong in: that rule lives in the skill, so
+# an agent without it has to guess.
 if [[ "$1" == "--help" || "$1" == "-h" || $# -eq 0 ]]; then
   cat <<'USAGE'
 notify — send an operational alert to a channel
@@ -16,7 +18,7 @@ notify — send an operational alert to a channel
 Usage:
   notify --channel <name> "<message>"
 
-Alerts must specify a channel. Operational alerts go to: ops
+Channels: general, ops, oncall
 USAGE
   exit 0
 fi

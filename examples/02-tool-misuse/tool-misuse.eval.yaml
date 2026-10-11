@@ -29,11 +29,12 @@ tasks:
   # 👉 EDIT 2: rename this task — it becomes the row label in your results.
   - name: Sends the alert to the required ops channel
     # 👉 EDIT 3: replace with a real request that should trigger your tool.
-    #            (Name the tool so the agent reaches for it — the skill's job is
-    #            to enforce the *right arguments*, which is what we assert on.)
+    #            Name the tool so the agent reaches for it, but leave out the
+    #            argument you assert on: picking it is the skill's job. A prompt
+    #            that says "to the ops channel" would pass without the skill.
     prompt: >
-      Use the notify CLI to send an alert to the ops channel that the disk is
-      almost full on web-01.
+      Use the notify CLI to send an alert that the disk is almost full on
+      web-01.
 
     # The argument check: the tool must have been called for the `ops` channel.
     # A bare "did notify run?" check would pass even if the alert went nowhere
