@@ -100,3 +100,12 @@ customizations an attempt loads (docs/adr/0028) moved out of `CliHarness` into
 rule is unchanged: a backend still only declares where it keeps that layer
 (`user_rules`, `user_settings_file`, `user_skill_name`, `bundled_skill_names`,
 `stage_plugins`), and those hooks are public because a sibling module calls them.
+
+**Amended: the rewritten config is declared too.** codex and hermes each
+rewrote their CLI's config file by hand: parse it, keep only the connection
+keys when isolated, merge the MCP servers, write it back `0600`, then parse it
+again to report the servers. A backend now declares that file as a `CliConfig`
+(its path, format, connection keys, servers key, dropped keys and server
+spelling), and `caliper/harness/cli_config.py` writes it between `_seed_home`
+and `_prepare` and reads it back. claude-code is not on it: its servers go in a
+separate `--mcp-config` file rather than beside its login.
