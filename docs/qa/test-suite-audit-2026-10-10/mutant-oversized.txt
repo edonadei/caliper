@@ -1,0 +1,59 @@
+Applied process-local mutation allow-oversized. No repository files changed.
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________ test_the_snapshot_holds_exactly_the_files_the_install_wrote __________
+
+tmp_path = PosixPath('/private/var/folders/qj/l75kfzms0y984ngvf069cbdh0000gn/T/pytest-of-emrickdonadei/pytest-413/test_the_snapshot_holds_exactl0')
+
+    def test_the_snapshot_holds_exactly_the_files_the_install_wrote(tmp_path: Path):
+        """The invariant drift rests on: what was hashed is what the agent got."""
+        shared = tmp_path / "shared"
+        shared.mkdir()
+        (shared / "guide.md").write_text("# Shared guide\n")
+        directory = _mine(tmp_path)
+        (directory / "REFERENCE.md").write_text("# Reference\n")
+        (directory / "scripts").mkdir()
+        (directory / "scripts" / "run.sh").write_text("echo hi\n")
+        (directory / "fixtures").mkdir()
+        (directory / "fixtures" / "data.json").write_text('{"a": 1}\n')
+        (directory / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\xff\xfe")
+        (directory / "blob.bin").write_bytes(b"x" * (6 * 1024 * 1024))
+        (directory / ".git").mkdir()
+        (directory / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+        (directory / "mine.eval.yaml").write_text("tasks: []\n")
+        (directory / ".caliper").mkdir()
+        (directory / ".caliper" / "run.json").write_text("{}\n")
+        (directory / "answers").mkdir()
+        (directory / "answers" / "key.md").write_text("the answer is 42\n")
+        (directory / "hint.md").symlink_to(Path("answers/key.md"))
+        (directory / "guide.md").symlink_to(Path("../shared/guide.md"))
+        (directory / "references").symlink_to(Path("../shared"), target_is_directory=True)
+        ref = SkillRef(name="mine", path=directory / "SKILL.md")
+        root = tmp_path / "root"
+
+        snap = snapshot_skill(ref, ["answers/"])
+        install_skills([ref], root, ["answers/"])
+
+        installed = {
+            item.relative_to(root / "mine").as_posix()
+            for item in (root / "mine").rglob("*")
+            if item.is_file()
+        }
+>       assert installed == {
+            "SKILL.md",
+            "REFERENCE.md",
+            "scripts/run.sh",
+            "fixtures/data.json",
+            "logo.png",
+            "guide.md",
+        }
+E       AssertionError: assert {'REFERENCE.m...ogo.png', ...} == {'REFERENCE.m...ripts/run.sh'}
+E
+E         Extra items in the left set:
+E         'blob.bin'
+E         Use -v to get more diff
+
+tests/test_skillsnapshot.py:316: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_skillsnapshot.py::test_the_snapshot_holds_exactly_the_files_the_install_wrote
+1 failed in 0.12s

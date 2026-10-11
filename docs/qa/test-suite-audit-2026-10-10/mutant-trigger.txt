@@ -1,0 +1,26 @@
+Applied process-local mutation trigger-always-true. No repository files changed.
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_a_task_with_a_real_verdict_is_not_trigger_only ______________
+
+    def test_a_task_with_a_real_verdict_is_not_trigger_only():
+        tr = TaskResult(
+            task_id="t",
+            task_name="t",
+            attempts=[
+                AttemptRecord(
+                    attempt=1, output="", duration_seconds=1.0, outcome=Outcome.PASS
+                ),
+                AttemptRecord(
+                    attempt=2, output="", duration_seconds=1.0, outcome=Outcome.NOT_CHECKED
+                ),
+            ],
+        )
+>       assert tr.trigger_only is False
+E       AssertionError: assert True is False
+E        +  where True = TaskResult(task_id='t', task_name='t', attempts=[AttemptRecord(attempt=1, output='', duration_seconds=1.0, outcome=<Ou...usable=1, score=1.0, pass_at_k=1.0, pass_hat_k=1.0, activation_usable=0, activation_successes=0, activation_score=None).trigger_only
+
+tests/test_not_checked.py:206: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_not_checked.py::test_a_task_with_a_real_verdict_is_not_trigger_only
+1 failed in 0.11s

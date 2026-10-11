@@ -1,0 +1,369 @@
+........................................................................ [  6%]
+........................................................................ [ 12%]
+........................................................................ [ 18%]
+.................................................s...................... [ 24%]
+...............................F....F..F................................ [ 30%]
+........................................................................ [ 36%]
+........................................................................ [ 42%]
+........................................................................ [ 48%]
+.................................F...................................... [ 54%]
+........................................................................ [ 60%]
+........................................................................ [ 66%]
+........................................................................ [ 72%]
+........................................................................ [ 78%]
+........................................................................ [ 84%]
+........................................................................ [ 90%]
+.........F.FF........................................................... [ 96%]
+.........................................s......                         [100%]
+=================================== FAILURES ===================================
+__________ test_codex_installs_the_skill_and_leaves_the_prompt_alone ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c089e50>
+tmp_path = PosixPath('/private/var/folders/qj/l75kfzms0y984ngvf069cbdh0000gn/T/pytest-of-emrickdonadei/pytest-405/test_codex_installs_the_skill_0')
+
+    def test_codex_installs_the_skill_and_leaves_the_prompt_alone(
+        monkeypatch, tmp_path
+    ) -> None:
+        skill_dir = tmp_path / "src"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: careful\ndescription: test\n---\n\nUse caliper carefully."
+        )
+        refs = resolve_skills([str(skill_dir / "SKILL.md")], tmp_path)
+        calls = []
+
+        def fake_which(name: str) -> str:
+            assert name == "codex"
+            return "codex.cmd"
+
+        def fake_run(cmd, **kwargs):
+            calls.append((cmd, kwargs))
+            if cmd == ["codex.cmd", "--version"]:
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="codex-cli 0.132.0\n", stderr=""
+                )
+            assert cmd[:2] == ["codex.cmd", "exec"]
+            assert cmd[-1] == "-"
+            # Codex has no force-load flag and caliper no longer invents one: the
+            # prompt on stdin is exactly what the spec authored.
+            assert kwargs["input"] == "Validate the spec"
+            # The agent works in the attempt workdir, not its config home (#130).
+            assert kwargs["cwd"] == str(tmp_path / "work")
+            return subprocess.CompletedProcess(cmd, 0, stdout="VALID\n", stderr="")
+
+        monkeypatch.setattr("caliper.harness.base.shutil.which", fake_which)
+        monkeypatch.setattr(
+            "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
+        )
+        patch_cli_calls(monkeypatch, fake_run)
+
+>       result = CodexHarness().run(
+            run_context(
+                prompt="Validate the spec",
+                skill_refs=refs,
+                model="test-model",
+                timeout=30,
+                isolated_home=str(tmp_path),
+                workdir=str(tmp_path / "work"),
+                extra_path=[str(tmp_path / "bin")],
+            )
+        )
+
+tests/test_codex_harness.py:65:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+caliper/harness/base.py:509: in run
+    self._ensure_ready(ctx)
+caliper/harness/base.py:919: in _ensure_ready
+    if cli is None or not self._version_ok(cli, timeout=self.cli_version_timeout):
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+caliper/harness/base.py:1054: in _version_ok
+    result = subprocess.run(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cmd = ['/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex', '--version']
+kwargs = {'capture_output': True, 'text': True, 'timeout': 5}
+
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        if cmd == ["codex.cmd", "--version"]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="codex-cli 0.132.0\n", stderr=""
+            )
+>       assert cmd[:2] == ["codex.cmd", "exec"]
+E       AssertionError: assert ['/Applicatio..., '--version'] == ['codex.cmd', 'exec']
+E
+E         At index 0 diff: '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex' != 'codex.cmd'
+E         Use -v to get more diff
+
+tests/test_codex_harness.py:50: AssertionError
+______________________ test_codex_prefers_app_bundled_cli ______________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c0c9310>
+tmp_path = PosixPath('/private/var/folders/qj/l75kfzms0y984ngvf069cbdh0000gn/T/pytest-of-emrickdonadei/pytest-405/test_codex_prefers_app_bundled0')
+
+    def test_codex_prefers_app_bundled_cli(monkeypatch, tmp_path) -> None:
+        app_cli = tmp_path / "Codex.app" / "Contents" / "Resources" / "codex"
+        app_cli.parent.mkdir(parents=True)
+        app_cli.write_text("")
+
+        monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", app_cli)
+        monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "old-codex")
+
+>       assert CodexHarness().cli_path() == str(app_cli)
+E       AssertionError: assert '/Application...s/MacOS/codex' == '/private/var...sources/codex'
+E
+E         - /private/var/folders/qj/l75kfzms0y984ngvf069cbdh0000gn/T/pytest-of-emrickdonadei/pytest-405/test_codex_prefers_app_bundled0/Codex.app/Contents/Resources/codex
+E         + /Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex
+
+tests/test_codex_harness.py:273: AssertionError
+___________ test_codex_fails_clearly_when_cli_requires_newer_version ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c0c82f0>
+tmp_path = PosixPath('/private/var/folders/qj/l75kfzms0y984ngvf069cbdh0000gn/T/pytest-of-emrickdonadei/pytest-405/test_codex_fails_clearly_when_1')
+
+    def test_codex_fails_clearly_when_cli_requires_newer_version(
+        monkeypatch, tmp_path
+    ) -> None:
+        monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "codex")
+        monkeypatch.setattr(
+            "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
+        )
+
+        def fake_run(cmd, **kwargs):
+            if cmd == ["codex", "--version"]:
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="codex-cli 0.46.0\n", stderr=""
+                )
+            return subprocess.CompletedProcess(
+                cmd,
+                1,
+                stdout="",
+                stderr=(
+                    "ERROR: unexpected status 400 Bad Request: "
+                    '{"detail":"The \'gpt-5.4-mini\' model requires a newer version '
+                    'of Codex. Please upgrade to the latest app or CLI and try again."}'
+                ),
+            )
+
+        patch_cli_calls(monkeypatch, fake_run)
+
+        with pytest.raises(HarnessConfigurationError) as exc:
+            CodexHarness().run(
+                run_context(
+                    prompt="Hello",
+                    model="gpt-5.4-mini",
+                    timeout=12,
+                    isolated_home=str(tmp_path),
+                )
+            )
+
+        message = str(exc.value)
+>       assert "requested model" in message
+E       AssertionError: assert 'requested model' in 'Codex CLI is not available for the `codex` backend.\n\nCaliper runs skills only through CLI agents. Install and authe...th `--model codex`. For API billing, configure the Codex CLI with an API key rather than selecting a separate backend.'
+
+tests/test_codex_harness.py:381: AssertionError
+_____________________ test_no_repo_eval_hook_relies_on_pwd _____________________
+
+    def test_no_repo_eval_hook_relies_on_pwd() -> None:
+        # Hooks run in the attempt workdir, so $PWD is never the repo or spec dir;
+        # $CALIPER_SPEC_DIR is (docs/spec-reference.md).
+        from pathlib import Path
+
+        root = Path(__file__).parent.parent
+        specs = [
+            p for p in root.rglob("*.eval.yaml") if not {".venv", ".caliper"} & set(p.parts)
+        ]
+        assert specs
+        for path in specs:
+>           for task in load_spec(path).tasks:
+                        ^^^^^^^^^^^^^^^
+
+tests/test_load_spec.py:291:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+path = PosixPath('/Users/emrickdonadei/verdict/docs/qa/cli-2026-09-24/bad-regex.eval.yaml')
+
+    def load_spec(path: Path) -> EvalSpec:
+        # Refused before the run, not when it saves: the attempts are paid for.
+        if not is_usable_spec_name(spec_name(path)):
+            raise ValueError(
+                f"{path.name!r} gives no usable spec name, which names its results "
+                "directory. Rename it to <name>.eval.yaml"
+            )
+        raw = _load_yaml(path.read_text())
+        if raw is None:
+            raise ValueError("the spec is empty: it needs at least a `tasks:` list")
+        if not isinstance(raw, dict):
+            raise ValueError(
+                "the spec must be a mapping with a `tasks:` list at the top level, "
+                f"not a {type(raw).__name__}"
+            )
+        # Engine keys first: a spec carrying both `skill.model` and `skill:`
+        # should hear about the engine move, which is the older migration.
+        _reject_removed_keys(raw)
+        _reject_singular_skill(raw)
+        # Shape errors are named here in the spec's own terms; the schema would
+        # word them as "instance of TaskSpec".
+        tasks = raw.get("tasks")
+        if "tasks" in raw and not isinstance(tasks, list):
+            raise ValueError(f"`tasks:` must be a list of tasks, not {_yaml_kind(tasks)}")
+        for i, task in enumerate(tasks or [], 1):
+            if not isinstance(task, dict):
+                raise ValueError(
+                    f"task {i} must be a mapping with `name:` and `prompt:`, not "
+                    f"{_yaml_kind(task)} ({task!r})"
+                )
+            task["id"] = f"task-{i:03d}"
+>       return EvalSpec.model_validate(raw, context={"spec_dir": path.parent})
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       pydantic_core._pydantic_core.ValidationError: 1 validation error for EvalSpec
+E       sandbox.forbidden_files
+E         Value error, forbidden_files[0] is not a valid regex: '[' (unterminated character set at position 0) [type=value_error, input_value=['['], input_type=list]
+E           For further information visit https://errors.pydantic.dev/2.13/v/value_error
+
+caliper/schema/spec.py:424: ValidationError
+____________________ test_update_cli_check_prints_versions _____________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c5793a0>
+tmp_path = PosixPath('/private/var/folders/qj/l75kfzms0y984ngvf069cbdh0000gn/T/pytest-of-emrickdonadei/pytest-405/test_update_cli_check_prints_v0')
+
+    def test_update_cli_check_prints_versions(monkeypatch, tmp_path) -> None:
+        codex = tmp_path / "codex"
+        codex.write_text("")
+
+        def fake_which(name: str) -> str | None:
+            if name == "npm":
+                return "npm"
+            if name == "codex":
+                return str(codex)
+            return None
+
+        def fake_run(cmd, **kwargs):
+            if cmd == [str(codex), "--version"]:
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="codex-cli 0.132.0\n", stderr=""
+                )
+            if cmd == ["npm", "view", "@openai/codex", "version"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout="0.133.0\n", stderr="")
+            if cmd == ["npm", "view", "@anthropic-ai/claude-code", "version"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout="1.2.3\n", stderr="")
+            raise AssertionError(cmd)
+
+        monkeypatch.setattr("caliper.commands.update_cli.shutil.which", fake_which)
+        monkeypatch.setattr(
+            "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
+        )
+        monkeypatch.setattr("caliper.commands.update_cli.subprocess.run", fake_run)
+
+        result = runner.invoke(app, ["update-cli", "codex", "--check"])
+
+>       assert result.exit_code == 0, result.output
+E       AssertionError:
+E       assert 1 == 0
+E        +  where 1 = <Result AssertionError(['/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex', '--version'])>.exit_code
+
+tests/test_update_cli.py:42: AssertionError
+_______________ test_update_cli_updates_with_npm_when_confirmed ________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c5aa270>
+tmp_path = PosixPath('/private/var/folders/qj/l75kfzms0y984ngvf069cbdh0000gn/T/pytest-of-emrickdonadei/pytest-405/test_update_cli_updates_with_n0')
+
+    def test_update_cli_updates_with_npm_when_confirmed(monkeypatch, tmp_path) -> None:
+        codex = tmp_path / "codex"
+        codex.write_text("")
+        calls = []
+
+        def fake_which(name: str) -> str | None:
+            if name == "npm":
+                return "npm"
+            if name == "codex":
+                return str(codex)
+            return None
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd == ["npm", "install", "-g", "@openai/codex"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            if cmd == [str(codex), "--version"]:
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="codex-cli 0.133.0\n", stderr=""
+                )
+            raise AssertionError(cmd)
+
+        monkeypatch.setattr("caliper.commands.update_cli.shutil.which", fake_which)
+        monkeypatch.setattr(
+            "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
+        )
+        monkeypatch.setattr("caliper.commands.update_cli.subprocess.run", fake_run)
+
+        result = runner.invoke(app, ["update-cli", "codex", "--yes"])
+
+>       assert result.exit_code == 0, result.output
+E       AssertionError: Updating codex with npm...
+E
+E       assert 1 == 0
+E        +  where 1 = <Result AssertionError(['/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex', '--version'])>.exit_code
+
+tests/test_update_cli.py:85: AssertionError
+___________________ test_update_cli_refuses_codex_app_bundle ___________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c579ee0>
+tmp_path = PosixPath('/private/var/folders/qj/l75kfzms0y984ngvf069cbdh0000gn/T/pytest-of-emrickdonadei/pytest-405/test_update_cli_refuses_codex_0')
+
+    def test_update_cli_refuses_codex_app_bundle(monkeypatch, tmp_path) -> None:
+        app_codex = tmp_path / "Codex.app" / "Contents" / "Resources" / "codex"
+        app_codex.parent.mkdir(parents=True)
+        app_codex.write_text("")
+
+        monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", app_codex)
+
+        result = runner.invoke(app, ["update-cli", "codex", "--yes"])
+
+>       assert result.exit_code == 1
+E       assert 0 == 1
+E        +  where 0 = <Result okay>.exit_code
+
+tests/test_update_cli.py:99: AssertionError
+----------------------------- Captured stdout call -----------------------------
+
+changed 2 packages in 9s
+============================= slowest 30 durations =============================
+9.09s call     tests/test_update_cli.py::test_update_cli_refuses_codex_app_bundle
+3.05s call     tests/test_mcp.py::test_preflight_fails_fast_when_a_rejecting_server_ignores_discovery
+2.03s call     tests/test_cancel.py::test_stopping_an_attempt_reaches_a_tool_after_its_agent_exits[timeout]
+2.01s call     tests/test_cancel.py::test_stopping_does_not_hang_on_an_unidentifiable_pipe_holder[timeout]
+2.01s call     tests/test_cancel.py::test_timeout_keeps_partial_output_when_a_pipe_holder_survives
+1.11s call     tests/test_cancel.py::test_stopping_does_not_hang_on_an_unidentifiable_pipe_holder[cancel]
+1.09s call     tests/test_judge.py::test_an_assertion_that_hangs_has_no_verdict
+1.08s call     tests/test_smoke_fixtures.py::test_http_smoke_keeps_pid_and_log_in_its_workdir
+1.07s call     tests/test_runner.py::test_a_hanging_setup_is_an_infra_error_not_a_stuck_worker
+1.07s call     tests/test_workdir.py::test_a_hanging_hook_is_killed_at_its_limit
+1.07s call     tests/test_cli_harness.py::test_timeout_keeps_the_agents_partial_transcript_and_activation
+1.07s call     tests/test_workdir.py::test_a_step_past_its_limit_is_killed_and_says_so
+1.05s call     tests/test_cli_harness.py::test_timeout_keeps_each_output_stream_once_with_universal_newlines[\r]
+1.04s call     tests/test_cancel.py::test_stopping_an_attempt_kills_tools_in_their_own_process_groups[timeout]
+1.04s call     tests/test_cli_harness.py::test_timeout_keeps_each_output_stream_once_with_universal_newlines[\r\n]
+1.03s call     tests/test_mcp.py::test_preflight_shares_one_deadline_across_servers
+1.02s call     tests/test_mcp.py::test_dead_server_stops_run_before_any_attempt[import time; time.sleep(30)\n]
+1.01s call     tests/test_mcp.py::test_preflight_times_out_when_server_stops_reading_stdin
+0.89s call     tests/test_git_sources.py::test_concurrent_cold_fetches_of_one_commit_all_succeed
+0.81s call     tests/test_mcp.py::test_preflight_waits_for_a_slow_server_within_its_timeout
+0.49s call     tests/test_git_sources.py::test_fetch_resolves_a_branch_to_a_commit
+0.47s setup    tests/test_git_sources.py::test_validate_stays_offline_with_an_uncached_git_source
+0.42s call     tests/test_git_sources.py::test_a_hex_branch_named_after_a_cached_commit_is_still_resolved
+0.40s call     tests/test_cancel.py::test_cancelling_a_finished_agent_with_exited_tools_keeps_its_attempt
+0.38s call     tests/test_mcp.py::test_preflight_uses_sandbox_extra_path_for_command
+0.34s call     tests/test_git_sources.py::test_a_pinned_sha_is_served_from_cache_without_network
+0.34s call     tests/test_cancel.py::test_large_prompt_reaches_agent_after_a_slow_stdin_start
+0.33s call     tests/test_judge.py::test_an_assert_script_beside_the_autorater_is_not_judge_time
+0.31s call     tests/test_git_sources.py::test_an_outward_link_the_install_skips_does_not_refuse
+0.26s call     tests/test_cancel.py::test_cancel_kills_an_agent_in_flight
+=========================== short test summary info ============================
+FAILED tests/test_codex_harness.py::test_codex_installs_the_skill_and_leaves_the_prompt_alone
+FAILED tests/test_codex_harness.py::test_codex_prefers_app_bundled_cli - Asse...
+FAILED tests/test_codex_harness.py::test_codex_fails_clearly_when_cli_requires_newer_version
+FAILED tests/test_load_spec.py::test_no_repo_eval_hook_relies_on_pwd - pydant...
+FAILED tests/test_update_cli.py::test_update_cli_check_prints_versions - Asse...
+FAILED tests/test_update_cli.py::test_update_cli_updates_with_npm_when_confirmed
+FAILED tests/test_update_cli.py::test_update_cli_refuses_codex_app_bundle - a...
+7 failed, 1191 passed, 2 skipped in 53.96s

@@ -1,0 +1,5873 @@
+{
+  "sha": "e8a9302fa355653f95ff7c6d46b4d94ece9cae3c",
+  "modules": 47,
+  "functions": 914,
+  "cases": 1200,
+  "results": {
+    "passed": 1191,
+    "skipped": 2,
+    "failure": 7
+  },
+  "inventory": [
+    {
+      "module": "test_ablation.py",
+      "lines": 547,
+      "functions": 38,
+      "cases": 38,
+      "tests": [
+        {
+          "name": "test_ablate_installs_the_neighbourhood_minus_the_named_skill",
+          "line": 147,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_ablating_every_member_leaves_the_bare_agent",
+          "line": 154,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_run_without_ablate_installs_everything",
+          "line": 161,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_the_ablated_names_are_recorded_on_run_meta",
+          "line": 172,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_snapshots_cover_only_the_installed_skills",
+          "line": 182,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_repeated_name_is_recorded_once",
+          "line": 190,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_ablating_an_undeclared_skill_is_refused",
+          "line": 198,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_ablate_removes_a_declared_mcp_server",
+          "line": 209,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_run_without_ablate_hands_over_every_server",
+          "line": 222,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_the_ablated_server_is_recorded_qualified_on_run_meta",
+          "line": 231,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_the_servers_a_run_kept_are_recorded_on_run_meta",
+          "line": 242,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_bare_name_on_a_collision_is_refused",
+          "line": 249,
+          "assertions": 3,
+          "raises": 1
+        },
+        {
+          "name": "test_the_mcp_qualifier_removes_the_server_not_the_skill",
+          "line": 259,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_the_skill_qualifier_removes_the_skill_not_the_server",
+          "line": 268,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_ablating_an_undeclared_server_is_refused",
+          "line": 279,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_repeating_a_server_name_records_one_removal",
+          "line": 286,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_ablating_a_server_leaves_the_activation_expectation_scored",
+          "line": 294,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_ablated_run_drops_the_activation_expectation",
+          "line": 307,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_activates_naming_the_ablated_skill_is_not_a_validation_error",
+          "line": 318,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_the_observation_survives_even_though_the_verdict_does_not",
+          "line": 326,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_normal_run_still_scores_its_activation_expectation",
+          "line": 336,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_ablation_pair_is_labelled_and_not_warned_about",
+          "line": 377,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_a_bare_agent_pair_is_labelled_as_such",
+          "line": 389,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_the_ablated_side_is_recognised_in_either_position",
+          "line": 398,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_server_only_ablation_is_labelled_from_the_marker",
+          "line": 407,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_ablating_a_server_is_not_a_bare_agent_when_a_server_survives",
+          "line": 420,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_ablating_every_skill_is_not_a_bare_agent_when_a_server_survives",
+          "line": 430,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_legacy_side_without_recorded_servers_is_not_called_bare",
+          "line": 438,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_legacy_run_without_recorded_servers_still_pairs",
+          "line": 448,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_server_marker_the_full_side_never_had_is_not_a_pair",
+          "line": 459,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_server_marker_the_ablated_side_still_ran_with_is_not_a_pair",
+          "line": 470,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_server_difference_between_two_skill_ablated_runs_is_not_a_pair",
+          "line": 479,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_different_recorded_servers_warn",
+          "line": 488,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_matching_recorded_servers_do_not_warn",
+          "line": 500,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_unrecorded_membership_does_not_warn",
+          "line": 508,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_two_runs_that_ablated_different_skills_still_warn",
+          "line": 519,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_an_inconsistent_marker_is_not_treated_as_a_pair",
+          "line": 531,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_two_full_runs_are_unlabelled",
+          "line": 541,
+          "assertions": 3,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_activation.py",
+      "lines": 171,
+      "functions": 21,
+      "cases": 28,
+      "tests": [
+        {
+          "name": "test_detects_claude_codes_skill_tool_call",
+          "line": 21,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_detects_hermes_skill_view_call",
+          "line": 27,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_dedicated_tool_naming_an_undeclared_skill_is_ignored",
+          "line": 33,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_detects_an_absolute_path_read",
+          "line": 42,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_detects_the_same_activation_written_as_a_relative_path",
+          "line": 50,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_listing_the_skills_root_is_not_activation",
+          "line": 63,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_similarly_named_skill_does_not_match",
+          "line": 68,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_path_that_only_starts_with_the_skill_file_does_not_match",
+          "line": 82,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_the_skill_file_still_matches_wherever_its_path_ends",
+          "line": 98,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_direct_file_read_counts_even_where_a_dedicated_tool_exists",
+          "line": 106,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_result_is_a_deduplicated_sorted_set",
+          "line": 115,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_no_tool_calls_means_nothing_activated",
+          "line": 125,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_detection_is_unavailable_when_no_skills_are_declared",
+          "line": 131,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_exact_match_passes",
+          "line": 141,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_missing_expected_skill_fails",
+          "line": 145,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_an_extra_unexpected_skill_fails",
+          "line": 149,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_order_does_not_matter",
+          "line": 153,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_expected_silence_holds_when_nothing_fired",
+          "line": 157,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_expected_silence_fails_when_something_fired",
+          "line": 161,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_not_asserted_yields_no_verdict",
+          "line": 165,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_unobserved_activation_yields_no_verdict",
+          "line": 169,
+          "assertions": 1,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_activation_report.py",
+      "lines": 398,
+      "functions": 21,
+      "cases": 21,
+      "tests": [
+        {
+          "name": "test_column_is_a_verdict_per_attempt_not_a_list_of_names",
+          "line": 67,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_column_fails_when_the_agent_reached_for_nothing",
+          "line": 83,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_fully_timed_out_task_shows_no_claim_about_the_skill",
+          "line": 90,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_column_is_dim_when_nothing_was_asserted",
+          "line": 103,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_held_assertion_is_marked_green",
+          "line": 110,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_column_is_red_when_a_neighbour_hijacked",
+          "line": 119,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_unobserved_activation_renders_as_a_dash",
+          "line": 129,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_report_prints_both_scoreboards_separately",
+          "line": 152,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_a_timed_out_attempt_shows_what_it_activated_and_its_error",
+          "line": 182,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_activation_line_is_absent_when_nothing_was_asserted",
+          "line": 194,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_compare_refuses_a_cross_era_diff",
+          "line": 221,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_compare_allows_two_runs_of_the_same_era",
+          "line": 229,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_compare_warns_but_still_renders_on_a_neighbourhood_change",
+          "line": 237,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_two_legacy_runs_still_compare",
+          "line": 247,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_compare_surfaces_an_activation_delta_for_a_trigger_only_task",
+          "line": 290,
+          "assertions": 6,
+          "raises": 0
+        },
+        {
+          "name": "test_activation_regression_is_separate_from_execution_regression",
+          "line": 305,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_no_activation_regression_when_the_description_improves",
+          "line": 313,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_execution_headline_is_skipped_when_nothing_was_measured",
+          "line": 321,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_overall_shows_the_pooled_count_when_it_agrees_with_the_average",
+          "line": 368,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_overall_names_what_it_averages_when_the_count_would_disagree",
+          "line": 378,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_finished_attempt_does_not_claim_it_stopped",
+          "line": 391,
+          "assertions": 2,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_activation_scoring.py",
+      "lines": 282,
+      "functions": 21,
+      "cases": 21,
+      "tests": [
+        {
+          "name": "test_a_task_asserting_nothing_is_skipped_not_scored_zero",
+          "line": 52,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_exact_match_across_attempts_scores_one",
+          "line": 60,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_judge_error_attempts_still_count_toward_activation",
+          "line": 69,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_timeouts_and_infra_errors_are_excluded_from_activation",
+          "line": 80,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_task_whose_every_attempt_timed_out_is_unmeasured_not_zero",
+          "line": 92,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_execution_and_activation_denominators_differ",
+          "line": 100,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_recall_counts_attempts_where_an_expected_skill_fired",
+          "line": 114,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_precision_counts_attempts_where_a_firing_skill_was_wanted",
+          "line": 128,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_per_skill_stats_ignore_unasserted_tasks",
+          "line": 149,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_skill_that_never_fires_has_no_precision",
+          "line": 163,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_aggregate_averages_over_asserted_tasks_only",
+          "line": 174,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_over_firing_divides_by_opportunities_not_by_firings",
+          "line": 188,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_zero_over_firing_when_it_never_fires_unwanted",
+          "line": 200,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_over_firing_is_none_when_every_attempt_wanted_it",
+          "line": 206,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_hijacker_has_full_recall_and_a_high_over_firing_rate",
+          "line": 212,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_aggregate_gives_every_skill_the_same_denominator",
+          "line": 220,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_a_dormant_declared_skill_still_gets_a_row",
+          "line": 235,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_rows_follow_spec_order_not_alphabetical",
+          "line": 252,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_an_undeclared_observed_skill_is_still_reported",
+          "line": 258,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_headline_counts_asserted_tasks_and_says_when_some_were_lost",
+          "line": 265,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_opportunities_is_the_denominator_the_rate_divides_by",
+          "line": 279,
+          "assertions": 2,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_attempt.py",
+      "lines": 649,
+      "functions": 41,
+      "cases": 45,
+      "tests": [
+        {
+          "name": "test_a_clean_attempt_with_a_passing_verdict_is_a_pass",
+          "line": 92,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_a_failing_verdict_is_a_task_fail",
+          "line": 111,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_the_attempt_record_carries_the_harness_result_verbatim",
+          "line": 119,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_the_judges_resolved_model_is_reported_back",
+          "line": 139,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_no_judge_model_when_the_autorater_reports_none",
+          "line": 147,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_timeout_never_reaches_the_judge",
+          "line": 154,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_nonzero_exit_is_infra_error_with_the_exit_code_as_evidence",
+          "line": 166,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_no_observed_model_call_is_infra_error_and_skips_the_judge",
+          "line": 176,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_forbidden_file_read_is_a_cheat_and_skips_the_judge",
+          "line": 192,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_task_with_no_execution_check_is_not_checked_and_skips_the_judge",
+          "line": 204,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_cheat_outranks_a_missing_execution_check",
+          "line": 215,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_timeout_outranks_a_missing_execution_check",
+          "line": 226,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_errored_judge_is_a_judge_error_not_a_task_fail",
+          "line": 238,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_activation_is_observed_and_scored_on_a_judged_attempt",
+          "line": 252,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_unexpected_activation_fails_the_exact_set_match",
+          "line": 263,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_activation_is_observed_but_not_scored_when_nothing_was_expected",
+          "line": 274,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_built_in_skill_is_shown_but_does_not_fail_silence",
+          "line": 295,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_plugin_skill_read_is_not_credited_to_a_built_in_namesake",
+          "line": 311,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_built_in_activation_is_unobserved_when_the_backend_cannot_list_them",
+          "line": 328,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_activation_rides_on_a_cheat_too",
+          "line": 338,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_activation_rides_on_a_trigger_probe",
+          "line": 351,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_trigger_probe_expecting_nothing_does_not_pass_when_the_agent_never_ran",
+          "line": 363,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_truncated_transcript_yields_no_observation_rather_than_an_empty_set",
+          "line": 376,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_truncated_transcript_keeps_an_activation_it_did_see",
+          "line": 389,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_kept_observation_is_evidence_and_never_a_verdict",
+          "line": 406,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_user_skill_activation_counts_as_an_unexpected_activation",
+          "line": 424,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_plugin_skill_file_reads_are_observed_under_the_namespaced_name",
+          "line": 437,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_plugin_read_does_not_credit_a_declared_skill_with_the_same_basename",
+          "line": 455,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_relative_plugin_reads_are_observed_under_the_namespaced_name",
+          "line": 471,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_windows_plugin_reads_are_observed_under_the_namespaced_name",
+          "line": 490,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_windows_reads_of_a_declared_skill_are_observed",
+          "line": 509,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_failed_setup_hook_is_infra_error_with_its_reason_as_evidence",
+          "line": 521,
+          "assertions": 6,
+          "raises": 0
+        },
+        {
+          "name": "test_a_failed_setup_hook_reports_no_run_level_facts",
+          "line": 534,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_an_attempt_the_cancellation_killed_is_not_evidence",
+          "line": 542,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_measured_attempt_reports_the_model_and_customizations_it_saw",
+          "line": 553,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_refusal_despite_a_zero_exit_is_infra_error_with_its_message",
+          "line": 578,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_refusal_is_the_evidence_even_when_no_model_call_was_seen",
+          "line": 593,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_an_answer_that_mentions_a_limit_is_still_judged",
+          "line": 603,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_no_observed_model_call_in_any_form_is_infra_error",
+          "line": 629,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_unparsed_attempt_that_spent_tokens_is_still_judged",
+          "line": 638,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_an_answer_with_no_transcript_or_usage_is_still_judged",
+          "line": 646,
+          "assertions": 1,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_attempt_parallelism.py",
+      "lines": 237,
+      "functions": 6,
+      "cases": 7,
+      "tests": [
+        {
+          "name": "test_attempts_of_a_single_task_run_in_parallel",
+          "line": 94,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_attempts_are_recorded_in_order_whatever_order_they_finish",
+          "line": 115,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_workers_are_shared_across_tasks",
+          "line": 132,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_fail_fast_keeps_a_task_sequential",
+          "line": 151,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_every_attempt_runs_when_nothing_stops_the_run",
+          "line": 172,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_attempts_are_scheduled_round_robin_across_tasks",
+          "line": 213,
+          "assertions": 1,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_backends.py",
+      "lines": 69,
+      "functions": 5,
+      "cases": 9,
+      "tests": [
+        {
+          "name": "test_every_registered_backend_builds_a_harness_of_that_name",
+          "line": 19,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_an_alias_means_the_same_backend_on_every_surface",
+          "line": 26,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_an_unknown_backend_is_refused_by_name",
+          "line": 33,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_update_cli_points_hermes_at_its_own_updater",
+          "line": 38,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_update_cli_all_updates_every_npm_cli_around_a_self_updating_one",
+          "line": 45,
+          "assertions": 3,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_cancel.py",
+      "lines": 731,
+      "functions": 18,
+      "cases": 22,
+      "tests": [
+        {
+          "name": "test_cancelling_keeps_the_attempts_already_paid_for",
+          "line": 153,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_a_cancelled_run_does_not_start_the_remaining_attempts",
+          "line": 174,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_attempts_killed_by_the_cancellation_are_not_recorded",
+          "line": 214,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_an_attempt_that_failed_on_its_own_is_kept",
+          "line": 235,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_fatal_error_mid_run_salvages_the_attempts_that_ran",
+          "line": 258,
+          "assertions": 4,
+          "raises": 1
+        },
+        {
+          "name": "test_an_unavailable_judge_model_stops_the_run_at_the_first_attempt",
+          "line": 288,
+          "assertions": 3,
+          "raises": 1
+        },
+        {
+          "name": "test_cancel_kills_an_agent_in_flight",
+          "line": 311,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_cancelling_a_finished_agent_with_exited_tools_keeps_its_attempt",
+          "line": 342,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_killed_process_does_not_match_reused_pid",
+          "line": 360,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_stopping_an_attempt_kills_tools_in_their_own_process_groups",
+          "line": 429,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_stopping_an_attempt_reaches_a_tool_after_its_agent_exits",
+          "line": 468,
+          "assertions": 8,
+          "raises": 0
+        },
+        {
+          "name": "test_stopping_does_not_hang_on_an_unidentifiable_pipe_holder",
+          "line": 530,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_large_prompt_reaches_agent_after_a_slow_stdin_start",
+          "line": 564,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_prompt_stdin_works_from_read_only_workdir",
+          "line": 583,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_prompt_is_staged_in_the_workdir_unless_it_is_full",
+          "line": 601,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_timeout_keeps_partial_output_when_a_pipe_holder_survives",
+          "line": 626,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_run_cli_exits_130_and_saves_an_interrupted_run",
+          "line": 680,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_run_cli_saves_before_reporting_a_fatal_error",
+          "line": 706,
+          "assertions": 3,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_claude_harness.py",
+      "lines": 909,
+      "functions": 26,
+      "cases": 45,
+      "tests": [
+        {
+          "name": "test_claude_harness_accepts_runner_contract_with_extra_path",
+          "line": 35,
+          "assertions": 9,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_harness_reports_cli_startup_crash_before_auth",
+          "line": 95,
+          "assertions": 3,
+          "raises": 1
+        },
+        {
+          "name": "test_claude_harness_prefers_even_major_nvm_node",
+          "line": 129,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_harness_forwards_the_oauth_token_past_the_api_key_guard",
+          "line": 148,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_harness_materializes_mcp_config",
+          "line": 171,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_harness_materializes_remote_mcp_config",
+          "line": 229,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_harness_errors_on_unset_remote_header_var",
+          "line": 276,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_claude_harness_isolates_to_zero_servers_without_mcp_block",
+          "line": 309,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_harness_keeps_strict_mcp_when_every_server_is_ablated",
+          "line": 342,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_harness_user_customizations_merge_with_the_spec_winning",
+          "line": 392,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_harness_reports_the_cli_built_in_skills_apart_from_declared",
+          "line": 443,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_harness_cannot_list_built_in_skills_without_an_init_event",
+          "line": 473,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_harness_records_unknown_without_an_init_event",
+          "line": 480,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_harness_user_customizations_still_ablates_a_server_the_user_also_has",
+          "line": 488,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_harness_errors_on_unset_mcp_env_var",
+          "line": 507,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_tool_results_streamed_as_user_turns_are_captured",
+          "line": 539,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_harness_stops_the_run_on_an_unavailable_model",
+          "line": 598,
+          "assertions": 2,
+          "raises": 1
+        },
+        {
+          "name": "test_claude_harness_leaves_an_agent_writing_about_a_404_alone",
+          "line": 657,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_harness_credentials_source",
+          "line": 707,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_harness_expired_login_is_configuration_error",
+          "line": 738,
+          "assertions": 4,
+          "raises": 1
+        },
+        {
+          "name": "test_claude_harness_bare_401_is_configuration_error",
+          "line": 770,
+          "assertions": 3,
+          "raises": 1
+        },
+        {
+          "name": "test_claude_harness_org_without_access_is_not_a_login",
+          "line": 795,
+          "assertions": 2,
+          "raises": 1
+        },
+        {
+          "name": "test_claude_harness_agent_discussing_expired_login_is_not_configuration_error",
+          "line": 815,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_harness_skips_a_stream_line_that_is_json_but_not_an_event",
+          "line": 840,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_prompt_cli_missing_looks_up_claude_on_the_prompt_path",
+          "line": 877,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_login_uses_the_claude_an_attempt_reaches",
+          "line": 899,
+          "assertions": 1,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_cli_harness.py",
+      "lines": 685,
+      "functions": 30,
+      "cases": 83,
+      "tests": [
+        {
+          "name": "test_seeds_declared_files_verbatim",
+          "line": 69,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_seeding_skips_files_the_user_does_not_have",
+          "line": 89,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_cli_path_env_var_overrides_discovery",
+          "line": 106,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_stale_cli_path_falls_through_to_discovery",
+          "line": 117,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_cli_path_is_none_when_nothing_is_installed",
+          "line": 135,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_windows_system_root_passthrough",
+          "line": 149,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_node_starts_in_windows_attempt_environment",
+          "line": 161,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_home_points_at_the_isolated_home",
+          "line": 180,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_extra_path_wins_over_the_real_path",
+          "line": 189,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_locale_and_scratch_space_are_forwarded",
+          "line": 209,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_skills_root_lives_inside_the_isolated_home",
+          "line": 225,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_stream_tail_recovers_the_last_assistant_turn",
+          "line": 239,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_stream_tail_defers_to_an_explicit_final_answer",
+          "line": 252,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_stream_tail_ignores_empty_and_non_assistant_turns",
+          "line": 261,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_stream_tail_is_empty_when_the_agent_never_spoke",
+          "line": 273,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_timeout_keeps_the_agents_partial_transcript_and_activation",
+          "line": 281,
+          "assertions": 6,
+          "raises": 0
+        },
+        {
+          "name": "test_timeout_keeps_each_output_stream_once_with_universal_newlines",
+          "line": 357,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_backend_reads_its_output_in_one_pass",
+          "line": 434,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_raising_provenance_reader_reads_as_unavailable",
+          "line": 455,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_malformed_usage_payload_costs_only_the_usage",
+          "line": 477,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_answer_about_auth_and_limits_is_not_a_refusal",
+          "line": 494,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_failing_cli_that_says_not_logged_in_is_a_config_refusal",
+          "line": 511,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_quota_is_a_spending_cap_on_every_backend",
+          "line": 526,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_pi_reads_its_error_event_not_the_prompt_it_echoes",
+          "line": 542,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_reads_a_throttle_from_its_status_alone",
+          "line": 573,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_answer_on_stderr_is_not_a_refusal_after_a_failed_exit",
+          "line": 592,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_missing_cli_stops_the_run_with_the_backends_message",
+          "line": 648,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_a_cli_whose_version_probe_fails_is_not_ready",
+          "line": 658,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_a_runnable_cli_is_ready",
+          "line": 668,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_a_backend_with_no_unavailable_message_skips_the_readiness_check",
+          "line": 676,
+          "assertions": 0,
+          "raises": 1
+        }
+      ]
+    },
+    {
+      "module": "test_codex_harness.py",
+      "lines": 918,
+      "functions": 31,
+      "cases": 36,
+      "tests": [
+        {
+          "name": "test_codex_installs_the_skill_and_leaves_the_prompt_alone",
+          "line": 29,
+          "assertions": 13,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_cli_omits_model_when_unspecified",
+          "line": 89,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_cli_disables_account_apps_and_plugins",
+          "line": 120,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_json_stream_captures_tool_calls",
+          "line": 150,
+          "assertions": 6,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_json_stream_keeps_unknown_tool_items",
+          "line": 219,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_prefers_app_bundled_cli",
+          "line": 265,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_config_copy_strips_top_level_model",
+          "line": 276,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_fails_clearly_when_cli_is_not_runnable",
+          "line": 320,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_codex_fails_clearly_when_cli_requires_newer_version",
+          "line": 344,
+          "assertions": 3,
+          "raises": 1
+        },
+        {
+          "name": "test_codex_with_a_lapsed_login_names_its_login_command",
+          "line": 386,
+          "assertions": 3,
+          "raises": 1
+        },
+        {
+          "name": "test_codex_read_last_message_classifies_nonzero_exit_as_failure",
+          "line": 429,
+          "assertions": 6,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_read_last_message_leaves_success_unclassified",
+          "line": 451,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_read_last_message_decodes_utf8_under_a_non_utf8_locale",
+          "line": 463,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_supports_mcp",
+          "line": 562,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_translates_stdio_and_strips_ambient_servers",
+          "line": 566,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_translates_remote_header_auth_and_interpolates",
+          "line": 590,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_removes_ambient_servers_when_spec_declares_none",
+          "line": 616,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_writes_config_when_user_has_none",
+          "line": 626,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_user_customizations_keeps_user_servers_and_connectors",
+          "line": 635,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_copies_installed_plugins_only_when_loading",
+          "line": 669,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_plugin_links_keep_their_targets",
+          "line": 686,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_user_customizations_lets_the_spec_win_a_name_clash",
+          "line": 710,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_user_customizations_still_ablates_a_server_the_user_also_has",
+          "line": 728,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_records_no_hosted_apps_when_the_user_turned_them_off",
+          "line": 752,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_connector_overrides",
+          "line": 785,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_is_not_fooled_by_a_header_inside_a_multiline_value",
+          "line": 790,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_refuses_an_invalid_user_config",
+          "line": 808,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_codex_records_unknown_when_a_chatgpt_login_keeps_plugins",
+          "line": 814,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_errors_on_unset_mcp_env_var",
+          "line": 835,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_codex_secret_config_is_locked_down",
+          "line": 851,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_parses_mcp_tool_call_as_doubled_underscore_name",
+          "line": 868,
+          "assertions": 3,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_compare.py",
+      "lines": 309,
+      "functions": 16,
+      "cases": 16,
+      "tests": [
+        {
+          "name": "test_identical_runs_have_zero_deltas_and_no_regression",
+          "line": 71,
+          "assertions": 6,
+          "raises": 0
+        },
+        {
+          "name": "test_single_task_regression_flags_only_that_task",
+          "line": 90,
+          "assertions": 7,
+          "raises": 0
+        },
+        {
+          "name": "test_improvement_is_not_flagged_as_regression",
+          "line": 106,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_unmatched_tasks_are_reported_and_excluded_from_aggregate",
+          "line": 121,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_matching_is_by_name_not_positional_id",
+          "line": 135,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_lower_raw_score_from_unusable_attempts_is_not_a_regression",
+          "line": 155,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_fully_unusable_side_is_unmeasured_never_a_regression",
+          "line": 168,
+          "assertions": 6,
+          "raises": 0
+        },
+        {
+          "name": "test_spec_and_k_mismatch_raise_warnings",
+          "line": 189,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_matching_specs_and_k_produce_no_warnings",
+          "line": 201,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_different_judges_raise_a_warning",
+          "line": 222,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_default_model_judges_on_different_backends_warn",
+          "line": 239,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_the_same_judge_raises_no_warning",
+          "line": 250,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_judge_that_never_graded_raises_no_warning",
+          "line": 257,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_verbose_comparison_renders_the_secondary_metric_columns",
+          "line": 268,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_the_secondary_columns_agree_with_the_task_metrics",
+          "line": 284,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_no_comparable_task_shows_no_overall_delta",
+          "line": 301,
+          "assertions": 2,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_compare_cli.py",
+      "lines": 168,
+      "functions": 7,
+      "cases": 8,
+      "tests": [
+        {
+          "name": "test_one_spec_name_twice_is_refused",
+          "line": 88,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_two_spellings_of_one_file_are_refused",
+          "line": 99,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_ablation_pair_addressed_by_path_compares",
+          "line": 109,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_two_distinct_runs_of_one_spec_still_compare",
+          "line": 119,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_list_names_which_run_was_the_control_arm",
+          "line": 128,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_an_unreadable_side_is_diagnosed_not_swallowed",
+          "line": 140,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_unknown_format_is_refused",
+          "line": 162,
+          "assertions": 2,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_diagnosis.py",
+      "lines": 172,
+      "functions": 19,
+      "cases": 20,
+      "tests": [
+        {
+          "name": "test_bad_input_exits_one",
+          "line": 49,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_cannot_run_exits_two",
+          "line": 53,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_unresolvable_skills_are_bad_input",
+          "line": 57,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_an_ablation_error_names_ablation_not_skills",
+          "line": 66,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_invalid_spec_is_bad_input",
+          "line": 74,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_an_unreadable_run_is_bad_input",
+          "line": 78,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_misconfigured_backend_cannot_run",
+          "line": 83,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_lapsed_login_cannot_run",
+          "line": 91,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_spending_cap_cannot_run",
+          "line": 99,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_aborted_run_reports_its_cause",
+          "line": 106,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_an_aborted_run_distinguishes_its_two_causes",
+          "line": 116,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_incomparable_runs_are_a_hard_stop_on_bad_input",
+          "line": 123,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_unknown_failure_is_not_silently_bad_input",
+          "line": 131,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_title_makes_it_a_panel",
+          "line": 138,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_no_title_renders_as_one_line",
+          "line": 144,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_body_is_shown_as_written_not_as_markup",
+          "line": 149,
+          "assertions": 2,
+          "raises": 1
+        },
+        {
+          "name": "test_fail_raises_typer_exit_with_the_code",
+          "line": 159,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_the_reserved_bar_code_is_named",
+          "line": 166,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_the_interrupt_code_is_named",
+          "line": 171,
+          "assertions": 1,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_doc_sync.py",
+      "lines": 94,
+      "functions": 4,
+      "cases": 4,
+      "tests": [
+        {
+          "name": "test_readme_run_flags_table_lists_every_run_flag",
+          "line": 44,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_readme_run_flags_table_has_no_stale_flags",
+          "line": 54,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_evaluate_skill_reference_mentions_every_run_flag",
+          "line": 60,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_spec_reference_documents_every_spec_key",
+          "line": 83,
+          "assertions": 1,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_engine.py",
+      "lines": 130,
+      "functions": 8,
+      "cases": 14,
+      "tests": [
+        {
+          "name": "test_the_judge_follows_the_skill_backend_unless_named",
+          "line": 30,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_an_unknown_backend_names_the_flag_and_the_known_backends",
+          "line": 40,
+          "assertions": 2,
+          "raises": 1
+        },
+        {
+          "name": "test_a_missing_named_judge_points_back_to_the_model_backend",
+          "line": 68,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_a_missing_named_judge_on_the_model_backend_offers_another_backend",
+          "line": 82,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_a_missing_default_judge_points_at_the_model_flag",
+          "line": 98,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_a_spec_without_expect_never_needs_the_judge_cli",
+          "line": 110,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_an_installed_judge_cli_passes",
+          "line": 116,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_the_engine_builds_the_backends_it_names",
+          "line": 126,
+          "assertions": 2,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_environment.py",
+      "lines": 192,
+      "functions": 11,
+      "cases": 14,
+      "tests": [
+        {
+          "name": "test_the_invocation_then_the_spec_then_the_default",
+          "line": 64,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_backend_without_mcp_loads_nothing_and_says_it_ignored_the_request",
+          "line": 74,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_an_ignored_explicit_request_is_warned_about_once",
+          "line": 84,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_an_ignored_default_is_not_warned_about",
+          "line": 101,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_no_mcp_block_hands_the_backend_none",
+          "line": 118,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_empty_mcp_block_still_isolates",
+          "line": 127,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_an_ablated_server_is_removed_but_stays_the_specs_name",
+          "line": 135,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_declared_servers_on_a_backend_without_mcp_are_refused",
+          "line": 150,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_an_ablated_skill_is_not_installed_but_stays_the_specs_name",
+          "line": 160,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_ablated_skill_drops_every_activation_expectation",
+          "line": 172,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_the_context_carries_the_attempt_and_the_run_settings",
+          "line": 183,
+          "assertions": 5,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_git_sources.py",
+      "lines": 535,
+      "functions": 37,
+      "cases": 42,
+      "tests": [
+        {
+          "name": "test_bare_string_entry_stays_a_path_source",
+          "line": 82,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_mapping_entry_parses_as_a_git_source",
+          "line": 87,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_ref_and_path_are_optional",
+          "line": 98,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_path_must_point_at_a_skill_md",
+          "line": 104,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_path_may_not_escape_the_repo",
+          "line": 109,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_repo_is_required",
+          "line": 114,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_unknown_key_on_a_git_source_is_refused",
+          "line": 119,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_mixed_entries_are_allowed",
+          "line": 124,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_fetch_resolves_a_branch_to_a_commit",
+          "line": 133,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_fetch_honours_the_path_field",
+          "line": 141,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_pinned_sha_is_served_from_cache_without_network",
+          "line": 150,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_unreachable_uncached_source_refuses",
+          "line": 165,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_a_fetch_failure_reaches_the_caller_as_a_resolution_error",
+          "line": 171,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_an_unreachable_but_cached_ref_warns_and_uses_the_cache",
+          "line": 181,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_offline_mode_never_touches_the_network",
+          "line": 196,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_offline_mode_does_not_fetch_an_uncached_pinned_sha",
+          "line": 202,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_hex_named_branch_is_resolved_not_assumed_to_be_a_commit",
+          "line": 211,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_annotated_tag_records_the_commit_it_points_at",
+          "line": 225,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_hex_branch_named_after_a_cached_commit_is_still_resolved",
+          "line": 237,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_short_pin_is_served_from_cache_once_known_to_be_a_commit",
+          "line": 257,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_concurrent_cold_fetches_of_one_commit_all_succeed",
+          "line": 276,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_warning_is_pushed_out_as_it_happens",
+          "line": 296,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_offline_mode_still_serves_a_warm_cache",
+          "line": 311,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_missing_skill_md_inside_the_repo_refuses",
+          "line": 321,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_a_symlink_escaping_the_repo_refuses",
+          "line": 335,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_a_skill_directory_linked_outside_the_repo_refuses",
+          "line": 349,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_an_outward_link_the_install_skips_does_not_refuse",
+          "line": 367,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_symlink_to_a_shared_file_inside_the_repo_is_allowed",
+          "line": 384,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_owner_name_shorthand_expands_to_a_github_url",
+          "line": 398,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_only_bare_owner_name_is_treated_as_shorthand",
+          "line": 417,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_local_repo_is_still_reachable_by_relative_path",
+          "line": 422,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_the_cache_key_and_messages_keep_the_spec_s_own_string",
+          "line": 432,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_resolve_records_provenance_for_both_kinds",
+          "line": 443,
+          "assertions": 6,
+          "raises": 0
+        },
+        {
+          "name": "test_a_git_source_colliding_on_name_is_refused",
+          "line": 461,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_validate_stays_offline_with_an_uncached_git_source",
+          "line": 473,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_run_refuses_an_unfetchable_git_source",
+          "line": 499,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_offline_resolution_skips_an_uncached_git_source",
+          "line": 524,
+          "assertions": 2,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_hermes_harness.py",
+      "lines": 849,
+      "functions": 24,
+      "cases": 28,
+      "tests": [
+        {
+          "name": "test_hermes_seeds_only_neutral_config_and_ignores_rules",
+          "line": 46,
+          "assertions": 11,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_installs_the_skill_without_preloading_it",
+          "line": 92,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_no_skills_flag_without_skill",
+          "line": 136,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_translates_stdio_mcp_and_overwrites_user_servers",
+          "line": 221,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_translates_remote_header_auth_and_interpolates",
+          "line": 240,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_removes_mcp_servers_when_spec_declares_none",
+          "line": 265,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_user_customizations_merges_user_servers_with_the_spec_winning",
+          "line": 273,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_user_customizations_keeps_and_records_user_servers",
+          "line": 296,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_user_customizations_still_ablates_a_server_the_user_also_has",
+          "line": 319,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_errors_on_unset_mcp_env_var",
+          "line": 340,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_hermes_secret_config_is_locked_down",
+          "line": 356,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_passes_yolo_to_bypass_approval",
+          "line": 373,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_diagnoses_model_selection_error",
+          "line": 397,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_hermes_passes_the_requested_model_to_the_attempt",
+          "line": 426,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_omits_model_when_unspecified",
+          "line": 458,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_exports_the_session_whatever_its_source",
+          "line": 480,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_fails_on_an_unknown_model",
+          "line": 505,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_hermes_fails_on_an_unknown_model_with_a_nonzero_exit",
+          "line": 541,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_hermes_parses_export_trajectory",
+          "line": 589,
+          "assertions": 8,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_timeout_recovers_the_persisted_session",
+          "line": 686,
+          "assertions": 10,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_judge_timeout_never_exports",
+          "line": 734,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_run_captures_token_usage_end_to_end",
+          "line": 752,
+          "assertions": 7,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_missing_cli_raises_configuration_error",
+          "line": 808,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_hermes_credit_failure_raises_configuration_error",
+          "line": 823,
+          "assertions": 1,
+          "raises": 1
+        }
+      ]
+    },
+    {
+      "module": "test_judge.py",
+      "lines": 866,
+      "functions": 44,
+      "cases": 63,
+      "tests": [
+        {
+          "name": "test_eval_judge_always_returns_eval_judge_instance",
+          "line": 82,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_eval_judge_expect_only_calls_llm",
+          "line": 88,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_judge_input_can_be_rebuilt_from_the_saved_transcript",
+          "line": 104,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_prompt_version_moves_when_transcript_formatting_changes",
+          "line": 126,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_script_mode_keeps_the_autorater_script",
+          "line": 147,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_direct_verdict_has_no_autorater_script",
+          "line": 156,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_eval_judge_assert_only_runs_script_no_llm",
+          "line": 164,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_eval_judge_assert_failure_makes_overall_fail",
+          "line": 177,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_eval_judge_both_checks_must_pass",
+          "line": 191,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_errored_autorater_dropped_when_assert_passes",
+          "line": 204,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_errored_autorater_does_not_override_failing_assert",
+          "line": 217,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_judge_error_when_only_check_errors",
+          "line": 228,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_malformed_judge_answer_is_no_verdict",
+          "line": 255,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_static_assert_survives_a_malformed_judge_answer",
+          "line": 265,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_verdict_without_a_mode_is_still_a_verdict",
+          "line": 278,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_unknown_judge_backend_errors",
+          "line": 286,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_eval_judge_claude_code_invokes_claude_cli",
+          "line": 300,
+          "assertions": 9,
+          "raises": 0
+        },
+        {
+          "name": "test_eval_judge_claude_code_defers_to_cli_default_model",
+          "line": 329,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_judge_extracts_concrete_model_from_envelope",
+          "line": 347,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_judge_uses_output_last_message",
+          "line": 381,
+          "assertions": 9,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_missing_cli_errors",
+          "line": 425,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_judge_timeout_removes_its_output_file",
+          "line": 438,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_judge_with_a_lapsed_login_stops_the_run",
+          "line": 464,
+          "assertions": 4,
+          "raises": 1
+        },
+        {
+          "name": "test_codex_judge_prompt_echoed_on_stderr_is_not_a_login",
+          "line": 487,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_judge_crash_does_not_read_the_echoed_prompt",
+          "line": 508,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_judge_refused_model_is_not_a_login",
+          "line": 525,
+          "assertions": 4,
+          "raises": 1
+        },
+        {
+          "name": "test_a_cancelled_judge_call_is_not_a_verdict",
+          "line": 547,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_codex_error_extraction_from_noisy_cli_output",
+          "line": 560,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_backend_is_a_valid_judge",
+          "line": 583,
+          "assertions": 6,
+          "raises": 0
+        },
+        {
+          "name": "test_judge_strips_markdown_fence",
+          "line": 607,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_judge_reports_cli_error_as_errored",
+          "line": 624,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_judge_missing_cli_errors",
+          "line": 634,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_pi_backend_is_a_valid_judge",
+          "line": 660,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_pi_judge_reports_cli_error_as_errored",
+          "line": 684,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_pi_judge_with_a_rejected_key_stops_the_run",
+          "line": 695,
+          "assertions": 4,
+          "raises": 1
+        },
+        {
+          "name": "test_a_judge_answer_about_a_login_failure_is_a_verdict",
+          "line": 725,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_pi_judge_missing_cli_errors",
+          "line": 748,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_assert_script_file_resolves_from_spec_dir_and_runs_in_workdir",
+          "line": 758,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_autorater_runs_in_the_attempt_workdir_not_the_spec_dir",
+          "line": 777,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_an_assertion_that_hangs_has_no_verdict",
+          "line": 796,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_the_autorater_times_its_own_call",
+          "line": 813,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_assert_script_beside_the_autorater_is_not_judge_time",
+          "line": 824,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_assert_only_task_records_no_autorater_time",
+          "line": 837,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_unavailable_judge_model_stops_the_run",
+          "line": 849,
+          "assertions": 0,
+          "raises": 1
+        }
+      ]
+    },
+    {
+      "module": "test_load_spec.py",
+      "lines": 371,
+      "functions": 30,
+      "cases": 57,
+      "tests": [
+        {
+          "name": "test_load_spec_accepts_a_skill_neighbourhood",
+          "line": 23,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_load_spec_accepts_bare_agent_with_no_skills_key",
+          "line": 34,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_load_spec_rejects_the_old_singular_skill_key",
+          "line": 38,
+          "assertions": 2,
+          "raises": 1
+        },
+        {
+          "name": "test_load_spec_rejects_removed_engine_keys",
+          "line": 55,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_activates_alone_satisfies_the_at_least_one_check_rule",
+          "line": 66,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_empty_activates_asserts_silence_and_is_a_real_check",
+          "line": 77,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_task_with_no_check_at_all_is_rejected",
+          "line": 89,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_task_may_carry_both_expect_and_activates",
+          "line": 94,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_activates_defaults_to_none_meaning_not_asserted",
+          "line": 108,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_invalid_forbidden_files_regex_is_rejected_with_its_index",
+          "line": 116,
+          "assertions": 3,
+          "raises": 1
+        },
+        {
+          "name": "test_missing_assert_script_is_rejected",
+          "line": 131,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_assert_script_resolves_against_the_spec_dir",
+          "line": 141,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_inline_assert_code_is_not_mistaken_for_a_path",
+          "line": 151,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_unknown_task_key_is_rejected",
+          "line": 163,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_unknown_sandbox_key_is_rejected",
+          "line": 174,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_validate_rejects_the_spec",
+          "line": 197,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_run_rejects_the_spec_before_its_first_attempt",
+          "line": 206,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_spec_that_is_not_a_mapping_says_so",
+          "line": 227,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_a_malformed_tasks_list_says_what_shape_it_needs",
+          "line": 240,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_validate_shows_an_explicit_user_customizations_setting",
+          "line": 255,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_every_smoke_eval_pins_isolation",
+          "line": 268,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_no_repo_eval_hook_relies_on_pwd",
+          "line": 280,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_spec_needs_at_least_one_task",
+          "line": 296,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_task_names_must_be_unique",
+          "line": 301,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_a_duplicate_key_is_refused_with_its_line",
+          "line": 311,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_a_merge_key_may_still_override_what_it_merges",
+          "line": 322,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_blank_check_is_refused_even_beside_a_real_one",
+          "line": 332,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_a_spec_file_name_that_gives_no_spec_name_is_refused",
+          "line": 341,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_tasks_without_ids_are_numbered_like_the_loader_does",
+          "line": 350,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_two_tasks_sharing_an_id_are_refused",
+          "line": 362,
+          "assertions": 0,
+          "raises": 1
+        }
+      ]
+    },
+    {
+      "module": "test_mcp.py",
+      "lines": 1349,
+      "functions": 66,
+      "cases": 83,
+      "tests": [
+        {
+          "name": "test_mcp_block_parses_stdio_server",
+          "line": 35,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_mcp_defaults_are_empty",
+          "line": 56,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_mcp_server_defaults_args_and_env",
+          "line": 63,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_mcp_rejects_bad_server_name",
+          "line": 70,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_mcp_rejects_unknown_key",
+          "line": 80,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_mcp_block_parses_remote_server",
+          "line": 95,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_mcp_remote_defaults_empty_headers",
+          "line": 116,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_mcp_stdio_is_default_and_not_remote",
+          "line": 122,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_mcp_remote_requires_url",
+          "line": 128,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_mcp_remote_rejects_stdio_fields",
+          "line": 133,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_mcp_stdio_rejects_remote_fields",
+          "line": 140,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_mcp_rejects_unknown_transport_type",
+          "line": 145,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_mcp_rejects_blank_command",
+          "line": 150,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_mcp_rejects_missing_command",
+          "line": 160,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_resolve_servers_interpolates_stdio_env",
+          "line": 202,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_resolve_servers_interpolates_remote_url_and_headers",
+          "line": 223,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_resolve_servers_entry_omits_empty_optionals",
+          "line": 244,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_resolve_servers_unset_var_fails_at_the_boundary",
+          "line": 256,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_resolve_servers_handles_no_declaration",
+          "line": 266,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_run_anchors_explicit_mcp_paths_to_spec_directory",
+          "line": 271,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_preflight_initializes_a_local_server",
+          "line": 304,
+          "assertions": 0,
+          "raises": 0
+        },
+        {
+          "name": "test_preflight_accepts_bundled_echo_server_protocol_version",
+          "line": 319,
+          "assertions": 0,
+          "raises": 0
+        },
+        {
+          "name": "test_preflight_does_not_inspect_unrelated_process_environments",
+          "line": 327,
+          "assertions": 0,
+          "raises": 0
+        },
+        {
+          "name": "test_preflight_ignores_notifications_before_responses",
+          "line": 347,
+          "assertions": 0,
+          "raises": 0
+        },
+        {
+          "name": "test_preflight_answers_server_ping_with_colliding_request_id",
+          "line": 370,
+          "assertions": 0,
+          "raises": 0
+        },
+        {
+          "name": "test_preflight_accepts_resource_only_server",
+          "line": 389,
+          "assertions": 0,
+          "raises": 0
+        },
+        {
+          "name": "test_preflight_kills_server_child_after_launcher_exits",
+          "line": 408,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_preflight_uses_sandbox_extra_path_for_command",
+          "line": 452,
+          "assertions": 0,
+          "raises": 0
+        },
+        {
+          "name": "test_preflight_does_not_inherit_host_only_variables",
+          "line": 468,
+          "assertions": 0,
+          "raises": 0
+        },
+        {
+          "name": "test_server_that_dies_after_initial_preflight_stops_before_agent",
+          "line": 512,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_preflight_rejects_server_exiting_after_initialize",
+          "line": 539,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_preflight_rejects_invalid_initialization",
+          "line": 565,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_preflight_accepts_a_modern_only_server_when_the_agent_speaks_it",
+          "line": 619,
+          "assertions": 0,
+          "raises": 0
+        },
+        {
+          "name": "test_preflight_rejects_a_modern_only_server_when_the_agent_cannot_speak_it",
+          "line": 627,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_preflight_rejects_a_modern_server_sharing_no_version",
+          "line": 639,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_preflight_rejects_a_server_that_rejects_initialize_and_discovery",
+          "line": 658,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_preflight_rejects_a_modern_server_that_does_not_list_its_tools",
+          "line": 669,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_preflight_rejects_a_modern_tool_list_claude_code_would_drop",
+          "line": 691,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_preflight_accepts_a_whole_ttl_written_as_a_float",
+          "line": 705,
+          "assertions": 0,
+          "raises": 0
+        },
+        {
+          "name": "test_preflight_rejects_a_modern_reply_with_a_null_error",
+          "line": 721,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_preflight_rejects_a_discovery_without_2026_07_28",
+          "line": 733,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_preflight_names_no_versions_when_the_server_lists_none",
+          "line": 748,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_preflight_treats_a_null_error_beside_a_result_as_legacy",
+          "line": 760,
+          "assertions": 0,
+          "raises": 0
+        },
+        {
+          "name": "test_preflight_reports_a_garbled_discovery_as_rejected_initialize",
+          "line": 774,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_attempt_preflight_follows_the_backend_modern_declaration",
+          "line": 807,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_preflight_fails_fast_when_a_rejecting_server_ignores_discovery",
+          "line": 826,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_setup_can_stage_an_mcp_server_before_attempt_preflight",
+          "line": 850,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_cancel_interrupts_stalled_preflight_and_skips_next_server",
+          "line": 887,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_interrupt_during_preflight_returns_an_interrupted_run",
+          "line": 931,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_preflight_waits_for_a_slow_server_within_its_timeout",
+          "line": 982,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_preflight_shares_one_deadline_across_servers",
+          "line": 1000,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_preflight_times_out_when_server_stops_reading_stdin",
+          "line": 1018,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_readme_relative_mcp_arg_starts_from_any_cwd",
+          "line": 1039,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_dead_server_stops_run_before_any_attempt",
+          "line": 1069,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_missing_server_command_stops_run_before_any_attempt",
+          "line": 1091,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_guard_refuses_mcp_spec_on_unsupported_backend",
+          "line": 1116,
+          "assertions": 2,
+          "raises": 1
+        },
+        {
+          "name": "test_guard_refusal_uses_backend_hint_when_present",
+          "line": 1138,
+          "assertions": 3,
+          "raises": 1
+        },
+        {
+          "name": "test_guard_allows_mcp_spec_on_supporting_backend",
+          "line": 1162,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_an_explicitly_empty_mcp_block_still_isolates",
+          "line": 1189,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_an_omitted_mcp_block_leaves_the_backend_config_alone",
+          "line": 1214,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_ablating_every_server_runs_on_a_backend_without_mcp",
+          "line": 1230,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_guard_still_refuses_when_a_server_survives_ablation",
+          "line": 1255,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_preflight_accepts_a_well_formed_tool_list",
+          "line": 1313,
+          "assertions": 0,
+          "raises": 0
+        },
+        {
+          "name": "test_preflight_rejects_a_malformed_response_envelope",
+          "line": 1325,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_preflight_tolerates_a_null_error_beside_a_legacy_result",
+          "line": 1332,
+          "assertions": 0,
+          "raises": 0
+        },
+        {
+          "name": "test_preflight_rejects_a_tool_the_agent_could_not_use",
+          "line": 1342,
+          "assertions": 0,
+          "raises": 1
+        }
+      ]
+    },
+    {
+      "module": "test_measure_and_mark.py",
+      "lines": 251,
+      "functions": 12,
+      "cases": 12,
+      "tests": [
+        {
+          "name": "test_judge_time_is_recorded_on_a_graded_attempt",
+          "line": 81,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_judge_time_is_none_when_no_judge_ran",
+          "line": 91,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_judge_time_is_none_for_an_assert_only_task",
+          "line": 103,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_judge_time_is_none_when_the_attempt_never_reached_the_judge",
+          "line": 115,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_usage_totals_average_judge_time_over_graded_attempts_only",
+          "line": 141,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_usage_totals_report_no_judge_when_nothing_was_graded",
+          "line": 150,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_compare_warns_when_a_side_was_interrupted",
+          "line": 187,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_compare_names_both_sides_when_both_were_interrupted",
+          "line": 194,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_compare_is_silent_on_two_complete_runs",
+          "line": 201,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_list_marks_an_interrupted_run",
+          "line": 214,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_list_is_unmarked_when_every_run_completed",
+          "line": 225,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_compare_reports_a_regression_without_failing",
+          "line": 238,
+          "assertions": 1,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_not_checked.py",
+      "lines": 316,
+      "functions": 16,
+      "cases": 16,
+      "tests": [
+        {
+          "name": "test_not_checked_is_neither_usable_nor_noise",
+          "line": 34,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_not_checked_does_not_inflate_the_unusable_count",
+          "line": 41,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_judge_errors_are_still_counted_as_noise",
+          "line": 48,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_usable_is_derived_not_subtracted",
+          "line": 52,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_runner_skips_the_paid_judge_for_an_activates_only_task",
+          "line": 76,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_trigger_only_task_is_detected",
+          "line": 136,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_trigger_only_task_reads_as_a_skip_not_an_error",
+          "line": 140,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_trigger_probes_tokens_are_not_reported_as_wasted_spend",
+          "line": 147,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_trigger_only_survives_one_timeout_among_k",
+          "line": 173,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_task_with_a_real_verdict_is_not_trigger_only",
+          "line": 193,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_timeout_records_activation_as_unobserved_not_as_empty",
+          "line": 209,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_healthy_trigger_probe_resets_the_fail_fast_streak",
+          "line": 239,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_unmeasured_run_has_no_headline",
+          "line": 266,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_list_renders_an_unmeasured_run_as_skipped_not_zero",
+          "line": 270,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_list_still_prints_a_measured_score",
+          "line": 293,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_an_interrupted_unmeasured_run_keeps_its_marker",
+          "line": 304,
+          "assertions": 2,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_parse_target.py",
+      "lines": 36,
+      "functions": 1,
+      "cases": 12,
+      "tests": [
+        {
+          "name": "test_parse_target",
+          "line": 35,
+          "assertions": 1,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_pi_harness.py",
+      "lines": 422,
+      "functions": 13,
+      "cases": 14,
+      "tests": [
+        {
+          "name": "test_pi_installs_the_skill_and_passes_no_preload_flag",
+          "line": 20,
+          "assertions": 12,
+          "raises": 0
+        },
+        {
+          "name": "test_pi_omits_model_and_skill_when_unspecified",
+          "line": 71,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_pi_json_stream_captures_tool_calls",
+          "line": 97,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_pi_run_captures_token_usage_end_to_end",
+          "line": 162,
+          "assertions": 7,
+          "raises": 0
+        },
+        {
+          "name": "test_pi_missing_cli_raises_configuration_error",
+          "line": 229,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_pi_auth_failure_raises_configuration_error",
+          "line": 244,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_pi_expired_oauth_on_a_zero_exit_raises_configuration_error",
+          "line": 292,
+          "assertions": 3,
+          "raises": 1
+        },
+        {
+          "name": "test_pi_expired_oauth_stops_the_run_and_saves_nothing",
+          "line": 304,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_pi_stream_error_that_is_not_auth_is_left_to_the_outcome",
+          "line": 352,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_pi_cap_or_throttle_that_mentions_auth_is_not_a_login_failure",
+          "line": 372,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_pi_answer_mentioning_auth_on_a_zero_exit_is_not_a_misconfiguration",
+          "line": 383,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_pi_seeds_models_json_so_custom_providers_resolve",
+          "line": 397,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_pi_declares_mcp_unsupported_by_design",
+          "line": 415,
+          "assertions": 3,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_prompt_failure.py",
+      "lines": 255,
+      "functions": 11,
+      "cases": 12,
+      "tests": [
+        {
+          "name": "test_classify_claude_api_error_status_maps_observed_codes",
+          "line": 43,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_classify_claude_prompt_failure_uses_recorded_fixture",
+          "line": 50,
+          "assertions": 7,
+          "raises": 0
+        },
+        {
+          "name": "test_classify_claude_prompt_failure_leaves_unclassified_is_error_alone",
+          "line": 64,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_prompt_output_classifies_in_harness_not_downstream",
+          "line": 73,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_prompt_output_unclassified_is_error_passes_text_through",
+          "line": 92,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_judge_with_a_lapsed_login_stops_the_run",
+          "line": 128,
+          "assertions": 4,
+          "raises": 1
+        },
+        {
+          "name": "test_claude_judge_answer_about_a_login_failure_is_an_answer",
+          "line": 160,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_eval_judge_stops_the_run_on_an_unavailable_model",
+          "line": 182,
+          "assertions": 4,
+          "raises": 1
+        },
+        {
+          "name": "test_eval_judge_keeps_a_rate_limit_per_attempt",
+          "line": 212,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_format_judge_failure_auth_includes_hint",
+          "line": 235,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_harness_does_not_classify_without_envelope",
+          "line": 246,
+          "assertions": 3,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_refusal.py",
+      "lines": 108,
+      "functions": 9,
+      "cases": 9,
+      "tests": [
+        {
+          "name": "test_known_provider_signals_are_refusals",
+          "line": 13,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_nothing_the_cli_wrote_is_no_refusal",
+          "line": 31,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_cap_wins_over_a_config_marker_it_brushes",
+          "line": 37,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_throttle_wins_over_a_config_marker_it_brushes",
+          "line": 46,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_config_marker_is_diagnosed_with_what_the_cli_said",
+          "line": 55,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_only_a_login_signal_is_fixed_by_logging_in",
+          "line": 62,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_structural_diagnosis_runs_after_cap_and_throttle",
+          "line": 72,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_spending_cap_quotes_the_line_that_says_so",
+          "line": 84,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_spending_cap_nested_in_a_json_event_is_quoted_by_its_text",
+          "line": 99,
+          "assertions": 2,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_reporter.py",
+      "lines": 772,
+      "functions": 39,
+      "cases": 39,
+      "tests": [
+        {
+          "name": "test_make_progress_initializes_task_totals",
+          "line": 29,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_update_progress_marks_early_stopped_task_finished",
+          "line": 36,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_cheat_remains_visible_when_cleanup_fails",
+          "line": 54,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_format_output_empty_string",
+          "line": 176,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_format_output_whitespace_only",
+          "line": 180,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_format_output_short_string_unchanged",
+          "line": 184,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_format_output_long_string_truncated",
+          "line": 190,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_format_output_exact_limit_not_truncated",
+          "line": 198,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_failed_task_assert_evidence_shown_by_default",
+          "line": 210,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_failed_task_output_shown_by_default",
+          "line": 218,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_judge_input_shows_only_under_verbose",
+          "line": 226,
+          "assertions": 7,
+          "raises": 0
+        },
+        {
+          "name": "test_passing_task_detail_not_shown_by_default",
+          "line": 248,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_only_failed_tasks_shown_in_mixed_results",
+          "line": 256,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_verbose_shows_passing_task_detail",
+          "line": 279,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_verbose_shows_all_tasks",
+          "line": 287,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_long_output_truncated_in_rendered_output",
+          "line": 304,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_empty_output_renders_no_output_marker",
+          "line": 313,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_aborted_unusable_task_is_reported_as_aborted",
+          "line": 319,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_early_stopped_task_with_usable_pass_is_not_reported_as_aborted",
+          "line": 362,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_autorater_reasoning_shown_for_failed_task",
+          "line": 423,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_update_progress_fills_the_marks_the_report_will_show",
+          "line": 436,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_update_progress_tallies_above_five_attempts",
+          "line": 446,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_update_progress_keeps_a_finished_trigger_probe_neutral",
+          "line": 456,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_agent_output_that_looks_like_markup_renders_verbatim",
+          "line": 487,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_trigger_probe_attempt_shows_its_activation_verdict",
+          "line": 495,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_built_in_activations_are_shown_without_being_scored",
+          "line": 532,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_truncating_escaped_markup_cannot_expose_a_tag",
+          "line": 571,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_empty_output_marker_is_visible_when_markup_is_rendered",
+          "line": 582,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_each_outcome_is_counted_once",
+          "line": 588,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_cheat_stays_counted_after_clean_attempts",
+          "line": 603,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_finished_task_counts_like_its_attempts_did_live",
+          "line": 609,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_live_marks_sit_in_their_attempt_slot_whatever_the_finish_order",
+          "line": 628,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_per_attempt_cost_excludes_unusable_spend",
+          "line": 660,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_hermes_tool_result_is_not_counted_as_a_second_call",
+          "line": 703,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_hermes_call_is_credited_to_the_longest_matching_server",
+          "line": 714,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_hook_failure_without_an_attempt_record_shows_its_output",
+          "line": 727,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_cost_from_a_zero_baseline_is_shown_absolute",
+          "line": 746,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_server_name_containing_the_separator_is_matched_whole",
+          "line": 753,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_hermes_server_with_a_leading_underscore_is_counted",
+          "line": 766,
+          "assertions": 1,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_retry.py",
+      "lines": 442,
+      "functions": 20,
+      "cases": 20,
+      "tests": [
+        {
+          "name": "test_a_throttled_invocation_is_retried_until_it_lands",
+          "line": 98,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_retries_are_bounded",
+          "line": 108,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_clean_invocation_is_never_retried",
+          "line": 120,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_timeout_is_not_retried",
+          "line": 129,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_bare_crash_is_not_retried",
+          "line": 138,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_spending_cap_raises_instead_of_retrying",
+          "line": 147,
+          "assertions": 2,
+          "raises": 1
+        },
+        {
+          "name": "test_a_cancelled_backoff_stops_retrying",
+          "line": 157,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_backoff_grows_and_is_jittered",
+          "line": 168,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_merge_keeps_the_last_invocations_answer",
+          "line": 180,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_merge_sums_cost_and_spawn_time_but_not_the_waiting",
+          "line": 187,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_merge_leaves_usage_none_when_no_invocation_reported_any",
+          "line": 201,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_retried_attempt_is_one_attempt_in_the_results",
+          "line": 256,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_a_spending_cap_aborts_the_run_and_saves_what_ran",
+          "line": 280,
+          "assertions": 3,
+          "raises": 1
+        },
+        {
+          "name": "test_fail_fast_counts_attempts_not_invocations",
+          "line": 304,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_run_that_measured_nothing_is_not_saved",
+          "line": 328,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_passing_attempt_that_mentions_a_cap_does_not_abort_the_run",
+          "line": 370,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_passing_attempt_that_mentions_a_throttle_is_not_respawned",
+          "line": 380,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_cap_on_a_zero_exit_still_stops_the_run",
+          "line": 389,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_a_timeout_carrying_throttle_text_is_still_not_retried",
+          "line": 397,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_each_invocation_of_an_attempt_gets_its_own_context",
+          "line": 415,
+          "assertions": 2,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_run_cli.py",
+      "lines": 954,
+      "functions": 31,
+      "cases": 41,
+      "tests": [
+        {
+          "name": "test_run_cli_forwards_options_to_run",
+          "line": 39,
+          "assertions": 8,
+          "raises": 0
+        },
+        {
+          "name": "test_run_cli_resolves_backend_and_judge_model_targets",
+          "line": 106,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_run_cli_collects_repeated_ablate_flags",
+          "line": 168,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_run_cli_user_customizations_notice",
+          "line": 264,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_run_cli_exits_two_after_cleanup_failure",
+          "line": 294,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_run_cli_exits_two_when_no_attempt_was_usable",
+          "line": 346,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_run_cli_exits_zero_when_some_attempt_was_usable",
+          "line": 357,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_run_cli_exits_zero_for_a_trigger_probe_run",
+          "line": 365,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_report_highlights_cleanup_failure_on_passing_attempt",
+          "line": 374,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_run_cli_saves_the_run_at_the_discovered_root",
+          "line": 407,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_run_cli_writes_output_to_a_new_directory",
+          "line": 429,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_run_cli_keeps_report_and_interrupt_exit_if_output_cannot_be_written",
+          "line": 447,
+          "assertions": 6,
+          "raises": 0
+        },
+        {
+          "name": "test_a_run_is_findable_by_report_from_another_directory",
+          "line": 473,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_report_outside_the_project_does_not_find_its_runs",
+          "line": 497,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_baseline_is_no_longer_an_option",
+          "line": 522,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_run_cli_rejects_fewer_than_one_attempt",
+          "line": 535,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_run_cli_refuses_unknown_backends_before_any_attempt",
+          "line": 546,
+          "assertions": 6,
+          "raises": 0
+        },
+        {
+          "name": "test_run_refuses_an_expect_spec_when_the_judge_cli_is_missing",
+          "line": 580,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_run_ignores_a_missing_judge_cli_when_no_task_has_expect",
+          "line": 608,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_run_rejects_a_value_below_one_before_running",
+          "line": 652,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_cheat_stays_flagged_in_live_progress_after_later_attempts",
+          "line": 670,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_login_stop_off_a_terminal_names_the_command_and_waits_for_nothing",
+          "line": 779,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_yes_logs_in_then_reruns_the_same_command",
+          "line": 794,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_no_exits_two_without_logging_in",
+          "line": 816,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_failed_login_exits_two_without_rerunning",
+          "line": 827,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_a_login_command_that_cannot_start_exits_two",
+          "line": 839,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_stop_with_no_login_command_never_asks",
+          "line": 863,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_only_the_foreground_job_is_asked",
+          "line": 883,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_run_refuses_an_unusable_results_root_before_any_attempt",
+          "line": 902,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_run_whose_save_fails_is_kept_elsewhere",
+          "line": 922,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_reading_commands_diagnose_an_unusable_results_root",
+          "line": 946,
+          "assertions": 2,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_run_seam.py",
+      "lines": 141,
+      "functions": 5,
+      "cases": 5,
+      "tests": [
+        {
+          "name": "test_the_backends_own_model_answers_a_request_that_names_none",
+          "line": 55,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_named_model_is_not_overridden_by_the_backends_own",
+          "line": 74,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_an_empty_model_falls_back_like_an_absent_one",
+          "line": 85,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_each_invocation_gets_its_own_context",
+          "line": 95,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_the_context_owns_its_lists",
+          "line": 114,
+          "assertions": 2,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_runner.py",
+      "lines": 893,
+      "functions": 26,
+      "cases": 29,
+      "tests": [
+        {
+          "name": "test_failed_setup_cannot_pass_from_stale_artifact_and_still_cleans_up",
+          "line": 65,
+          "assertions": 8,
+          "raises": 0
+        },
+        {
+          "name": "test_failed_setup_with_markup_output_still_reports",
+          "line": 103,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_cancelling_setup_skips_agent_and_still_runs_cleanup",
+          "line": 128,
+          "assertions": 6,
+          "raises": 0
+        },
+        {
+          "name": "test_failed_cleanup_keeps_agent_outcome_and_reports_both_hook_failures",
+          "line": 172,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_cleanup_runs_after_failed_timed_out_or_cancelled_agent",
+          "line": 220,
+          "assertions": 6,
+          "raises": 0
+        },
+        {
+          "name": "test_runner_fails_attempt_when_harness_exits_nonzero",
+          "line": 280,
+          "assertions": 6,
+          "raises": 0
+        },
+        {
+          "name": "test_runner_runs_all_infra_failures_by_default",
+          "line": 308,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_runner_fail_fast_stops_after_unusable_threshold",
+          "line": 329,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_runner_fail_fast_does_not_reset_streak_on_judge_error",
+          "line": 352,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_runner_emits_task_done_when_fail_fast_stops_early",
+          "line": 379,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_runmeta_records_judge_engine_and_resolved_model",
+          "line": 417,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_runmeta_fills_default_judge_model_from_autorater",
+          "line": 445,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_runmeta_records_the_model_a_named_judge_resolved_to",
+          "line": 464,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_runmeta_records_the_most_common_judge_model_and_warns",
+          "line": 502,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_runmeta_records_no_judge_model_when_no_autorater_ran",
+          "line": 523,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_run_records_what_rebuilds_the_judge_input",
+          "line": 555,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_runmeta_records_resolved_model_over_requested_and_warns",
+          "line": 577,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_runmeta_records_the_majority_model_and_warns_on_a_mixed_run",
+          "line": 608,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_runmeta_ignores_the_models_of_cancelled_attempts",
+          "line": 645,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_runner_persists_attempt_transcript",
+          "line": 674,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_agent_setup_and_assert_share_one_attempt_workdir",
+          "line": 720,
+          "assertions": 7,
+          "raises": 0
+        },
+        {
+          "name": "test_hooks_see_the_workdir_and_spec_dir_env",
+          "line": 768,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_spec_dir_env_is_absolute_for_a_relative_spec_path",
+          "line": 794,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_hanging_setup_is_an_infra_error_not_a_stuck_worker",
+          "line": 830,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_tasks_built_without_ids_keep_their_own_attempts",
+          "line": 858,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_run_refuses_fewer_than_one_attempt",
+          "line": 885,
+          "assertions": 0,
+          "raises": 1
+        }
+      ]
+    },
+    {
+      "module": "test_runstore.py",
+      "lines": 318,
+      "functions": 30,
+      "cases": 38,
+      "tests": [
+        {
+          "name": "test_save_round_trips_through_load",
+          "line": 29,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_save_refuses_a_spec_name_that_is_not_one_directory",
+          "line": 37,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_save_files_a_run_under_its_spec",
+          "line": 45,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_save_names_the_file_after_the_run_timestamp",
+          "line": 52,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_two_runs_of_one_spec_sit_side_by_side",
+          "line": 60,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_two_runs_in_the_same_second_both_survive",
+          "line": 68,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_same_second_runs_are_listed_in_the_order_they_were_saved",
+          "line": 80,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_latest_is_the_last_of_several_same_second_runs",
+          "line": 91,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_disambiguated_run_resolves_by_its_id",
+          "line": 99,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_json_path_resolves_to_itself",
+          "line": 110,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_json_path_that_does_not_exist_resolves_to_nothing",
+          "line": 117,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_bare_spec_name_resolves_to_its_latest_run",
+          "line": 121,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_named_run_resolves_to_that_run",
+          "line": 131,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_named_run_that_is_not_there_resolves_to_nothing",
+          "line": 139,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_an_unknown_spec_resolves_to_nothing",
+          "line": 146,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_spec_with_no_runs_resolves_to_nothing",
+          "line": 150,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_specs_lists_only_directories_that_hold_runs",
+          "line": 160,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_specs_is_empty_before_any_run",
+          "line": 170,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_runs_is_empty_for_an_unknown_spec",
+          "line": 174,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_load_names_the_file_it_could_not_read",
+          "line": 181,
+          "assertions": 1,
+          "raises": 1
+        },
+        {
+          "name": "test_load_rejects_json_that_is_not_a_run",
+          "line": 198,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_discover_finds_the_nearest_root",
+          "line": 210,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_discover_walks_up_to_an_existing_root",
+          "line": 221,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_discover_names_the_repo_root_when_no_root_exists",
+          "line": 231,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_discover_does_not_reach_past_the_repo_boundary",
+          "line": 250,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_discover_falls_back_to_the_working_directory_outside_a_repo",
+          "line": 260,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_discover_accepts_an_explicit_start",
+          "line": 272,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_spec_path_resolves_like_its_spec_name",
+          "line": 281,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_file_that_is_not_a_results_file_says_so",
+          "line": 288,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_run_holding_an_impossible_number_is_unreadable",
+          "line": 308,
+          "assertions": 0,
+          "raises": 1
+        }
+      ]
+    },
+    {
+      "module": "test_sandbox.py",
+      "lines": 197,
+      "functions": 17,
+      "cases": 28,
+      "tests": [
+        {
+          "name": "test_declared_pattern_is_a_violation",
+          "line": 26,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_unmatched_path_is_not_a_violation",
+          "line": 31,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_turn_without_tool_input_is_ignored",
+          "line": 36,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_nested_tool_input_is_searched",
+          "line": 42,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_deeply_buried_path_is_not_searched",
+          "line": 53,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_non_path_strings_are_not_candidates",
+          "line": 63,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_an_extensionless_path_or_command_is_a_candidate",
+          "line": 80,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_from_spec_forbids_the_spec_file_itself",
+          "line": 89,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_from_spec_forbids_saved_results",
+          "line": 98,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_saved_results_are_forbidden_wherever_they_are_filed",
+          "line": 115,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_the_saved_results_rule_does_not_swallow_neighbouring_names",
+          "line": 146,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_from_spec_keeps_the_declared_patterns",
+          "line": 154,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_auto_forbidden_paths_are_literal_not_patterns",
+          "line": 162,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_install_permits_an_ordinary_skill_file",
+          "line": 171,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_install_refuses_a_declared_cheat_surface",
+          "line": 176,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_install_matches_a_dot_slash_relative_pattern",
+          "line": 181,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_install_ignores_the_auto_forbidden_paths",
+          "line": 187,
+          "assertions": 1,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_scoring.py",
+      "lines": 205,
+      "functions": 12,
+      "cases": 12,
+      "tests": [
+        {
+          "name": "test_pass_at_k_and_pass_hat_k_are_secondary_views",
+          "line": 30,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_no_usable_attempt_yields_no_metric_at_all",
+          "line": 38,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_score_is_the_raw_rate_over_usable_only",
+          "line": 48,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_fully_unusable_task_scores_none_and_leaves_the_average_alone",
+          "line": 69,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_average_ignores_none_scores",
+          "line": 85,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_every_row_records_the_runs_requested_depth",
+          "line": 97,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_no_tasks_averages_to_zero_rather_than_none",
+          "line": 107,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_one_call_builds_both_scoreboards",
+          "line": 146,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_a_firing_description_over_a_failing_body_scores_one_and_zero",
+          "line": 159,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_passing_body_under_a_silent_description_scores_one_and_zero",
+          "line": 176,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_unasserted_run_has_no_activation_headline",
+          "line": 190,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_declared_skill_gets_a_row_even_when_it_never_fired",
+          "line": 200,
+          "assertions": 1,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_skill_drift.py",
+      "lines": 167,
+      "functions": 9,
+      "cases": 9,
+      "tests": [
+        {
+          "name": "test_identical_neighbourhoods_report_no_drift",
+          "line": 69,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_drifted_git_source_warns",
+          "line": 75,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_drifted_git_source_reports_the_two_commits",
+          "line": 86,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_drifted_path_source_is_recorded_but_does_not_warn",
+          "line": 96,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_path_source_falls_back_to_a_content_digest",
+          "line": 108,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_both_kinds_are_reported_together",
+          "line": 118,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_member_present_on_one_side_only_is_not_drift",
+          "line": 141,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_member_that_changed_source_kind_is_graded_as_git",
+          "line": 152,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_legacy_runs_without_snapshot_files_do_not_report_drift",
+          "line": 163,
+          "assertions": 1,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_skills.py",
+      "lines": 335,
+      "functions": 33,
+      "cases": 44,
+      "tests": [
+        {
+          "name": "test_frontmatter_name_reads_the_name_key",
+          "line": 24,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_frontmatter_name_is_none_without_frontmatter",
+          "line": 30,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_frontmatter_name_is_none_when_name_key_absent",
+          "line": 34,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_frontmatter_name_strips_quotes",
+          "line": 38,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_frontmatter_name_reads_yaml",
+          "line": 54,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_frontmatter_name_is_none_when_the_name_is_not_a_string",
+          "line": 67,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_resolves_relative_paths_against_the_spec_dir",
+          "line": 75,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_resolves_several_entries_as_peers_in_order",
+          "line": 83,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_empty_list_resolves_to_no_skills",
+          "line": 90,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_missing_file_is_an_error",
+          "line": 94,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_lone_slash_command_file_is_rejected",
+          "line": 99,
+          "assertions": 2,
+          "raises": 1
+        },
+        {
+          "name": "test_a_skill_md_that_is_a_directory_is_rejected",
+          "line": 108,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_a_skill_md_that_is_not_utf8_is_rejected",
+          "line": 114,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_skill_without_frontmatter_name_is_rejected",
+          "line": 121,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_duplicate_names_collide_on_one_install_path_and_are_rejected",
+          "line": 128,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_name_must_be_a_safe_directory_component",
+          "line": 136,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_installs_at_skills_root_under_the_frontmatter_name",
+          "line": 146,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_install_carries_the_whole_directory_for_progressive_disclosure",
+          "line": 158,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_install_excludes_cheat_surfaces_for_every_entry",
+          "line": 172,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_install_honours_sandbox_forbidden_files",
+          "line": 194,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_install_follows_a_file_symlink_to_a_shared_file",
+          "line": 206,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_install_does_not_let_a_symlink_reach_a_forbidden_file",
+          "line": 223,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_install_matches_forbidden_files_against_an_outside_target",
+          "line": 236,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_install_does_not_let_a_symlink_reach_an_excluded_file",
+          "line": 250,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_install_skips_oversized_files",
+          "line": 263,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_skill_whose_skill_md_is_forbidden_is_refused",
+          "line": 274,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_a_skill_whose_skill_md_is_oversized_is_refused",
+          "line": 281,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_a_forbidden_companion_file_still_resolves",
+          "line": 288,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_install_of_nothing_creates_no_root",
+          "line": 295,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_activates_naming_an_undeclared_skill_is_rejected",
+          "line": 312,
+          "assertions": 2,
+          "raises": 1
+        },
+        {
+          "name": "test_activates_naming_declared_skills_passes",
+          "line": 323,
+          "assertions": 0,
+          "raises": 0
+        },
+        {
+          "name": "test_empty_activates_needs_no_declaration",
+          "line": 330,
+          "assertions": 0,
+          "raises": 0
+        },
+        {
+          "name": "test_unasserted_tasks_are_ignored",
+          "line": 334,
+          "assertions": 0,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_skillsnapshot.py",
+      "lines": 324,
+      "functions": 14,
+      "cases": 14,
+      "tests": [
+        {
+          "name": "test_a_git_sources_provenance_comes_from_the_ref_not_the_checkout",
+          "line": 37,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_path_source_is_interrogated_for_its_repo_and_commit",
+          "line": 65,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_a_missing_skill_file_snapshots_as_empty",
+          "line": 84,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_every_installed_file_is_captured_whether_or_not_skill_md_names_it",
+          "line": 98,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_editing_an_unreferenced_file_changes_the_digest",
+          "line": 127,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_line_ending_change_is_drift",
+          "line": 140,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_cheat_surfaces_and_forbidden_files_are_not_captured",
+          "line": 153,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_file_below_a_directory_symlink_is_not_captured",
+          "line": 173,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_file_outside_the_skill_directory_is_not_captured",
+          "line": 195,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_file_symlink_is_captured_under_its_link_name_with_its_targets_bytes",
+          "line": 215,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_a_skill_reached_through_a_linked_directory_captures_the_same_files",
+          "line": 241,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_binary_file_is_captured_by_its_bytes_without_text",
+          "line": 260,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_file_too_large_to_install_is_not_captured",
+          "line": 273,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_the_snapshot_holds_exactly_the_files_the_install_wrote",
+          "line": 282,
+          "assertions": 2,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_smoke_fixtures.py",
+      "lines": 172,
+      "functions": 4,
+      "cases": 7,
+      "tests": [
+        {
+          "name": "test_repo_specs_do_not_write_to_shared_tmp_paths",
+          "line": 22,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_backend_smoke_requires_a_fresh_artifact",
+          "line": 48,
+          "assertions": 11,
+          "raises": 0
+        },
+        {
+          "name": "test_stdio_smoke_fixture_is_available_to_every_task",
+          "line": 76,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_http_smoke_keeps_pid_and_log_in_its_workdir",
+          "line": 106,
+          "assertions": 12,
+          "raises": 1
+        }
+      ]
+    },
+    {
+      "module": "test_task_metrics.py",
+      "lines": 208,
+      "functions": 21,
+      "cases": 21,
+      "tests": [
+        {
+          "name": "test_counts_split_usable_from_noise",
+          "line": 15,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_every_metric_shares_the_usable_denominator",
+          "line": 29,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_cheat_is_a_usable_failure",
+          "line": 37,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_trigger_probe_leaves_the_denominator_without_being_noise",
+          "line": 45,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_all_unusable_yields_no_metrics",
+          "line": 57,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_a_task_with_no_attempts_has_no_metrics",
+          "line": 66,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_the_metrics_are_serialized_so_a_saved_run_reads_the_same",
+          "line": 73,
+          "assertions": 6,
+          "raises": 0
+        },
+        {
+          "name": "test_a_saved_run_cannot_carry_counts_that_contradict_its_attempts",
+          "line": 85,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_task_with_no_execution_check_is_trigger_only",
+          "line": 111,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_trigger_only_survives_one_timeout_among_k",
+          "line": 115,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_task_with_a_real_verdict_is_not_trigger_only",
+          "line": 123,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_task_with_no_attempts_at_all_is_not_trigger_only",
+          "line": 127,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_any_cheat_is_true_when_one_attempt_cheated",
+          "line": 132,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_task_that_ran_short_with_nothing_measured_is_aborted",
+          "line": 137,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_task_that_ran_short_but_measured_something_is_not_aborted",
+          "line": 141,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_complete_task_is_never_aborted",
+          "line": 146,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_trigger_probe_is_never_aborted",
+          "line": 150,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_task_rolls_up_its_own_usage",
+          "line": 155,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_legacy_run_counts_its_scored_tasks_from_its_rows",
+          "line": 162,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_legacy_runs_unmeasured_rows_do_not_count",
+          "line": 182,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_stored_zero_stays_a_real_claim",
+          "line": 194,
+          "assertions": 1,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_transcript_persistence.py",
+      "lines": 99,
+      "functions": 3,
+      "cases": 3,
+      "tests": [
+        {
+          "name": "test_old_results_json_without_transcript_still_loads",
+          "line": 17,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_attempt_record_transcript_round_trips_through_json",
+          "line": 29,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_run_results_transcript_round_trips_through_json",
+          "line": 63,
+          "assertions": 3,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_update_cli.py",
+      "lines": 125,
+      "functions": 5,
+      "cases": 5,
+      "tests": [
+        {
+          "name": "test_update_cli_check_prints_versions",
+          "line": 12,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_update_cli_requires_target_for_updates",
+          "line": 48,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_update_cli_updates_with_npm_when_confirmed",
+          "line": 55,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_update_cli_refuses_codex_app_bundle",
+          "line": 90,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_update_cli_check_says_up_to_date_when_versions_match",
+          "line": 103,
+          "assertions": 3,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_usage.py",
+      "lines": 487,
+      "functions": 26,
+      "cases": 29,
+      "tests": [
+        {
+          "name": "test_total_tokens_sums_all_four_disjoint_fields",
+          "line": 52,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_total_tokens_is_none_when_nothing_reported",
+          "line": 62,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_total_tokens_treats_missing_components_as_zero",
+          "line": 66,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_usage_maps_result_event_directly",
+          "line": 75,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_usage_none_without_result_event",
+          "line": 102,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_usage_subtracts_cached_from_input",
+          "line": 107,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_pi_usage_sums_per_assistant_message",
+          "line": 134,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_usage_reads_session_totals",
+          "line": 164,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_hermes_usage_none_when_totals_absent",
+          "line": 181,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_codex_usage_survives_non_numeric_fields",
+          "line": 191,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_usage_totals_sum_all_attempts_and_break_out_unusable",
+          "line": 209,
+          "assertions": 11,
+          "raises": 0
+        },
+        {
+          "name": "test_usage_totals_tokens_unreported_when_no_backend_data",
+          "line": 240,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_old_results_json_without_usage_still_loads",
+          "line": 258,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_compare_populates_usage_and_deltas",
+          "line": 303,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_compare_token_rise_is_not_a_regression",
+          "line": 316,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_print_results_renders_token_line",
+          "line": 330,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_print_results_renders_per_task_tokens_and_wall",
+          "line": 339,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_every_run_renders_a_single_report",
+          "line": 348,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_an_ablated_run_names_what_was_removed",
+          "line": 359,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_an_ablated_run_shows_observations_on_a_passing_task",
+          "line": 371,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_a_server_ablated_run_keeps_its_activation_verdicts",
+          "line": 404,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_a_normal_run_has_no_observed_activations_block",
+          "line": 432,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_failure_details_still_show_why_an_attempt_failed",
+          "line": 440,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_print_results_per_task_tokens_dash_when_unreported",
+          "line": 460,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_print_comparison_renders_usage_rows",
+          "line": 472,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_negative_token_count_is_refused",
+          "line": 485,
+          "assertions": 0,
+          "raises": 1
+        }
+      ]
+    },
+    {
+      "module": "test_user_customizations.py",
+      "lines": 317,
+      "functions": 12,
+      "cases": 34,
+      "tests": [
+        {
+          "name": "test_the_invocation_then_the_spec_then_the_default",
+          "line": 88,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_declared_and_ablated_servers_stay_the_specs",
+          "line": 100,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_backend_that_cannot_see_them_records_unknown",
+          "line": 112,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_backend_without_mcp_runs_isolated_and_warns_only_when_asked",
+          "line": 122,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_a_run_saved_before_the_field_loads_as_isolated",
+          "line": 141,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_flag_mismatch_warns_with_the_isolating_fix",
+          "line": 179,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_loaded_sets_warn_only_when_both_are_known_and_differ",
+          "line": 205,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_cross_backend_diff_warns_once_when_a_setup_may_confound_it",
+          "line": 224,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_an_ablation_pair_needs_the_same_customizations",
+          "line": 251,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_a_bare_agent_is_claimed_only_when_nothing_was_loaded",
+          "line": 266,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_the_report_header_says_what_was_loaded",
+          "line": 295,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_kind_prefixed_inventory_survives_saved_run_and_report",
+          "line": 305,
+          "assertions": 2,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_user_layer.py",
+      "lines": 422,
+      "functions": 10,
+      "cases": 32,
+      "tests": [
+        {
+          "name": "test_user_skills_are_copied_and_declared_names_win",
+          "line": 29,
+          "assertions": 6,
+          "raises": 0
+        },
+        {
+          "name": "test_settings_and_rules_follow_the_switch",
+          "line": 113,
+          "assertions": 5,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_plugins_use_private_installations",
+          "line": 167,
+          "assertions": 8,
+          "raises": 0
+        },
+        {
+          "name": "test_claude_user_skills_keep_the_directory_command_name",
+          "line": 237,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_cli_shipped_skills_are_not_user_skills",
+          "line": 273,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_skills_are_recorded_when_the_mcp_inventory_is_unknown",
+          "line": 322,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_staging_copies_the_user_layer_into_the_attempt_home",
+          "line": 358,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_an_isolated_attempt_stages_and_records_nothing",
+          "line": 379,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_backend_without_mcp_stages_nothing_even_when_asked",
+          "line": 393,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_built_in_skills_are_what_is_neither_declared_nor_the_users",
+          "line": 407,
+          "assertions": 2,
+          "raises": 0
+        }
+      ]
+    },
+    {
+      "module": "test_workdir.py",
+      "lines": 165,
+      "functions": 11,
+      "cases": 11,
+      "tests": [
+        {
+          "name": "test_entering_makes_an_empty_workdir_beside_the_home_and_leaving_removes_both",
+          "line": 25,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_steps_run_in_the_workdir_with_both_dirs_in_their_environment",
+          "line": 35,
+          "assertions": 1,
+          "raises": 0
+        },
+        {
+          "name": "test_hook_with_background_child_returns_after_its_shell_exits",
+          "line": 50,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_successful_hook_with_continuous_background_writer_returns",
+          "line": 70,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_windows_silent_background_hook_does_not_leak_reader",
+          "line": 87,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_noisy_hook_keeps_only_diagnostic_tail",
+          "line": 102,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_failed_assertion_keeps_the_traceback_tail",
+          "line": 120,
+          "assertions": 2,
+          "raises": 0
+        },
+        {
+          "name": "test_a_step_past_its_limit_is_killed_and_says_so",
+          "line": 129,
+          "assertions": 4,
+          "raises": 0
+        },
+        {
+          "name": "test_a_hanging_hook_is_killed_at_its_limit",
+          "line": 142,
+          "assertions": 3,
+          "raises": 0
+        },
+        {
+          "name": "test_a_cancelled_run_cancels_its_assertions",
+          "line": 153,
+          "assertions": 0,
+          "raises": 1
+        },
+        {
+          "name": "test_cleanup_still_runs_after_the_run_was_cancelled",
+          "line": 159,
+          "assertions": 2,
+          "raises": 0
+        }
+      ]
+    }
+  ]
+}

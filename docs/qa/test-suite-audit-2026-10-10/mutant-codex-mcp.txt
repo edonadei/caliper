@@ -1,0 +1,72 @@
+Applied process-local mutation codex-without-mcp. No repository files changed.
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_______ test_codex_user_customizations_keeps_user_servers_and_connectors _______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c081520>
+tmp_path = PosixPath('/private/var/folders/qj/l75kfzms0y984ngvf069cbdh0000gn/T/pytest-of-emrickdonadei/pytest-423/test_codex_user_customizations0')
+
+    def test_codex_user_customizations_keeps_user_servers_and_connectors(
+        monkeypatch, tmp_path
+    ) -> None:
+        captured: dict = {}
+        seeded = _run_codex_mcp(
+            monkeypatch,
+            tmp_path,
+            {"echo": McpServer(command="python3")},
+            home=_fake_codex_home(
+                tmp_path, _AMBIENT_CONFIG + _NO_PLUGINS, auth=_CHATGPT_AUTH
+            ),
+            user_customizations=True,
+            captured=captured,
+        )
+        config = tomllib.loads(seeded.read_text())
+        # The user's server survives (with its nested env table) beside the spec's.
+        assert config["mcp_servers"] == {
+            "personal": {"command": "my-private-server", "env": {"TOKEN": "abc"}},
+            "echo": {"command": "python3"},
+        }
+        # The model pin is still stripped: --user-customizations is about tools only.
+        assert "model" not in config
+        # The account's hosted apps and plugins are left on.
+        assert "features.apps=false" not in captured["cmd"]
+        assert "features.plugins=false" not in captured["cmd"]
+        # Recorded: the user's server plus the hosted apps, never the declared one.
+>       assert captured["result"].loaded_user_customizations == [
+            "mcp:codex_apps",
+            "mcp:personal",
+            "settings:config.toml",
+        ]
+E       AssertionError: assert None == ['mcp:codex_apps', 'mcp:personal', 'settings:config.toml']
+E        +  where None = AttemptResult(transcript=[ConversationTurn(role='assistant', content='OK', tool_name=None, tool_input=None, tool_outpu...rue, refusal=None, loaded_user_customizations=None, user_skill_names=[], user_skill_paths={}, builtin_skill_names=None).loaded_user_customizations
+
+tests/test_codex_harness.py:661: AssertionError
+________ test_codex_user_customizations_lets_the_spec_win_a_name_clash _________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c081e20>
+tmp_path = PosixPath('/private/var/folders/qj/l75kfzms0y984ngvf069cbdh0000gn/T/pytest-of-emrickdonadei/pytest-423/test_codex_user_customizations1')
+
+    def test_codex_user_customizations_lets_the_spec_win_a_name_clash(
+        monkeypatch, tmp_path
+    ) -> None:
+        captured: dict = {}
+        seeded = _run_codex_mcp(
+            monkeypatch,
+            tmp_path,
+            {"personal": McpServer(command="spec-server")},
+            user_customizations=True,
+            captured=captured,
+        )
+        # Parses at all: a table defined twice would be a TOML error.
+        config = tomllib.loads(seeded.read_text())
+        assert config["mcp_servers"] == {"personal": {"command": "spec-server"}}
+        # An API-key login (no OAuth tokens) brings no hosted apps to claim.
+>       assert captured["result"].loaded_user_customizations == ["settings:config.toml"]
+E       AssertionError: assert None == ['settings:config.toml']
+E        +  where None = AttemptResult(transcript=[ConversationTurn(role='assistant', content='OK', tool_name=None, tool_input=None, tool_outpu...rue, refusal=None, loaded_user_customizations=None, user_skill_names=[], user_skill_paths={}, builtin_skill_names=None).loaded_user_customizations
+
+tests/test_codex_harness.py:725: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_codex_harness.py::test_codex_user_customizations_keeps_user_servers_and_connectors
+FAILED tests/test_codex_harness.py::test_codex_user_customizations_lets_the_spec_win_a_name_clash
+2 failed in 0.29s

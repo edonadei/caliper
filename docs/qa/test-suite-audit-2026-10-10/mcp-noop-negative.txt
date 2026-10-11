@@ -1,0 +1,24 @@
+Applied process-local mutation mcp-noop. No repository files changed.
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_preflight_rejects_server_exiting_after_initialize ____________
+
+tmp_path = PosixPath('/private/var/folders/qj/l75kfzms0y984ngvf069cbdh0000gn/T/pytest-of-emrickdonadei/pytest-414/test_preflight_rejects_server_0')
+
+    def test_preflight_rejects_server_exiting_after_initialize(tmp_path) -> None:
+        script = tmp_path / "one_reply.py"
+        script.write_text(
+            "import json, sys\n"
+            "request = json.loads(sys.stdin.readline())\n"
+            "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+            f"'result': {_EMPTY_INITIALIZATION}}}), flush=True)\n"
+        )
+
+>       with pytest.raises(HarnessConfigurationError, match="MCP server 'echo'"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE HarnessConfigurationError
+
+tests/test_mcp.py:548: Failed
+=========================== short test summary info ============================
+FAILED tests/test_mcp.py::test_preflight_rejects_server_exiting_after_initialize
+1 failed in 0.53s

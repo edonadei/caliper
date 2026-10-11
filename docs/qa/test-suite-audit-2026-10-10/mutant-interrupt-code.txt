@@ -1,0 +1,36 @@
+Applied process-local mutation interrupt-code-129. No repository files changed.
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_run_cli_exits_130_and_saves_an_interrupted_run ______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10bbf76b0>
+tmp_path = PosixPath('/private/var/folders/qj/l75kfzms0y984ngvf069cbdh0000gn/T/pytest-of-emrickdonadei/pytest-421/test_run_cli_exits_130_and_sav0')
+
+    def test_run_cli_exits_130_and_saves_an_interrupted_run(monkeypatch, tmp_path) -> None:
+        # `run` roots its store at the cwd (docs/adr/0022), so the run this asserts
+        # on lands under tmp_path only if that is where caliper is invoked from.
+        monkeypatch.chdir(tmp_path)
+        spec_file = tmp_path / "sample.eval.yaml"
+        spec_file.write_text(
+            "tasks:\n  - name: One\n    prompt: Do it\n    assert: 'assert True'\n"
+        )
+
+        def fake_run(**kwargs):
+            return _one_attempt_run(k=kwargs["k"])
+
+        monkeypatch.setattr(
+            "caliper.commands.engine.get_harness", lambda *a, **kw: ScriptedHarness()
+        )
+        monkeypatch.setattr("caliper.commands.engine.EvalJudge", lambda *a, **kw: object())
+        monkeypatch.setattr("caliper.commands.run.run", fake_run)
+
+        result = runner.invoke(app, ["run", str(spec_file)])
+
+>       assert result.exit_code == 130
+E       assert <ExitCode.INTERRUPTED: 129> == 130
+E        +  where <ExitCode.INTERRUPTED: 129> = <Result SystemExit(<ExitCode.INTERRUPTED: 129>)>.exit_code
+
+/Users/emrickdonadei/verdict/tests/test_cancel.py:700: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_cancel.py::test_run_cli_exits_130_and_saves_an_interrupted_run
+1 failed in 0.59s

@@ -1,0 +1,16 @@
+Applied process-local mutation ignore-cap. No repository files changed.
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________________ test_a_spending_cap_raises_instead_of_retrying ________________
+
+    def test_a_spending_cap_raises_instead_of_retrying() -> None:
+        invoke, calls = _queue(_result(**CAPPED), _result())
+
+>       with pytest.raises(SpendingCapReached) as excinfo:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE SpendingCapReached
+
+tests/test_retry.py:150: Failed
+=========================== short test summary info ============================
+FAILED tests/test_retry.py::test_a_spending_cap_raises_instead_of_retrying - ...
+1 failed in 0.04s
