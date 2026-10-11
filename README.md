@@ -221,16 +221,23 @@ at your own skill by editing a few commented lines.
 ## How it works
 
 ```
-.eval.yaml spec
-      │
-      ▼
-  Harness  ──── runs your skill in the agent (Claude Code / Codex / Pi / Hermes)
-      │
-      ▼
-   Judge   ──── LLM autorater and/or deterministic Python assertions
-      │
-      ▼
-  success rate + saved transcript
+ spec.eval.yaml   skills, tasks, expect: / assert:
+        │
+        ▼
+ ┌─ Harness ──────────────────────────────────────┐
+ │ runs each task k times in the agent            │
+ │ (Claude Code · Codex · Pi · Hermes)            │
+ │ every attempt: fresh home, empty workdir       │
+ └────────────────────────────────────────────────┘
+        │  one transcript per attempt
+        ▼
+ ┌─ Judge ────────────────────────────────────────┐
+ │ expect:  an LLM reads the transcript           │
+ │ assert:  Python checks the outcome             │
+ └────────────────────────────────────────────────┘
+        │  pass / fail per attempt
+        ▼
+ success rate  +  results JSON (transcripts, what loaded)
 ```
 
 Each **attempt** starts clean: a temporary home with no session history and an
