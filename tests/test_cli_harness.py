@@ -50,7 +50,6 @@ SEED_INVENTORIES = [
         HermesHarness,
         {
             ".hermes/auth.json": "hermes auth",
-            ".hermes/config.yaml": "hermes config",
             ".hermes/.env": "hermes env",
         },
     ),
