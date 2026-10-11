@@ -161,7 +161,6 @@ def test_two_runs_of_one_spec_sit_side_by_side(tmp_path) -> None:
 
 
 def test_two_runs_in_the_same_second_both_survive(tmp_path) -> None:
-    """The second run takes a disambiguated id rather than overwriting the first."""
     store = RunStore(tmp_path)
     first_results = _results()
     first_results.run.model = "first-model"

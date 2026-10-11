@@ -201,7 +201,6 @@ _EMPTY_INITIALIZATION = repr(
 
 
 def _record_server(script: Path) -> Path:
-    """Persist JSON messages in the server process before forwarding its replies."""
     marker = script.with_suffix(".exchange.json")
     source = script.read_text()
     shebang = ""
@@ -466,7 +465,6 @@ def test_preflight_initializes_a_local_server(tmp_path) -> None:
 
 
 def test_preflight_accepts_bundled_echo_server_protocol_version(tmp_path) -> None:
-    # echo_server.py answers 2024-11-05, not the version preflight proposes.
     script = Path(__file__).parent / "fixtures" / "mcp" / "echo_server.py"
     wrapper = tmp_path / "bundled.py"
     wrapper.write_text(
@@ -616,15 +614,11 @@ def test_preflight_answers_server_ping_with_colliding_request_id(tmp_path) -> No
 def test_preflight_accepts_resource_only_server(tmp_path) -> None:
     script = tmp_path / "resources.py"
     script.write_text(
-        "import json, sys\n"
+        "import json, sys, threading\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
         f"'result': {_RESOURCE_INITIALIZATION}}}), flush=True)\n"
-        "sys.stdin.readline()\n"
-        "request = sys.stdin.readline()\n"
-        "if request:\n"
-        "    print(json.dumps({'jsonrpc': '2.0', 'id': json.loads(request)['id'], "
-        "'error': {'code': -32601, 'message': 'Method not found'}}), flush=True)\n"
+        "threading.Event().wait()\n"
     )
 
     marker = _record_server(script)
@@ -646,7 +640,6 @@ def test_preflight_accepts_resource_only_server(tmp_path) -> None:
                 },
             },
         ],
-        _LEGACY_EXCHANGE[2],
     ]
 
 

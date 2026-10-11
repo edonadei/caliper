@@ -138,7 +138,6 @@ def test_trigger_only_task_reads_as_a_skip_not_an_error():
     task = _trigger_task()
     assert task.trigger_only is True
     cell = _success_cell(task, k=2)
-    # No rate and no marks: "0%" or a row of ⊘ would read as a failure.
     assert cell.plain.split() == ["—", "probe"]
     assert all(str(span.style) == "dim" for span in cell.spans)
 

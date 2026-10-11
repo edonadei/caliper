@@ -193,14 +193,9 @@ def test_ablating_an_undeclared_skill_is_refused(tmp_path):
 
 
 def test_ablate_removes_a_declared_mcp_server(tmp_path):
-    # The server never reaches the harness config, so the agent never sees its
-    # tool definitions — which is the question being asked of it.
     spec, spec_path = _spec_with_skill_and_server(tmp_path)
     harness = _recording()
     results = _run_spec(spec, spec_path, harness, ablate=["weather"])
-    # An empty mapping, not None: the block was declared, so the backend must
-    # still isolate the attempt to zero servers rather than fall back to its own
-    # ambient config (see test_mcp.py for the runner-level guard).
     assert _servers(harness) == [{}]
     assert _installed(harness) == [["subject"]]
     assert results.run.ablated == ["mcp:weather"]
@@ -287,8 +282,6 @@ def test_an_activates_naming_the_ablated_skill_is_not_a_validation_error(tmp_pat
 
 
 def test_the_observation_survives_even_though_the_verdict_does_not(tmp_path):
-    # (c) from the design: observe, don't score. The transcript reads keeper's
-    # installed SKILL.md, and that fact is still recorded.
     spec, spec_path = _spec_with_two_skills(tmp_path, activates=["subject", "keeper"])
     results = _run_spec(spec, spec_path, _recording(), ablate=["subject"])
     task = results.task_results[0]

@@ -114,7 +114,6 @@ def test_seeds_declared_files_verbatim(
 def test_seeding_skips_files_the_user_does_not_have(
     backend, inventory, monkeypatch, tmp_path
 ) -> None:
-    """Missing real config files leave the isolated inventory empty."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "empty")
     home = tmp_path / "home"
 

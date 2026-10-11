@@ -425,8 +425,6 @@ def test_a_server_ablated_run_keeps_its_activation_verdicts(capsys) -> None:
 
 
 def test_a_normal_run_has_no_observed_activations_block(capsys) -> None:
-    # It is the ablated run's stand-in for the scored table, not a second table
-    # every run grows.
     results = _run([_task_with_tokens("alpha", 1000, 10.0)])
     for attempt in results.task_results[0].attempts:
         attempt.activated = ["keeper"]
