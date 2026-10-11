@@ -127,16 +127,6 @@ def _make_task(
 
 
 def _make_results(task_results: list[TaskResult]) -> RunResults:
-    scores = [
-        TaskScore(
-            task_id=tr.task_id,
-            task_name=tr.task_name,
-            successes=tr.successes,
-            k=1,
-            score=tr.pass_at_k,
-        )
-        for tr in task_results
-    ]
     return RunResults(
         run=RunMeta(
             spec="test-spec",
@@ -144,12 +134,9 @@ def _make_results(task_results: list[TaskResult]) -> RunResults:
             k=1,
             backend="claude-code",
         ),
-        skill_snapshot=SkillSnapshot(path="/fake/SKILL.md"),
+        skill_snapshots=[SkillSnapshot(path="/fake/SKILL.md")],
         task_results=task_results,
-        aggregate=AggregateScore(
-            avg_score=sum(tr.pass_at_k for tr in task_results) / len(task_results),
-            per_task=scores,
-        ),
+        aggregate=AggregateScore.from_task_results(task_results, k=1),
     )
 
 
@@ -183,23 +170,22 @@ def test_format_output_whitespace_only() -> None:
 
 def test_format_output_short_string_unchanged() -> None:
     result = _format_output("hello world")
-    assert "hello world" in result
-    assert "truncated" not in result
+    assert result == "hello world"
 
 
 def test_format_output_long_string_truncated() -> None:
-    long_output = "x" * (_OUTPUT_TRUNCATE_AT + 100)
+    tail = "tail:" + "x" * (_OUTPUT_TRUNCATE_AT - 5)
+    long_output = "discarded-prefix:" + "a" * 100 + tail
     result = _format_output(long_output)
     assert "truncated" in result
-    # The tail (last 500 chars) should be present
-    assert "x" * _OUTPUT_TRUNCATE_AT in result
+    assert result.split("\n", 1)[1] == tail
+    assert "discarded-prefix" not in result
 
 
 def test_format_output_exact_limit_not_truncated() -> None:
     exact = "y" * _OUTPUT_TRUNCATE_AT
     result = _format_output(exact)
-    assert "truncated" not in result
-    assert exact in result
+    assert result == exact
 
 
 # ---------------------------------------------------------------------------
@@ -302,12 +288,14 @@ def test_verbose_shows_all_tasks() -> None:
 
 
 def test_long_output_truncated_in_rendered_output() -> None:
-    long_output = "z" * (_OUTPUT_TRUNCATE_AT + 200)
+    tail = "z" * (_OUTPUT_TRUNCATE_AT - 4) + "TAIL"
+    long_output = "DISCARDED" + "a" * 200 + tail
     results = _make_results([_make_task("task-001", passed=False, output=long_output)])
     out = _render(results)
     assert "truncated" in out
-    # Rich wraps long lines; count total z's to verify the tail was included
-    assert out.count("z") >= _OUTPUT_TRUNCATE_AT
+    assert "DISCARDED" not in out
+    assert "TAIL" in out
+    assert out.split("truncated", 1)[1].count("z") == _OUTPUT_TRUNCATE_AT - 4
 
 
 def test_empty_output_renders_no_output_marker() -> None:
@@ -337,7 +325,7 @@ def test_aborted_unusable_task_is_reported_as_aborted() -> None:
             k=3,
             backend="claude-code",
         ),
-        skill_snapshot=SkillSnapshot(path="/fake/SKILL.md"),
+        skill_snapshots=[SkillSnapshot(path="/fake/SKILL.md")],
         task_results=[task],
         aggregate=AggregateScore(
             avg_score=0.0,
@@ -393,7 +381,7 @@ def test_early_stopped_task_with_usable_pass_is_not_reported_as_aborted() -> Non
             k=5,
             backend="claude-code",
         ),
-        skill_snapshot=SkillSnapshot(path="/fake/SKILL.md"),
+        skill_snapshots=[SkillSnapshot(path="/fake/SKILL.md")],
         task_results=[task],
         aggregate=AggregateScore(
             avg_score=1.0,
@@ -518,7 +506,7 @@ def test_trigger_probe_attempt_shows_its_activation_verdict() -> None:
             k=2,
             backend="claude-code",
         ),
-        skill_snapshot=SkillSnapshot(path="/fake/SKILL.md"),
+        skill_snapshots=[SkillSnapshot(path="/fake/SKILL.md")],
         task_results=[task],
         aggregate=AggregateScore.from_task_results([task], k=2),
     )
@@ -617,7 +605,16 @@ def test_a_finished_task_counts_like_its_attempts_did_live():
         ],
     )
 
-    assert result.counts == OutcomeCounts(outcomes)
+    assert (result.counts.completed, result.counts.successes, result.counts.failed) == (
+        3,
+        1,
+        0,
+    )
+    assert (result.counts.usable, result.counts.unusable, result.counts.unchecked) == (
+        1,
+        1,
+        1,
+    )
 
 
 # ---------------------------------------------------------------------------

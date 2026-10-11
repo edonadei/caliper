@@ -127,8 +127,10 @@ def test_column_is_red_when_a_neighbour_hijacked():
 
 
 def test_unobserved_activation_renders_as_a_dash():
-    t = task([attempt(1, activated=None)], expected=None)
-    assert _activation_cell(t, k=1).plain.strip() == "—"
+    t = task([attempt(1, activated=None)], expected=["mine"])
+    cell = _activation_cell(t, k=1)
+    assert cell.plain.split() == ["—", "—"]
+    assert "0%" not in cell.plain
 
 
 # --- the aggregate block --------------------------------------------------

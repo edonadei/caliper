@@ -14,7 +14,7 @@ from caliper.schema.results import (
 )
 
 
-def test_old_results_json_without_transcript_still_loads() -> None:
+def test_old_results_json_without_transcript_or_usage_still_loads() -> None:
     old = {
         "attempt": 1,
         "output": "hi",
@@ -23,6 +23,7 @@ def test_old_results_json_without_transcript_still_loads() -> None:
     }
     record = AttemptRecord.model_validate(old)
     assert record.transcript is None
+    assert record.usage is None
     assert record.passed is True
 
 
@@ -58,6 +59,11 @@ def test_attempt_record_transcript_round_trips_through_json() -> None:
     assert restored.transcript[1].tool_name == "mcp__deepwiki__read_wiki_structure"
     assert restored.transcript[1].tool_input == {"repo": "edonadei/caliper"}
     assert restored.transcript[2].tool_output == '{"sections": ["intro"]}'
+    assert [(turn.role, turn.content) for turn in restored.transcript] == [
+        ("assistant", "I'll read the wiki structure."),
+        ("tool_use", "[tool: mcp__deepwiki__read_wiki_structure]"),
+        ("tool_result", '{"sections": ["intro"]}'),
+    ]
 
 
 def test_run_results_transcript_round_trips_through_json() -> None:
@@ -68,7 +74,7 @@ def test_run_results_transcript_round_trips_through_json() -> None:
             k=1,
             backend="claude-code",
         ),
-        skill_snapshot=SkillSnapshot(path="/fake/SKILL.md"),
+        skill_snapshots=[SkillSnapshot(path="/fake/SKILL.md")],
         task_results=[
             TaskResult(
                 task_id="t1",

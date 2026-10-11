@@ -155,6 +155,21 @@ def test_usage_totals_report_no_judge_when_nothing_was_graded() -> None:
 
 
 def _run(interrupted: bool, *, spec: str = "demo", successes: int = 2) -> RunResults:
+    tasks = [
+        TaskResult(
+            task_id="task-001",
+            task_name="One",
+            attempts=[
+                AttemptRecord(
+                    attempt=i + 1,
+                    output="ok",
+                    duration_seconds=1.0,
+                    outcome=Outcome.PASS if i < successes else Outcome.TASK_FAIL,
+                )
+                for i in range(4)
+            ],
+        )
+    ]
     return RunResults(
         run=RunMeta(
             spec=spec,
@@ -165,22 +180,8 @@ def _run(interrupted: bool, *, spec: str = "demo", successes: int = 2) -> RunRes
             interrupted=interrupted,
         ),
         skill_snapshots=[],
-        task_results=[
-            TaskResult(
-                task_id="task-001",
-                task_name="One",
-                attempts=[
-                    AttemptRecord(
-                        attempt=i + 1,
-                        output="ok",
-                        duration_seconds=1.0,
-                        outcome=Outcome.PASS if i < successes else Outcome.TASK_FAIL,
-                    )
-                    for i in range(4)
-                ],
-            )
-        ],
-        aggregate=AggregateScore(avg_score=successes / 4, per_task=[]),
+        task_results=tasks,
+        aggregate=AggregateScore.from_task_results(tasks, k=4),
     )
 
 
@@ -249,3 +250,10 @@ def test_compare_reports_a_regression_without_failing(tmp_path) -> None:
     result = runner.invoke(app, ["compare", str(base / "a.json"), str(base / "b.json")])
 
     assert result.exit_code == 0
+    row = next(ln for ln in result.stdout.splitlines() if "One" in ln)
+    assert [cell.strip() for cell in row.split("│")[1:-1]] == [
+        "One",
+        "100%  ✓ ✓ ✓ ✓",
+        "25%  ✓ ✗ ✗ ✗",
+        "-75 pp",
+    ]

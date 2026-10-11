@@ -13,6 +13,7 @@ from caliper.commands.diagnosis import (
     ExitCode,
     diagnose,
     fail,
+    render,
 )
 from caliper.compare import IncomparableRunsError
 from caliper.harness.base import HarnessConfigurationError, LoginRequired
@@ -47,11 +48,11 @@ def _results() -> RunResults:
 
 
 def test_bad_input_exits_one() -> None:
-    assert diagnose(BadInput("File not found: x")).code is ExitCode.BAD_INPUT
+    assert diagnose(BadInput("File not found: x")).code == 1
 
 
 def test_cannot_run_exits_two() -> None:
-    assert diagnose(CannotRun("The flag is retired")).code is ExitCode.CANNOT_RUN
+    assert diagnose(CannotRun("The flag is retired")).code == 2
 
 
 def test_unresolvable_skills_are_bad_input() -> None:
@@ -135,14 +136,18 @@ def test_an_unknown_failure_is_not_silently_bad_input() -> None:
     assert diagnosis.code is ExitCode.CANNOT_RUN
 
 
-def test_a_title_makes_it_a_panel() -> None:
-    assert diagnose(BadInput("body", title="Validation failed")).title == (
-        "Validation failed"
-    )
+def test_a_title_makes_it_a_panel(capsys) -> None:
+    assert render(BadInput("body", title="Validation failed")) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert "Validation failed" in lines[0]
+    assert lines[0].startswith("╭")
+    assert lines[1].startswith("│ body")
+    assert lines[-1].startswith("╰")
 
 
-def test_no_title_renders_as_one_line() -> None:
-    assert diagnose(BadInput("File not found: x")).title is None
+def test_no_title_renders_as_one_line(capsys) -> None:
+    assert render(BadInput("File not found: x")) == 1
+    assert capsys.readouterr().out == "Error: File not found: x\n"
 
 
 @pytest.mark.parametrize("title", [None, "Validation failed"])
@@ -166,7 +171,3 @@ def test_fail_raises_typer_exit_with_the_code() -> None:
 def test_the_reserved_bar_code_is_named() -> None:
     """Documented in the README's exit-code table; nothing raises it yet."""
     assert ExitCode.BAR_NOT_MET == 3
-
-
-def test_the_interrupt_code_is_named() -> None:
-    assert ExitCode.INTERRUPTED == 130
