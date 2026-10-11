@@ -9,6 +9,7 @@ from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 
+from caliper.backends import mcp_tool_name
 from caliper.harness.base import (
     AgentReport,
     CliHarness,
@@ -292,7 +293,7 @@ class CodexHarness(CliHarness):
         """
         server = item.get("server")
         tool = item.get("tool") or item.get("tool_name")
-        qualified = f"mcp__{server}__{tool}"
+        qualified = mcp_tool_name(self.name, server, tool)
         args = item.get("arguments")
         turns = [
             ConversationTurn(
