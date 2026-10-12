@@ -44,6 +44,7 @@ tasks:
   - name: Short task name
     setup: <shell command>      # optional; runs in the attempt workdir; failure skips the agent and judge
     cleanup: <shell command>    # optional; runs in the attempt workdir, even after setup failure
+    history: ./histories/h.yaml # optional; earlier turns the agent resumes from (claude-code only)
     prompt: <prompt sent to the agent>
     expect: <natural-language success condition>
     assert: |
@@ -71,8 +72,8 @@ tasks across runs by name. Task IDs are assigned automatically as `task-001`,
 
 `caliper validate` (and `caliper run`, before its first attempt) also rejects an
 unknown task or `sandbox:` key such as `asert:`, a `forbidden_files` entry that
-isn't a valid regex, and an `assert:` script file that doesn't exist beside the
-spec.
+isn't a valid regex, an `assert:` script file that doesn't exist beside the
+spec, and a `history:` file that is missing or holds a malformed turn.
 
 > **Upgrading an existing spec?** `skill:` became `skills:` in v0.10. See
 > [MIGRATING-to-skills.md](MIGRATING-to-skills.md) for a short checklist,
@@ -305,6 +306,61 @@ when you want to require it. There are no per-kind switches. Hooks are loaded
 with settings and run within the attempt timeout, without a separate preflight.
 
 See [Portable scores](../README.md#portable-scores) for when to isolate.
+
+## Planted history (`history:`)
+
+Some skills can't be measured from turn 1: one a human enters with a slash
+command, or a playbook that assumes a plan was already agreed or a file already
+read. A task's `history:` names a file of earlier turns. The agent resumes from
+them as if they had happened, and the task's `prompt` becomes the next user
+turn.
+
+```yaml
+tasks:
+  - name: Finishes the migration
+    setup: cp -R "$CALIPER_SPEC_DIR/fixture/." .
+    history: ./histories/mid-migration.yaml
+    prompt: Good, now finish the remaining call sites.
+    expect: Both call sites use the ledger API.
+```
+
+```yaml
+# histories/mid-migration.yaml
+- user: Migrate billing to the ledger API. Start by finding the call sites.
+- assistant: Searching for the old client.
+  shell:
+    - run: grep -rn "BillingClient(" src
+      output: |
+        src/invoice.py:12: client = BillingClient()
+        src/refund.py:40: client = BillingClient()
+- assistant: Two call sites. I migrated invoice.py; refund.py is left.
+```
+
+The path resolves against the spec's directory, like `assert: ./check.py`. The
+file is a list of turns, and it must start with a user turn. Each turn has
+exactly one of:
+
+- `user:`: what the user said.
+- `assistant:`: what the agent said, optionally with `shell:`, a list of
+  commands it ran. Each command has `run:` and `output:`, the output the agent
+  saw. An assistant turn needs text, `shell:` commands, or both.
+
+The shell is the only tool a planted turn can call.
+
+- **`setup:` and the history must agree.** The agent trusts a planted output
+  over the file on disk, so if the history says `refund.py` still uses the old
+  client, `setup:` should build a `refund.py` that does.
+- **The planted turns aren't the agent's.** They're kept out of the attempt's
+  transcript, so cheat detection, `activates:` and the judge never grade them as
+  its behaviour. The judge still reads them, labelled as prior context, since
+  "finish what we agreed" can't be graded without them.
+- **Planting a slash command doesn't load the skill.** A user turn of
+  `/poteto-mode` is plain text on resume. Plant the skill's instructions in the
+  user turn instead, which is what the CLI expands a slash command into. A
+  skill shown loaded in a planted turn doesn't count toward `activates:`.
+- **claude-code only, for now.** On codex, pi and hermes a spec with `history:`
+  is refused before the first attempt. See
+  [ADR 0036](adr/0036-planted-history-is-a-neutral-transcript-each-backend-resumes-natively.md).
 
 ## Judging
 

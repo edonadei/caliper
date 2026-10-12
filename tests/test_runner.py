@@ -257,7 +257,7 @@ class JudgeErrorThenPass:
     def __init__(self) -> None:
         self.calls = 0
 
-    def evaluate(self, task, transcript, workdir) -> JudgeResult:
+    def evaluate(self, task, transcript, workdir, history=None) -> JudgeResult:
         self.calls += 1
         if self.calls == 1:
             return JudgeResult(passed=False, errored=True)
@@ -410,7 +410,7 @@ class ModelReportingJudge:
         self.model = model
         self.prompt_version = None
 
-    def evaluate(self, task, transcript, workdir) -> JudgeResult:
+    def evaluate(self, task, transcript, workdir, history=None) -> JudgeResult:
         return JudgeResult(passed=True, resolved_model=self._resolved)
 
 
@@ -493,7 +493,7 @@ class AlternatingModelJudge(ModelReportingJudge):
         self._models = list(models)
         self._lock = threading.Lock()
 
-    def evaluate(self, task, transcript, workdir) -> JudgeResult:
+    def evaluate(self, task, transcript, workdir, history=None) -> JudgeResult:
         with self._lock:
             resolved = self._models.pop(0)
         return JudgeResult(passed=True, resolved_model=resolved)

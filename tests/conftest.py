@@ -92,12 +92,14 @@ class ScriptedHarness(HarnessBackend):
         model: str | None = None,
         supports_mcp: bool = False,
         mcp_unsupported_hint: str | None = None,
+        supports_history: bool = False,
     ) -> None:
         self.script = script if script is not None else agent_result()
         self._name = name
         self._model = model
         self.supports_mcp = supports_mcp
         self.mcp_unsupported_hint = mcp_unsupported_hint
+        self.supports_history = supports_history
         self.contexts: list[RunContext] = []
         # Attempts run on worker threads (docs/adr/0018).
         self._lock = threading.Lock()
@@ -136,7 +138,7 @@ class ScriptedJudge:
         self.calls = 0
         self._lock = threading.Lock()
 
-    def evaluate(self, task, transcript, workdir) -> JudgeResult:
+    def evaluate(self, task, transcript, workdir, history=None) -> JudgeResult:
         with self._lock:
             self.calls += 1
         return self.result

@@ -49,9 +49,105 @@ def assert_script_path(raw: str, spec_dir: Path) -> Path | None:
     return path if path.is_absolute() else spec_dir / path
 
 
+def _history_path(raw: str, spec_dir: Path) -> Path:
+    path = Path(raw.strip())
+    return path if path.is_absolute() else spec_dir / path
+
+
+class PlantedShellCall(BaseModel):
+    """One shell command in a planted assistant turn, and what it printed."""
+
+    run: str
+    output: str
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class PlantedTurn(BaseModel):
+    """One turn of a planted history: the user's text, or the assistant's.
+
+    Backend-neutral; each harness translates the list into its CLI's own session
+    format (docs/adr/0036). Exactly one of ``user`` and ``assistant`` is set,
+    and only an assistant turn runs ``shell`` commands.
+    """
+
+    user: str | None = None
+    assistant: str | None = None
+    shell: list[PlantedShellCall] = []
+
+    model_config = ConfigDict(extra="forbid")
+
+
+_TURN_KEYS = ("user", "assistant", "shell")
+_SHELL_KEYS = ("run", "output")
+
+
+def load_history(path: Path) -> list[PlantedTurn]:
+    """The turns a ``history:`` file plants, or ``ValueError`` naming the bad one."""
+    if not path.is_file():
+        raise ValueError(f"history file not found: {path}")
+    raw = _load_yaml(path.read_text())
+    if raw is None or raw == []:
+        raise ValueError(f"history {path} needs at least one turn")
+    if not isinstance(raw, list):
+        raise ValueError(
+            f"history {path} must be a list of turns, not {_yaml_kind(raw)}"
+        )
+    turns = [_planted_turn(i, turn) for i, turn in enumerate(raw, 1)]
+    # The model's API opens a conversation with the user, and every CLI with it.
+    if turns[0].user is None:
+        raise ValueError(f"history {path} must start with a user turn")
+    return turns
+
+
+def _planted_turn(i: int, raw: object) -> PlantedTurn:
+    """Turn ``i`` of a history file, worded in the file's own terms."""
+    where = f"history turn {i}"
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"{where} must be a mapping with `user:` or `assistant:`, not "
+            f"{_yaml_kind(raw)} ({raw!r})"
+        )
+    for key in raw:
+        if key not in _TURN_KEYS:
+            raise ValueError(f"{where}: unknown key `{key}`")
+    if ("user" in raw) == ("assistant" in raw):
+        raise ValueError(f"{where} must have exactly one of `user:` or `assistant:`")
+    text = raw.get("user", raw.get("assistant"))
+    if not isinstance(text, str):
+        raise ValueError(f"{where}: the text must be a string, not {_yaml_kind(text)}")
+    shell = raw.get("shell", [])
+    if shell and "user" in raw:
+        raise ValueError(f"{where}: only an assistant turn can run `shell:` commands")
+    if not isinstance(shell, list):
+        raise ValueError(f"{where}: `shell:` must be a list, not {_yaml_kind(shell)}")
+    calls = [_planted_call(where, j, call) for j, call in enumerate(shell, 1)]
+    if "assistant" in raw and not text.strip() and not calls:
+        raise ValueError(f"{where} is empty: give it text or `shell:` commands")
+    return PlantedTurn(
+        user=raw.get("user"), assistant=raw.get("assistant"), shell=calls
+    )
+
+
+def _planted_call(where: str, j: int, raw: object) -> PlantedShellCall:
+    where = f"{where}, shell call {j}"
+    if not isinstance(raw, dict):
+        raise ValueError(f"{where} must be a mapping with `run:` and `output:`")
+    for key in raw:
+        if key not in _SHELL_KEYS:
+            raise ValueError(f"{where}: unknown key `{key}`")
+    for key in _SHELL_KEYS:
+        if not isinstance(raw.get(key), str):
+            raise ValueError(f"{where}: `{key}:` must be a string")
+    return PlantedShellCall(run=raw["run"], output=raw["output"])
+
+
 class TaskSpec(BaseModel):
     id: str = ""
     name: str
+    # Earlier turns the agent resumes from, as a path resolved against the
+    # spec's directory; the prompt is the next user turn (docs/adr/0036).
+    history: str | None = None
     prompt: str
     expect: str | None = None
     assert_script: str | None = Field(None, alias="assert")
@@ -93,6 +189,22 @@ class TaskSpec(BaseModel):
         if path is not None and not path.is_file():
             raise ValueError(f"assert script not found: {path}")
         return value
+
+    @field_validator("history")
+    @classmethod
+    def check_history_loads(cls, value: str | None, info: ValidationInfo) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("`history:` is blank: give it a path or remove it")
+        spec_dir = (info.context or {}).get("spec_dir")
+        if value is not None and spec_dir is not None:
+            load_history(_history_path(value, spec_dir))
+        return value
+
+    def planted_history(self, spec_dir: Path) -> list[PlantedTurn] | None:
+        """The turns ``history:`` plants, read from beside the spec; ``None`` without one."""
+        if self.history is None:
+            return None
+        return load_history(_history_path(self.history, spec_dir))
 
     @model_validator(mode="after")
     def require_at_least_one_check(self) -> TaskSpec:

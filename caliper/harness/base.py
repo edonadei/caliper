@@ -23,7 +23,7 @@ from caliper.harness.refusal import (
     classify,
 )
 from caliper.schema.results import TokenUsage
-from caliper.schema.spec import McpServer
+from caliper.schema.spec import McpServer, PlantedTurn
 from caliper.skills import SkillRef, frontmatter_name, install_skills
 from caliper.workdir import StepCancelled
 
@@ -152,6 +152,10 @@ class RunContext:
     # server never takes one of them (docs/adr/0028).
     spec_mcp_names: frozenset[str] = frozenset()
     spec_skill_names: frozenset[str] = frozenset()
+    # The task's planted history: earlier turns the agent resumes from, with
+    # ``prompt`` as the next user turn. ``None`` starts at turn 1. Read-only,
+    # like ``mcp_servers`` (docs/adr/0036).
+    history: list[PlantedTurn] | None = None
 
     def __post_init__(self) -> None:
         """The context owns its lists, and tolerates ``None`` for the optional ones.
@@ -395,6 +399,14 @@ class HarnessBackend(ABC):
     # spec author at an alternative, so the refusal reads as permanent rather
     # than pending.
     mcp_unsupported_hint: str | None = None
+
+    # Whether this backend can resume an attempt from a task's planted
+    # ``history:``. Default ``False``: the run seam refuses such a spec rather
+    # than starting the agent at turn 1 on a different task (docs/adr/0036).
+    supports_history: bool = False
+
+    # Appended to that refusal by a backend whose lack of support is by design.
+    history_unsupported_hint: str | None = None
 
     # Tool names that mean "the agent deliberately opened a skill" on this
     # backend — claude-code's ``Skill``, hermes' ``skill_view``. Backends whose

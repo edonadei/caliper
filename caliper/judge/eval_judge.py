@@ -13,6 +13,8 @@ from caliper.harness.base import ConversationTurn
 from caliper.judge.base import Judge, JudgeResult, PromptBackend
 from caliper.schema.results import TranscriptTurn
 from caliper.schema.spec import (
+    PlantedShellCall,
+    PlantedTurn,
     TaskSpec,
     assert_script_path,
 )
@@ -44,7 +46,7 @@ _USER_TMPL = """\
 <expectation>
 {expect}
 </expectation>
-
+{prior}
 <transcript>
 {transcript}
 </transcript>
@@ -53,12 +55,41 @@ Evaluate the transcript. Respond with JSON.
 """
 
 
+# Planted turns are the task's, not the agent's (docs/adr/0036): the judge needs
+# them to grade "finish what we agreed", but must not grade them.
+_PRIOR_TMPL = """
+<prior_context>
+Earlier turns of this conversation, written by the eval author, not the \
+agent's. Use them as context; grade only the transcript below.
+{turns}
+</prior_context>
+"""
+
+
+def _format_prior(history: Sequence[PlantedTurn]) -> str:
+    lines: list[str] = []
+    for turn in history:
+        if turn.user is not None:
+            lines.append(f"[user] {turn.user}")
+            continue
+        if turn.assistant:
+            lines.append(f"[assistant] {turn.assistant}")
+        for call in turn.shell:
+            lines.append(f"[tool_use: shell] {call.run}")
+            lines.append(f"[tool_result] {call.output[:_OUTPUT_CAP]}")
+    return _PRIOR_TMPL.format(turns="\n".join(lines))
+
+
 def _strip_markdown_fence(raw: str) -> str:
     raw = raw.strip()
     if not raw.startswith("```"):
         return raw
     lines = raw.splitlines()
     return "\n".join(line for line in lines if not line.startswith("```")).strip()
+
+
+# How much of one tool's output the autorater sees.
+_OUTPUT_CAP = 2000
 
 
 def _format_transcript(turns: Sequence[ConversationTurn | TranscriptTurn]) -> str:
@@ -70,23 +101,28 @@ def _format_transcript(turns: Sequence[ConversationTurn | TranscriptTurn]) -> st
             inp = json.dumps(t.tool_input, ensure_ascii=False) if t.tool_input else ""
             lines.append(f"[tool_use: {t.tool_name}] {inp}")
         elif t.role == "tool_result":
-            out = (t.tool_output or "")[:2000]
+            out = (t.tool_output or "")[:_OUTPUT_CAP]
             lines.append(f"[tool_result] {out}")
     return "\n".join(lines) or "(empty transcript)"
 
 
 def render_judge_prompt(
-    expect: str, transcript: Sequence[ConversationTurn | TranscriptTurn]
+    expect: str,
+    transcript: Sequence[ConversationTurn | TranscriptTurn],
+    history: Sequence[PlantedTurn] | None = None,
 ) -> str:
     """The exact prompt the autorater is sent for one attempt.
 
     Public so a saved run's judge input can be rebuilt from what the run already
     stores — ``TaskResult.expect`` and ``AttemptRecord.transcript`` — rather
     than saving the prompt a second time. Faithful only while
-    ``JUDGE_PROMPT_VERSION`` matches the run's ``judge_prompt_version``.
+    ``JUDGE_PROMPT_VERSION`` matches the run's ``judge_prompt_version``, and,
+    for a task with ``history:``, while its history file is unchanged.
     """
     user_msg = _USER_TMPL.format(
-        expect=expect, transcript=_format_transcript(transcript)
+        expect=expect,
+        prior=_format_prior(history) if history else "",
+        transcript=_format_transcript(transcript),
     )
     return f"{_SYSTEM}\n\n{user_msg}"
 
@@ -102,6 +138,15 @@ _VERSION_PROBE = [
     TranscriptTurn(role="tool_result", content="", tool_output="x" * 100_000),
     TranscriptTurn(role="tool_result", content=""),
 ]
+# A planted history exercising every kind of planted turn.
+_HISTORY_PROBE = [
+    PlantedTurn(user="question"),
+    PlantedTurn(
+        assistant="looking",
+        shell=[PlantedShellCall(run="ls", output="x" * 100_000)],
+    ),
+    PlantedTurn(assistant="", shell=[PlantedShellCall(run="pwd", output="/")]),
+]
 
 
 def _prompt_version() -> str:
@@ -112,6 +157,7 @@ def _prompt_version() -> str:
     """
     rendered = render_judge_prompt("expectation", _VERSION_PROBE)
     rendered += render_judge_prompt("expectation", [])
+    rendered += render_judge_prompt("expectation", [], _HISTORY_PROBE)
     return hashlib.sha256(rendered.encode()).hexdigest()[:12]
 
 
@@ -267,6 +313,7 @@ class EvalJudge(Judge):
         task: TaskSpec,
         transcript: list[ConversationTurn],
         workdir: AttemptWorkdir,
+        history: list[PlantedTurn] | None = None,
     ) -> JudgeResult:
         assert_passed: bool | None = None
         assert_evidence: str | None = None
@@ -277,7 +324,7 @@ class EvalJudge(Judge):
         autorater: _AutoraterVerdict | None = None
         autorater_passed: bool | None = None
         if task.expect:
-            autorater = self._llm_evaluate(task, transcript, workdir)
+            autorater = self._llm_evaluate(task, transcript, workdir, history)
             # An errored autorater yields no verdict: leave autorater_passed
             # None so it is dropped from the checks rather than counted as a
             # failure.
@@ -306,6 +353,7 @@ class EvalJudge(Judge):
         task: TaskSpec,
         transcript: list[ConversationTurn],
         workdir: AttemptWorkdir,
+        history: list[PlantedTurn] | None,
     ) -> _AutoraterVerdict:
         # An autorater is one bare prompt through a CLI agent — the same
         # backend adapters that run attempts also answer the judge, via the
@@ -319,7 +367,7 @@ class EvalJudge(Judge):
                 )
         harness = self._harness
 
-        prompt = render_judge_prompt(task.expect or "", transcript)
+        prompt = render_judge_prompt(task.expect or "", transcript, history)
 
         # In the workdir, not the spec dir: the judge grades what the agent left
         # there, and must not sit beside the answer key or write into the

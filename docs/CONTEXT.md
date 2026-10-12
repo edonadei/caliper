@@ -301,6 +301,17 @@ multi-turn / simulated-user turn-taking. Consequence: interview skills (their
 value is the back-and-forth) can only be tested on their **first-turn
 discipline**, not a full simulated conversation.
 
+## Planted history
+
+Earlier turns of a conversation a task declares (`history:`), which the agent
+resumes from as if they had happened; the task's `prompt` is the next user
+turn. Backend-neutral: user text, assistant text, and shell calls with their
+output. The turns are
+the **task's, not the agent's**: never in the attempt's transcript, never
+graded, shown to the judge only as prior context. It still leaves the
+[[single-shot harness]] single-shot: one prompt, nobody answering back.
+_Avoid_: seeded conversation, transcript prefix, fake turns.
+
 ## Activation
 
 The agent, offered a skill that is **installed but not preloaded**, chose to

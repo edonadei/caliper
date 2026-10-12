@@ -6,7 +6,9 @@ import os
 import re
 import shutil
 import sys
+import uuid
 from collections.abc import Callable
+from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 
@@ -23,6 +25,7 @@ from caliper.harness.base import (
 from caliper.harness.mcp import merge_user_servers, resolve_servers
 from caliper.harness.refusal import ConfigSignal
 from caliper.schema.results import TokenUsage
+from caliper.schema.spec import PlantedTurn
 from caliper.skills import frontmatter_name
 
 
@@ -61,6 +64,7 @@ class ClaudeCodeHarness(CliHarness):
         self._model = model
 
     supports_mcp = True
+    supports_history = True
     # Claude Code 2.1.292 made MCP 2026-07-28 its default for stdio servers.
     speaks_modern_mcp = True
     user_rules = ("CLAUDE.md",)
@@ -285,7 +289,28 @@ class ClaudeCodeHarness(CliHarness):
         if ctx.model:
             cmd += ["--model", ctx.model]
 
+        # The prompt becomes the next user turn after the planted ones. The
+        # stream does not replay them, so they never reach the transcript.
+        if ctx.history:
+            cmd += ["--resume", self._write_session(ctx)]
+
         return cmd, None, lambda: mcp_config.unlink(missing_ok=True)
+
+    def _write_session(self, ctx: RunContext) -> str:
+        """Write the planted ``ctx.history`` as a session the CLI can resume; return its id.
+
+        Per attempt, since the file embeds the attempt's workdir and is stored
+        under it (docs/adr/0036). The CLI looks the workdir's sessions up by its
+        real path with every other character a dash, in the isolated home.
+        """
+        workdir = os.path.realpath(ctx.workdir)
+        session_id = str(uuid.uuid4())
+        projects = Path(ctx.isolated_home) / ".claude" / "projects"
+        path = projects / re.sub(r"[^A-Za-z0-9]", "-", workdir) / f"{session_id}.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lines = _session_lines(ctx.history or [], session_id=session_id, cwd=workdir)
+        path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+        return session_id
 
     def _materialize_mcp_config(self, ctx: RunContext) -> Path:
         """Write the declared MCP servers into ``.caliper-mcp.json`` for the run.
@@ -608,6 +633,56 @@ class ClaudeCodeHarness(CliHarness):
             report.read_mcp_servers = partial(_init_servers, init)
             report.exposed_skills = _init_skills(init)
         return report
+
+
+def _session_lines(
+    history: list[PlantedTurn], *, session_id: str, cwd: str
+) -> list[dict]:
+    """``history`` as Claude Code session lines, one message per line.
+
+    Only the fields a resume was seen to need (2.1.296): without a
+    ``timestamp`` the CLI does not find the session at all. A planted shell
+    call is a ``Bash`` tool use, answered by a ``tool_result`` user message.
+    """
+    lines: list[dict] = []
+    now = datetime.now(timezone.utc)
+    timestamp = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+
+    def add(role: str, content: str | list[dict]) -> None:
+        lines.append(
+            {
+                "type": role,
+                "uuid": str(uuid.uuid4()),
+                "parentUuid": lines[-1]["uuid"] if lines else None,
+                "sessionId": session_id,
+                "cwd": cwd,
+                "timestamp": timestamp,
+                "message": {"role": role, "content": content},
+            }
+        )
+
+    for turn in history:
+        if turn.user is not None:
+            add("user", turn.user)
+            continue
+        blocks: list[dict] = []
+        if turn.assistant:
+            blocks.append({"type": "text", "text": turn.assistant})
+        ids = [f"toolu_planted_{len(lines)}_{i}" for i in range(len(turn.shell))]
+        blocks += [
+            {"type": "tool_use", "id": id_, "name": "Bash", "input": {"command": c.run}}
+            for id_, c in zip(ids, turn.shell, strict=True)
+        ]
+        add("assistant", blocks)
+        if turn.shell:
+            add(
+                "user",
+                [
+                    {"type": "tool_result", "tool_use_id": id_, "content": c.output}
+                    for id_, c in zip(ids, turn.shell, strict=True)
+                ],
+            )
+    return lines
 
 
 def _usage(result: dict) -> TokenUsage | None:
