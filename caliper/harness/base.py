@@ -734,6 +734,20 @@ class CliHarness(HarnessBackend):
         ``_prepare``, so it may read state that hook set up.
         """
 
+    def planted_skill(
+        self, ctx: RunContext, turn: PlantedTurn
+    ) -> tuple[str, str, Path] | None:
+        """``(name, args, SKILL.md)`` for a planted ``/name`` of an installed skill.
+
+        ``None`` for any other turn, including the command of an ablated skill:
+        not installed, the CLI would leave it as typed (docs/adr/0036).
+        """
+        command = turn.slash_command
+        if command is None:
+            return None
+        skill_md = self.skills_root(ctx) / command[0] / "SKILL.md"
+        return (*command, skill_md) if skill_md.is_file() else None
+
     # Where this backend keeps the user layer it loads beside the spec's own,
     # relative to the skills root's parent; staged by
     # :mod:`caliper.harness.user_layer` (docs/adr/0028).

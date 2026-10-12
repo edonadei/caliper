@@ -65,7 +65,7 @@ tasks:
   - name: Short description of what success looks like
     setup: <shell command run in the attempt workdir>     # optional
     cleanup: <shell command>                              # optional
-    history: ./histories/h.history.yaml   # optional: earlier turns to resume from (claude-code only)
+    history: ./histories/h.history.yaml   # optional: earlier turns to resume from (claude-code, codex)
     prompt: <what a real user would type>
     expect: <natural-language pass/fail criterion>
     assert: |                                             # or ./check.py
@@ -130,7 +130,7 @@ checks before its first attempt):
   `--ablate` stays as typed. `setup:` and the history must agree, since the
   agent trusts a planted output over the disk. Planted turns are kept out of the
   transcript, so cheat detection and `activates:` ignore them; the judge reads
-  them as prior context. claude-code only; codex, pi and hermes refuse the
+  them as prior context. claude-code and codex only; pi and hermes refuse the
   spec.
 - **Git sources.** `run` fetches them before the first attempt; `validate` never
   touches the network. A pinned `ref:` is offline after its first fetch. A git

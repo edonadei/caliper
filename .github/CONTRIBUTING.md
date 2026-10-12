@@ -151,7 +151,7 @@ or `caliper/judge/`.
 ### Backend smoke evals
 
 `tests/*-smoke.eval.yaml` are end-to-end evals against real agent CLIs
-(`claude-code`, `codex`, `hermes`, `pi`, and the MCP variants). They call paid
+(`claude-code`, `codex`, `hermes`, `pi`, and the MCP and history variants). They call paid
 models, so CI doesn't run them. When you change a harness, run the matching one
 yourself with that backend installed and logged in:
 
