@@ -39,8 +39,16 @@ _SLUG_RE = re.compile(r"[^A-Za-z0-9._-]+")
 # leading `.`/`/`/`~`, so a local repo is still reachable by writing `./owner/name`.
 _SHORTHAND_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
 _SHORTHAND_HOST = "https://github.com/"
+_RELATIVE_PREFIXES = tuple({f"{d}{sep}" for d in (".", "..") for sep in ("/", os.sep)})
+# The v2 `fetch` capability line a remote sends when it honours `--filter`,
+# e.g. `fetch=shallow wait-for-done filter`.
+_FILTER_CAPABILITY_RE = re.compile(r"< fetch=[^\n]*\bfilter\b")
 
 _GIT_TIMEOUT = 120
+
+
+def _is_relative(repo: str) -> bool:
+    return repo in (".", "..") or repo.startswith(_RELATIVE_PREFIXES)
 
 
 class SkillFetchError(ValueError):
@@ -182,7 +190,9 @@ class SkillFetcher:
             # silently pinned as though it were a commit. Remembered, so the
             # cache answers for it from now on.
             if src.ref and _SHA_RE.match(src.ref):
-                sha = self._cached_prefix(src) or src.ref
+                sha = self._cached_prefix(src) or (
+                    src.ref if len(src.ref) == 40 else self._expand(src)
+                )
                 self._remember(src, sha)
                 return sha, False
             raise
@@ -229,7 +239,8 @@ class SkillFetcher:
         """A cached checkout whose commit starts with this commit-shaped ref.
 
         ``git fetch`` cannot fetch an abbreviated commit, so ``ref: a1b2c3d``
-        is served from a checkout stored under its full commit.
+        is served from a checkout stored under its full commit — and, on a cold
+        cache, expanded to one first by :meth:`_expand`.
         """
         if not (src.ref and _SHA_RE.match(src.ref)):
             return None
@@ -243,7 +254,7 @@ class SkillFetcher:
     def _ls_remote(self, src: GitSkillSource) -> str:
         ref = src.ref or "HEAD"
         # ``ref^{}`` too: a pattern of ``ref`` alone omits a tag's peeled line.
-        out = self._git("ls-remote", self.clone_url(src.repo), ref, f"{ref}^{{}}")
+        out = self._git("ls-remote", self._remote(src.repo), ref, f"{ref}^{{}}")
         shas = {}
         for line in out.splitlines():
             sha, _, name = line.partition("\t")
@@ -268,6 +279,80 @@ class SkillFetcher:
             )
         raise SkillFetchError(f"{self._label(src)}: the remote reported no HEAD")
 
+    def _expand(self, src: GitSkillSource) -> str:
+        """The full commit an abbreviated ``ref:`` names on the remote.
+
+        ``git fetch`` takes only a full commit, so the prefix is looked up in a
+        treeless fetch of every branch and tag: commit objects only, no trees
+        or blobs, so even a long history stays cheap. This runs once per short
+        pin — the memo answers for it afterwards. See
+        docs/adr/0016-caliper-fetches-git-sources-itself.md.
+        """
+        self.root.mkdir(parents=True, exist_ok=True)
+        scratch = Path(tempfile.mkdtemp(prefix=".expand-", dir=self.root))
+        try:
+            self._git("init", "-q", "--bare", cwd=scratch)
+            self._git("remote", "add", "origin", self._remote(src.repo), cwd=scratch)
+            if not self._remote_supports_filter(scratch):
+                raise SkillFetchError(
+                    f"{self._label(src)}: the remote does not support partial "
+                    f"fetches, so expanding '{src.ref}' would download its whole "
+                    "history.\n\n"
+                    "Pin the full 40-character commit instead: that is fetched "
+                    "directly, at depth 1."
+                )
+            try:
+                self._git(
+                    "fetch", "-q", "--filter=tree:0", "--tags", "origin", cwd=scratch
+                )
+            except SkillFetchError as exc:
+                raise SkillFetchError(
+                    f"{self._label(src)}: could not fetch history to expand the "
+                    f"abbreviated commit.\n\n  {exc}"
+                ) from exc
+            try:
+                return self._git(
+                    "rev-parse", "--verify", f"{src.ref}^{{commit}}", cwd=scratch
+                ).strip()
+            except SkillFetchError as exc:
+                raise SkillFetchError(
+                    f"{self._label(src)}: '{src.ref}' is not a branch or tag, "
+                    f"and no commit reachable from one starts with it.\n\n  {exc}\n\n"
+                    "An abbreviated commit can only be expanded if a branch or "
+                    "tag on the remote reaches it, and only if the prefix is "
+                    "unique. Pin the full 40-character commit instead."
+                ) from exc
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
+
+    def _remote_supports_filter(self, repo: Path) -> bool:
+        """Whether ``origin`` honours ``--filter``, asked before fetching.
+
+        A remote that does not support it makes ``fetch --filter`` a full fetch,
+        with only a warning, so the request alone cannot keep the expansion
+        cheap. The answer is the ``filter`` token in the protocol-v2 ``fetch``
+        capability, read from a packet trace of a ref-less ``ls-remote``. A
+        remote that does not speak v2 counts as unsupported.
+        """
+        trace = repo / "trace.pkt"
+        self._git(
+            "ls-remote",
+            "origin",
+            "refs/caliper/none",
+            cwd=repo,
+            env={
+                "GIT_TRACE_PACKET": str(trace),
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "protocol.version",
+                "GIT_CONFIG_VALUE_0": "2",
+            },
+        )
+        try:
+            text = trace.read_text(errors="replace")
+        except OSError:
+            return False
+        return bool(_FILTER_CAPABILITY_RE.search(text))
+
     def _clone(self, src: GitSkillSource, sha: str, dest: Path) -> None:
         """Depth-1 checkout of exactly ``sha``.
 
@@ -279,11 +364,12 @@ class SkillFetcher:
         is the commit, and separate runs share the cache, so another process
         may be cloning the same commit at the same moment.
         """
+        remote = self._remote(src.repo)
         dest.parent.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(prefix=f".{dest.name}-", dir=dest.parent))
         try:
             self._git("init", "-q", cwd=staging)
-            self._git("remote", "add", "origin", self.clone_url(src.repo), cwd=staging)
+            self._git("remote", "add", "origin", remote, cwd=staging)
             self._git("fetch", "-q", "--depth", "1", "origin", sha, cwd=staging)
             self._git("checkout", "-q", "FETCH_HEAD", cwd=staging)
             try:
@@ -345,7 +431,23 @@ class SkillFetcher:
             return f"{_SHORTHAND_HOST}{repo}"
         return repo
 
+    @classmethod
+    def _remote(cls, repo: str) -> str:
+        """`clone_url`, with a relative local path pinned to the caller's directory.
+
+        `_clone` runs git inside the cache, where `./owner/name` would point
+        somewhere else.
+        """
+        remote = cls.clone_url(repo)
+        if _is_relative(remote):
+            return str(Path(remote).resolve())
+        return remote
+
     def _repo_dir(self, repo: str) -> Path:
+        # The cache is shared across projects, so a relative path is keyed by
+        # where it points: `./origin` in two directories is two repos.
+        if _is_relative(repo):
+            repo = self._remote(repo)
         digest = hashlib.sha256(repo.encode()).hexdigest()[:12]
         slug = _SLUG_RE.sub("-", repo).strip("-")[-40:] or "repo"
         return self.root / f"{slug}-{digest}"
@@ -359,11 +461,14 @@ class SkillFetcher:
         return f"{src.repo}{at}"
 
     @staticmethod
-    def _git(*args: str, cwd: Path | None = None) -> str:
+    def _git(
+        *args: str, cwd: Path | None = None, env: dict[str, str] | None = None
+    ) -> str:
         try:
             proc = subprocess.run(
                 ["git", *args],
                 cwd=str(cwd) if cwd else None,
+                env={**os.environ, **env} if env else None,
                 capture_output=True,
                 text=True,
                 timeout=_GIT_TIMEOUT,

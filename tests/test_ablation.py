@@ -147,8 +147,12 @@ def _run_spec(spec, spec_path, harness, **kwargs) -> RunResults:
 def test_ablate_installs_the_neighbourhood_minus_the_named_skill(tmp_path):
     spec, spec_path = _spec_with_two_skills(tmp_path)
     harness = _recording()
-    _run_spec(spec, spec_path, harness, ablate=["subject"])
+    results = _run_spec(spec, spec_path, harness, ablate=["subject"])
     assert _installed(harness) == [["keeper"]]
+    assert results.run.ablated == ["subject"]
+    assert results.run.ablated_skills == ["subject"]
+    assert results.run.ablated_servers == []
+    assert [s.name for s in results.skill_snapshots] == ["keeper"]
 
 
 def test_ablating_every_member_leaves_the_bare_agent(tmp_path):
@@ -167,24 +171,6 @@ def test_a_run_without_ablate_installs_everything(tmp_path):
 
 
 # --- the explicit marker --------------------------------------------------
-
-
-def test_the_ablated_names_are_recorded_on_run_meta(tmp_path):
-    # An empty skill_snapshots list is otherwise ambiguous between "ablated
-    # everything" and "declared no skills" — the marker is what disambiguates.
-    spec, spec_path = _spec_with_two_skills(tmp_path)
-    results = _run_spec(spec, spec_path, _recording(), ablate=["subject"])
-    assert results.run.ablated == ["subject"]
-    assert results.run.ablated_skills == ["subject"]
-    assert results.run.ablated_servers == []
-
-
-def test_snapshots_cover_only_the_installed_skills(tmp_path):
-    # A snapshot claims "this is what produced the score"; the ablated skill did
-    # not, because it was never installed.
-    spec, spec_path = _spec_with_two_skills(tmp_path)
-    results = _run_spec(spec, spec_path, _recording(), ablate=["subject"])
-    assert [s.name for s in results.skill_snapshots] == ["keeper"]
 
 
 def test_a_repeated_name_is_recorded_once(tmp_path):
@@ -211,37 +197,25 @@ def test_ablate_removes_a_declared_mcp_server(tmp_path):
     # tool definitions — which is the question being asked of it.
     spec, spec_path = _spec_with_skill_and_server(tmp_path)
     harness = _recording()
-    _run_spec(spec, spec_path, harness, ablate=["weather"])
+    results = _run_spec(spec, spec_path, harness, ablate=["weather"])
     # An empty mapping, not None: the block was declared, so the backend must
     # still isolate the attempt to zero servers rather than fall back to its own
     # ambient config (see test_mcp.py for the runner-level guard).
     assert _servers(harness) == [{}]
     assert _installed(harness) == [["subject"]]
-
-
-def test_a_run_without_ablate_hands_over_every_server(tmp_path):
-    spec, spec_path = _spec_with_skill_and_server(tmp_path)
-    harness = _recording()
-    _run_spec(spec, spec_path, harness)
-    assert _servers(harness) == [
-        {"weather": McpServer(command="python3", args=["w.py"])}
-    ]
-
-
-def test_the_ablated_server_is_recorded_qualified_on_run_meta(tmp_path):
-    # The marker names what was removed; mcp_servers records the environment the
-    # run actually had (none), so the saved run describes both sides of it.
-    spec, spec_path = _spec_with_skill_and_server(tmp_path)
-    results = _run_spec(spec, spec_path, _recording(), ablate=["weather"])
     assert results.run.ablated == ["mcp:weather"]
     assert results.run.ablated_skills == []
     assert results.run.ablated_servers == ["weather"]
     assert results.run.mcp_servers == []
 
 
-def test_the_servers_a_run_kept_are_recorded_on_run_meta(tmp_path):
+def test_a_run_without_ablate_hands_over_every_server(tmp_path):
     spec, spec_path = _spec_with_skill_and_server(tmp_path)
-    results = _run_spec(spec, spec_path, _recording())
+    harness = _recording()
+    results = _run_spec(spec, spec_path, harness)
+    assert _servers(harness) == [
+        {"weather": McpServer(command="python3", args=["w.py"])}
+    ]
     assert results.run.ablated == []
     assert results.run.mcp_servers == ["weather"]
 
@@ -304,17 +278,6 @@ def test_ablating_a_server_leaves_the_activation_expectation_scored(tmp_path):
 # --- activation under ablation --------------------------------------------
 
 
-def test_an_ablated_run_drops_the_activation_expectation(tmp_path):
-    # Filtering `activates: [subject, keeper]` down to `[keeper]` would have
-    # caliper assert a claim the author never wrote — and with a delegating
-    # parent removed, its neighbours correctly stop firing.
-    spec, spec_path = _spec_with_two_skills(tmp_path, activates=["subject", "keeper"])
-    results = _run_spec(spec, spec_path, _recording(), ablate=["subject"])
-    task = results.task_results[0]
-    assert task.activation_expected is None
-    assert task.activation_score is None
-
-
 def test_an_activates_naming_the_ablated_skill_is_not_a_validation_error(tmp_path):
     # The expectation is dropped, not violated: validation still sees the full
     # declared set, so a normal spec stays runnable under --ablate.
@@ -328,7 +291,10 @@ def test_the_observation_survives_even_though_the_verdict_does_not(tmp_path):
     # installed SKILL.md, and that fact is still recorded.
     spec, spec_path = _spec_with_two_skills(tmp_path, activates=["subject", "keeper"])
     results = _run_spec(spec, spec_path, _recording(), ablate=["subject"])
-    attempt = results.task_results[0].attempts[0]
+    task = results.task_results[0]
+    assert task.activation_expected is None
+    assert task.activation_score is None
+    attempt = task.attempts[0]
     assert attempt.activated == ["keeper"]
     assert attempt.activation_passed is None
 

@@ -34,7 +34,7 @@ skills:                          # installed at the agent's skills root, never
   - ./SKILL.md                   #   preloaded: the agent has to choose it
   - ../other-skill/SKILL.md      # a neighbour it could be confused with
   - repo: mattpocock/skills      # or a git source caliper clones
-    ref: 49dd158d1076134a641b33efb035946536778336  # optional; a full commit, or omit to track the default branch
+    ref: 49dd158d1076134a641b33efb035946536778336  # optional: branch, tag or commit (short is fine); omit to track the default branch
     path: skills/engineering/tdd/SKILL.md  # one skill per entry; omit only if the repo root is a skill
 
 sandbox:

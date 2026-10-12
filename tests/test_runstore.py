@@ -7,7 +7,16 @@ from datetime import datetime, timezone
 import pytest
 
 from caliper.runstore import RunStore, UnreadableRun
-from caliper.schema.results import AggregateScore, RunMeta, RunResults
+from caliper.schema.results import (
+    AggregateScore,
+    AttemptRecord,
+    Outcome,
+    RunMeta,
+    RunResults,
+    TaskResult,
+    TokenUsage,
+    TranscriptTurn,
+)
 
 
 def _results(spec: str = "my-skill", *, at: datetime | None = None) -> RunResults:
@@ -28,9 +37,48 @@ def _results(spec: str = "my-skill", *, at: datetime | None = None) -> RunResult
 
 def test_save_round_trips_through_load(tmp_path) -> None:
     store = RunStore(tmp_path)
-    saved = store.save(_results())
+    results = _results()
+    results.run.model = "claude-sonnet-5"
+    results.run.interrupted = True
+    results.run.mcp_servers = ["wiki"]
+    results.task_results = [
+        TaskResult(
+            task_id="task-007",
+            task_name="Read the wiki",
+            expect="names the sections",
+            activation_expected=["research"],
+            attempts=[
+                AttemptRecord(
+                    attempt=2,
+                    output="Found intro",
+                    duration_seconds=3.25,
+                    outcome=Outcome.TASK_FAIL,
+                    assert_evidence="missing usage section",
+                    activated=["research"],
+                    activation_passed=True,
+                    usage=TokenUsage(input_tokens=17, output_tokens=5),
+                    transcript=[
+                        TranscriptTurn(
+                            role="tool_use",
+                            content="read wiki",
+                            tool_name="mcp__wiki__read",
+                            tool_input={"repo": "caliper"},
+                        ),
+                        TranscriptTurn(
+                            role="tool_result",
+                            content="intro",
+                            tool_name="mcp__wiki__read",
+                            tool_output="intro",
+                        ),
+                    ],
+                )
+            ],
+        )
+    ]
+    results.aggregate = AggregateScore.from_task_results(results.task_results, k=3)
+    saved = store.save(results)
 
-    assert store.load(saved).run.spec == "my-skill"
+    assert store.load(saved) == results
 
 
 @pytest.mark.parametrize("spec", ["", ".", "..", "../outside", "a/b"])
@@ -68,13 +116,40 @@ def test_two_runs_of_one_spec_sit_side_by_side(tmp_path) -> None:
 def test_two_runs_in_the_same_second_both_survive(tmp_path) -> None:
     """The second run takes a disambiguated id rather than overwriting the first."""
     store = RunStore(tmp_path)
-    first = store.save(_results())
-    second = store.save(_results())
+    first_results = _results()
+    first_results.run.model = "first-model"
+    second_results = _results()
+    second_results.run.model = "second-model"
+    for results, output in (
+        (first_results, "first output"),
+        (second_results, "second output"),
+    ):
+        results.task_results = [
+            TaskResult(
+                task_id="task-001",
+                task_name="One",
+                attempts=[
+                    AttemptRecord(
+                        attempt=1,
+                        output=output,
+                        duration_seconds=1.0,
+                        outcome=Outcome.PASS,
+                    )
+                ],
+            )
+        ]
+        results.aggregate = AggregateScore.from_task_results(results.task_results, k=3)
+    first = store.save(first_results)
+    second = store.save(second_results)
 
     assert first != second
     assert first.exists()
     assert second.exists()
     assert second.stem == f"{first.stem}-2"
+    assert store.load(first).run.model == "first-model"
+    assert store.load(second).run.model == "second-model"
+    assert store.load(first).task_results[0].attempts[0].output == "first output"
+    assert store.load(second).task_results[0].attempts[0].output == "second output"
 
 
 def test_same_second_runs_are_listed_in_the_order_they_were_saved(tmp_path) -> None:

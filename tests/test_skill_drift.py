@@ -41,6 +41,17 @@ def _snapshot(
 
 
 def _run(snapshots: list[SkillSnapshot], *, offset: int = 0) -> RunResults:
+    tasks = [
+        TaskResult(
+            task_id="task-001",
+            task_name="alpha",
+            attempts=[
+                AttemptRecord(
+                    attempt=1, output="", duration_seconds=1.0, outcome=Outcome.PASS
+                )
+            ],
+        )
+    ]
     return RunResults(
         run=RunMeta(
             spec="demo",
@@ -51,18 +62,8 @@ def _run(snapshots: list[SkillSnapshot], *, offset: int = 0) -> RunResults:
             era=ERA_INSTALL_AND_DISCOVER,
         ),
         skill_snapshots=snapshots,
-        task_results=[
-            TaskResult(
-                task_id="task-001",
-                task_name="alpha",
-                attempts=[
-                    AttemptRecord(
-                        attempt=1, output="", duration_seconds=1.0, outcome=Outcome.PASS
-                    )
-                ],
-            )
-        ],
-        aggregate=AggregateScore(total_tasks=1, avg_score=1.0, per_task=[]),
+        task_results=tasks,
+        aggregate=AggregateScore.from_task_results(tasks, k=1),
     )
 
 
@@ -81,16 +82,8 @@ def test_a_drifted_git_source_warns():
     assert [d.name for d in comp.skill_drift] == ["tdd"]
     assert comp.skill_drift[0].source_kind == "git"
     assert any("tdd" in w and "git source" in w for w in comp.warnings)
-
-
-def test_a_drifted_git_source_reports_the_two_commits():
-    a = _run([_snapshot("tdd", "v1", source_kind="git", git_sha="a" * 40)])
-    b = _run([_snapshot("tdd", "v2", source_kind="git", git_sha="b" * 40)], offset=1)
-
-    drift = diff_runs(a, b).skill_drift[0]
-
-    assert drift.a_ref == "a" * 7
-    assert drift.b_ref == "b" * 7
+    assert comp.skill_drift[0].a_ref == "a" * 7
+    assert comp.skill_drift[0].b_ref == "b" * 7
 
 
 def test_a_drifted_path_source_is_recorded_but_does_not_warn():
@@ -103,16 +96,8 @@ def test_a_drifted_path_source_is_recorded_but_does_not_warn():
     assert [d.name for d in comp.skill_drift] == ["mine"]
     assert comp.skill_drift[0].source_kind == "path"
     assert comp.warnings == []
-
-
-def test_a_path_source_falls_back_to_a_content_digest():
-    a = _run([_snapshot("mine", "v1")])
-    b = _run([_snapshot("mine", "v2")], offset=1)
-
-    drift = diff_runs(a, b).skill_drift[0]
-
-    assert drift.a_ref != drift.b_ref
-    assert len(drift.a_ref) == 7
+    assert comp.skill_drift[0].a_ref == "4fc7951"
+    assert comp.skill_drift[0].b_ref == "bcbcbde"
 
 
 def test_both_kinds_are_reported_together():
@@ -157,7 +142,8 @@ def test_a_member_that_changed_source_kind_is_graded_as_git():
     comp = diff_runs(a, b)
 
     assert comp.skill_drift[0].source_kind == "git"
-    assert comp.warnings
+    assert [d.name for d in comp.skill_drift] == ["tdd"]
+    assert any("tdd" in w and "git source" in w for w in comp.warnings)
 
 
 def test_legacy_runs_without_snapshot_files_do_not_report_drift():

@@ -1,5 +1,20 @@
 # Caliper fetches git sources itself rather than delegating to a skills package manager
 
+> **Amended:** an abbreviated commit in `ref:` is **expanded**, not rejected.
+> `git fetch` accepts only a full commit, so a short pin used to fail on any
+> cold cache. On a cold cache Caliper now does a treeless fetch
+> (`--filter=tree:0`) of every branch and tag and runs `rev-parse` on the
+> prefix, then does the usual depth-1 fetch of the full commit. The memo
+> remembers the expansion, so the extra fetch happens once per short pin.
+> Rejecting short hex refs in the schema was the cheaper fix, but it would
+> also have rejected a hex-named branch, which the remote-first `_NoSuchRef`
+> check exists to keep. The cost is that a short pin works only when a branch
+> or tag reaches the commit, the prefix is unique, and the remote advertises
+> `filter`. A remote without it would quietly turn the treeless fetch into a
+> full-history download, so Caliper checks the capability first. In every
+> other case the run refuses and asks for the full commit, which git fetches
+> directly.
+
 A `skills:` entry may now be a **git source** — `{repo:, ref:, path:}` — which
 caliper materializes with `git clone --depth 1` into a content-addressed cache,
 resolving the ref to a concrete commit itself. It does **not** shell out to a

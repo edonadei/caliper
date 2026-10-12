@@ -7,6 +7,7 @@ from conftest import (
     ScriptedJudge,
     agent_result,
     failed_result,
+    in_turn,
     task_result,
 )
 from typer.testing import CliRunner
@@ -133,12 +134,10 @@ def _trigger_task() -> TaskResult:
     )
 
 
-def test_trigger_only_task_is_detected():
-    assert _trigger_task().trigger_only is True
-
-
 def test_trigger_only_task_reads_as_a_skip_not_an_error():
-    cell = _success_cell(_trigger_task(), k=2)
+    task = _trigger_task()
+    assert task.trigger_only is True
+    cell = _success_cell(task, k=2)
     # No rate and no marks: "0%" or a row of ⊘ would read as a failure.
     assert cell.plain.split() == ["—", "probe"]
     assert all(str(span.style) == "dim" for span in cell.spans)
@@ -236,11 +235,34 @@ def test_a_timeout_records_activation_as_unobserved_not_as_empty(tmp_path):
     assert attempt.activation_passed is None
 
 
-def test_a_healthy_trigger_probe_resets_the_fail_fast_streak():
-    # NOT_CHECKED is a healthy attempt; leaving it neutral would let a run abort
-    # mid-way and silently truncate the activation sample.
-    assert Outcome.NOT_CHECKED.is_execution_noise is False
-    assert Outcome.JUDGE_ERROR.is_execution_noise is True
+def test_a_healthy_trigger_probe_resets_the_fail_fast_streak(tmp_path):
+    spec_path = tmp_path / "s.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    timeout = failed_result(error=None, exit_code=124, timed_out=True)
+    harness = ScriptedHarness(in_turn(timeout, agent_result(), timeout, agent_result()))
+    judge = ScriptedJudge()
+
+    results = run(
+        spec=EvalSpec(tasks=[TaskSpec(name="silence", prompt="p", activates=[])]),
+        spec_path=spec_path,
+        harness=harness,
+        judge=judge,
+        k=4,
+        workers=1,
+        timeout=30,
+        fail_fast_unusable=2,
+    )
+
+    attempts = results.task_results[0].attempts
+    assert [attempt.attempt for attempt in attempts] == [1, 2, 3, 4]
+    assert [attempt.outcome for attempt in attempts] == [
+        Outcome.TIMEOUT,
+        Outcome.NOT_CHECKED,
+        Outcome.TIMEOUT,
+        Outcome.NOT_CHECKED,
+    ]
+    assert harness.calls == 4
+    assert judge.calls == 0
 
 
 # --- every reader tells the same story ------------------------------------

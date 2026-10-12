@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+from rich.console import Console
+
 from caliper.compare import diff_runs
 from caliper.reporter import print_comparison
 from caliper.schema.results import (
@@ -12,10 +15,6 @@ from caliper.schema.results import (
     RunResults,
     SkillSnapshot,
     TaskResult,
-    TaskScore,
-    pass_at_k,
-    pass_hat_k,
-    success_rate,
 )
 
 
@@ -33,17 +32,6 @@ def _task(name: str, outcomes: list[Outcome], task_id: str = "task-000") -> Task
 
 
 def _run(tasks: list[TaskResult], *, spec: str = "demo", k: int = 5) -> RunResults:
-    per_task = [
-        TaskScore(
-            task_id=t.task_id,
-            task_name=t.task_name,
-            successes=t.successes,
-            k=k,
-            score=t.pass_at_k,
-        )
-        for t in tasks
-    ]
-    scored = [t.pass_at_k for t in tasks if t.pass_at_k is not None]
     return RunResults(
         run=RunMeta(
             spec=spec,
@@ -51,12 +39,9 @@ def _run(tasks: list[TaskResult], *, spec: str = "demo", k: int = 5) -> RunResul
             k=k,
             backend="claude-code",
         ),
-        skill_snapshot=SkillSnapshot(path="/fake/SKILL.md"),
+        skill_snapshots=[SkillSnapshot(path="/fake/SKILL.md")],
         task_results=tasks,
-        aggregate=AggregateScore(
-            avg_score=sum(scored) / len(scored) if scored else 0.0,
-            per_task=per_task,
-        ),
+        aggregate=AggregateScore.from_task_results(tasks, k=k),
     )
 
 
@@ -75,8 +60,10 @@ def test_identical_runs_have_zero_deltas_and_no_regression() -> None:
     comp = diff_runs(_run(tasks()), _run(tasks()))
 
     assert not comp.has_regression
-    assert all(tc.delta == 0.0 for tc in comp.matched)
-    assert all(not tc.regression for tc in comp.matched)
+    assert [
+        (tc.task_name, tc.a_score, tc.b_score, tc.delta, tc.regression)
+        for tc in comp.matched
+    ] == [("alpha", 0.6, 0.6, 0.0, False), ("beta", 1.0, 1.0, 0.0, False)]
     assert comp.aggregate_delta == 0.0
     assert comp.unmatched_a == []
     assert comp.unmatched_b == []
@@ -98,9 +85,9 @@ def test_single_task_regression_flags_only_that_task() -> None:
     assert not by_name["alpha"].regression
     assert by_name["alpha"].delta == 0.0
     assert by_name["beta"].regression
-    assert by_name["beta"].delta is not None
-    assert by_name["beta"].delta < 0
-    assert comp.aggregate_delta < 0
+    assert (by_name["beta"].a_score, by_name["beta"].b_score) == (0.8, 0.2)
+    assert by_name["beta"].delta == pytest.approx(-0.6)
+    assert comp.aggregate_delta == pytest.approx(-0.3)
 
 
 def test_improvement_is_not_flagged_as_regression() -> None:
@@ -109,8 +96,8 @@ def test_improvement_is_not_flagged_as_regression() -> None:
 
     comp = diff_runs(a, b)
     assert not comp.has_regression
-    assert comp.matched[0].delta is not None
-    assert comp.matched[0].delta > 0
+    assert (comp.matched[0].a_score, comp.matched[0].b_score) == (0.2, 0.8)
+    assert comp.matched[0].delta == pytest.approx(0.6)
 
 
 # --------------------------------------------------------------------------
@@ -134,13 +121,25 @@ def test_unmatched_tasks_are_reported_and_excluded_from_aggregate() -> None:
 
 def test_matching_is_by_name_not_positional_id() -> None:
     # B reorders the tasks; positional ids differ but names must still line up.
-    a = _run([_task("alpha", [P, P, P, P, P]), _task("beta", [F, F, F, F, F])])
-    b = _run([_task("beta", [F, F, F, F, F]), _task("alpha", [P, P, P, P, P])])
+    a = _run(
+        [
+            _task("alpha", [P, P, P, P, P], "task-001"),
+            _task("beta", [F, F, F, F, F], "task-002"),
+        ]
+    )
+    b = _run(
+        [
+            _task("beta", [F, F, F, F, F], "task-001"),
+            _task("alpha", [P, P, P, P, P], "task-002"),
+        ]
+    )
 
     comp = diff_runs(a, b)
     by_name = {tc.task_name: tc for tc in comp.matched}
 
-    assert set(by_name) == {"alpha", "beta"}
+    assert [tc.task_name for tc in comp.matched] == ["alpha", "beta"]
+    assert (by_name["alpha"].a_score, by_name["alpha"].b_score) == (1.0, 1.0)
+    assert (by_name["beta"].a_score, by_name["beta"].b_score) == (0.0, 0.0)
     assert by_name["alpha"].delta == 0.0
     assert by_name["beta"].delta == 0.0
     assert comp.unmatched_a == []
@@ -161,8 +160,8 @@ def test_lower_raw_score_from_unusable_attempts_is_not_a_regression() -> None:
     comp = diff_runs(a, b)
     tc = comp.matched[0]
     assert not tc.regression
-    assert tc.b_score == success_rate(4, 4) == 1.0  # over 4 usable, not 5
-    assert tc.a_score == success_rate(4, 5) == 0.8
+    assert tc.b_score == 1.0  # over 4 usable, not 5
+    assert tc.a_score == 0.8
 
 
 def test_fully_unusable_side_is_unmeasured_never_a_regression() -> None:
@@ -279,26 +278,33 @@ def test_verbose_comparison_renders_the_secondary_metric_columns(capsys) -> None
     out = capsys.readouterr().out
     assert "pass@k" in out
     assert "pass^k" in out
+    secondary = out.split("Secondary metrics", 1)[1]
+    row = next(ln for ln in secondary.splitlines() if "alpha" in ln)
+    assert [cell.strip() for cell in row.split("│")[1:-1]] == [
+        "alpha",
+        "93.8% → 99.6%",
+        "6.2% → 31.6%",
+    ]
 
 
-def test_the_secondary_columns_agree_with_the_task_metrics() -> None:
-    """A comparison column can never disagree with the run it came from."""
+def test_secondary_columns_exclude_unusable_attempts(capsys) -> None:
     task = _task("alpha", [P, P, F, INF])
     comp = diff_runs(_run([task]), _run([task]))
-    tc = comp.matched[0]
+    assert comp.matched[0].b_outcomes == [P, P, F, INF]
 
-    assert pass_at_k(*_counts(tc.b_outcomes)) == task.pass_at_k
-    assert pass_hat_k(*_counts(tc.b_outcomes)) == task.pass_hat_k
+    print_comparison(comp, verbose=True)
+
+    secondary = capsys.readouterr().out.split("Secondary metrics", 1)[1]
+    row = next(ln for ln in secondary.splitlines() if "alpha" in ln)
+    assert [cell.strip() for cell in row.split("│")[1:-1]] == [
+        "alpha",
+        "96.3% → 96.3%",
+        "29.6% → 29.6%",
+    ]
 
 
-def _counts(outcomes: list[Outcome]) -> tuple[int, int]:
-    return (
-        sum(1 for o in outcomes if o == Outcome.PASS),
-        sum(1 for o in outcomes if o.is_usable),
-    )
-
-
-def test_no_comparable_task_shows_no_overall_delta(capsys) -> None:
+def test_no_comparable_task_shows_no_overall_delta(capsys, monkeypatch) -> None:
+    monkeypatch.setattr("caliper.reporter.console", Console(width=160))
     a = _run([_task("alpha", [P, F])])
     b = _run([_task("beta", [P, P])])
 
@@ -306,4 +312,11 @@ def test_no_comparable_task_shows_no_overall_delta(capsys) -> None:
 
     out = capsys.readouterr().out
     assert "no task measured on both sides" in out
-    assert "+0.0%" not in out
+    overall = next(ln for ln in out.splitlines() if "Success" in ln)
+    assert [cell.strip() for cell in overall.split("│")[1:-1]] == [
+        "Success",
+        "—",
+        "—",
+        "no task measured on both sides",
+    ]
+    assert "+0.0pp" not in overall

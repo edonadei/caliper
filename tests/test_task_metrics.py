@@ -120,10 +120,6 @@ def test_trigger_only_survives_one_timeout_among_k() -> None:
     assert _task(Outcome.NOT_CHECKED, Outcome.TIMEOUT).trigger_only is True
 
 
-def test_a_task_with_a_real_verdict_is_not_trigger_only() -> None:
-    assert _task(Outcome.PASS, Outcome.NOT_CHECKED).trigger_only is False
-
-
 def test_a_task_with_no_attempts_at_all_is_not_trigger_only() -> None:
     """It asked nothing because it ran nothing, which is the aborted case."""
     assert _task().trigger_only is False

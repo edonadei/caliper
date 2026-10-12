@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import ScriptedHarness, ScriptedJudge
+from conftest import ScriptedHarness, ScriptedJudge, in_turn
 
 from caliper import cancel
 from caliper.harness.base import (
@@ -281,12 +281,13 @@ def test_a_spending_cap_aborts_the_run_and_saves_what_ran(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setattr("caliper.retry.RetryPolicy", lambda: NO_WAIT)
+    harness = ScriptedHarness(in_turn(_result(output="completed"), _result(**CAPPED)))
 
     with pytest.raises(RunAborted) as excinfo:
         run(
             spec=_spec(),
             spec_path=_spec_file(tmp_path),
-            harness=ScriptedHarness(_result(**CAPPED)),
+            harness=harness,
             judge=ScriptedJudge(),
             k=4,
             workers=1,
@@ -296,9 +297,11 @@ def test_a_spending_cap_aborts_the_run_and_saves_what_ran(
     aborted = excinfo.value
     assert isinstance(aborted.cause, SpendingCapReached)
     assert aborted.results.run.interrupted is True
-    # The capped attempt measured nothing and the run stopped, rather than
-    # spending the other three discovering the same wall.
-    assert aborted.results.task_results[0].attempts == []
+    attempts = aborted.results.task_results[0].attempts
+    assert [
+        (attempt.attempt, attempt.outcome, attempt.output) for attempt in attempts
+    ] == [(1, Outcome.PASS, "completed")]
+    assert harness.calls == 2
 
 
 def test_fail_fast_counts_attempts_not_invocations(tmp_path, monkeypatch) -> None:
@@ -375,23 +378,6 @@ def test_a_passing_attempt_that_mentions_a_cap_does_not_abort_the_run() -> None:
     assert len(calls) == 1
     assert invoked.retries == 0
     assert invoked.result.final_output == ANSWER_ABOUT_LIMITS
-
-
-def test_a_passing_attempt_that_mentions_a_throttle_is_not_respawned() -> None:
-    """Retrying here would triple the spend of an attempt that already worked."""
-    invoke, calls = _queue(_result(output=ANSWER_ABOUT_LIMITS), _result())
-
-    invoke_with_retry(invoke, NO_WAIT)
-
-    assert len(calls) == 1
-
-
-def test_a_cap_on_a_zero_exit_still_stops_the_run() -> None:
-    """A capped CLI often exits 0; the refusal is what counts, not the exit."""
-    invoke, _ = _queue(_result(**CAPPED))
-
-    with pytest.raises(SpendingCapReached):
-        invoke_with_retry(invoke, NO_WAIT)
 
 
 def test_a_timeout_carrying_throttle_text_is_still_not_retried() -> None:

@@ -402,21 +402,6 @@ def test_a_truncated_transcript_keeps_an_activation_it_did_see():
 
     assert assembled.record.outcome is Outcome.TIMEOUT
     assert assembled.record.activated == ["tdd"]
-
-
-def test_a_kept_observation_is_evidence_and_never_a_verdict():
-    """Inadmissible by outcome: the observation rides, the verdict is withheld."""
-    assembled = _assemble(
-        _result(
-            timed_out=True,
-            exit_code=124,
-            error="timeout",
-            transcript=[_read_turn("/skills/tdd/SKILL.md")],
-        ),
-        activation=_detector(),
-        expected_activation=["tdd"],
-    )
-
     assert assembled.record.activation_passed is None
     assert assembled.record.activation_scored is False
     assert assembled.record.activation_observed is False
@@ -530,11 +515,6 @@ def test_a_failed_setup_hook_is_infra_error_with_its_reason_as_evidence():
     assert assembled.record.activated is None
     assert assembled.record.activation_passed is None
     assert judge.calls == 0
-
-
-def test_a_failed_setup_hook_reports_no_run_level_facts():
-    assembled = _assemble(SetupFailed("setup exited 7"))
-
     assert assembled.resolved_model is None
     assert assembled.loaded_user_customizations is None
     assert assembled.judge_model is None

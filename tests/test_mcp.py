@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import sys
 import threading
@@ -199,6 +200,150 @@ _EMPTY_INITIALIZATION = repr(
 )
 
 
+def _record_server(script: Path) -> Path:
+    marker = script.with_suffix(".exchange.json")
+    source = script.read_text()
+    shebang = ""
+    if source.startswith("#!"):
+        shebang, source = source.split("\n", 1)
+        shebang += "\n"
+    script.write_text(
+        shebang
+        + "import json, os, pathlib, sys\n"
+        + f"_exchange_file = pathlib.Path({str(marker)!r})\n"
+        + "_exchange = []\n"
+        "def _record(direction, message):\n"
+        "    _exchange.append([direction, message])\n"
+        "    _exchange_file.write_text(json.dumps(_exchange), encoding='utf-8')\n"
+        "class _RecordingStream:\n"
+        "    def __init__(self, stream, direction):\n"
+        "        self.stream, self.direction = stream, direction\n"
+        "    def readline(self):\n"
+        "        value = self.stream.readline()\n"
+        "        if value.strip(): _record(self.direction, json.loads(value))\n"
+        "        return value\n"
+        "    def __iter__(self): return self\n"
+        "    def __next__(self):\n"
+        "        value = self.readline()\n"
+        "        if not value: raise StopIteration\n"
+        "        return value\n"
+        "    def write(self, value):\n"
+        "        if value.strip(): _record(self.direction, json.loads(value))\n"
+        "        return self.stream.write(value)\n"
+        "    def flush(self): self.stream.flush()\n"
+        "_record('startup', {'host_only_secret': os.getenv('CALIPER_HOST_ONLY_SECRET'), "
+        "'path': os.getenv('PATH')})\n"
+        "sys.stdin = _RecordingStream(sys.stdin, 'client')\n"
+        "sys.stdout = _RecordingStream(sys.stdout, 'server')\n" + source
+    )
+    return marker
+
+
+_LEGACY_EXCHANGE = [
+    [
+        "client",
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": {"name": "caliper-preflight", "version": "1"},
+            },
+        },
+    ],
+    [
+        "server",
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "test", "version": "1"},
+            },
+        },
+    ],
+    ["client", {"jsonrpc": "2.0", "method": "notifications/initialized"}],
+    ["client", {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}],
+    ["server", {"jsonrpc": "2.0", "id": 2, "result": {"tools": []}}],
+]
+
+
+_MODERN_EXCHANGE = [
+    _LEGACY_EXCHANGE[0],
+    [
+        "server",
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {"code": -32601, "message": "Method not found"},
+        },
+    ],
+    [
+        "client",
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "server/discover",
+            "params": {
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientInfo": {
+                        "name": "caliper-preflight",
+                        "version": "1",
+                    },
+                    "io.modelcontextprotocol/clientCapabilities": {},
+                }
+            },
+        },
+    ],
+    [
+        "server",
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "result": {
+                "supportedVersions": ["2026-07-28"],
+                "capabilities": {"tools": {}},
+            },
+        },
+    ],
+    [
+        "client",
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/list",
+            "params": {
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientInfo": {
+                        "name": "caliper-preflight",
+                        "version": "1",
+                    },
+                    "io.modelcontextprotocol/clientCapabilities": {},
+                }
+            },
+        },
+    ],
+    [
+        "server",
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "result": {
+                "resultType": "complete",
+                "tools": [],
+                "ttlMs": 0,
+                "cacheScope": "public",
+            },
+        },
+    ],
+]
+
+
 def test_resolve_servers_interpolates_stdio_env(monkeypatch) -> None:
     monkeypatch.setenv("MCP_API_TOKEN", "sk-secret")
     declared = {
@@ -311,17 +456,57 @@ def test_preflight_initializes_a_local_server(tmp_path) -> None:
         "'serverInfo': {'name': 'test', 'version': '1'}}}), flush=True)\n"
         + _TOOLS_REPLY
     )
+    marker = _record_server(script)
     preflight_stdio_servers(
         {"echo": McpServer(command=sys.executable, args=[str(script)])}
     )
 
+    assert json.loads(marker.read_text())[1:] == _LEGACY_EXCHANGE
 
-def test_preflight_accepts_bundled_echo_server_protocol_version() -> None:
-    # echo_server.py answers 2024-11-05, not the version preflight proposes.
+
+def test_preflight_accepts_bundled_echo_server_protocol_version(tmp_path) -> None:
     script = Path(__file__).parent / "fixtures" / "mcp" / "echo_server.py"
-    preflight_stdio_servers(
-        {"echo": McpServer(command=sys.executable, args=[str(script)])}
+    wrapper = tmp_path / "bundled.py"
+    wrapper.write_text(
+        f"import runpy\nrunpy.run_path({str(script)!r}, run_name='__main__')\n"
     )
+    marker = _record_server(wrapper)
+    preflight_stdio_servers(
+        {"echo": McpServer(command=sys.executable, args=[str(wrapper)])}
+    )
+
+    assert json.loads(marker.read_text())[1:] == [
+        _LEGACY_EXCHANGE[0],
+        [
+            "server",
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "echo", "version": "0.1.0"},
+                },
+            },
+        ],
+        *_LEGACY_EXCHANGE[2:4],
+        [
+            "server",
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "result": {
+                    "tools": [
+                        {
+                            "name": "secret_word",
+                            "description": "Returns the secret word.",
+                            "inputSchema": {"type": "object", "properties": {}},
+                        }
+                    ]
+                },
+            },
+        ],
+    ]
 
 
 def test_preflight_does_not_inspect_unrelated_process_environments(
@@ -339,9 +524,12 @@ def test_preflight_does_not_inspect_unrelated_process_environments(
         raise AssertionError("preflight scanned unrelated processes")
 
     monkeypatch.setattr(psutil, "process_iter", no_global_scan)
+    marker = _record_server(script)
     preflight_stdio_servers(
         {"echo": McpServer(command=sys.executable, args=[str(script)])}
     )
+
+    assert json.loads(marker.read_text())[1:] == _LEGACY_EXCHANGE
 
 
 def test_preflight_ignores_notifications_before_responses(tmp_path) -> None:
@@ -362,9 +550,38 @@ def test_preflight_ignores_notifications_before_responses(tmp_path) -> None:
         "sys.stdin.readline()\n"
     )
 
+    marker = _record_server(script)
     preflight_stdio_servers(
         {"echo": McpServer(command=sys.executable, args=[str(script)])}
     )
+
+    assert json.loads(marker.read_text())[1:] == [
+        _LEGACY_EXCHANGE[0],
+        [
+            "server",
+            {
+                "jsonrpc": "2.0",
+                "method": "notifications/message",
+                "params": {
+                    "level": "info",
+                    "data": "starting",
+                },
+            },
+        ],
+        *_LEGACY_EXCHANGE[1:4],
+        [
+            "server",
+            {
+                "jsonrpc": "2.0",
+                "method": "notifications/message",
+                "params": {
+                    "level": "info",
+                    "data": "ready",
+                },
+            },
+        ],
+        _LEGACY_EXCHANGE[4],
+    ]
 
 
 def test_preflight_answers_server_ping_with_colliding_request_id(tmp_path) -> None:
@@ -381,28 +598,64 @@ def test_preflight_answers_server_ping_with_colliding_request_id(tmp_path) -> No
         f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
     )
 
+    marker = _record_server(script)
     preflight_stdio_servers(
         {"echo": McpServer(command=sys.executable, args=[str(script)])}
     )
 
+    assert json.loads(marker.read_text())[1:] == [
+        _LEGACY_EXCHANGE[0],
+        ["server", {"jsonrpc": "2.0", "id": 1, "method": "ping"}],
+        ["client", {"jsonrpc": "2.0", "id": 1, "result": {}}],
+        *_LEGACY_EXCHANGE[1:],
+    ]
 
+
+@pytest.mark.skipif(os.name != "posix", reason="records stdin on SIGTERM")
 def test_preflight_accepts_resource_only_server(tmp_path) -> None:
     script = tmp_path / "resources.py"
+    # Preflight sends its last message and then terminates the server, so the
+    # server records whatever is still unread when SIGTERM lands rather than
+    # racing the kill to read it.
     script.write_text(
-        "import json, sys\n"
+        "import json, os, signal, sys, threading\n"
+        "def _drain(*_):\n"
+        "    os.set_blocking(0, False)\n"
+        "    try:\n"
+        "        pending = os.read(0, 65536)\n"
+        "    except BlockingIOError:\n"
+        "        pending = b''\n"
+        "    for line in pending.splitlines():\n"
+        "        _record('client', json.loads(line))\n"
+        "    os._exit(0)\n"
+        "signal.signal(signal.SIGTERM, _drain)\n"
         "request = json.loads(sys.stdin.readline())\n"
         "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
         f"'result': {_RESOURCE_INITIALIZATION}}}), flush=True)\n"
-        "sys.stdin.readline()\n"
-        "request = sys.stdin.readline()\n"
-        "if request:\n"
-        "    print(json.dumps({'jsonrpc': '2.0', 'id': json.loads(request)['id'], "
-        "'error': {'code': -32601, 'message': 'Method not found'}}), flush=True)\n"
+        "threading.Event().wait()\n"
     )
 
+    marker = _record_server(script)
     preflight_stdio_servers(
         {"resources": McpServer(command=sys.executable, args=[str(script)])}
     )
+
+    assert json.loads(marker.read_text())[1:] == [
+        _LEGACY_EXCHANGE[0],
+        [
+            "server",
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {"resources": {}},
+                    "serverInfo": {"name": "test", "version": "1"},
+                },
+            },
+        ],
+        _LEGACY_EXCHANGE[2],
+    ]
 
 
 def test_preflight_kills_server_child_after_launcher_exits(tmp_path) -> None:
@@ -460,8 +713,14 @@ def test_preflight_uses_sandbox_extra_path_for_command(tmp_path) -> None:
     )
     command.chmod(0o755)
 
+    marker = _record_server(command)
     preflight_stdio_servers(
         {"echo": McpServer(command="mcp-server")}, extra_path=[str(tmp_path)]
+    )
+
+    assert json.loads(marker.read_text())[1:] == _LEGACY_EXCHANGE
+    assert json.loads(marker.read_text())[0][1]["path"].split(os.pathsep)[0] == str(
+        tmp_path
     )
 
 
@@ -476,9 +735,13 @@ def test_preflight_does_not_inherit_host_only_variables(tmp_path, monkeypatch) -
         f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
     )
 
+    marker = _record_server(script)
     preflight_stdio_servers(
         {"echo": McpServer(command=sys.executable, args=[str(script)])}
     )
+
+    assert json.loads(marker.read_text())[1:] == _LEGACY_EXCHANGE
+    assert json.loads(marker.read_text())[0][1]["host_only_secret"] is None
 
 
 class _AttemptPreflightHarness(CliHarness):
@@ -619,9 +882,11 @@ def _modern_server(
 def test_preflight_accepts_a_modern_only_server_when_the_agent_speaks_it(
     tmp_path,
 ) -> None:
-    preflight_stdio_servers(
-        _modern_server(tmp_path, _DISCOVERED_TOOLS), speaks_modern=True
-    )
+    servers = _modern_server(tmp_path, _DISCOVERED_TOOLS)
+    marker = _record_server(tmp_path / "modern.py")
+    preflight_stdio_servers(servers, speaks_modern=True)
+
+    assert json.loads(marker.read_text())[1:] == _MODERN_EXCHANGE
 
 
 def test_preflight_rejects_a_modern_only_server_when_the_agent_cannot_speak_it(
@@ -705,10 +970,26 @@ def test_preflight_rejects_a_modern_tool_list_claude_code_would_drop(
 def test_preflight_accepts_a_whole_ttl_written_as_a_float(tmp_path) -> None:
     tools = {"result": {**_MODERN_TOOLS["result"], "ttlMs": 1.0}}
 
-    preflight_stdio_servers(
-        _modern_server(tmp_path, _DISCOVERED_TOOLS, tools_reply=tools),
-        speaks_modern=True,
-    )
+    servers = _modern_server(tmp_path, _DISCOVERED_TOOLS, tools_reply=tools)
+    marker = _record_server(tmp_path / "modern.py")
+    preflight_stdio_servers(servers, speaks_modern=True)
+
+    assert json.loads(marker.read_text())[1:] == [
+        *_MODERN_EXCHANGE[:-1],
+        [
+            "server",
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "result": {
+                    "resultType": "complete",
+                    "tools": [],
+                    "ttlMs": 1.0,
+                    "cacheScope": "public",
+                },
+            },
+        ],
+    ]
 
 
 @pytest.mark.parametrize(
@@ -766,9 +1047,16 @@ def test_preflight_treats_a_null_error_beside_a_result_as_legacy(tmp_path) -> No
         f"'result': {_TOOL_INITIALIZATION}}}), flush=True)\n" + _TOOLS_REPLY
     )
 
+    marker = _record_server(script)
     preflight_stdio_servers(
         {"echo": McpServer(command=sys.executable, args=[str(script)])}
     )
+
+    assert json.loads(marker.read_text())[1:] == [
+        _LEGACY_EXCHANGE[0],
+        ["server", {**_LEGACY_EXCHANGE[1][1], "error": None}],
+        *_LEGACY_EXCHANGE[2:],
+    ]
 
 
 def test_preflight_reports_a_garbled_discovery_as_rejected_initialize(
@@ -1285,6 +1573,7 @@ _LEGACY_INIT = {
     }
 }
 _A_TOOL = {"name": "echo", "inputSchema": {"type": "object"}}
+_A_TOOL_REPLY = ["server", {"jsonrpc": "2.0", "id": 2, "result": {"tools": [_A_TOOL]}}]
 
 
 def _legacy_server(
@@ -1311,7 +1600,14 @@ def _legacy_server(
 
 
 def test_preflight_accepts_a_well_formed_tool_list(tmp_path) -> None:
-    preflight_stdio_servers(_legacy_server(tmp_path, _LEGACY_INIT))
+    servers = _legacy_server(tmp_path, _LEGACY_INIT)
+    marker = _record_server(tmp_path / "legacy.py")
+    preflight_stdio_servers(servers)
+
+    assert json.loads(marker.read_text())[1:] == [
+        *_LEGACY_EXCHANGE[:4],
+        _A_TOOL_REPLY,
+    ]
 
 
 @pytest.mark.parametrize(
@@ -1331,7 +1627,16 @@ def test_preflight_rejects_a_malformed_response_envelope(tmp_path, init_reply) -
 
 def test_preflight_tolerates_a_null_error_beside_a_legacy_result(tmp_path) -> None:
     """codex accepts ``error: null`` on the legacy path, so preflight does too."""
-    preflight_stdio_servers(_legacy_server(tmp_path, {**_LEGACY_INIT, "error": None}))
+    servers = _legacy_server(tmp_path, {**_LEGACY_INIT, "error": None})
+    marker = _record_server(tmp_path / "legacy.py")
+    preflight_stdio_servers(servers)
+
+    assert json.loads(marker.read_text())[1:] == [
+        _LEGACY_EXCHANGE[0],
+        ["server", {**_LEGACY_EXCHANGE[1][1], "error": None}],
+        *_LEGACY_EXCHANGE[2:4],
+        _A_TOOL_REPLY,
+    ]
 
 
 @pytest.mark.parametrize(
