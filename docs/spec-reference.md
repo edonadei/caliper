@@ -141,8 +141,9 @@ remote first, so a branch whose name happens to look like hex is still treated
 as a branch. A full 40-character commit is fetched directly. An abbreviated one
 costs one extra fetch on a cold cache: Caliper downloads the commit history of
 every branch and tag (commits only, no file contents) to expand it. That only
-works when a branch or tag reaches the commit and the prefix is unique. If it
-doesn't, the run refuses and asks for the full commit.
+works when a branch or tag reaches the commit, the prefix is unique, and the
+remote supports partial fetches (GitHub does). Otherwise the run refuses and
+asks for the full commit, rather than download the repo's whole history.
 
 `caliper run` fetches before the first attempt, so a bad `repo:` fails fast and
 costs nothing. `caliper validate` never touches the network: it resolves git

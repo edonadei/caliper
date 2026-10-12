@@ -9,8 +9,11 @@
 > Rejecting short hex refs in the schema was the cheaper fix, but it would
 > also have rejected a hex-named branch, which the remote-first `_NoSuchRef`
 > check exists to keep. The cost is that a short pin works only when a branch
-> or tag reaches the commit and the prefix is unique. Otherwise the run
-> refuses and asks for the full commit, which git fetches directly.
+> or tag reaches the commit, the prefix is unique, and the remote advertises
+> `filter`. A remote without it would quietly turn the treeless fetch into a
+> full-history download, so Caliper checks the capability first. In every
+> other case the run refuses and asks for the full commit, which git fetches
+> directly.
 
 A `skills:` entry may now be a **git source** — `{repo:, ref:, path:}` — which
 caliper materializes with `git clone --depth 1` into a content-addressed cache,

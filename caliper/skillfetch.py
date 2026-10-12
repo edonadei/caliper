@@ -39,6 +39,9 @@ _SLUG_RE = re.compile(r"[^A-Za-z0-9._-]+")
 # leading `.`/`/`/`~`, so a local repo is still reachable by writing `./owner/name`.
 _SHORTHAND_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
 _SHORTHAND_HOST = "https://github.com/"
+# The v2 `fetch` capability line a remote sends when it honours `--filter`,
+# e.g. `fetch=shallow wait-for-done filter`.
+_FILTER_CAPABILITY_RE = re.compile(r"< fetch=[^\n]*\bfilter\b")
 
 _GIT_TIMEOUT = 120
 
@@ -285,6 +288,14 @@ class SkillFetcher:
         try:
             self._git("init", "-q", "--bare", cwd=scratch)
             self._git("remote", "add", "origin", self.clone_url(src.repo), cwd=scratch)
+            if not self._remote_supports_filter(scratch):
+                raise SkillFetchError(
+                    f"{self._label(src)}: the remote does not support partial "
+                    f"fetches, so expanding '{src.ref}' would download its whole "
+                    "history.\n\n"
+                    "Pin the full 40-character commit instead: that is fetched "
+                    "directly, at depth 1."
+                )
             try:
                 self._git(
                     "fetch", "-q", "--filter=tree:0", "--tags", "origin", cwd=scratch
@@ -308,6 +319,34 @@ class SkillFetcher:
                 ) from exc
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
+
+    def _remote_supports_filter(self, repo: Path) -> bool:
+        """Whether ``origin`` honours ``--filter``, asked before fetching.
+
+        A remote that does not support it makes ``fetch --filter`` a full fetch,
+        with only a warning, so the request alone cannot keep the expansion
+        cheap. The answer is the ``filter`` token in the protocol-v2 ``fetch``
+        capability, read from a packet trace of a ref-less ``ls-remote``. A
+        remote that does not speak v2 counts as unsupported.
+        """
+        trace = repo / "trace.pkt"
+        self._git(
+            "ls-remote",
+            "origin",
+            "refs/caliper/none",
+            cwd=repo,
+            env={
+                "GIT_TRACE_PACKET": str(trace),
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "protocol.version",
+                "GIT_CONFIG_VALUE_0": "2",
+            },
+        )
+        try:
+            text = trace.read_text(errors="replace")
+        except OSError:
+            return False
+        return bool(_FILTER_CAPABILITY_RE.search(text))
 
     def _clone(self, src: GitSkillSource, sha: str, dest: Path) -> None:
         """Depth-1 checkout of exactly ``sha``.
@@ -400,11 +439,14 @@ class SkillFetcher:
         return f"{src.repo}{at}"
 
     @staticmethod
-    def _git(*args: str, cwd: Path | None = None) -> str:
+    def _git(
+        *args: str, cwd: Path | None = None, env: dict[str, str] | None = None
+    ) -> str:
         try:
             proc = subprocess.run(
                 ["git", *args],
                 cwd=str(cwd) if cwd else None,
+                env={**os.environ, **env} if env else None,
                 capture_output=True,
                 text=True,
                 timeout=_GIT_TIMEOUT,
