@@ -5,6 +5,7 @@ import re
 import pytest
 import yaml
 from pydantic import ValidationError
+from rich.console import Console
 from typer.testing import CliRunner
 
 from caliper.main import app
@@ -156,7 +157,7 @@ def test_inline_assert_code_is_not_mistaken_for_a_path(tmp_path) -> None:
             "      import os\n      assert os.path.exists('x.py')\n",
         )
     )
-    assert spec.tasks[0].assert_script
+    assert spec.tasks[0].assert_script == "import os\nassert os.path.exists('x.py')\n"
 
 
 @pytest.mark.parametrize("typo", ["asert: assert True", "activate: [my-skill]"])
@@ -178,27 +179,53 @@ def test_unknown_sandbox_key_is_rejected(tmp_path) -> None:
 
 
 _BROKEN_SPECS = {
-    "bad-regex": "sandbox:\n  forbidden_files: ['[unclosed']\n" + _TASK,
-    "missing-assert": "tasks:\n  - name: t\n    prompt: p\n    assert: ./nope.py\n",
-    "unknown-sandbox-key": "sandbox:\n  forbiden_files: ['x']\n" + _TASK,
-    "unknown-key": "tasks:\n  - name: t\n    prompt: p\n    expect: ok\n    asert: x\n",
+    "bad-regex": (
+        "sandbox:\n  forbidden_files: ['[unclosed']\n" + _TASK,
+        ("forbidden_files", "is not a valid", "[unclosed"),
+    ),
+    "missing-assert": (
+        "tasks:\n  - name: t\n    prompt: p\n    assert: ./nope.py\n",
+        ("assert script not found", "nope.py"),
+    ),
+    "unknown-sandbox-key": (
+        "sandbox:\n  forbiden_files: ['x']\n" + _TASK,
+        ("forbiden_files", "Extra inputs are not permitted"),
+    ),
+    "unknown-key": (
+        "tasks:\n  - name: t\n    prompt: p\n    expect: ok\n    asert: x\n",
+        ("asert", "Extra inputs are not permitted"),
+    ),
     "duplicate-assert": (
         "tasks:\n  - name: t\n    prompt: p\n"
-        "    assert: assert False\n    assert: assert True\n"
+        "    assert: assert False\n    assert: assert True\n",
+        ("duplicate key 'assert'", "line 5"),
     ),
-    "duplicate-tasks": _TASK + _TASK,
-    "blank-assert": "tasks:\n  - name: t\n    prompt: p\n    assert: '   '\n",
-    "blank-expect": "tasks:\n  - name: t\n    prompt: p\n    expect: '  '\n",
-    "markup-key": "tasks:\n  - name: t\n    prompt: p\n    expect: ok\n    a[/b]: x\n",
+    "duplicate-tasks": (_TASK + _TASK, ("duplicate key 'tasks'", "line 5")),
+    "blank-assert": (
+        "tasks:\n  - name: t\n    prompt: p\n    assert: '   '\n",
+        ("`assert:` is blank",),
+    ),
+    "blank-expect": (
+        "tasks:\n  - name: t\n    prompt: p\n    expect: '  '\n",
+        ("`expect:` is blank",),
+    ),
+    "markup-key": (
+        "tasks:\n  - name: t\n    prompt: p\n    expect: ok\n    a[/b]: x\n",
+        ("a[/b]", "Extra inputs are not permitted"),
+    ),
 }
 
 
 @pytest.mark.parametrize("case", sorted(_BROKEN_SPECS))
-def test_validate_rejects_the_spec(tmp_path, case) -> None:
-    result = CliRunner().invoke(
-        app, ["validate", str(_write(tmp_path, _BROKEN_SPECS[case]))]
-    )
-    assert result.exit_code != 0
+def test_validate_rejects_the_spec(tmp_path, monkeypatch, case) -> None:
+    # A narrow terminal would wrap the diagnostics this test looks for.
+    monkeypatch.setattr("caliper.commands.diagnosis.console", Console(width=160))
+    text, diagnostics = _BROKEN_SPECS[case]
+    result = CliRunner().invoke(app, ["validate", str(_write(tmp_path, text))])
+    assert result.exit_code == 1, result.output
+    assert isinstance(result.exception, SystemExit)
+    for diagnostic in diagnostics:
+        assert diagnostic in result.output
     assert "Spec is valid" not in result.output
 
 
@@ -211,7 +238,7 @@ def test_run_rejects_the_spec_before_its_first_attempt(
 
     monkeypatch.setattr("caliper.commands.engine.get_harness", no_attempt)
     result = CliRunner().invoke(
-        app, ["run", str(_write(tmp_path, _BROKEN_SPECS[case])), "--k", "1"]
+        app, ["run", str(_write(tmp_path, _BROKEN_SPECS[case][0])), "--k", "1"]
     )
     assert result.exit_code != 0
     assert result.exception is None or isinstance(result.exception, SystemExit)
@@ -283,8 +310,12 @@ def test_no_repo_eval_hook_relies_on_pwd() -> None:
     from pathlib import Path
 
     root = Path(__file__).parent.parent
+    # Hidden directories hold environments, run output and scratch work, not
+    # the repo's own specs.
     specs = [
-        p for p in root.rglob("*.eval.yaml") if not {".venv", ".caliper"} & set(p.parts)
+        p
+        for p in root.rglob("*.eval.yaml")
+        if not any(part.startswith(".") for part in p.relative_to(root).parts)
     ]
     assert specs
     for path in specs:

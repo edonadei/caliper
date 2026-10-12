@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+from rich.console import Console
 from typer.testing import CliRunner
 
 from caliper.activation import ActivationDetector
@@ -155,6 +156,21 @@ def test_usage_totals_report_no_judge_when_nothing_was_graded() -> None:
 
 
 def _run(interrupted: bool, *, spec: str = "demo", successes: int = 2) -> RunResults:
+    tasks = [
+        TaskResult(
+            task_id="task-001",
+            task_name="One",
+            attempts=[
+                AttemptRecord(
+                    attempt=i + 1,
+                    output="ok",
+                    duration_seconds=1.0,
+                    outcome=Outcome.PASS if i < successes else Outcome.TASK_FAIL,
+                )
+                for i in range(4)
+            ],
+        )
+    ]
     return RunResults(
         run=RunMeta(
             spec=spec,
@@ -165,22 +181,8 @@ def _run(interrupted: bool, *, spec: str = "demo", successes: int = 2) -> RunRes
             interrupted=interrupted,
         ),
         skill_snapshots=[],
-        task_results=[
-            TaskResult(
-                task_id="task-001",
-                task_name="One",
-                attempts=[
-                    AttemptRecord(
-                        attempt=i + 1,
-                        output="ok",
-                        duration_seconds=1.0,
-                        outcome=Outcome.PASS if i < successes else Outcome.TASK_FAIL,
-                    )
-                    for i in range(4)
-                ],
-            )
-        ],
-        aggregate=AggregateScore(avg_score=successes / 4, per_task=[]),
+        task_results=tasks,
+        aggregate=AggregateScore.from_task_results(tasks, k=4),
     )
 
 
@@ -235,13 +237,14 @@ def test_list_is_unmarked_when_every_run_completed(monkeypatch, tmp_path) -> Non
     assert "stopped early" not in result.stdout
 
 
-def test_compare_reports_a_regression_without_failing(tmp_path) -> None:
+def test_compare_reports_a_regression_without_failing(tmp_path, monkeypatch) -> None:
     """`compare` is a reporting command: the regression is rendered, not exited on.
 
     Its regression flag is the any-below rule, which at small k fires on noise
     as often as on a real change — see docs/CONTEXT.md → Regression. Gating
     belongs on a pre-registered bar, which is what exit 3 is reserved for.
     """
+    monkeypatch.setattr("caliper.reporter.console", Console(width=160))
     _save(tmp_path, _run(interrupted=False, successes=4), "a")
     _save(tmp_path, _run(interrupted=False, successes=1), "b")
     base = tmp_path / ".caliper" / "results" / "demo"
@@ -249,3 +252,10 @@ def test_compare_reports_a_regression_without_failing(tmp_path) -> None:
     result = runner.invoke(app, ["compare", str(base / "a.json"), str(base / "b.json")])
 
     assert result.exit_code == 0
+    row = next(ln for ln in result.stdout.splitlines() if "One" in ln)
+    assert [cell.strip() for cell in row.split("│")[1:-1]] == [
+        "One",
+        "100%  ✓ ✓ ✓ ✓",
+        "25%  ✓ ✗ ✗ ✗",
+        "-75 pp",
+    ]

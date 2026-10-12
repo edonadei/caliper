@@ -73,6 +73,7 @@ def test_judge_error_attempts_still_count_toward_activation():
         attempt(2, Outcome.PASS, activated=["mine"], activation_passed=True),
     ]
     t = task("t", attempts, ["mine"])
+    assert t.usable == 1
     assert t.activation_usable == 2
     assert t.activation_score == 1.0
 
@@ -95,17 +96,6 @@ def test_a_task_whose_every_attempt_timed_out_is_unmeasured_not_zero():
         for n in (1, 2)
     ]
     assert task("t", attempts, ["mine"]).activation_score is None
-
-
-def test_execution_and_activation_denominators_differ():
-    # judge_error is unusable for execution but usable for activation.
-    attempts = [
-        attempt(1, Outcome.JUDGE_ERROR, activated=["mine"], activation_passed=True),
-        attempt(2, Outcome.PASS, activated=["mine"], activation_passed=True),
-    ]
-    t = task("t", attempts, ["mine"])
-    assert t.usable == 1
-    assert t.activation_usable == 2
 
 
 # --- per-skill recall / precision -----------------------------------------
@@ -215,6 +205,8 @@ def test_a_hijacker_has_full_recall_and_a_high_over_firing_rate():
     stats = SkillActivationStats(skill="mine", total=9, expected=6, fired=8, hits=6)
     assert stats.recall == 1.0
     assert stats.unwanted_rate == pytest.approx(2 / 3)
+    assert stats.opportunities == 3
+    assert stats.unwanted == 2
 
 
 def test_aggregate_gives_every_skill_the_same_denominator():
@@ -274,9 +266,3 @@ def test_headline_counts_asserted_tasks_and_says_when_some_were_lost():
     agg = _activation([measured, lost], ["x"])
     assert agg.activation_tasks == 1
     assert agg.activation_asserted == 2
-
-
-def test_opportunities_is_the_denominator_the_rate_divides_by():
-    stats = SkillActivationStats(skill="mine", total=9, expected=6, fired=8, hits=6)
-    assert stats.opportunities == 3
-    assert stats.unwanted_rate == stats.unwanted / stats.opportunities

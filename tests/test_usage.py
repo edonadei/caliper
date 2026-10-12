@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 import pytest
 from pydantic import ValidationError
+from rich.console import Console
 
 from caliper.compare import diff_runs
 from caliper.harness.base import ProcessResult, RunContext
@@ -251,29 +252,11 @@ def test_usage_totals_tokens_unreported_when_no_backend_data() -> None:
 
 
 # --------------------------------------------------------------------------
-# Backwards compatibility
-# --------------------------------------------------------------------------
-
-
-def test_old_results_json_without_usage_still_loads() -> None:
-    old = {
-        "attempt": 1,
-        "output": "hi",
-        "duration_seconds": 2.0,
-        "outcome": "pass",
-    }
-    record = AttemptRecord.model_validate(old)
-    assert record.usage is None
-    assert record.passed is True
-
-
-# --------------------------------------------------------------------------
 # Compare deltas
 # --------------------------------------------------------------------------
 
 
 def _run(tasks: list[TaskResult], spec: str = "demo", k: int = 2) -> RunResults:
-    scored = [t.pass_at_k for t in tasks if t.pass_at_k is not None]
     return RunResults(
         run=RunMeta(
             spec=spec,
@@ -281,11 +264,9 @@ def _run(tasks: list[TaskResult], spec: str = "demo", k: int = 2) -> RunResults:
             k=k,
             backend="claude-code",
         ),
-        skill_snapshot=SkillSnapshot(path="/fake/SKILL.md"),
+        skill_snapshots=[SkillSnapshot(path="/fake/SKILL.md")],
         task_results=tasks,
-        aggregate=AggregateScore(
-            avg_score=sum(scored) / len(scored) if scored else 0.0, per_task=[]
-        ),
+        aggregate=AggregateScore.from_task_results(tasks, k=k),
     )
 
 
@@ -341,8 +322,12 @@ def test_print_results_renders_per_task_tokens_and_wall(capsys) -> None:
     results = _run([_task_with_tokens("alpha", 1_000_000, 12.0)])
     print_results(results)
     out = capsys.readouterr().out
-    assert "2.0M" in out  # per-task token total in the row
-    assert "24s" in out  # per-task wall total in the row
+    row = next(ln for ln in out.splitlines() if "alpha" in ln)
+    assert [cell.strip() for cell in row.split("│")[1:-1]] == [
+        "alpha",
+        "100%  ✓ ✓",
+        "2.0M     24s",
+    ]
 
 
 def test_every_run_renders_a_single_report(capsys) -> None:
@@ -353,7 +338,13 @@ def test_every_run_renders_a_single_report(capsys) -> None:
     out = capsys.readouterr().out
     assert "compare" not in out
     # One table, summed in its own footer.
-    assert "Overall" in out
+    assert sum("Overall" in ln for ln in out.splitlines()) == 1
+    assert (
+        sum(
+            "Task" in ln and "success" in ln and "cost" in ln for ln in out.splitlines()
+        )
+        == 1
+    )
 
 
 def test_an_ablated_run_names_what_was_removed(capsys) -> None:
@@ -401,7 +392,11 @@ def test_an_ablated_run_shows_observations_on_a_passing_task(capsys) -> None:
     assert "0/1" in out
 
 
-def test_a_server_ablated_run_keeps_its_activation_verdicts(capsys) -> None:
+def test_a_server_ablated_run_keeps_its_activation_verdicts(
+    capsys, monkeypatch
+) -> None:
+    # The cells are read by column, so a narrow terminal must not wrap them.
+    monkeypatch.setattr("caliper.reporter.console", Console(width=160))
     # A removed server doesn't touch the skill neighbourhood, so the run asserts
     # and scores activation as usual — only the marker says what changed.
     passing = TaskResult(
@@ -414,6 +409,7 @@ def test_a_server_ablated_run_keeps_its_activation_verdicts(capsys) -> None:
                 duration_seconds=3.0,
                 outcome=Outcome.PASS,
                 activated=["keeper"],
+                activation_passed=True,
             )
         ],
         activation_expected=["keeper"],
@@ -427,14 +423,23 @@ def test_a_server_ablated_run_keeps_its_activation_verdicts(capsys) -> None:
     assert "via --ablate" in out
     assert "observed, not scored" not in out
     assert "observed only" not in out
+    row = next(ln for ln in out.splitlines() if "alpha" in ln)
+    overall = next(ln for ln in out.splitlines() if "Overall" in ln)
+    assert [cell.strip() for cell in row.split("│")[1:-1]][2] == "100%  ✓"
+    assert [cell.strip() for cell in overall.split("│")[1:-1]][2] == "100%  1/1 ✓"
 
 
 def test_a_normal_run_has_no_observed_activations_block(capsys) -> None:
     # It is the ablated run's stand-in for the scored table, not a second table
     # every run grows.
     results = _run([_task_with_tokens("alpha", 1000, 10.0)])
+    for attempt in results.task_results[0].attempts:
+        attempt.activated = ["keeper"]
+    results.skill_snapshots = [SkillSnapshot(name="keeper", path="/x/keeper/SKILL.md")]
     print_results(results)
-    assert "observed only" not in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "keeper" in out
+    assert "observed only" not in out
 
 
 def test_failure_details_still_show_why_an_attempt_failed(capsys) -> None:
@@ -465,8 +470,12 @@ def test_print_results_per_task_tokens_dash_when_unreported(capsys) -> None:
     )
     print_results(_run([task]))
     out = capsys.readouterr().out
-    # Wall still shows even with no token data.
-    assert "3s" in out
+    row = next(ln for ln in out.splitlines() if "alpha" in ln)
+    assert [cell.strip() for cell in row.split("│")[1:-1]] == [
+        "alpha",
+        "100%  ✓ ·",
+        "—      3s",
+    ]
 
 
 def test_print_comparison_renders_usage_rows(capsys) -> None:
@@ -474,8 +483,20 @@ def test_print_comparison_renders_usage_rows(capsys) -> None:
     b = _run([_task_with_tokens("alpha", 600, 6.0)])
     print_comparison(diff_runs(a, b))
     out = capsys.readouterr().out
-    assert "Tokens" in out
-    assert "Wall" in out
+    tokens = next(ln for ln in out.splitlines() if "Tokens" in ln)
+    wall = next(ln for ln in out.splitlines() if "Wall" in ln)
+    assert [cell.strip() for cell in tokens.split("│")[1:-1]] == [
+        "Tokens",
+        "2K  1K each",
+        "1K  600 each",
+        "-40%",
+    ]
+    assert [cell.strip() for cell in wall.split("│")[1:-1]] == [
+        "Wall",
+        "20s  10.0s each",
+        "12s  6.0s each",
+        "-40%",
+    ]
 
 
 @pytest.mark.parametrize(

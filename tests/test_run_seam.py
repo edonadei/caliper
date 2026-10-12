@@ -95,20 +95,25 @@ def test_an_empty_model_falls_back_like_an_absent_one(monkeypatch, tmp_path) -> 
 def test_each_invocation_gets_its_own_context(monkeypatch, tmp_path) -> None:
     """A retry is a second invocation, and it is handed a second context.
 
-    The harness object is shared across the runner's worker threads and reused
-    across a retried attempt, so the context is the only per-attempt state a
-    backend has (docs/adr/0019). Anything it needs between hooks is derived
-    from the context, never stashed on it or on the instance — which is what
-    lets the caller build a fresh one per shot and be sure nothing leaks across.
+    The harness object is shared across worker threads and retries, so the
+    context is the only per-attempt state a backend has (docs/adr/0019).
     """
     patch_cli_calls(monkeypatch, _agent_says("done"))
     harness = _Recording()
+    caller = run_context(
+        isolated_home=str(tmp_path / "home"), forbidden_files=["answer.md"]
+    )
 
-    _run(harness, tmp_path, attempt=1)
-    _run(harness, tmp_path, attempt=2)
+    harness.run(caller)
+    harness.seen[0].forbidden_files.append("first-only.md")
+    caller.attempt = 2
+    harness.run(caller)
 
     assert harness.seen[0] is not harness.seen[1]
     assert [ctx.attempt for ctx in harness.seen] == [1, 2]
+    assert caller.forbidden_files == ["answer.md"]
+    assert harness.seen[0].forbidden_files == ["answer.md", "first-only.md"]
+    assert harness.seen[1].forbidden_files == ["answer.md"]
 
 
 def test_the_context_owns_its_lists(tmp_path) -> None:

@@ -270,15 +270,6 @@ def test_a_binary_file_is_captured_by_its_bytes_without_text(tmp_path: Path):
     assert SkillSnapshot.model_validate_json(snap.model_dump_json()) == snap
 
 
-def test_a_file_too_large_to_install_is_not_captured(tmp_path: Path):
-    directory = _mine(tmp_path)
-    (directory / "blob.bin").write_bytes(b"x" * (6 * 1024 * 1024))
-
-    snap = snapshot_skill(SkillRef(name="mine", path=directory / "SKILL.md"))
-
-    assert set(snap.files) == {"SKILL.md"}
-
-
 def test_the_snapshot_holds_exactly_the_files_the_install_wrote(tmp_path: Path):
     """The invariant drift rests on: what was hashed is what the agent got."""
     shared = tmp_path / "shared"

@@ -39,11 +39,16 @@ _SLUG_RE = re.compile(r"[^A-Za-z0-9._-]+")
 # leading `.`/`/`/`~`, so a local repo is still reachable by writing `./owner/name`.
 _SHORTHAND_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
 _SHORTHAND_HOST = "https://github.com/"
+_RELATIVE_PREFIXES = tuple({f"{d}{sep}" for d in (".", "..") for sep in ("/", os.sep)})
 # The v2 `fetch` capability line a remote sends when it honours `--filter`,
 # e.g. `fetch=shallow wait-for-done filter`.
 _FILTER_CAPABILITY_RE = re.compile(r"< fetch=[^\n]*\bfilter\b")
 
 _GIT_TIMEOUT = 120
+
+
+def _is_relative(repo: str) -> bool:
+    return repo in (".", "..") or repo.startswith(_RELATIVE_PREFIXES)
 
 
 class SkillFetchError(ValueError):
@@ -249,7 +254,7 @@ class SkillFetcher:
     def _ls_remote(self, src: GitSkillSource) -> str:
         ref = src.ref or "HEAD"
         # ``ref^{}`` too: a pattern of ``ref`` alone omits a tag's peeled line.
-        out = self._git("ls-remote", self.clone_url(src.repo), ref, f"{ref}^{{}}")
+        out = self._git("ls-remote", self._remote(src.repo), ref, f"{ref}^{{}}")
         shas = {}
         for line in out.splitlines():
             sha, _, name = line.partition("\t")
@@ -287,7 +292,7 @@ class SkillFetcher:
         scratch = Path(tempfile.mkdtemp(prefix=".expand-", dir=self.root))
         try:
             self._git("init", "-q", "--bare", cwd=scratch)
-            self._git("remote", "add", "origin", self.clone_url(src.repo), cwd=scratch)
+            self._git("remote", "add", "origin", self._remote(src.repo), cwd=scratch)
             if not self._remote_supports_filter(scratch):
                 raise SkillFetchError(
                     f"{self._label(src)}: the remote does not support partial "
@@ -359,11 +364,12 @@ class SkillFetcher:
         is the commit, and separate runs share the cache, so another process
         may be cloning the same commit at the same moment.
         """
+        remote = self._remote(src.repo)
         dest.parent.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(prefix=f".{dest.name}-", dir=dest.parent))
         try:
             self._git("init", "-q", cwd=staging)
-            self._git("remote", "add", "origin", self.clone_url(src.repo), cwd=staging)
+            self._git("remote", "add", "origin", remote, cwd=staging)
             self._git("fetch", "-q", "--depth", "1", "origin", sha, cwd=staging)
             self._git("checkout", "-q", "FETCH_HEAD", cwd=staging)
             try:
@@ -425,7 +431,23 @@ class SkillFetcher:
             return f"{_SHORTHAND_HOST}{repo}"
         return repo
 
+    @classmethod
+    def _remote(cls, repo: str) -> str:
+        """`clone_url`, with a relative local path pinned to the caller's directory.
+
+        `_clone` runs git inside the cache, where `./owner/name` would point
+        somewhere else.
+        """
+        remote = cls.clone_url(repo)
+        if _is_relative(remote):
+            return str(Path(remote).resolve())
+        return remote
+
     def _repo_dir(self, repo: str) -> Path:
+        # The cache is shared across projects, so a relative path is keyed by
+        # where it points: `./origin` in two directories is two repos.
+        if _is_relative(repo):
+            repo = self._remote(repo)
         digest = hashlib.sha256(repo.encode()).hexdigest()[:12]
         slug = _SLUG_RE.sub("-", repo).strip("-")[-40:] or "repo"
         return self.root / f"{slug}-{digest}"

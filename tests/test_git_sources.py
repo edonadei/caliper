@@ -294,6 +294,21 @@ def test_a_short_pin_is_expanded_on_a_cold_cache(tmp_path: Path, origin: Path):
     assert "v2" not in fetched.path.read_text()
 
 
+def test_a_short_pin_on_a_relative_path_is_expanded_on_a_cold_cache(
+    tmp_path: Path, origin: Path, monkeypatch
+):
+    """The expansion fetches from a scratch directory, not the caller's."""
+    _allow_partial_fetches(origin)
+    pinned = _head(origin)
+    monkeypatch.chdir(tmp_path)
+
+    fetched = SkillFetcher(cache_dir=tmp_path / "cache").materialize(
+        GitSkillSource(repo="./origin", ref=pinned[:12])
+    )
+
+    assert fetched.sha == pinned
+
+
 def test_a_short_pin_reachable_only_from_a_tag_is_expanded(
     tmp_path: Path, origin: Path
 ):
@@ -514,14 +529,56 @@ def test_only_bare_owner_name_is_treated_as_shorthand(repo: str):
     assert SkillFetcher.clone_url(repo) == repo
 
 
-def test_a_local_repo_is_still_reachable_by_relative_path(tmp_path: Path, origin: Path):
+def test_a_local_repo_is_still_reachable_by_relative_path(
+    tmp_path: Path, origin: Path, monkeypatch
+):
     """`./owner/name` is the escape hatch from shorthand expansion."""
-    fetched = SkillFetcher(cache_dir=tmp_path / "cache").materialize(
-        GitSkillSource(repo=f"./{origin.relative_to(Path.cwd())}", ref="main")
-        if origin.is_relative_to(Path.cwd())
-        else GitSkillSource(repo=str(origin), ref="main")
-    )
+    monkeypatch.chdir(tmp_path)
+    fetcher = SkillFetcher(cache_dir=tmp_path / "cache")
+    fetched = fetcher.materialize(GitSkillSource(repo="./origin", ref="main"))
     assert fetched is not None
+    assert fetched.sha == _head(origin)
+    assert fetched.path.read_text() == SKILL_BODY.format(name="tdd")
+    assert fetched.repo == "./origin"
+    assert fetched.checkout.parent == fetcher._repo_dir("./origin")
+
+
+def test_one_relative_path_from_two_directories_names_two_repos(
+    tmp_path: Path, monkeypatch
+):
+    """The cache is shared, so `./origin` is keyed by where it points."""
+    projects = {}
+    for project in ("a", "b"):
+        repo = tmp_path / project / "origin"
+        repo.mkdir(parents=True)
+        _git("init", "-b", "main", cwd=repo)
+        _git("config", "user.email", "t@example.com", cwd=repo)
+        _git("config", "user.name", "Test", cwd=repo)
+        _write_skill(repo, project)
+        _git("add", "-A", cwd=repo)
+        _git("commit", "-m", "first", cwd=repo)
+        projects[project] = repo
+    src = GitSkillSource(repo="./origin", ref="main")
+    cache = tmp_path / "cache"
+
+    for project in ("a", "b"):
+        monkeypatch.chdir(tmp_path / project)
+        SkillFetcher(cache_dir=cache).materialize(src)
+    monkeypatch.chdir(tmp_path / "a")
+    fetched = SkillFetcher(cache_dir=cache, offline=True).materialize(src)
+
+    assert fetched is not None
+    assert fetched.sha == _head(projects["a"])
+    assert fetched.path.read_text() == SKILL_BODY.format(name="a")
+    assert fetched.repo == "./origin"
+
+
+@pytest.mark.parametrize("repo", [".", "..", "./origin", "../origin"])
+def test_a_relative_remote_is_pinned_to_the_caller_s_directory(
+    tmp_path: Path, monkeypatch, repo: str
+):
+    monkeypatch.chdir(tmp_path)
+    assert SkillFetcher._remote(repo) == str((tmp_path / repo).resolve())
 
 
 def test_the_cache_key_and_messages_keep_the_spec_s_own_string(tmp_path: Path):
