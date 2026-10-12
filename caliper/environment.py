@@ -33,8 +33,8 @@ from caliper.skills import (
     SkillRef,
     apply_ablation,
     resolve_skills,
+    undeclared_slash_commands,
     validate_activates,
-    validate_planted_skills,
 )
 from caliper.workdir import AttemptWorkdir
 
@@ -189,10 +189,10 @@ def resolve_environment(
         for task in spec.tasks
         if (turns := task.planted_history(spec_dir)) is not None
     }
-    validate_planted_skills(
-        {task.name: histories[task.id] for task in spec.tasks if task.id in histories},
-        declared_refs,
-    )
+    if on_warning:
+        planted = {t.name: histories[t.id] for t in spec.tasks if t.id in histories}
+        for warning in undeclared_slash_commands(planted, declared_refs):
+            on_warning(warning)
     # `--ablate` names a declared subject — a skill or an mcp: server — and this
     # removes it. Duplicates collapse: `--ablate x --ablate x` removes one.
     ablation = apply_ablation(declared_refs, list(ablate), mcp_servers=spec.mcp)

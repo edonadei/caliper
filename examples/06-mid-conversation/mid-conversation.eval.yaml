@@ -16,7 +16,7 @@
 
 skills:
   # 👉 EDIT 1: point this at your own SKILL.md. Slash-only, so the agent never
-  # discovers it: the history's skill: turn is how it gets entered.
+  # discovers it: the history's /repro-first turn is how it gets entered.
   - ./SKILL.md
 
 tasks:

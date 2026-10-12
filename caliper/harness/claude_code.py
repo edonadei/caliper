@@ -312,33 +312,36 @@ class ClaudeCodeHarness(CliHarness):
             ctx.history or [],
             session_id=session_id,
             cwd=workdir,
-            invoke=lambda turn: self._invoked_skill(ctx, turn),
+            user_turn=lambda turn: self._user_turn(ctx, turn),
         )
         path.write_text("".join(json.dumps(line) + "\n" for line in lines))
         return session_id
 
-    def _invoked_skill(self, ctx: RunContext, turn: PlantedTurn) -> str:
-        """A planted ``skill:`` turn as the CLI writes an expanded slash command.
+    def _user_turn(self, ctx: RunContext, turn: PlantedTurn) -> str:
+        """A planted user turn as the CLI would have stored it.
 
-        Read from the installed copy, so the history never repeats the skill and
-        an edit to it reaches the next run. An ablated skill isn't installed:
-        the turn is then the bare command, which the CLI would not expand either.
+        One opening with ``/name`` of an installed skill is the slash command
+        expanded, read from the installed copy so the history never repeats the
+        skill and an edit to it reaches the next run. Anything else, including
+        the command of an ablated skill, is the text as typed: the CLI would not
+        expand it either.
         """
-        directory = self.skills_root(ctx) / (turn.skill or "")
-        installed = directory / "SKILL.md"
-        if not installed.is_file():
-            return turn.command
-        parts = [f"<command-name>/{turn.skill}</command-name>"]
-        if turn.args:
-            parts.append(f"<command-args>{turn.args}</command-args>")
+        command = turn.slash_command
+        directory = self.skills_root(ctx) / command[0] if command else None
+        if directory is None or not (directory / "SKILL.md").is_file():
+            return turn.user or ""
+        name, args = command
+        parts = [f"<command-name>/{name}</command-name>"]
+        if args:
+            parts.append(f"<command-args>{args}</command-args>")
         parts += [
             "",
             f"Base directory for this skill: {directory}",
             "",
-            skill_body(installed.read_text()),
+            skill_body((directory / "SKILL.md").read_text()),
         ]
-        if turn.args:
-            parts += ["", f"ARGUMENTS: {turn.args}"]
+        if args:
+            parts += ["", f"ARGUMENTS: {args}"]
         return "\n".join(parts)
 
     def _materialize_mcp_config(self, ctx: RunContext) -> Path:
@@ -669,14 +672,14 @@ def _session_lines(
     *,
     session_id: str,
     cwd: str,
-    invoke: Callable[[PlantedTurn], str],
+    user_turn: Callable[[PlantedTurn], str],
 ) -> list[dict]:
     """``history`` as Claude Code session lines, one message per line.
 
     Only the fields a resume was seen to need (2.1.296): without a
     ``timestamp`` the CLI does not find the session at all. A planted shell
     call is a ``Bash`` tool use, answered by a ``tool_result`` user message;
-    ``invoke`` writes a planted ``skill:`` turn.
+    ``user_turn`` writes a user turn's content.
     """
     lines: list[dict] = []
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
@@ -695,8 +698,8 @@ def _session_lines(
         )
 
     for turn in history:
-        if turn.from_user:
-            add("user", turn.user if turn.skill is None else invoke(turn))
+        if turn.user is not None:
+            add("user", user_turn(turn))
             continue
         # Each tool use is answered by the result with its id.
         calls = [

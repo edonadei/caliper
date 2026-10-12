@@ -1,7 +1,6 @@
-# What happened before the task's prompt. The user entered the mode with
-# /repro-first; caliper expands it from the installed SKILL.md each attempt.
-- skill: repro-first
-  args: slugify("Hello  World") gives "hello--world", it should be "hello-world"
+# What happened before the task's prompt. The user typed /repro-first with the
+# bug; caliper expands it from the installed SKILL.md each attempt.
+- user: /repro-first slugify("Hello  World") gives "hello--world", it should be "hello-world"
 
 # Each output must match what setup: builds: the agent trusts these over the disk.
 - assistant: Let me look at slugify and confirm the behaviour.

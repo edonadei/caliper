@@ -34,8 +34,8 @@ until then a spec with `history:` is refused on them like on hermes.
 
 ## One neutral format, translated at the harness boundary
 
-The spec carries a backend-neutral list of turns: user text, a skill the user
-invoked, assistant text, and a shell call with its output. Each harness translates it into its CLI's own
+The spec carries a backend-neutral list of turns: user text, assistant text, and
+a shell call with its output. Each harness translates it into its CLI's own
 session format. This follows the backend-consistency stance of docs/adr/0003 and
 docs/adr/0012. The same spec runs on any engine that can honor it, and the
 CLIs' session formats stay out of the spec.
@@ -85,14 +85,15 @@ If #8650 lands, hermes can join with a translator like the other three backends.
 - **Activation in the planted history is not activation.** A skill shown as
   loaded in a planted turn was put there by the author. Only skills the agent
   loads after resuming count toward `activates:`.
-- **A planted skill is named, never pasted.** On claude-code, a user turn of
-  `/poteto-mode` resumes as those words and loads nothing; a user turn holding
-  the skill's body, as the CLI writes an expanded slash command, does. Pasting
-  the body into the history would leave a copy that silently goes stale when
-  the skill is edited, so the format has a third turn kind, `skill:` (with
-  optional `args:`), naming a declared skill. Each harness expands it from the
-  installed copy at run time. An ablated skill isn't installed, so its turn is
-  the bare command, which is what a user typing it would get.
+- **A planted skill is named, never pasted.** On claude-code, a planted user
+  turn of `/poteto-mode` resumes as those words and loads nothing; a user turn
+  holding the skill's body, as the CLI writes an expanded slash command, does.
+  Pasting the body into the history would leave a copy that silently goes stale
+  when the skill is edited. So a user turn opening with `/name` of a declared
+  skill is a slash command, and each harness expands it from the installed copy
+  at run time. The history reads as typed, with no extra turn kind. An ablated
+  skill isn't installed, so the turn stays as typed, which is what a user
+  typing it would get.
 - **Planted observations override the disk.** The agent believes a planted tool
   result over the real file, so the history and `setup:` must agree. The
   authoring guidance says so.

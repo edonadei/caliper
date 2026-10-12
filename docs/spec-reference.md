@@ -345,21 +345,23 @@ tasks:
 ```
 
 The path resolves against the spec's directory, like `assert: ./check.py`. The
-file is a list of turns, and it must start with a user or skill turn. Each turn
-has exactly one of:
+file is a list of turns, and it must start with a user turn. Each turn has
+exactly one of:
 
 - `user:`: what the user said.
-- `skill:`: a declared skill the user entered by its slash command, with
-  optional `args:`. Name it, don't paste it: each attempt expands the
-  installed `SKILL.md` the way the CLI expands a slash command, so an edit to
-  the skill reaches the next run. The skill must be in `skills:`.
 - `assistant:`: what the agent said, optionally with `shell:`, a list of
   commands it ran. Each command has `run:` and `output:`, the output the agent
   saw. An assistant turn needs text, `shell:` commands, or both.
 
+A user turn that opens with `/name`, where `name` is a skill in `skills:`, is
+that slash command: the user entered the skill. Each attempt expands the
+installed `SKILL.md` the way the CLI expands a typed command, so the history
+names the skill instead of pasting it, and an edit to the skill reaches the
+next run. Anything else stays plain text; `validate` and `run` warn about a
+`/name` matching no declared skill, which is usually a typo.
+
 ```yaml
-- skill: repro-first     # a slash-only mode (disable-model-invocation: true)
-  args: slugify("Hello  World") gives "hello--world"
+- user: /repro-first slugify("Hello  World") gives "hello--world"   # a slash-only mode
 - assistant: Confirmed, two spaces give two dashes. Want me to fix it?
 ```
 
@@ -372,10 +374,10 @@ The shell is the only tool a planted turn can call.
   transcript, so cheat detection, `activates:` and the judge never grade them as
   its behaviour. The judge still reads them, labelled as prior context, since
   "finish what we agreed" can't be graded without them.
-- **Plant a skill with `skill:`, not `user: /name`.** A user turn of
-  `/poteto-mode` is plain text on resume and loads nothing. A planted skill
-  doesn't count toward `activates:`. `--ablate` on it plants the bare command
-  instead, which makes the baseline "same conversation, without the skill".
+- **An entered skill isn't activation.** A skill entered by a planted `/name`
+  doesn't count toward `activates:`. `--ablate` on it leaves the turn as typed,
+  which the CLI doesn't expand either: the baseline is "same conversation,
+  without the skill".
 - **claude-code only, for now.** On codex, pi and hermes a spec with `history:`
   is refused before the first attempt. See
   [ADR 0036](adr/0036-planted-history-is-a-neutral-transcript-each-backend-resumes-natively.md).

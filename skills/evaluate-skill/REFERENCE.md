@@ -123,17 +123,15 @@ checks before its first attempt):
   the script's output.
 - **Planted history.** `history: ./h.yaml` starts a task mid-conversation: the
   agent resumes from the file's turns and `prompt:` is the next user turn. The
-  file is a list starting with a user or skill turn; each turn is
-  `- user: <text>`, `- skill: <declared skill>` (optional `args:`), or
+  file is a list starting with a user turn; each turn is `- user: <text>` or
   `- assistant: <text>`, and an assistant turn may add `shell:` entries of
-  `run:` and `output:`. `setup:` and the history must agree, since the agent
-  trusts a planted output over the disk. Planted turns are kept out of the
+  `run:` and `output:`. A user turn of `/name args` enters that declared skill:
+  it's expanded from the installed `SKILL.md` each attempt, and under
+  `--ablate` stays as typed. `setup:` and the history must agree, since the
+  agent trusts a planted output over the disk. Planted turns are kept out of the
   transcript, so cheat detection and `activates:` ignore them; the judge reads
-  them as prior context. Enter a slash-only skill with `skill:`, never
-  `user: /name`, which loads nothing; it's expanded from the installed
-  `SKILL.md` each attempt, and `--ablate` on it plants the bare command.
-  claude-code only; codex, pi and hermes
-  refuse the spec.
+  them as prior context. claude-code only; codex, pi and hermes refuse the
+  spec.
 - **Git sources.** `run` fetches them before the first attempt; `validate` never
   touches the network. A pinned `ref:` is offline after its first fetch. A git
   source whose skill has a symlink pointing outside the clone is refused.

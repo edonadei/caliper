@@ -426,30 +426,24 @@ def validate_activates(
         )
 
 
-def validate_planted_skills(
-    histories: dict[str, list], refs: list[SkillRef], *, closed: bool = True
-) -> None:
-    """Refuse a planted ``skill:`` turn naming a skill the spec never declared.
+def undeclared_slash_commands(
+    histories: dict[str, list], refs: list[SkillRef]
+) -> list[str]:
+    """A warning per planted ``/name`` turn naming no declared skill.
 
-    ``histories`` maps a task's name to its planted turns. The turn is expanded
-    from the installed skill, so an undeclared one has nothing to expand. Shared
-    by ``validate`` and the run seam, like :func:`validate_activates`.
+    Such a turn stays plain text, as the user's own words: a path like ``/tmp``
+    can open a sentence. But it is more often a typo or a skill missing from
+    ``skills:``, which would quietly run the task without it.
     """
-    if not closed:
-        return
     declared = {ref.name for ref in refs}
-    for task_name, turns in histories.items():
-        for turn in turns:
-            if turn.skill is None or turn.skill in declared:
-                continue
-            listed = ", ".join(sorted(declared)) or "(none)"
-            raise SkillResolutionError(
-                f"Task '{task_name}' plants a /{turn.skill} turn, but the spec's "
-                f"skills: declares only {listed}.\n\n"
-                "A planted skill turn is expanded from the installed skill, so "
-                "add it to skills:, or correct the name (identity is the "
-                "frontmatter name:, not the filename)."
-            )
+    return [
+        f"Task '{task_name}' plants a turn opening with /{command[0]}, but "
+        "skills: declares no such skill, so the turn stays plain text. Add it "
+        "to skills: if it should enter that skill."
+        for task_name, turns in histories.items()
+        for turn in turns
+        if (command := turn.slash_command) and command[0] not in declared
+    ]
 
 
 def install_skills(
