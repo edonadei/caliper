@@ -216,14 +216,16 @@ class CodexHarness(CliHarness):
             "model_provider": "openai",
         }
         lines = [{"timestamp": timestamp, "type": "session_meta", "payload": meta}]
-        for item in _rollout_items(ctx.history or [], self._user_turn(ctx)):
+        for item in _rollout_items(
+            ctx.history or [], lambda turn: self._user_turn(ctx, turn)
+        ):
             lines.append(
                 {"timestamp": timestamp, "type": "response_item", "payload": item}
             )
         path.write_text("".join(json.dumps(line) + "\n" for line in lines))
         return session_id
 
-    def _user_turn(self, ctx: RunContext) -> Callable[[PlantedTurn], list[str]]:
+    def _user_turn(self, ctx: RunContext, turn: PlantedTurn) -> list[str]:
         """A planted user turn's messages, as codex stores what was typed.
 
         ``/name`` of an installed skill is codex's ``$name`` mention, followed by
@@ -231,19 +233,15 @@ class CodexHarness(CliHarness):
         edit to the skill reaches the next run. Anything else, including the
         command of an ablated skill, is the text as typed.
         """
-
-        def messages(turn: PlantedTurn) -> list[str]:
-            skill = self.planted_skill(ctx, turn)
-            if skill is None:
-                return [turn.user or ""]
-            name, args, skill_md = skill
-            return [
-                f"${name} {args}".rstrip(),
-                f"<skill>\n<name>{name}</name>\n<path>{skill_md}</path>\n"
-                f"{skill_md.read_text()}\n</skill>",
-            ]
-
-        return messages
+        skill = self.planted_skill(ctx, turn)
+        if skill is None:
+            return [turn.user or ""]
+        name, args, skill_md = skill
+        return [
+            f"${name} {args}".rstrip(),
+            f"<skill>\n<name>{name}</name>\n<path>{skill_md}</path>\n"
+            f"{skill_md.read_text()}\n</skill>",
+        ]
 
     @staticmethod
     def _connector_overrides(ctx: RunContext) -> tuple[str, ...]:

@@ -102,5 +102,6 @@ If #8650 lands, hermes can join with a translator like the other three backends.
   CLI versions. Caliper writes only the minimal fields each probe needed (on
   claude-code 2.1.296, a line without a `timestamp` makes the session invisible
   to `--resume`; on codex 0.162.0, a `session_meta` missing any of its keys
-  fails the resume, though their values aren't checked), and a format break shows up as the CLI rejecting the resume,
-  an `infra_error`, not a silent wrong score.
+  fails the resume, though their values aren't checked), and a format break
+  shows up as the CLI rejecting the resume, an `infra_error`, not a silent
+  wrong score.
