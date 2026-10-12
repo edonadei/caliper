@@ -20,7 +20,7 @@ from caliper.harness.base import (
     ProcessResult,
     RunContext,
 )
-from caliper.harness.codex import NO_ACCOUNT_CONNECTORS, CodexHarness
+from caliper.harness.codex import CODEX_CONFIG, NO_ACCOUNT_CONNECTORS, CodexHarness
 from caliper.harness.user_layer import UNLISTED_MCP
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
@@ -308,7 +308,7 @@ def test_codex_config_copy_strips_top_level_model(monkeypatch, tmp_path) -> None
     )
     harness = CodexHarness()
     harness._seed_home(ctx)
-    harness._prepare(ctx)
+    harness.cli_config.write(ctx, backend=harness.name)
 
     copied = (isolated_home / ".codex" / "config.toml").read_text()
     assert 'model = "gpt-5.5"' not in copied
@@ -742,13 +742,14 @@ def test_codex_user_customizations_still_ablates_a_server_the_user_also_has(
     iso = tmp_path / "iso"
     iso.mkdir()
     monkeypatch.setenv("HOME", str(home))
-    CodexHarness()._prepare(
+    CODEX_CONFIG.write(
         run_context(
             isolated_home=str(iso),
             mcp_servers={},
             spec_mcp_names=frozenset({"personal"}),
             user_customizations=True,
-        )
+        ),
+        backend="codex",
     )
     config = tomllib.loads((iso / ".codex" / "config.toml").read_text())
     assert "mcp_servers" not in config

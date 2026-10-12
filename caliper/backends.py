@@ -90,3 +90,24 @@ def mcp_tool_separator(backend: str) -> str:
     """
     entry = BACKENDS.get(normalize_backend(backend))
     return entry.mcp_tool_separator if entry else "__"
+
+
+def mcp_tool_name(backend: str, server: str, tool: str) -> str:
+    """The name ``backend`` gives a call to ``tool`` on ``server``."""
+    sep = mcp_tool_separator(backend)
+    return f"mcp{sep}{server}{sep}{tool}"
+
+
+def mcp_server_of(tool_name: str, servers: list[str], backend: str) -> str | None:
+    """The one known server a tool call belongs to, or ``None``.
+
+    The separator is the producing backend's, never guessed from the name: a
+    server name may itself contain ``_`` or ``__``, so ``mcp__mail_read`` is
+    hermes calling ``_mail``, or claude-code calling ``mail_read``'s server.
+    Within one form the longest known server wins: ``mcp_mail_archive_read``
+    starts with both ``mail_`` and ``mail_archive_``.
+    """
+    matches = [
+        s for s in servers if tool_name.startswith(mcp_tool_name(backend, s, ""))
+    ]
+    return max(matches, key=len) if matches else None

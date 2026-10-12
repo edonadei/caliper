@@ -44,8 +44,8 @@ from rich.progress import (
 from rich.table import Column, Table
 from rich.text import Text
 
-from caliper.backends import mcp_tool_separator
 from caliper.schema.results import (
+    McpUsage,
     ObservedActivation,
     Outcome,
     OutcomeCounts,
@@ -54,8 +54,6 @@ from caliper.schema.results import (
     RunResults,
     TaskResult,
     UsageTotals,
-    pass_at_k,
-    pass_hat_k,
 )
 
 console = Console()
@@ -867,65 +865,12 @@ def _print_observed_skills(results: RunResults) -> None:
     console.print(table)
 
 
-def _mcp_calls(results: RunResults) -> dict[str, tuple[int, int, int]]:
-    """Per server: (attempts that called it, attempts observed, total calls).
-
-    Read from the saved transcripts. claude-code and codex name a call
-    ``mcp__<server>__<tool>``, hermes ``mcp_<server>_<tool>``
-    (docs/CONTEXT.md → MCP server (declared)). A server loaded from the user's
-    own setup is counted too: it competes for the same work.
-    """
-    declared = list(results.run.mcp_servers or [])
-    loaded = results.run.loaded_user_customizations or []
-    user = [n.split(":", 1)[1] for n in loaded if n.startswith("mcp:")]
-    servers = declared + [s for s in user if s not in declared]
-    stats = {server: [0, 0, 0] for server in servers}
-    for task in results.task_results:
-        for attempt in task.attempts:
-            # An attempt with no transcript, or a truncated one, can't say a
-            # server went unused.
-            if attempt.transcript is None or not attempt.outcome.is_activation_usable:
-                continue
-            calls: dict[str, int] = {}
-            for turn in attempt.transcript:
-                # The invocation only: hermes also names the tool on its result
-                # turn, which would count one call twice.
-                if turn.role != "tool_use" or not turn.tool_name:
-                    continue
-                server = _mcp_server(turn.tool_name, servers, results.run.backend)
-                if server is not None:
-                    calls[server] = calls.get(server, 0) + 1
-            for server in servers:
-                stats[server][1] += 1
-                if calls.get(server):
-                    stats[server][0] += 1
-                    stats[server][2] += calls[server]
-    return {server: tuple(counts) for server, counts in stats.items()}
-
-
-def _mcp_server(tool_name: str, servers: list[str], backend: str) -> str | None:
-    """The one known server a tool call belongs to, or ``None``.
-
-    The separator is the producing backend's (caliper/backends.py), never
-    guessed from the name: hermes writes ``mcp_<server>_<tool>``, claude-code and codex
-    ``mcp__<server>__<tool>`` (docs/CONTEXT.md → MCP server (declared)), and a
-    server name may itself contain ``_`` or ``__`` — so ``mcp__mail_read`` is
-    hermes calling ``_mail``, or claude-code calling ``mail_read``'s server.
-    Within one form the longest known server wins: ``mcp_mail_archive_read``
-    starts with both ``mail_`` and ``mail_archive_``.
-    """
-    sep = mcp_tool_separator(backend)
-    matches = [s for s in servers if tool_name.startswith(f"mcp{sep}{s}{sep}")]
-    return max(matches, key=len) if matches else None
-
-
 def _print_mcp(results: RunResults) -> None:
     """Which servers the agent actually used. Shown, never scored."""
-    stats = _mcp_calls(results)
+    rows = McpUsage.from_run_results(results)
     removed = results.run.ablated_servers
-    if not any(observed for _, observed, _ in stats.values()) and not removed:
+    if not any(row.observed for row in rows) and not removed:
         return
-    declared = set(results.run.mcp_servers or [])
     console.print()
     console.print(
         Text.assemble(
@@ -936,18 +881,18 @@ def _print_mcp(results: RunResults) -> None:
     table.add_column("Server")
     table.add_column("called in")
     table.add_column("calls", justify="right")
-    for server, (used, observed, calls) in stats.items():
-        name = Text(server, style="" if used else "dim")
-        if server not in declared:
+    for row in rows:
+        name = Text(row.server, style="" if row.used else "dim")
+        if not row.declared:
             name.append("  user", style="yellow")
         table.add_row(
             name,
             _rate_cell(
-                used / observed if observed else None,
-                f"{used}/{observed} attempts",
-                "" if used else "dim",
+                row.used / row.observed if row.observed else None,
+                f"{row.used}/{row.observed} attempts",
+                "" if row.used else "dim",
             ),
-            Text(str(calls), style="" if calls else "dim"),
+            Text(str(row.calls), style="" if row.calls else "dim"),
         )
     for server in removed:
         table.add_row(
@@ -1362,23 +1307,9 @@ def _print_compare_header(comp: RunComparison) -> None:
     console.print(grid)
 
 
-def _is_probe(outcomes: list[Outcome]) -> bool:
-    """A trigger probe's side: unchecked attempts and no execution verdict."""
-    return any(o == Outcome.NOT_CHECKED for o in outcomes) and not any(
-        o in (Outcome.PASS, Outcome.TASK_FAIL) for o in outcomes
-    )
-
-
 def _pair_cell(before: float | None, after: float | None) -> Text:
     """`x → y` for a secondary metric (pass@k / pass^k)."""
     return Text(f"{_fmt_score(before)} {_TO} {_fmt_score(after)}", style="dim")
-
-
-def _alt_metric(outcomes: list[Outcome], formula: Callable[[int, int], float | None]):
-    """A secondary metric from the stored outcomes, through the same formulas
-    ``TaskResult`` uses, so it can never disagree with the run it came from."""
-    counts = OutcomeCounts(outcomes)
-    return formula(counts.successes, counts.usable)
 
 
 def print_comparison(comp: RunComparison, verbose: bool = False) -> None:
@@ -1400,7 +1331,7 @@ def print_comparison(comp: RunComparison, verbose: bool = False) -> None:
     for tc in comp.matched:
         measured = tc.a_score is not None and tc.b_score is not None
         name = Text(tc.task_name, style="" if measured else "dim")
-        if _is_probe(tc.a_outcomes) and _is_probe(tc.b_outcomes):
+        if tc.probe:
             # A trigger probe has no execution score on either side by
             # construction; its activation diff is below.
             row = [
@@ -1438,14 +1369,11 @@ def print_comparison(comp: RunComparison, verbose: bool = False) -> None:
     delta = comp.aggregate_delta
     if comparable:
 
-        def pooled(side: str) -> tuple[int, int]:
-            counts = [
-                OutcomeCounts(tc.a_outcomes if side == "a" else tc.b_outcomes)
-                for tc in comparable
-            ]
+        def pooled(counts: list[OutcomeCounts]) -> tuple[int, int]:
             return sum(c.successes for c in counts), sum(c.usable for c in counts)
 
-        (sa, ua), (sb, ub) = pooled("a"), pooled("b")
+        sa, ua = pooled([tc.a_counts for tc in comparable])
+        sb, ub = pooled([tc.b_counts for tc in comparable])
         table.add_row(
             Text("Success", style="bold"),
             _rate_cell(
@@ -1495,18 +1423,12 @@ def _print_secondary_metrics(comp: RunComparison) -> None:
     table.add_column("pass@k", no_wrap=True)
     table.add_column("pass^k", no_wrap=True)
     for tc in comp.matched:
-        if _is_probe(tc.a_outcomes) and _is_probe(tc.b_outcomes):
+        if tc.probe:
             continue
         table.add_row(
             Text(tc.task_name),
-            _pair_cell(
-                _alt_metric(tc.a_outcomes, pass_at_k),
-                _alt_metric(tc.b_outcomes, pass_at_k),
-            ),
-            _pair_cell(
-                _alt_metric(tc.a_outcomes, pass_hat_k),
-                _alt_metric(tc.b_outcomes, pass_hat_k),
-            ),
+            _pair_cell(tc.a_counts.pass_at_k, tc.b_counts.pass_at_k),
+            _pair_cell(tc.a_counts.pass_hat_k, tc.b_counts.pass_hat_k),
         )
     console.print(table)
 
@@ -1668,8 +1590,7 @@ def _compare_notes(comp: RunComparison) -> list[_Note]:
     unmeasured = [
         tc.task_name
         for tc in comp.matched
-        if (tc.a_score is None or tc.b_score is None)
-        and not (_is_probe(tc.a_outcomes) and _is_probe(tc.b_outcomes))
+        if (tc.a_score is None or tc.b_score is None) and not (tc.probe)
     ]
     if unmeasured:
         notes.append(

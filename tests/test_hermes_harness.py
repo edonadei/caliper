@@ -13,7 +13,7 @@ from caliper.harness.base import (
     LoginRequired,
     ProcessResult,
 )
-from caliper.harness.hermes import HermesHarness
+from caliper.harness.hermes import HERMES_CONFIG, HermesHarness
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
 
@@ -290,17 +290,15 @@ def test_hermes_user_customizations_still_ablates_a_server_the_user_also_has(
 ) -> None:
     home = _fake_home_with_user_mcp(tmp_path)
     iso = tmp_path / "iso"
-    (iso / ".hermes").mkdir(parents=True)
-    (iso / ".hermes" / "config.yaml").write_text(
-        (home / ".hermes" / "config.yaml").read_text()
-    )
-    HermesHarness()._prepare(
+    monkeypatch.setenv("HOME", str(home))
+    HERMES_CONFIG.write(
         run_context(
             isolated_home=str(iso),
             mcp_servers={},
             spec_mcp_names=frozenset({"personal"}),
             user_customizations=True,
-        )
+        ),
+        backend="hermes",
     )
     config = yaml.safe_load((iso / ".hermes" / "config.yaml").read_text())
     assert "mcp_servers" not in config

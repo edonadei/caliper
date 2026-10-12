@@ -8,6 +8,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
+from caliper.backends import mcp_server_of
+
 # What a saved run's numbers can be. A results file is read back and may have
 # been edited or corrupted since: a negative count or a 250% score would
 # otherwise render as a plausible figure, and NaN crashes the rounding.
@@ -465,6 +467,31 @@ class OutcomeCounts:
     def cheated(self) -> bool:
         return Outcome.CHEAT in self.outcomes
 
+    @property
+    def score(self) -> float | None:
+        """The raw success rate over usable attempts (docs/adr/0007)."""
+        return success_rate(self.successes, self.usable)
+
+    @property
+    def pass_at_k(self) -> float | None:
+        return pass_at_k(self.successes, self.usable)
+
+    @property
+    def pass_hat_k(self) -> float | None:
+        return pass_hat_k(self.successes, self.usable)
+
+    @property
+    def trigger_only(self) -> bool:
+        """True when no execution check was authored (`activates:` alone).
+
+        Keyed on the *absence of any execution verdict*, not on unanimity: a
+        single timeout among k would otherwise flip a correct trigger probe back
+        to "0/3 UNUSABLE" — the exact reading ``not_checked`` exists to prevent.
+        """
+        return Outcome.NOT_CHECKED in self.outcomes and not any(
+            o in (Outcome.PASS, Outcome.TASK_FAIL) for o in self.outcomes
+        )
+
 
 class TaskResult(BaseModel):
     """One task's attempts, and every number that follows from them.
@@ -526,19 +553,19 @@ class TaskResult(BaseModel):
     def score(self) -> float | None:
         """The **raw success rate** over usable attempts — Caliper's primary
         metric. ``None`` when no attempt was fairly measured."""
-        return success_rate(self.successes, self.usable)
+        return self.counts.score
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def pass_at_k(self) -> float | None:
         """pass@k: P(at least one usable attempt passes) — the retry-friendly view."""
-        return pass_at_k(self.successes, self.usable)
+        return self.counts.pass_at_k
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def pass_hat_k(self) -> float | None:
         """pass^k: P(all usable attempts pass) — the strict consistency view."""
-        return pass_hat_k(self.successes, self.usable)
+        return self.counts.pass_hat_k
 
     # --- the second scoreboard, which never merges with the first ----------
     #
@@ -581,17 +608,8 @@ class TaskResult(BaseModel):
 
     @property
     def trigger_only(self) -> bool:
-        """True when the task authored no execution check (`activates:` alone).
-
-        Keyed on the *absence of any execution verdict*, not on unanimity: a
-        single timeout among k would otherwise flip a correct trigger probe back
-        to "0/3 UNUSABLE" — the exact reading ``not_checked`` exists to prevent.
-        """
-        if not any(a.outcome == Outcome.NOT_CHECKED for a in self.attempts):
-            return False
-        return not any(
-            a.outcome in (Outcome.PASS, Outcome.TASK_FAIL) for a in self.attempts
-        )
+        """True when the task authored no execution check (`activates:` alone)."""
+        return self.counts.trigger_only
 
     @property
     def any_cheat(self) -> bool:
@@ -1031,6 +1049,66 @@ class ObservedActivation:
         ]
 
 
+@dataclass(frozen=True)
+class McpUsage:
+    """How often the agent called one MCP server. Shown, never scored.
+
+    Read from the saved transcripts, over the attempts whose transcript is
+    whole: a truncated one cannot say a server went unused (the same rule as
+    :class:`ObservedActivation`). A server loaded from the user's own setup is
+    counted too: it competes for the same work.
+    """
+
+    server: str
+    # Whether the spec declared it, rather than the user's setup bringing it.
+    declared: bool
+    # Attempts that called it, of the attempts observed.
+    used: int
+    observed: int
+    calls: int
+
+    @classmethod
+    def from_run_results(cls, results: RunResults) -> list[McpUsage]:
+        """One row per declared server, then each user server, in that order."""
+        declared = list(results.run.mcp_servers or [])
+        loaded = results.run.loaded_user_customizations or []
+        user = [n.split(":", 1)[1] for n in loaded if n.startswith("mcp:")]
+        servers = declared + [s for s in user if s not in declared]
+        used = dict.fromkeys(servers, 0)
+        calls = dict.fromkeys(servers, 0)
+        observed = 0
+        for task in results.task_results:
+            for attempt in task.attempts:
+                if (
+                    attempt.transcript is None
+                    or not attempt.outcome.is_activation_usable
+                ):
+                    continue
+                observed += 1
+                called: set[str] = set()
+                for turn in attempt.transcript:
+                    # The invocation only: hermes also names the tool on its
+                    # result turn, which would count one call twice.
+                    if turn.role != "tool_use" or not turn.tool_name:
+                        continue
+                    server = mcp_server_of(turn.tool_name, servers, results.run.backend)
+                    if server is not None:
+                        calls[server] += 1
+                        called.add(server)
+                for server in called:
+                    used[server] += 1
+        return [
+            cls(
+                server=server,
+                declared=server in declared,
+                used=used[server],
+                observed=observed,
+                calls=calls[server],
+            )
+            for server in servers
+        ]
+
+
 class RunResults(BaseModel):
     run: RunMeta
     # Plural: a neighbour's `description` is part of what produced the score, so
@@ -1066,7 +1144,7 @@ class RunResults(BaseModel):
 class TaskComparison(BaseModel):
     """One matched task diffed across two runs (A vs B).
 
-    ``a_score``/``b_score`` are the stored per-task ``pass_at_k`` (``None`` when
+    ``a_score``/``b_score`` are the stored per-task ``score`` (``None`` when
     every attempt was unusable — the task was never fairly measured). ``delta``
     is ``b - a`` only when both sides were measured, else ``None`` (never faked
     as 0). ``regression`` fires on the any-below rule: B below A, both measured.
@@ -1087,6 +1165,22 @@ class TaskComparison(BaseModel):
     b_activation: float | None = None
     activation_delta: float | None = None
     activation_regression: bool = False
+
+    # Read-side, like ``TaskResult.trigger_only``: each side's stored outcomes,
+    # counted by the same type a task result counts its own with, so a
+    # comparison can never re-derive a number differently from the run.
+    @property
+    def a_counts(self) -> OutcomeCounts:
+        return OutcomeCounts(list(self.a_outcomes))
+
+    @property
+    def b_counts(self) -> OutcomeCounts:
+        return OutcomeCounts(list(self.b_outcomes))
+
+    @property
+    def probe(self) -> bool:
+        """A trigger probe on both sides: no execution score to compare."""
+        return self.a_counts.trigger_only and self.b_counts.trigger_only
 
 
 class SkillDriftRecord(BaseModel):

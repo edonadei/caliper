@@ -6,8 +6,6 @@ from dataclasses import replace
 from functools import partial
 from pathlib import Path
 
-import yaml
-
 from caliper.harness.base import (
     AgentReport,
     CliHarness,
@@ -19,7 +17,7 @@ from caliper.harness.base import (
     last_assistant,
     stream_events,
 )
-from caliper.harness.mcp import merge_user_servers, resolve_servers
+from caliper.harness.cli_config import YAML, CliConfig
 from caliper.harness.refusal import AUTH_MARKERS, ConfigSignal
 from caliper.schema.results import TokenUsage
 
@@ -27,8 +25,24 @@ from caliper.schema.results import TokenUsage
 # authenticate. Deliberately excludes SOUL.md (persona) and MEMORY.md/USER.md:
 # Hermes is a *stateful* agent, and admitting it as an apples-to-apples flat
 # backend means stripping it to a neutral agent (see
-# docs/adr/0005-hermes-backend-normalized-to-neutral-agent.md).
-_SEED_FILES = ("auth.json", "config.yaml", ".env")
+# docs/adr/0005-hermes-backend-normalized-to-neutral-agent.md). config.yaml is
+# rewritten rather than copied (``HERMES_CONFIG``).
+_SEED_FILES = ("auth.json", ".env")
+
+# Hermes reads MCP servers from config.yaml's ``mcp_servers``, beside its model
+# settings. Isolated, the model endpoints and the execution host survive and the
+# user's own servers do not: the tool-environment half of hermes'
+# neutralization (docs/backends.md, docs/adr/0028). It takes the common server
+# rendering unchanged and infers HTTP/SSE from the URL; remote OAuth needs an
+# interactive browser flow the harness cannot drive, so only header-auth
+# remotes are expressible.
+HERMES_CONFIG = CliConfig(
+    path=".hermes/config.yaml",
+    codec=YAML,
+    connection_keys=frozenset(
+        {"model", "provider", "providers", "custom_providers", "terminal"}
+    ),
+)
 
 
 # Seconds for the export that recovers a timed-out attempt's session. A warm
@@ -57,6 +71,7 @@ class HermesHarness(CliHarness):
     """
 
     supports_mcp = True
+    cli_config = HERMES_CONFIG
     user_settings_file = "config.yaml"
     cli_name = "hermes"
     cli_path_env_var = "HERMES_CLI_PATH"
@@ -96,9 +111,7 @@ class HermesHarness(CliHarness):
         return Path(ctx.isolated_home) / ".hermes"
 
     def _prepare(self, ctx: RunContext) -> None:
-        hermes_home = self._hermes_home(ctx)
-        hermes_home.mkdir(parents=True, exist_ok=True)
-        self._configure_mcp(ctx, hermes_home)
+        self._hermes_home(ctx).mkdir(parents=True, exist_ok=True)
 
     def skills_root(self, ctx: RunContext) -> Path:
         return self._hermes_home(ctx) / "skills"
@@ -112,82 +125,6 @@ class HermesHarness(CliHarness):
             line.split(":", 1)[0].strip()
             for line in manifest.read_text().splitlines()
             if line.strip()
-        }
-
-    def _configure_mcp(self, ctx: RunContext, hermes_home: Path) -> None:
-        """Normalize the seeded config's ``mcp_servers`` to exactly the declared set.
-
-        Hermes reads MCP servers from ``config.yaml``'s ``mcp_servers`` key, and
-        the seeded config is copied verbatim from the user's real ``~/.hermes``
-        — which may carry the user's *own* MCP servers. Overwriting the key
-        wholesale is the tool-environment
-        half of Hermes' neutralization: an attempt sees only the spec's declared
-        servers, never ambient user state. When the spec declares no ``mcp:``
-        block the key is removed, so a no-MCP eval runs with zero MCP servers.
-        Secrets are resolved here at the harness boundary from the host env (an
-        unset var fails loudly), so literal credentials — never ``${VAR}`` — land
-        in the config; the file may now hold them, so it is kept ``0600``.
-
-        When loading user customizations, ``mcp_servers`` is instead
-        :func:`merge_user_servers` of the user's and the declared ones
-        (docs/adr/0028).
-        """
-        servers = self._translate_mcp_servers(ctx)
-        config_path = hermes_home / "config.yaml"
-
-        if config_path.exists():
-            loaded = yaml.safe_load(config_path.read_text())
-            config = loaded if isinstance(loaded, dict) else {}
-            servers = merge_user_servers(config.get("mcp_servers"), servers, ctx)
-            if not ctx.user_customizations:
-                # Connection allowlist: docs/backends.md and docs/adr/0028.
-                # Preserve the execution host as well as model endpoints.
-                config = {
-                    key: value
-                    for key, value in config.items()
-                    if key
-                    in {
-                        "model",
-                        "provider",
-                        "providers",
-                        "custom_providers",
-                        "terminal",
-                    }
-                }
-            if servers:
-                config["mcp_servers"] = servers
-            else:
-                config.pop("mcp_servers", None)
-            config_path.write_text(yaml.safe_dump(config, sort_keys=False))
-        elif servers:
-            config_path.write_text(
-                yaml.safe_dump({"mcp_servers": servers}, sort_keys=False)
-            )
-        if config_path.exists():
-            config_path.chmod(0o600)
-
-    def _configured_servers(self, ctx: RunContext) -> list[str]:
-        """The servers in the ``config.yaml`` the attempt ran with."""
-        config_path = self._hermes_home(ctx) / "config.yaml"
-        loaded = yaml.safe_load(config_path.read_text()) if config_path.exists() else {}
-        config = loaded if isinstance(loaded, dict) else {}
-        servers = config.get("mcp_servers")
-        return list(servers) if isinstance(servers, dict) else []
-
-    def _translate_mcp_servers(self, ctx: RunContext) -> dict[str, dict]:
-        """Translate the declared ``mcp:`` servers into Hermes' ``mcp_servers`` shape.
-
-        Hermes takes the common rendering from ``resolve_servers`` unchanged
-        (every ``${VAR}`` already interpolated at the harness boundary): a stdio
-        server as ``{command, args?, env?}``, a remote server as
-        ``{url, headers?}`` — Hermes infers the HTTP/SSE transport from the URL,
-        so caliper's ``type`` is dropped. Remote OAuth is unreachable here — it
-        needs an interactive browser flow the harness cannot drive — so only
-        header-auth remotes are expressible, via the ``headers`` map.
-        """
-        return {
-            name: resolved.entry()
-            for name, resolved in resolve_servers(ctx.mcp_servers).items()
         }
 
     def _command(
@@ -282,7 +219,7 @@ class HermesHarness(CliHarness):
         concrete model; the MCP inventory is the ``config.yaml`` the attempt
         ran with.
         """
-        report = AgentReport(read_mcp_servers=partial(self._configured_servers, ctx))
+        report = AgentReport(read_mcp_servers=partial(HERMES_CONFIG.servers, ctx))
         record = self._load_export(proc.stdout)
         if record is None:
             return report
