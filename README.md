@@ -325,8 +325,19 @@ backend are in **[docs/backends.md](docs/backends.md)**.
 
 The quick start covers the basics. A spec can also:
 
-- pull neighbour skills from a **git repo**, pinned to a commit
-  (`skills: - {repo: owner/name, ref: …, path: …}`)
+- pull neighbour skills from a **git repo**, pinned to a commit. Caliper
+  clones it into its own cache, so nothing is vendored into your repo:
+
+  ```yaml
+  # inbox-triage.eval.yaml
+  skills:
+    - ./SKILL.md
+    - ../calendar-scheduler/SKILL.md
+    - repo: anthropics/skills                          # a real neighbour from GitHub
+      ref: dbd4588f9e1033efb41dad4bef2f7947c8993d44    # a branch, tag or commit; omit to track the default branch
+      path: skills/internal-comms/SKILL.md             # also writes messages, so it competes for "Reply to Dana"
+  ```
+
 - give the agent **MCP servers**, local or remote (`mcp:`)
 - **pin whether your own customizations load**: `user_customizations: false`
   for a portable score from anyone, or `true` for a skill that needs your own

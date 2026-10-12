@@ -18,6 +18,12 @@ skills:
   # The engine (backend + model) is NOT a spec field — it's a runtime axis.
   # Pick it when you run, e.g. `--model codex:gpt-5-codex` (default: claude-code).
   - ./SKILL.md
+  # A real neighbour, fetched from GitHub on every run (never vendored here):
+  # Anthropic's internal-comms skill claims "incident reports", so it competes
+  # with yours for the alert prompt. `ref:` pins the commit it is cloned at.
+  - repo: anthropics/skills
+    ref: dbd4588f9e1033efb41dad4bef2f7947c8993d44
+    path: skills/internal-comms/SKILL.md
 
 sandbox:
   # Puts the fake `notify` CLI on PATH inside each attempt. When testing your
