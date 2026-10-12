@@ -281,7 +281,7 @@ class UnavailableModelJudge:
     model = "claude-bogus"
     prompt_version = None
 
-    def evaluate(self, task, transcript, workdir) -> JudgeResult:
+    def evaluate(self, task, transcript, workdir, history=None) -> JudgeResult:
         raise HarnessConfigurationError(
             "The claude-code judge cannot run.\n\n"
             "Claude Code cannot run the requested model 'claude-bogus'."

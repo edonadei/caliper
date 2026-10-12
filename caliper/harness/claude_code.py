@@ -6,7 +6,9 @@ import os
 import re
 import shutil
 import sys
+import uuid
 from collections.abc import Callable
+from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 
@@ -23,7 +25,8 @@ from caliper.harness.base import (
 from caliper.harness.mcp import merge_user_servers, resolve_servers
 from caliper.harness.refusal import ConfigSignal
 from caliper.schema.results import TokenUsage
-from caliper.skills import frontmatter_name
+from caliper.schema.spec import PlantedTurn
+from caliper.skills import frontmatter_name, skill_body
 
 
 def preferred_nvm_node_bin() -> str | None:
@@ -61,6 +64,7 @@ class ClaudeCodeHarness(CliHarness):
         self._model = model
 
     supports_mcp = True
+    supports_history = True
     # Claude Code 2.1.292 made MCP 2026-07-28 its default for stdio servers.
     speaks_modern_mcp = True
     user_rules = ("CLAUDE.md",)
@@ -285,7 +289,60 @@ class ClaudeCodeHarness(CliHarness):
         if ctx.model:
             cmd += ["--model", ctx.model]
 
+        # The prompt becomes the next user turn after the planted ones. The
+        # stream does not replay them, so they never reach the transcript.
+        if ctx.history:
+            cmd += ["--resume", self._write_session(ctx)]
+
         return cmd, None, lambda: mcp_config.unlink(missing_ok=True)
+
+    def _write_session(self, ctx: RunContext) -> str:
+        """Write the planted ``ctx.history`` as a session the CLI can resume; return its id.
+
+        Per attempt, since the file embeds the attempt's workdir and is stored
+        under it (docs/adr/0036). The CLI looks the workdir's sessions up by its
+        real path with every other character a dash, in the isolated home.
+        """
+        workdir = os.path.realpath(ctx.workdir)
+        session_id = str(uuid.uuid4())
+        projects = Path(ctx.isolated_home) / ".claude" / "projects"
+        path = projects / re.sub(r"[^A-Za-z0-9]", "-", workdir) / f"{session_id}.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lines = _session_lines(
+            ctx.history or [],
+            session_id=session_id,
+            cwd=workdir,
+            user_turn=lambda turn: self._user_turn(ctx, turn),
+        )
+        path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+        return session_id
+
+    def _user_turn(self, ctx: RunContext, turn: PlantedTurn) -> str:
+        """A planted user turn as the CLI would have stored it.
+
+        One opening with ``/name`` of an installed skill is the slash command
+        expanded, read from the installed copy so the history never repeats the
+        skill and an edit to it reaches the next run. Anything else, including
+        the command of an ablated skill, is the text as typed: the CLI would not
+        expand it either.
+        """
+        command = turn.slash_command
+        directory = self.skills_root(ctx) / command[0] if command else None
+        if directory is None or not (directory / "SKILL.md").is_file():
+            return turn.user or ""
+        name, args = command
+        parts = [f"<command-name>/{name}</command-name>"]
+        if args:
+            parts.append(f"<command-args>{args}</command-args>")
+        parts += [
+            "",
+            f"Base directory for this skill: {directory}",
+            "",
+            skill_body((directory / "SKILL.md").read_text()),
+        ]
+        if args:
+            parts += ["", f"ARGUMENTS: {args}"]
+        return "\n".join(parts)
 
     def _materialize_mcp_config(self, ctx: RunContext) -> Path:
         """Write the declared MCP servers into ``.caliper-mcp.json`` for the run.
@@ -608,6 +665,64 @@ class ClaudeCodeHarness(CliHarness):
             report.read_mcp_servers = partial(_init_servers, init)
             report.exposed_skills = _init_skills(init)
         return report
+
+
+def _session_lines(
+    history: list[PlantedTurn],
+    *,
+    session_id: str,
+    cwd: str,
+    user_turn: Callable[[PlantedTurn], str],
+) -> list[dict]:
+    """``history`` as Claude Code session lines, one message per line.
+
+    Only the fields a resume was seen to need (2.1.296): without a
+    ``timestamp`` the CLI does not find the session at all. A planted shell
+    call is a ``Bash`` tool use, answered by a ``tool_result`` user message;
+    ``user_turn`` writes a user turn's content.
+    """
+    lines: list[dict] = []
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+    def add(role: str, content: str | list[dict]) -> None:
+        lines.append(
+            {
+                "type": role,
+                "uuid": str(uuid.uuid4()),
+                "parentUuid": lines[-1]["uuid"] if lines else None,
+                "sessionId": session_id,
+                "cwd": cwd,
+                "timestamp": timestamp,
+                "message": {"role": role, "content": content},
+            }
+        )
+
+    for turn in history:
+        if turn.user is not None:
+            add("user", user_turn(turn))
+            continue
+        # Each tool use is answered by the result with its id.
+        calls = [
+            (f"toolu_planted_{len(lines)}_{i}", c) for i, c in enumerate(turn.shell)
+        ]
+        blocks = [{"type": "text", "text": turn.assistant}] if turn.assistant else []
+        for tool_id, call in calls:
+            blocks.append(
+                {
+                    "type": "tool_use",
+                    "id": tool_id,
+                    "name": "Bash",
+                    "input": {"command": call.run},
+                }
+            )
+        add("assistant", blocks)
+        if calls:
+            results = [
+                {"type": "tool_result", "tool_use_id": tool_id, "content": call.output}
+                for tool_id, call in calls
+            ]
+            add("user", results)
+    return lines
 
 
 def _usage(result: dict) -> TokenUsage | None:

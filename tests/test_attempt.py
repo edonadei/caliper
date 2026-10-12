@@ -30,6 +30,7 @@ class RecordingJudge:
         task: TaskSpec,
         transcript: list[ConversationTurn],
         workdir: AttemptWorkdir,
+        history=None,
     ) -> JudgeResult:
         self.calls += 1
         return self.result

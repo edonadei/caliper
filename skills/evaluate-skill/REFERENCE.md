@@ -65,6 +65,7 @@ tasks:
   - name: Short description of what success looks like
     setup: <shell command run in the attempt workdir>     # optional
     cleanup: <shell command>                              # optional
+    history: ./histories/h.history.yaml   # optional: earlier turns to resume from (claude-code only)
     prompt: <what a real user would type>
     expect: <natural-language pass/fail criterion>
     assert: |                                             # or ./check.py
@@ -90,8 +91,9 @@ checks before its first attempt):
 - **At least one task, and unique task names**: `compare` matches tasks across
   runs by name.
 - **No unknown keys.** A typo like `asert:` in a task or `sandbox:` is rejected,
-  as are `forbidden_files` entries that aren't valid regexes and `assert:`
-  script files missing from beside the spec.
+  as are `forbidden_files` entries that aren't valid regexes, `assert:`
+  script files missing from beside the spec, and a `history:` file that is
+  missing or holds a malformed turn.
 - **No engine in the spec.** A spec with `skill.backend`, `skill.model` or a
   `judge:` block fails validation and points at `--model` / `--judge-model`.
   The old singular `skill: path:` key is rejected too; use `skills:`.
@@ -119,6 +121,17 @@ checks before its first attempt):
   `assert:` is killed after 30 seconds and gives no verdict, so the attempt is a
   `judge_error` unless `expect:` produced one. Assertion evidence is the tail of
   the script's output.
+- **Planted history.** `history: ./h.history.yaml` starts a task mid-conversation: the
+  agent resumes from the file's turns and `prompt:` is the next user turn. The
+  file is a list starting with a user turn; each turn is `- user: <text>` or
+  `- assistant: <text>`, and an assistant turn may add `shell:` entries of
+  `run:` and `output:`. A user turn of `/name args` enters that declared skill:
+  it's expanded from the installed `SKILL.md` each attempt, and under
+  `--ablate` stays as typed. `setup:` and the history must agree, since the
+  agent trusts a planted output over the disk. Planted turns are kept out of the
+  transcript, so cheat detection and `activates:` ignore them; the judge reads
+  them as prior context. claude-code only; codex, pi and hermes refuse the
+  spec.
 - **Git sources.** `run` fetches them before the first attempt; `validate` never
   touches the network. A pinned `ref:` is offline after its first fetch. A git
   source whose skill has a symlink pointing outside the clone is refused.

@@ -7,6 +7,8 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    TypeAdapter,
+    ValidationError,
     ValidationInfo,
     field_validator,
     model_validator,
@@ -49,9 +51,95 @@ def assert_script_path(raw: str, spec_dir: Path) -> Path | None:
     return path if path.is_absolute() else spec_dir / path
 
 
+class PlantedShellCall(BaseModel):
+    """One shell command in a planted assistant turn, and what it printed."""
+
+    run: str
+    output: str
+
+    model_config = ConfigDict(extra="forbid")
+
+
+# A user turn opening with ``/name``: the slash command, then what was typed after.
+_SLASH_COMMAND_RE = re.compile(r"/([A-Za-z0-9_.-]+)(?:\s+(.*))?", re.DOTALL)
+
+
+class PlantedTurn(BaseModel):
+    """One turn of a planted history: the user's text, or the assistant's.
+
+    Backend-neutral; each harness translates the list into its CLI's own session
+    format (docs/adr/0036). A user turn opening with ``/name`` is a slash
+    command: it enters skill ``name`` when that skill is installed, expanded
+    from its ``SKILL.md`` as the CLI expands a typed command.
+    """
+
+    user: str | None = None
+    assistant: str | None = None
+    shell: list[PlantedShellCall] = []
+
+    model_config = ConfigDict(extra="forbid")
+
+    @property
+    def slash_command(self) -> tuple[str, str] | None:
+        """``(name, what followed it)`` for a user turn opening with ``/name``."""
+        match = _SLASH_COMMAND_RE.fullmatch((self.user or "").strip())
+        return (match[1], (match[2] or "").strip()) if match else None
+
+    @model_validator(mode="after")
+    def check_shape(self) -> PlantedTurn:
+        if (self.user is None) == (self.assistant is None):
+            raise ValueError("a turn has exactly one of `user:` or `assistant:`")
+        if self.user is not None and self.shell:
+            raise ValueError("only an assistant turn can run `shell:` commands")
+        if self.assistant is not None and not self.assistant.strip() and not self.shell:
+            raise ValueError("an assistant turn needs text or `shell:` commands")
+        return self
+
+
+_PLANTED_TURNS = TypeAdapter(list[PlantedTurn])
+
+
+def load_history(path: Path) -> list[PlantedTurn]:
+    """The turns a ``history:`` file plants, or ``ValueError`` naming the bad one."""
+    if not path.is_file():
+        raise ValueError(f"history file not found: {path}")
+    raw = _load_yaml(path.read_text())
+    if not raw:
+        raise ValueError(f"history {path} needs at least one turn")
+    if not isinstance(raw, list):
+        raise ValueError(
+            f"history {path} must be a list of turns, not {_yaml_kind(raw)}"
+        )
+    try:
+        turns = _PLANTED_TURNS.validate_python(raw)
+    except ValidationError as exc:
+        raise ValueError(f"history {_history_error(exc)}") from None
+    # The model's API opens a conversation with the user, and every CLI with it.
+    if turns[0].user is None:
+        raise ValueError(f"history {path} must start with a user turn")
+    return turns
+
+
+def _history_error(exc: ValidationError) -> str:
+    """The first error, worded in the file's own terms: turn numbers and keys."""
+    error = exc.errors()[0]
+    turn, *field = error["loc"]
+    if error["type"] == "extra_forbidden":
+        message = f"unknown key `{field.pop()}`"
+    elif error["type"] == "value_error":
+        message = str(error["ctx"]["error"])
+    else:
+        message = error["msg"]
+    where = ".".join(str(part) for part in field)
+    return f"turn {turn + 1}{f', {where}' if where else ''}: {message}"
+
+
 class TaskSpec(BaseModel):
     id: str = ""
     name: str
+    # Earlier turns the agent resumes from, as a path resolved against the
+    # spec's directory; the prompt is the next user turn (docs/adr/0036).
+    history: str | None = None
     prompt: str
     expect: str | None = None
     assert_script: str | None = Field(None, alias="assert")
@@ -93,6 +181,22 @@ class TaskSpec(BaseModel):
         if path is not None and not path.is_file():
             raise ValueError(f"assert script not found: {path}")
         return value
+
+    @field_validator("history")
+    @classmethod
+    def check_history_loads(cls, value: str | None, info: ValidationInfo) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("`history:` is blank: give it a path or remove it")
+        spec_dir = (info.context or {}).get("spec_dir")
+        if value is not None and spec_dir is not None:
+            load_history(spec_dir / value.strip())
+        return value
+
+    def planted_history(self, spec_dir: Path) -> list[PlantedTurn] | None:
+        """The turns ``history:`` plants, read from beside the spec; ``None`` without one."""
+        if self.history is None:
+            return None
+        return load_history(spec_dir / self.history.strip())
 
     @model_validator(mode="after")
     def require_at_least_one_check(self) -> TaskSpec:

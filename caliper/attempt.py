@@ -25,7 +25,7 @@ from caliper.harness.base import AttemptResult, ConversationTurn
 from caliper.judge.base import Judge, JudgeResult
 from caliper.sandbox import Sandbox
 from caliper.schema.results import AttemptRecord, Outcome, TranscriptTurn
-from caliper.schema.spec import TaskSpec
+from caliper.schema.spec import PlantedTurn, TaskSpec
 from caliper.workdir import AttemptWorkdir
 
 
@@ -70,6 +70,7 @@ def assemble_attempt(
     sandbox: Sandbox,
     judge: Judge,
     retries: int = 0,
+    history: list[PlantedTurn] | None = None,
 ) -> AssembledAttempt | None:
     """Grade how one attempt ended into an ``AttemptRecord``.
 
@@ -91,6 +92,9 @@ def assemble_attempt(
     ``attempt`` is the caller's own counter rather than ``result.attempt``: the
     runner decides which of the k attempts this is, and the harness only echoes
     it back, so the record is numbered from the authority instead of the echo.
+
+    ``history`` is the planted history the attempt resumed from, the same turns
+    the harness was handed, for the judge to read as prior context.
     """
     # The agent never ran, so there is nothing to observe or judge.
     if isinstance(ended, SetupFailed):
@@ -186,6 +190,7 @@ def assemble_attempt(
         task=task,
         transcript=result.transcript,
         workdir=workdir,
+        history=history,
     )
     return with_outcome(
         _judge_outcome(judge_result),

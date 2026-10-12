@@ -89,6 +89,12 @@ class SkillRef:
         return self.path.parent
 
 
+def skill_body(text: str) -> str:
+    """A SKILL.md's instructions: everything after its frontmatter."""
+    block = _FRONTMATTER_RE.match(text)
+    return (text[block.end() :] if block else text).strip()
+
+
 def frontmatter_name(text: str) -> str | None:
     """The ``name:`` from a SKILL.md's YAML frontmatter, or ``None``."""
     import yaml
@@ -418,6 +424,26 @@ def validate_activates(
             "Add it to skills:, or correct "
             "the name (identity is the frontmatter name:, not the filename)."
         )
+
+
+def undeclared_slash_commands(
+    histories: dict[str, list], refs: list[SkillRef]
+) -> list[str]:
+    """A warning per planted ``/name`` turn naming no declared skill.
+
+    Such a turn stays plain text, as the user's own words: a path like ``/tmp``
+    can open a sentence. But it is more often a typo or a skill missing from
+    ``skills:``, which would quietly run the task without it.
+    """
+    declared = {ref.name for ref in refs}
+    return [
+        f"Task '{task_name}' plants a turn opening with /{command[0]}, but "
+        "skills: declares no such skill, so the turn stays plain text. Add it "
+        "to skills: if it should enter that skill."
+        for task_name, turns in histories.items()
+        for turn in turns
+        if (command := turn.slash_command) and command[0] not in declared
+    ]
 
 
 def install_skills(

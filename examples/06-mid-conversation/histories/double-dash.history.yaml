@@ -1,0 +1,18 @@
+# What happened before the task's prompt. The user typed /repro-first with the
+# bug; caliper expands it from the installed SKILL.md each attempt.
+- user: /repro-first slugify("Hello  World") gives "hello--world", it should be "hello-world"
+
+# Each output must match what setup: builds: the agent trusts these over the disk.
+- assistant: Let me look at slugify and confirm the behaviour.
+  shell:
+    - run: cat slugify.py
+      output: |
+        def slugify(text: str) -> str:
+            return text.strip().lower().replace(" ", "-")
+    - run: python3 -c 'from slugify import slugify; print(slugify("Hello  World"))'
+      output: |
+        hello--world
+- assistant: >-
+    Confirmed: every space becomes its own dash, so two spaces give two dashes.
+    Splitting on whitespace and joining with single dashes fixes it. Want me to
+    make the change?

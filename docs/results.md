@@ -349,6 +349,9 @@ and any script the judge wrote.
   `transcript`, `caliper.judge.eval_judge.render_judge_prompt(expect, transcript)` rebuilds
   the exact prompt the judge was sent, as long as the version matches the
   installed `JUDGE_PROMPT_VERSION`. It's `null` when no task had an `expect:`.
+  A task with `history:` also showed the judge its planted turns as prior
+  context. The run doesn't save them, so pass the task's history as the third
+  argument, read from its file, to rebuild that prompt.
 - `AttemptRecord.autorater_script` is the Python the judge wrote when it chose
   to check with a script instead of giving a direct verdict. It's saved whether
   the script passed, failed or timed out, because the workdir it ran in is

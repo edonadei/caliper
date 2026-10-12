@@ -15,7 +15,7 @@ See docs/CONTEXT.md → Run environment.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -25,10 +25,17 @@ from caliper.schema.spec import (
     DEFAULT_USER_CUSTOMIZATIONS,
     EvalSpec,
     McpServer,
+    PlantedTurn,
     TaskSpec,
 )
 from caliper.skillfetch import SkillFetcher
-from caliper.skills import SkillRef, apply_ablation, resolve_skills, validate_activates
+from caliper.skills import (
+    SkillRef,
+    apply_ablation,
+    resolve_skills,
+    undeclared_slash_commands,
+    validate_activates,
+)
 from caliper.workdir import AttemptWorkdir
 
 
@@ -95,6 +102,9 @@ class RunEnvironment:
     extra_path: list[str]
     forbidden_files: list[str]
     timeout: int
+    # Each task's planted history, by task id; a task without one is absent.
+    # Read once here, so every attempt resumes from the same turns.
+    histories: dict[str, list[PlantedTurn]] = field(default_factory=dict)
 
     def context(
         self, task: TaskSpec, attempt: int, workdir: AttemptWorkdir
@@ -121,6 +131,7 @@ class RunEnvironment:
             spec_mcp_names=self.spec_mcp_names,
             spec_skill_names=self.spec_skill_names,
             forbidden_files=self.forbidden_files,
+            history=self.histories.get(task.id),
         )
 
     def expected_activation(self, task: TaskSpec) -> list[str] | None:
@@ -157,7 +168,7 @@ def resolve_environment(
 
     Raises the spec's own resolution errors for a bad ``skills:`` entry or
     ``--ablate`` name, and ``HarnessConfigurationError`` when the spec declares
-    ``mcp:`` servers the backend cannot provide.
+    ``mcp:`` servers or a ``history:`` the backend cannot provide.
     """
     spec_dir = spec_path.resolve().parent
 
@@ -173,6 +184,15 @@ def resolve_environment(
     # --ablate an `activates:` naming the removed skill has its expectation
     # dropped, not violated (docs/adr/0015).
     validate_activates(spec.tasks, declared_refs)
+    histories = {
+        task.id: turns
+        for task in spec.tasks
+        if (turns := task.planted_history(spec_dir)) is not None
+    }
+    if on_warning:
+        planted = {t.name: histories[t.id] for t in spec.tasks if t.id in histories}
+        for warning in undeclared_slash_commands(planted, declared_refs):
+            on_warning(warning)
     # `--ablate` names a declared subject — a skill or an mcp: server — and this
     # removes it. Duplicates collapse: `--ablate x --ablate x` removes one.
     ablation = apply_ablation(declared_refs, list(ablate), mcp_servers=spec.mcp)
@@ -198,6 +218,19 @@ def resolve_environment(
             "Re-run with --model claude-code (the default engine), or remove the "
             "mcp: block from the spec."
         )
+
+    # Starting such a task at turn 1 would measure a different task, so refuse
+    # rather than drop the history (docs/adr/0036).
+    if histories and not harness.supports_history:
+        message = (
+            f"This eval declares a task history:, but the '{harness.name}' "
+            "backend cannot resume an attempt from planted turns."
+        )
+        hint = harness.history_unsupported_hint or (
+            "Only the 'claude-code' backend implements history: in this "
+            "release. Re-run with --model claude-code (the default engine)."
+        )
+        raise HarnessConfigurationError(f"{message}\n\n{hint}")
 
     # Not refused, unlike a declared mcp: block: recorded as off, and said only
     # when someone asked for it, or it would fire on every pi run
@@ -228,4 +261,5 @@ def resolve_environment(
         extra_path=[str((spec_dir / p).resolve()) for p in spec.sandbox.extra_path],
         forbidden_files=list(spec.sandbox.forbidden_files),
         timeout=timeout,
+        histories=histories,
     )

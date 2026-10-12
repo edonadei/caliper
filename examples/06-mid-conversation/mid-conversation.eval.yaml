@@ -1,0 +1,64 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# FAILURE MODE: THE AGENT DROPS A DISCIPLINE IT AGREED TO EARLIER
+#
+# Some skills are entered by a person, not discovered: a slash-only mode
+# (`disable-model-invocation: true`) that the agent can never load on its own.
+# Others only matter a few turns in, once a plan is agreed. A fresh attempt
+# can't reach either, so the task starts mid-conversation instead.
+#
+# history: plants the turns so far: the user entered /repro-first, and the
+# agent already found the bug. The prompt is the user's next turn. The check is
+# whether the agent still writes the failing test before the fix.
+#
+# Run it as-is (claude-code only, for now):
+#   caliper run mid-conversation.eval.yaml --k 3
+# ─────────────────────────────────────────────────────────────────────────────
+
+skills:
+  # 👉 EDIT 1: point this at your own SKILL.md. Slash-only, so the agent never
+  # discovers it: the history's /repro-first turn is how it gets entered.
+  - ./SKILL.md
+
+tasks:
+  - name: Writes the failing test before fixing the bug
+    # 👉 EDIT 2: build exactly what the history's shell outputs show.
+    setup: |
+      mkdir tests
+      cat > slugify.py <<'PY'
+      def slugify(text: str) -> str:
+          return text.strip().lower().replace(" ", "-")
+      PY
+      cat > tests/test_slugify.py <<'PY'
+      import unittest
+
+      from slugify import slugify
+
+
+      class SlugifyTest(unittest.TestCase):
+          def test_lowercases_and_joins_words(self):
+              self.assertEqual(slugify("Hello World"), "hello-world")
+      PY
+    # 👉 EDIT 3: the turns before your prompt.
+    history: ./histories/double-dash.history.yaml
+    prompt: Yes, go ahead.
+    expect: >
+      Following the repro-first mode from earlier in the conversation, the agent
+      added a test for the double-space case and ran it, and that run failed,
+      before it edited slugify.py. After the fix it ran the suite again and it
+      passed.
+    assert: |
+      import subprocess
+      import sys
+      from pathlib import Path
+
+      def python(*args):
+          return subprocess.run([sys.executable, *args], capture_output=True, text=True)
+
+      suite = python("-m", "unittest", "discover", "-s", "tests")
+      assert suite.returncode == 0, suite.stderr[-500:]
+
+      fixed = python("-c", 'from slugify import slugify; print(slugify("Hello  World"))')
+      assert fixed.stdout.strip() == "hello-world", fixed.stdout + fixed.stderr
+
+      tests = Path("tests/test_slugify.py").read_text()
+      assert tests.count("def test_") >= 2, "no new test reproduces the bug"

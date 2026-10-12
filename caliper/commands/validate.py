@@ -11,6 +11,7 @@ from caliper.skillfetch import SkillFetcher
 from caliper.skills import (
     SkillResolutionError,
     resolve_skills,
+    undeclared_slash_commands,
     validate_activates,
 )
 
@@ -90,6 +91,17 @@ def validate_cmd(
         if fetcher.unresolved and asserting
         else ""
     )
+
+    # A typo'd or undeclared /name stays plain text; warned, not refused, since
+    # a user turn may open with a path. Skipped when the neighbourhood is unknown.
+    planted = {
+        task.name: turns
+        for task in spec.tasks
+        if (turns := task.planted_history(spec_file.parent)) is not None
+    }
+    if not fetcher.unresolved:
+        for warning in undeclared_slash_commands(planted, refs):
+            caveat += f"\n  [yellow]note[/yellow]     [dim]{warning}[/dim]"
 
     # Only an explicit setting: the default is the same for every spec
     # (docs/adr/0028).

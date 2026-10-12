@@ -2,7 +2,8 @@
 
 Caliper runs every skill through a real CLI agent, so every backend can load and
 run a skill the way a user would. This page covers setup for each one, how
-`--model` and `--judge-model` pick an engine, and which backends support `mcp:`.
+`--model` and `--judge-model` pick an engine, and which backends support `mcp:`
+and `history:`.
 
 For the short version, see [Choosing an engine](../README.md#choosing-an-engine)
 in the README.
@@ -198,6 +199,31 @@ error, never a silent no-op.
   another backend. Running an `mcp:` spec on `pi` fails with that guidance.
 
 See [MCP servers](spec-reference.md#mcp-servers-mcp) for the spec format.
+
+## Planted history by backend
+
+| Backend | `history:` |
+|---|---|
+| `claude-code` | ✅ |
+| `codex` | ❌ not yet |
+| `pi` | ❌ not yet |
+| `hermes` | ❌ refused |
+
+A spec whose tasks declare `history:` is refused before the first attempt on a
+backend that can't resume from it, with a message naming the backend.
+
+- **`claude-code`** writes the planted turns as a session file in the attempt's
+  isolated `~/.claude/projects/`, under the attempt workdir, and resumes it with
+  `--resume`. A planted shell call becomes a `Bash` tool call and its result,
+  and a planted `/name` of an installed skill the slash command, expanded.
+- **`codex`** and **`pi`** can resume a hand-written session too; their
+  translators haven't landed yet.
+- **`hermes`** stores sessions in SQLite, and its only import path drops tool
+  calls and their output, so it can't resume a history faithfully
+  ([ADR 0036](adr/0036-planted-history-is-a-neutral-transcript-each-backend-resumes-natively.md)).
+
+See [Planted history](spec-reference.md#planted-history-history) for the spec
+format.
 
 ## Loading your user customizations
 

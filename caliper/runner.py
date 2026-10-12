@@ -538,6 +538,7 @@ def _assemble(
         sandbox=env.sandbox,
         judge=env.judge,
         retries=retries,
+        history=env.environment.histories.get(task.id),
     )
     if assembled is None:
         return None

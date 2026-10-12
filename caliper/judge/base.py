@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from caliper.harness.base import ConversationTurn, PromptResult
-from caliper.schema.spec import TaskSpec
+from caliper.schema.spec import PlantedTurn, TaskSpec
 from caliper.workdir import AttemptWorkdir
 
 
@@ -63,6 +63,9 @@ class Judge(Protocol):
     ``assert: ./check.py`` path still resolves from the spec's directory, which
     the workdir carries as ``workdir.spec_dir``
     (docs/adr/0026-an-attempt-runs-in-one-fresh-workdir.md).
+
+    ``history`` is the task's planted history as the attempt resumed from it,
+    shown to the autorater as prior context, never graded (docs/adr/0036).
     """
 
     backend: str
@@ -74,4 +77,5 @@ class Judge(Protocol):
         task: TaskSpec,
         transcript: list[ConversationTurn],
         workdir: AttemptWorkdir,
+        history: list[PlantedTurn] | None = None,
     ) -> JudgeResult: ...

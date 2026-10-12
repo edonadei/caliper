@@ -44,6 +44,7 @@ sandbox:
 tasks:
   - name: Happy path — <what success looks like>
     setup: <optional shell command, run in the attempt workdir>
+    history: <optional ./path to earlier turns the agent resumes from>
     prompt: <what a real user would type; never names the skill>
     expect: <natural-language success criterion>
     assert: |
@@ -89,6 +90,15 @@ validation.
 - **Single-shot.** Each attempt is one prompt; nobody answers the agent's
   questions. For a skill that asks before acting, judge the first turn:
   `expect:` the question, `assert:` that nothing was done yet.
+- **Mid-conversation tasks.** For a skill a human enters by slash command, or a
+  playbook that assumes earlier turns, plant them with `history: ./h.history.yaml`: a
+  list starting with a user turn, each `- user: <text>` or
+  `- assistant: <text>`, where an assistant turn may add `shell:` entries of
+  `run:` and `output:`. `prompt:` is the next user turn. A user turn of
+  `/name args` enters that declared skill, expanded as if typed. Make `setup:`
+  build what the history claims: the agent trusts a planted output over the
+  disk. The judge reads planted turns as prior context, never as the agent's.
+  claude-code only.
 - **Attempt workdir.** `setup:`, the agent, `assert:` and `cleanup:` all run in
   one fresh, empty directory per attempt, so relative paths mean the same file
   to each. It is not the spec's directory and not a git repo: build what the task

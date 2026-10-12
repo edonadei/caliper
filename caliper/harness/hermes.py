@@ -71,6 +71,13 @@ class HermesHarness(CliHarness):
     """
 
     supports_mcp = True
+    # Hermes keeps sessions in SQLite, and its only import path drops tool
+    # results, so it cannot resume a planted history faithfully (docs/adr/0036).
+    history_unsupported_hint = (
+        "Hermes cannot resume planted turns faithfully: its session import "
+        "drops tool calls and their output. Run tasks with history: on "
+        "--model claude-code, or remove history: to run on hermes."
+    )
     cli_config = HERMES_CONFIG
     user_settings_file = "config.yaml"
     cli_name = "hermes"

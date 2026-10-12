@@ -1,6 +1,6 @@
 # Examples
 
-Five small evals, one per common way agents fail. Each folder holds a spec
+Six small evals, one per common way agents fail. Each folder holds a spec
 (`*.eval.yaml`) and a tiny `SKILL.md` it tests, and each one passes as-is. Run
 one first to confirm your setup works, then copy it next to your own skill and
 edit the marked lines.
@@ -12,6 +12,7 @@ edit the marked lines.
 | [`03-runaway-loops`](03-runaway-loops/runaway-loops.eval.yaml) | The agent retries a failing step forever | retries, polls, or loops |
 | [`04-prompt-regression`](04-prompt-regression/prompt-regression.eval.yaml) | A prompt edit breaks cases that used to pass | is being actively edited |
 | [`05-context-boundary`](05-context-boundary/context-boundary.eval.yaml) | An old note is treated as the current source of truth | loads memory, transcripts, ADRs, or team notes |
+| [`06-mid-conversation`](06-mid-conversation/mid-conversation.eval.yaml) | The agent drops a discipline it agreed to a few turns earlier | is entered by a slash command, or only matters once a plan is agreed |
 
 ## Run one
 
@@ -71,6 +72,16 @@ skill writes a JSON receipt of what it loaded, what it trusted, and what it
 dropped as stale, and the `assert:` checks the stale note didn't become the
 decision. The receipt is one way to make this checkable; assert on whatever
 your skill actually produces.
+
+**Mid-conversation: plant the turns a fresh attempt can't reach.** The
+`repro-first` mode is slash-only, so the agent never discovers it. `history:`
+starts the task after the user typed `/repro-first` with the bug (expanded from
+the installed `SKILL.md`) and the agent confirmed it; the prompt is just "Yes,
+go ahead." The `assert:` checks the bug is fixed and a new test exists, and
+`expect:` checks the test failed before the fix. `setup:` builds the same
+`slugify.py` the planted `cat` shows, because the agent trusts the history over
+the disk. With `--ablate repro-first` the turn stays as typed, and the agent
+fixes the code without a test first. claude-code only, for now.
 
 ## Adapt one to your skill
 
