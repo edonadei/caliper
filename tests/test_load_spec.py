@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import subprocess
 
 import pytest
 import yaml
@@ -308,10 +307,13 @@ def test_no_repo_eval_hook_relies_on_pwd() -> None:
     from pathlib import Path
 
     root = Path(__file__).parent.parent
-    tracked = subprocess.check_output(
-        ["git", "ls-files", "-z", "*.eval.yaml"], cwd=root
-    )
-    specs = [root / name.decode() for name in tracked.split(b"\0") if name]
+    # Hidden directories hold environments, run output and scratch work, not
+    # the repo's own specs.
+    specs = [
+        p
+        for p in root.rglob("*.eval.yaml")
+        if not any(part.startswith(".") for part in p.relative_to(root).parts)
+    ]
     assert specs
     for path in specs:
         for task in load_spec(path).tasks:
