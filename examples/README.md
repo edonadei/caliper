@@ -41,6 +41,10 @@ caliper run runaway-loops.eval.yaml --k 3 --timeout 90
   task has both, both must pass.
 - **`--k`** runs each task that many times. The score is the fraction of runs
   that passed, so one lucky run can't hide a flaky skill.
+- **A neighbour from GitHub.** `02` and `05` also declare a real skill from a
+  public repo (`repo:`/`ref:`/`path:`). Caliper clones it into its cache on the
+  first run, so those two need `git` and network once. Swap it for a skill that
+  could compete with yours, or delete the entry.
 
 ## What each example teaches
 
