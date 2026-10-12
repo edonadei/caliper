@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+from rich.console import Console
 from typer.testing import CliRunner
 
 from caliper.activation import ActivationDetector
@@ -236,13 +237,14 @@ def test_list_is_unmarked_when_every_run_completed(monkeypatch, tmp_path) -> Non
     assert "stopped early" not in result.stdout
 
 
-def test_compare_reports_a_regression_without_failing(tmp_path) -> None:
+def test_compare_reports_a_regression_without_failing(tmp_path, monkeypatch) -> None:
     """`compare` is a reporting command: the regression is rendered, not exited on.
 
     Its regression flag is the any-below rule, which at small k fires on noise
     as often as on a real change — see docs/CONTEXT.md → Regression. Gating
     belongs on a pre-registered bar, which is what exit 3 is reserved for.
     """
+    monkeypatch.setattr("caliper.reporter.console", Console(width=160))
     _save(tmp_path, _run(interrupted=False, successes=4), "a")
     _save(tmp_path, _run(interrupted=False, successes=1), "b")
     base = tmp_path / ".caliper" / "results" / "demo"

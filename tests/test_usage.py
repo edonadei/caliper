@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 import pytest
 from pydantic import ValidationError
+from rich.console import Console
 
 from caliper.compare import diff_runs
 from caliper.harness.base import ProcessResult, RunContext
@@ -391,7 +392,11 @@ def test_an_ablated_run_shows_observations_on_a_passing_task(capsys) -> None:
     assert "0/1" in out
 
 
-def test_a_server_ablated_run_keeps_its_activation_verdicts(capsys) -> None:
+def test_a_server_ablated_run_keeps_its_activation_verdicts(
+    capsys, monkeypatch
+) -> None:
+    # The cells are read by column, so a narrow terminal must not wrap them.
+    monkeypatch.setattr("caliper.reporter.console", Console(width=160))
     # A removed server doesn't touch the skill neighbourhood, so the run asserts
     # and scores activation as usual — only the marker says what changed.
     passing = TaskResult(

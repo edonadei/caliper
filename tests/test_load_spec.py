@@ -5,6 +5,7 @@ import re
 import pytest
 import yaml
 from pydantic import ValidationError
+from rich.console import Console
 from typer.testing import CliRunner
 
 from caliper.main import app
@@ -216,7 +217,9 @@ _BROKEN_SPECS = {
 
 
 @pytest.mark.parametrize("case", sorted(_BROKEN_SPECS))
-def test_validate_rejects_the_spec(tmp_path, case) -> None:
+def test_validate_rejects_the_spec(tmp_path, monkeypatch, case) -> None:
+    # A narrow terminal would wrap the diagnostics this test looks for.
+    monkeypatch.setattr("caliper.commands.diagnosis.console", Console(width=160))
     text, diagnostics = _BROKEN_SPECS[case]
     result = CliRunner().invoke(app, ["validate", str(_write(tmp_path, text))])
     assert result.exit_code == 1, result.output

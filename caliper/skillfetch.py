@@ -44,6 +44,10 @@ _RELATIVE_PREFIXES = tuple({f"{d}{sep}" for d in (".", "..") for sep in ("/", os
 _GIT_TIMEOUT = 120
 
 
+def _is_relative(repo: str) -> bool:
+    return repo in (".", "..") or repo.startswith(_RELATIVE_PREFIXES)
+
+
 class SkillFetchError(ValueError):
     """A git source that cannot be materialized at all.
 
@@ -355,11 +359,15 @@ class SkillFetcher:
         somewhere else.
         """
         remote = cls.clone_url(repo)
-        if remote in (".", "..") or remote.startswith(_RELATIVE_PREFIXES):
+        if _is_relative(remote):
             return str(Path(remote).resolve())
         return remote
 
     def _repo_dir(self, repo: str) -> Path:
+        # The cache is shared across projects, so a relative path is keyed by
+        # where it points: `./origin` in two directories is two repos.
+        if _is_relative(repo):
+            repo = self._remote(repo)
         digest = hashlib.sha256(repo.encode()).hexdigest()[:12]
         slug = _SLUG_RE.sub("-", repo).strip("-")[-40:] or "repo"
         return self.root / f"{slug}-{digest}"

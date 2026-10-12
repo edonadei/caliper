@@ -433,6 +433,36 @@ def test_a_local_repo_is_still_reachable_by_relative_path(
     assert fetched.checkout.parent == fetcher._repo_dir("./origin")
 
 
+def test_one_relative_path_from_two_directories_names_two_repos(
+    tmp_path: Path, monkeypatch
+):
+    """The cache is shared, so `./origin` is keyed by where it points."""
+    projects = {}
+    for project in ("a", "b"):
+        repo = tmp_path / project / "origin"
+        repo.mkdir(parents=True)
+        _git("init", "-b", "main", cwd=repo)
+        _git("config", "user.email", "t@example.com", cwd=repo)
+        _git("config", "user.name", "Test", cwd=repo)
+        _write_skill(repo, project)
+        _git("add", "-A", cwd=repo)
+        _git("commit", "-m", "first", cwd=repo)
+        projects[project] = repo
+    src = GitSkillSource(repo="./origin", ref="main")
+    cache = tmp_path / "cache"
+
+    for project in ("a", "b"):
+        monkeypatch.chdir(tmp_path / project)
+        SkillFetcher(cache_dir=cache).materialize(src)
+    monkeypatch.chdir(tmp_path / "a")
+    fetched = SkillFetcher(cache_dir=cache, offline=True).materialize(src)
+
+    assert fetched is not None
+    assert fetched.sha == _head(projects["a"])
+    assert fetched.path.read_text() == SKILL_BODY.format(name="a")
+    assert fetched.repo == "./origin"
+
+
 @pytest.mark.parametrize("repo", [".", "..", "./origin", "../origin"])
 def test_a_relative_remote_is_pinned_to_the_caller_s_directory(
     tmp_path: Path, monkeypatch, repo: str
