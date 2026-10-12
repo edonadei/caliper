@@ -39,7 +39,7 @@ results JSON there).
 skills:                     # the neighbourhood: every entry installed, none preloaded
   - ./SKILL.md              # path source, relative to the spec
   - repo: vercel-labs/agent-skills   # git source, cloned by caliper
-    ref: a1b2c3d            # optional; omit to track the default branch
+    ref: a1b2c3d            # optional: branch, tag or commit (short is fine); omit to track the default branch
     path: skills/tdd/SKILL.md        # optional; defaults to SKILL.md at the root
 
 sandbox:

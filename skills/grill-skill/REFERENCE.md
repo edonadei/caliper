@@ -34,7 +34,7 @@ skills:                          # installed at the agent's skills root, never
   - ./SKILL.md                   #   preloaded: the agent has to choose it
   - ../other-skill/SKILL.md      # a neighbour it could be confused with
   - repo: vercel-labs/agent-skills   # or a git source caliper clones
-    ref: a1b2c3d                 # optional; omit to track the default branch
+    ref: a1b2c3d                 # optional: branch, tag or commit (short is fine); omit to track the default branch
     path: skills/tdd/SKILL.md    # optional; defaults to SKILL.md at the root
 
 sandbox:

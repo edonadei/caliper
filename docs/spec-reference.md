@@ -133,6 +133,14 @@ from the shorthand.
 still worth it: a pinned entry is fully offline once fetched, while an unpinned
 one costs one `git ls-remote` per run.
 
+`ref:` names a branch, a tag, or a commit, full or abbreviated. Caliper asks the
+remote first, so a branch whose name happens to look like hex is still treated
+as a branch. A full 40-character commit is fetched directly. An abbreviated one
+costs one extra fetch on a cold cache: Caliper downloads the commit history of
+every branch and tag (commits only, no file contents) to expand it. That only
+works when a branch or tag reaches the commit and the prefix is unique. If it
+doesn't, the run refuses and asks for the full commit.
+
 `caliper run` fetches before the first attempt, so a bad `repo:` fails fast and
 costs nothing. `caliper validate` never touches the network: it resolves git
 sources from the cache when it can and reports the rest as *not cached*,

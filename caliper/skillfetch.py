@@ -182,7 +182,9 @@ class SkillFetcher:
             # silently pinned as though it were a commit. Remembered, so the
             # cache answers for it from now on.
             if src.ref and _SHA_RE.match(src.ref):
-                sha = self._cached_prefix(src) or src.ref
+                sha = self._cached_prefix(src) or (
+                    src.ref if len(src.ref) == 40 else self._expand(src)
+                )
                 self._remember(src, sha)
                 return sha, False
             raise
@@ -229,7 +231,8 @@ class SkillFetcher:
         """A cached checkout whose commit starts with this commit-shaped ref.
 
         ``git fetch`` cannot fetch an abbreviated commit, so ``ref: a1b2c3d``
-        is served from a checkout stored under its full commit.
+        is served from a checkout stored under its full commit — and, on a cold
+        cache, expanded to one first by :meth:`_expand`.
         """
         if not (src.ref and _SHA_RE.match(src.ref)):
             return None
@@ -267,6 +270,44 @@ class SkillFetcher:
                 "default branch."
             )
         raise SkillFetchError(f"{self._label(src)}: the remote reported no HEAD")
+
+    def _expand(self, src: GitSkillSource) -> str:
+        """The full commit an abbreviated ``ref:`` names on the remote.
+
+        ``git fetch`` takes only a full commit, so the prefix is looked up in a
+        treeless fetch of every branch and tag: commit objects only, no trees
+        or blobs, so even a long history stays cheap. This runs once per short
+        pin — the memo answers for it afterwards. See
+        docs/adr/0016-caliper-fetches-git-sources-itself.md.
+        """
+        self.root.mkdir(parents=True, exist_ok=True)
+        scratch = Path(tempfile.mkdtemp(prefix=".expand-", dir=self.root))
+        try:
+            self._git("init", "-q", "--bare", cwd=scratch)
+            self._git("remote", "add", "origin", self.clone_url(src.repo), cwd=scratch)
+            try:
+                self._git(
+                    "fetch", "-q", "--filter=tree:0", "--tags", "origin", cwd=scratch
+                )
+            except SkillFetchError as exc:
+                raise SkillFetchError(
+                    f"{self._label(src)}: could not fetch history to expand the "
+                    f"abbreviated commit.\n\n  {exc}"
+                ) from exc
+            try:
+                return self._git(
+                    "rev-parse", "--verify", f"{src.ref}^{{commit}}", cwd=scratch
+                ).strip()
+            except SkillFetchError as exc:
+                raise SkillFetchError(
+                    f"{self._label(src)}: '{src.ref}' is not a branch or tag, "
+                    f"and no commit reachable from one starts with it.\n\n  {exc}\n\n"
+                    "An abbreviated commit can only be expanded if a branch or "
+                    "tag on the remote reaches it, and only if the prefix is "
+                    "unique. Pin the full 40-character commit instead."
+                ) from exc
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
 
     def _clone(self, src: GitSkillSource, sha: str, dest: Path) -> None:
         """Depth-1 checkout of exactly ``sha``.
