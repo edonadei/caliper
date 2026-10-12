@@ -18,6 +18,12 @@ skills:
   # The engine (backend + model) is NOT a spec field — it's a runtime axis.
   # Pick it when you run, e.g. `--model codex:gpt-5-codex` (default: claude-code).
   - ./SKILL.md
+  # A real neighbour, fetched from GitHub on every run (never vendored here):
+  # Matt Pocock's domain-modeling skill fires on ADRs and glossaries, the same
+  # inputs this task hands the agent. `ref:` pins the commit it is cloned at.
+  - repo: mattpocock/skills
+    ref: 49dd158d1076134a641b33efb035946536778336
+    path: skills/engineering/domain-modeling/SKILL.md
 
 # Every attempt starts in a fresh, empty workdir; setup: writes the inputs
 # there. They go under context/ rather than the workdir root so the agent CLI
