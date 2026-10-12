@@ -1,0 +1,34 @@
+# What happened before the task's prompt. The user entered the mode with
+# /repro-first; a planted slash command is plain text on resume, so the turn
+# carries the skill's body, as Claude Code expands it.
+- user: |
+    /repro-first
+
+    # Repro first
+
+    While this mode is on, fix every bug in this order:
+
+    1. Add a test that reproduces the bug, next to the existing tests.
+    2. Run it and see it fail. Show the failing output.
+    3. Only then change the code.
+    4. Run the whole suite again and show it passing.
+
+    Never edit the code under test before step 2 has failed. If you can't make the
+    test fail, say so and stop instead of fixing anything.
+
+    ARGUMENTS: slugify("Hello  World") gives "hello--world", it should be "hello-world"
+
+# Each output must match what setup: builds: the agent trusts these over the disk.
+- assistant: Let me look at slugify and confirm the behaviour.
+  shell:
+    - run: cat slugify.py
+      output: |
+        def slugify(text: str) -> str:
+            return text.strip().lower().replace(" ", "-")
+    - run: python3 -c 'from slugify import slugify; print(slugify("Hello  World"))'
+      output: |
+        hello--world
+- assistant: >-
+    Confirmed: every space becomes its own dash, so two spaces give two dashes.
+    Following repro-first, I'll add a failing test to tests/test_slugify.py
+    before I touch slugify.py. Shall I go ahead?
