@@ -326,7 +326,10 @@ backend are in **[docs/backends.md](docs/backends.md)**.
 The quick start covers the basics. A spec can also:
 
 - pull neighbour skills from a **git repo**, pinned to a commit
-  (`skills: - {repo: owner/name, ref: …, path: …}`)
+  (`skills: - {repo: owner/name, ref: …, path: …}`). Examples
+  [02](examples/02-tool-misuse/tool-misuse.eval.yaml) and
+  [05](examples/05-context-boundary/context-boundary.eval.yaml) each fetch a real
+  neighbour from GitHub
 - give the agent **MCP servers**, local or remote (`mcp:`)
 - **pin whether your own customizations load**: `user_customizations: false`
   for a portable score from anyone, or `true` for a skill that needs your own

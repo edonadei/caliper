@@ -38,9 +38,9 @@ results JSON there).
 ```yaml
 skills:                     # the neighbourhood: every entry installed, none preloaded
   - ./SKILL.md              # path source, relative to the spec
-  - repo: vercel-labs/agent-skills   # git source, cloned by caliper
-    ref: a1b2c3d            # optional; omit to track the default branch
-    path: skills/tdd/SKILL.md        # optional; defaults to SKILL.md at the root
+  - repo: mattpocock/skills          # git source, cloned by caliper
+    ref: 49dd158d1076134a641b33efb035946536778336  # optional; a full commit, or omit to track the default branch
+    path: skills/engineering/tdd/SKILL.md  # optional; defaults to SKILL.md at the root
 
 sandbox:
   forbidden_files:          # extra regexes only: the spec itself and any

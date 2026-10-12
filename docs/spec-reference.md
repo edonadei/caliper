@@ -11,9 +11,9 @@ the [README quick start](../README.md#quick-start) or the
 skills:                         # installed where the agent looks for skills,
   - ./SKILL.md                  #   never pasted into the prompt
   - ../evaluate-skill/SKILL.md  # a path source: whatever that file says today
-  - repo: vercel-labs/agent-skills   # a git source: Caliper clones it
-    ref: a1b2c3d                     #   optional; omit to track the default branch
-    path: skills/tdd/SKILL.md        #   optional; defaults to SKILL.md at the root
+  - repo: mattpocock/skills          # a git source: Caliper clones it
+    ref: 49dd158d1076134a641b33efb035946536778336  # optional; omit to track the default branch
+    path: skills/engineering/tdd/SKILL.md  # optional; defaults to SKILL.md at the root
                                 # omit `skills:` entirely for a bare agent
 
 # Note: there is no `backend`/`model` or `judge:` block. The engine is picked
@@ -131,7 +131,9 @@ from the shorthand.
 *will* move. That's allowed because Caliper records the commit it resolved and
 `compare` tells you when it moved (see [Skill drift](#skill-drift)). Pinning is
 still worth it: a pinned entry is fully offline once fetched, while an unpinned
-one costs one `git ls-remote` per run.
+one costs one `git ls-remote` per run. Pin the full 40-character commit: `git`
+can't fetch an abbreviated one, so a short SHA only resolves once that commit is
+already in the cache.
 
 `caliper run` fetches before the first attempt, so a bad `repo:` fails fast and
 costs nothing. `caliper validate` never touches the network: it resolves git
