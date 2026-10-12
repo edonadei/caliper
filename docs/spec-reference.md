@@ -135,9 +135,16 @@ from the shorthand. A relative path resolves against the directory you run
 *will* move. That's allowed because Caliper records the commit it resolved and
 `compare` tells you when it moved (see [Skill drift](#skill-drift)). Pinning is
 still worth it: a pinned entry is fully offline once fetched, while an unpinned
-one costs one `git ls-remote` per run. Pin the full 40-character commit: `git`
-can't fetch an abbreviated one, so a short SHA only resolves once that commit is
-already in the cache.
+one costs one `git ls-remote` per run.
+
+`ref:` names a branch, a tag, or a commit, full or abbreviated. Caliper asks the
+remote first, so a branch whose name happens to look like hex is still treated
+as a branch. A full 40-character commit is fetched directly. An abbreviated one
+costs one extra fetch on a cold cache: Caliper downloads the commit history of
+every branch and tag (commits only, no file contents) to expand it. That only
+works when a branch or tag reaches the commit, the prefix is unique, and the
+remote supports partial fetches (GitHub does). Otherwise the run refuses and
+asks for the full commit, rather than download the repo's whole history.
 
 `caliper run` fetches before the first attempt, so a bad `repo:` fails fast and
 costs nothing. `caliper validate` never touches the network: it resolves git
