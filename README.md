@@ -334,7 +334,7 @@ The quick start covers the basics. A spec can also:
     - ./SKILL.md
     - ../calendar-scheduler/SKILL.md
     - repo: anthropics/skills                          # a real neighbour from GitHub
-      ref: dbd4588f9e1033efb41dad4bef2f7947c8993d44    # a full commit; omit to track the default branch
+      ref: dbd4588f9e1033efb41dad4bef2f7947c8993d44    # a branch, tag or commit; omit to track the default branch
       path: skills/internal-comms/SKILL.md             # also writes messages, so it competes for "Reply to Dana"
   ```
 

@@ -72,6 +72,11 @@ def origin(tmp_path: Path) -> Path:
     return repo
 
 
+def _allow_partial_fetches(repo: Path) -> None:
+    """What GitHub does; a local `upload-pack` refuses `--filter` by default."""
+    _git("config", "uploadpack.allowFilter", "true", cwd=repo)
+
+
 def _head(repo: Path) -> str:
     return _git("rev-parse", "HEAD", cwd=repo)
 
@@ -271,6 +276,96 @@ def test_a_short_pin_is_served_from_cache_once_known_to_be_a_commit(
 
     assert fetcher.materialize(src).sha == full
     assert not fetcher.warnings
+
+
+def test_a_short_pin_is_expanded_on_a_cold_cache(tmp_path: Path, origin: Path):
+    """`git fetch` refuses an abbreviated commit, so caliper expands it first."""
+    _allow_partial_fetches(origin)
+    pinned = _head(origin)
+    _write_skill(origin, "tdd", SKILL_BODY.format(name="tdd") + "\nv2\n")
+    _git("commit", "-qam", "second", cwd=origin)
+
+    fetched = SkillFetcher(cache_dir=tmp_path / "cache").materialize(
+        GitSkillSource(repo=str(origin), ref=pinned[:12])
+    )
+
+    assert fetched.sha == pinned
+    assert _git("rev-parse", "HEAD", cwd=fetched.checkout) == pinned
+    assert "v2" not in fetched.path.read_text()
+
+
+def test_a_short_pin_reachable_only_from_a_tag_is_expanded(
+    tmp_path: Path, origin: Path
+):
+    _allow_partial_fetches(origin)
+    pinned = _head(origin)
+    _git("tag", "v1", cwd=origin)
+    _git("reset", "-q", "--hard", "HEAD", cwd=origin)
+    _git("checkout", "-q", "--orphan", "fresh", cwd=origin)
+    _git("commit", "-qm", "unrelated", cwd=origin)
+    _git("branch", "-D", "main", cwd=origin)
+
+    fetched = SkillFetcher(cache_dir=tmp_path / "cache").materialize(
+        GitSkillSource(repo=str(origin), ref=pinned[:7])
+    )
+
+    assert fetched.sha == pinned
+
+
+def test_an_expanded_short_pin_is_then_served_offline(tmp_path: Path, origin: Path):
+    _allow_partial_fetches(origin)
+    cache = tmp_path / "cache"
+    src = GitSkillSource(repo=str(origin), ref=_head(origin)[:7])
+    full = SkillFetcher(cache_dir=cache).materialize(src).sha
+
+    origin.rename(tmp_path / "origin-gone")
+    fetcher = SkillFetcher(cache_dir=cache)
+
+    assert fetcher.materialize(src).sha == full
+    assert not fetcher.warnings
+
+
+def test_a_short_pin_no_ref_reaches_refuses_with_the_full_commit_hint(
+    tmp_path: Path, origin: Path
+):
+    _allow_partial_fetches(origin)
+    _write_skill(origin, "tdd", SKILL_BODY.format(name="tdd") + "\nv2\n")
+    _git("commit", "-qam", "dangling", cwd=origin)
+    dangling = _head(origin)
+    _git("reset", "-q", "--hard", "HEAD~1", cwd=origin)
+    _git("reflog", "expire", "--expire=now", "--all", cwd=origin)
+    _git("gc", "-q", "--prune=now", cwd=origin)
+
+    with pytest.raises(SkillFetchError, match="full 40-character commit"):
+        SkillFetcher(cache_dir=tmp_path / "cache").materialize(
+            GitSkillSource(repo=str(origin), ref=dangling[:7])
+        )
+
+
+def test_a_short_pin_refuses_rather_than_fetch_a_whole_history(
+    tmp_path: Path, origin: Path
+):
+    """Without `--filter` support, expanding would download every old blob."""
+    _git("config", "uploadpack.allowFilter", "false", cwd=origin)
+    (origin / "big.bin").write_bytes(b"\0" * (1 << 20))
+    _git("add", "big.bin", cwd=origin)
+    _git("commit", "-qm", "big", cwd=origin)
+    _git("rm", "-q", "big.bin", cwd=origin)
+    _git("commit", "-qm", "drop big", cwd=origin)
+    fetcher = SkillFetcher(cache_dir=tmp_path / "cache")
+    seen: list[str] = []
+    real_git = fetcher._git
+
+    def spy(*args, **kwargs):
+        seen.append(args[0])
+        return real_git(*args, **kwargs)
+
+    fetcher._git = spy
+
+    with pytest.raises(SkillFetchError, match="does not support partial fetches"):
+        fetcher.materialize(GitSkillSource(repo=str(origin), ref=_head(origin)[:7]))
+
+    assert "fetch" not in seen
 
 
 def test_concurrent_cold_fetches_of_one_commit_all_succeed(
