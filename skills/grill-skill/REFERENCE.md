@@ -91,7 +91,7 @@ validation.
   questions. For a skill that asks before acting, judge the first turn:
   `expect:` the question, `assert:` that nothing was done yet.
 - **Mid-conversation tasks.** For a skill a human enters by slash command, or a
-  playbook that assumes earlier turns, plant them with `history: ./h.yaml`: a
+  playbook that assumes earlier turns, plant them with `history: ./h.history.yaml`: a
   list starting with a user turn, each `- user: <text>` or
   `- assistant: <text>`, where an assistant turn may add `shell:` entries of
   `run:` and `output:`. `prompt:` is the next user turn. A user turn of

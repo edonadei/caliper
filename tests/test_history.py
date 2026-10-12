@@ -40,9 +40,11 @@ _HISTORY = """\
 """
 
 
-def _spec(tmp_path, history_text: str | None = _HISTORY, history: str = "./h.yaml"):
+def _spec(
+    tmp_path, history_text: str | None = _HISTORY, history: str = "./h.history.yaml"
+):
     if history_text is not None:
-        (tmp_path / "h.yaml").write_text(history_text)
+        (tmp_path / "h.history.yaml").write_text(history_text)
     spec = tmp_path / "s.eval.yaml"
     spec.write_text(
         f"tasks:\n  - name: t\n    history: {history}\n    prompt: p\n    expect: x\n"
@@ -56,7 +58,7 @@ def _spec(tmp_path, history_text: str | None = _HISTORY, history: str = "./h.yam
 def test_a_task_names_its_history_by_path_and_the_turns_load(tmp_path) -> None:
     task = load_spec(_spec(tmp_path)).tasks[0]
 
-    assert task.history == "./h.yaml"
+    assert task.history == "./h.history.yaml"
     assert task.planted_history(tmp_path) == [
         PlantedTurn(
             user="Migrate billing to the ledger API. Start by finding the call sites."
@@ -382,7 +384,7 @@ def test_the_judge_gets_the_turns_the_attempt_resumed_from(tmp_path) -> None:
 
         def evaluate(self, task, transcript, workdir, history=None):
             seen.append(history)
-            (tmp_path / "h.yaml").write_text("- user: edited\n")
+            (tmp_path / "h.history.yaml").write_text("- user: edited\n")
             return JudgeResult(passed=True)
 
     run(load_spec(spec_path), spec_path, harness, Judge(), k=2, workers=1)

@@ -65,7 +65,7 @@ tasks:
   - name: Short description of what success looks like
     setup: <shell command run in the attempt workdir>     # optional
     cleanup: <shell command>                              # optional
-    history: ./histories/h.yaml   # optional: earlier turns to resume from (claude-code only)
+    history: ./histories/h.history.yaml   # optional: earlier turns to resume from (claude-code only)
     prompt: <what a real user would type>
     expect: <natural-language pass/fail criterion>
     assert: |                                             # or ./check.py
@@ -121,7 +121,7 @@ checks before its first attempt):
   `assert:` is killed after 30 seconds and gives no verdict, so the attempt is a
   `judge_error` unless `expect:` produced one. Assertion evidence is the tail of
   the script's output.
-- **Planted history.** `history: ./h.yaml` starts a task mid-conversation: the
+- **Planted history.** `history: ./h.history.yaml` starts a task mid-conversation: the
   agent resumes from the file's turns and `prompt:` is the next user turn. The
   file is a list starting with a user turn; each turn is `- user: <text>` or
   `- assistant: <text>`, and an assistant turn may add `shell:` entries of

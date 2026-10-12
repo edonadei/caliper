@@ -44,7 +44,7 @@ tasks:
   - name: Short task name
     setup: <shell command>      # optional; runs in the attempt workdir; failure skips the agent and judge
     cleanup: <shell command>    # optional; runs in the attempt workdir, even after setup failure
-    history: ./histories/h.yaml # optional; earlier turns the agent resumes from (claude-code only)
+    history: ./histories/h.history.yaml # optional; earlier turns the agent resumes from (claude-code only)
     prompt: <prompt sent to the agent>
     expect: <natural-language success condition>
     assert: |
@@ -327,13 +327,13 @@ turn.
 tasks:
   - name: Finishes the migration
     setup: cp -R "$CALIPER_SPEC_DIR/fixture/." .
-    history: ./histories/mid-migration.yaml
+    history: ./histories/mid-migration.history.yaml
     prompt: Good, now finish the remaining call sites.
     expect: Both call sites use the ledger API.
 ```
 
 ```yaml
-# histories/mid-migration.yaml
+# histories/mid-migration.history.yaml
 - user: Migrate billing to the ledger API. Start by finding the call sites.
 - assistant: Searching for the old client.
   shell:
@@ -344,7 +344,8 @@ tasks:
 - assistant: Two call sites. I migrated invoice.py; refund.py is left.
 ```
 
-The path resolves against the spec's directory, like `assert: ./check.py`. The
+The path resolves against the spec's directory, like `assert: ./check.py`; name
+the file `*.history.yaml` so it reads as one beside your `*.eval.yaml`. The
 file is a list of turns, and it must start with a user turn. Each turn has
 exactly one of:
 

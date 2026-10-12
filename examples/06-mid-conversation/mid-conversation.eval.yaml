@@ -39,7 +39,7 @@ tasks:
               self.assertEqual(slugify("Hello World"), "hello-world")
       PY
     # 👉 EDIT 3: the turns before your prompt.
-    history: ./histories/double-dash.yaml
+    history: ./histories/double-dash.history.yaml
     prompt: Yes, go ahead.
     expect: >
       Following the repro-first mode from earlier in the conversation, the agent
