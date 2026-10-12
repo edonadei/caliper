@@ -645,8 +645,7 @@ def _session_lines(
     call is a ``Bash`` tool use, answered by a ``tool_result`` user message.
     """
     lines: list[dict] = []
-    now = datetime.now(timezone.utc)
-    timestamp = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
     def add(role: str, content: str | list[dict]) -> None:
         lines.append(
@@ -665,23 +664,27 @@ def _session_lines(
         if turn.user is not None:
             add("user", turn.user)
             continue
-        blocks: list[dict] = []
-        if turn.assistant:
-            blocks.append({"type": "text", "text": turn.assistant})
-        ids = [f"toolu_planted_{len(lines)}_{i}" for i in range(len(turn.shell))]
-        blocks += [
-            {"type": "tool_use", "id": id_, "name": "Bash", "input": {"command": c.run}}
-            for id_, c in zip(ids, turn.shell, strict=True)
+        # Each tool use is answered by the result with its id.
+        calls = [
+            (f"toolu_planted_{len(lines)}_{i}", c) for i, c in enumerate(turn.shell)
         ]
-        add("assistant", blocks)
-        if turn.shell:
-            add(
-                "user",
-                [
-                    {"type": "tool_result", "tool_use_id": id_, "content": c.output}
-                    for id_, c in zip(ids, turn.shell, strict=True)
-                ],
+        blocks = [{"type": "text", "text": turn.assistant}] if turn.assistant else []
+        for tool_id, call in calls:
+            blocks.append(
+                {
+                    "type": "tool_use",
+                    "id": tool_id,
+                    "name": "Bash",
+                    "input": {"command": call.run},
+                }
             )
+        add("assistant", blocks)
+        if calls:
+            results = [
+                {"type": "tool_result", "tool_use_id": tool_id, "content": call.output}
+                for tool_id, call in calls
+            ]
+            add("user", results)
     return lines
 
 

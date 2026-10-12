@@ -2,14 +2,31 @@
 
 from __future__ import annotations
 
+import json
+import os
+import re
+import subprocess
 from pathlib import Path
 
 import pytest
+from conftest import ScriptedHarness, patch_cli_calls, run_context
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
+from caliper.environment import resolve_environment
+from caliper.harness import get_harness
+from caliper.harness.base import (
+    ConversationTurn,
+    HarnessConfigurationError,
+    PromptResult,
+)
+from caliper.harness.claude_code import ClaudeCodeHarness
+from caliper.judge.base import JudgeResult
+from caliper.judge.eval_judge import EvalJudge, render_judge_prompt
 from caliper.main import app
+from caliper.runner import run
 from caliper.schema.spec import PlantedShellCall, PlantedTurn, load_spec
+from caliper.workdir import AttemptWorkdir
 
 _HISTORY = """\
 - user: Migrate billing to the ledger API. Start by finding the call sites.
@@ -72,13 +89,19 @@ def test_a_missing_history_file_is_refused(tmp_path) -> None:
     [
         ("", "at least one turn"),
         ("user: hi\n", "a list of turns"),
-        ("- hi\n", "turn 1 must be a mapping"),
+        ("- hi\n", "turn 1: Input should be"),
         ("- user: hi\n  said: x\n", "turn 1: unknown key `said`"),
-        ("- user: hi\n  assistant: yo\n", "turn 1 must have exactly one of"),
-        ("- shell: []\n", "turn 1 must have exactly one of"),
-        ("- user: hi\n  shell:\n    - run: ls\n      output: x\n", "turn 1"),
-        ("- user: hi\n- assistant: ok\n  shell:\n    - run: ls\n", "turn 2"),
-        ("- user: hi\n- assistant: ''\n", "turn 2"),
+        ("- user: hi\n  assistant: yo\n", "turn 1: a turn has exactly one of"),
+        ("- shell: []\n", "turn 1: a turn has exactly one of"),
+        (
+            "- user: hi\n  shell:\n    - run: ls\n      output: x\n",
+            "turn 1: only an assistant",
+        ),
+        (
+            "- user: hi\n- assistant: ok\n  shell:\n    - run: ls\n",
+            "turn 2, shell.0.output: Field required",
+        ),
+        ("- user: hi\n- assistant: ''\n", "turn 2: an assistant turn needs text"),
         ("- assistant: hi\n", "must start with a user turn"),
     ],
 )
@@ -100,7 +123,6 @@ def test_validate_reports_a_malformed_history(tmp_path) -> None:
 
 
 def _resolve(spec_path, harness):
-    from caliper.environment import resolve_environment
 
     return resolve_environment(
         load_spec(spec_path),
@@ -113,9 +135,6 @@ def _resolve(spec_path, harness):
 
 
 def test_each_attempt_is_handed_its_tasks_planted_turns(tmp_path) -> None:
-    from conftest import ScriptedHarness
-
-    from caliper.workdir import AttemptWorkdir
 
     spec_path = _spec(tmp_path)
     environment = _resolve(spec_path, ScriptedHarness(supports_history=True))
@@ -130,8 +149,6 @@ def test_each_attempt_is_handed_its_tasks_planted_turns(tmp_path) -> None:
 
 @pytest.mark.parametrize("backend", ["codex", "pi", "hermes"])
 def test_a_backend_without_history_refuses_the_spec_by_name(tmp_path, backend) -> None:
-    from caliper.harness import get_harness
-    from caliper.harness.base import HarnessConfigurationError
 
     with pytest.raises(HarnessConfigurationError, match=f"'{backend}' backend"):
         _resolve(_spec(tmp_path), get_harness(backend))
@@ -142,12 +159,6 @@ def test_a_backend_without_history_refuses_the_spec_by_name(tmp_path, backend) -
 
 def _claude_spawn(monkeypatch, tmp_path, history):
     """Run claude-code once over ``history``; what it spawned, and the session file."""
-    import json
-    import subprocess
-
-    from conftest import patch_cli_calls, run_context
-
-    from caliper.harness.claude_code import ClaudeCodeHarness
 
     seen: dict = {}
 
@@ -182,8 +193,6 @@ def _claude_spawn(monkeypatch, tmp_path, history):
 def test_claude_code_resumes_a_session_written_from_the_history(
     monkeypatch, tmp_path
 ) -> None:
-    import os
-    import re
 
     history = load_spec(_spec(tmp_path)).tasks[0].planted_history(tmp_path)
     seen = _claude_spawn(monkeypatch, tmp_path, history)
@@ -248,8 +257,6 @@ def test_parallel_attempts_write_separate_sessions(monkeypatch, tmp_path) -> Non
 
 
 def test_the_judge_sees_the_planted_turns_as_prior_context(attempt_workdir) -> None:
-    from caliper.harness.base import ConversationTurn, PromptResult
-    from caliper.judge.eval_judge import EvalJudge
 
     prompts: list[str] = []
 
@@ -280,17 +287,12 @@ def test_the_judge_sees_the_planted_turns_as_prior_context(attempt_workdir) -> N
 
 
 def test_the_judge_prompt_has_no_prior_context_without_a_history() -> None:
-    from caliper.judge.eval_judge import render_judge_prompt
 
     assert "<prior_context>" not in render_judge_prompt("x", [])
 
 
 def test_the_judge_gets_the_turns_the_attempt_resumed_from(tmp_path) -> None:
     """Read once per run: an edit mid-run can't split the agent from its judge."""
-    from conftest import ScriptedHarness
-
-    from caliper.judge.base import JudgeResult
-    from caliper.runner import run
 
     spec_path = _spec(tmp_path)
     harness = ScriptedHarness(supports_history=True)
