@@ -305,8 +305,8 @@ discipline**, not a full simulated conversation.
 
 Earlier turns of a conversation a task declares (`history:`), which the agent
 resumes from as if they had happened; the task's `prompt` is the next user
-turn. Backend-neutral: user text, assistant text, and shell calls with their
-output. The turns are
+turn. Backend-neutral: user text, a skill the user invoked, assistant text,
+and shell calls with their output. The turns are
 the **task's, not the agent's**: never in the attempt's transcript, never
 graded, shown to the judge only as prior context. It still leaves the
 [[single-shot harness]] single-shot: one prompt, nobody answering back.

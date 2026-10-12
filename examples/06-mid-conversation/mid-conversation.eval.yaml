@@ -14,9 +14,10 @@
 #   caliper run mid-conversation.eval.yaml --k 3
 # ─────────────────────────────────────────────────────────────────────────────
 
-# No skills: here. The mode is slash-only, so it's never discovered; its body
-# lives in the history's first turn. 👉 EDIT 1: keep that turn in sync with
-# your SKILL.md.
+skills:
+  # 👉 EDIT 1: point this at your own SKILL.md. Slash-only, so the agent never
+  # discovers it: the history's skill: turn is how it gets entered.
+  - ./SKILL.md
 
 tasks:
   - name: Writes the failing test before fixing the bug

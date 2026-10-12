@@ -75,11 +75,14 @@ your skill actually produces.
 
 **Mid-conversation: plant the turns a fresh attempt can't reach.** The
 `repro-first` mode is slash-only, so the agent never discovers it. `history:`
-starts the task after the user entered the mode and the agent found the bug;
-the prompt is just "Yes, go ahead." The `assert:` checks the bug is fixed and a
+starts the task after the user entered it (a `skill:` turn, expanded from the
+installed `SKILL.md`) and the agent found the bug; the prompt is just "Yes, go
+ahead." The `assert:` checks the bug is fixed and a
 new test exists, and `expect:` checks the test failed before the fix. `setup:`
 builds the same `slugify.py` the planted `cat` shows, because the agent trusts
-the history over the disk. claude-code only, for now.
+the history over the disk. With `--ablate repro-first` the turn is the bare
+command, and the agent fixes the code without a test first. claude-code only,
+for now.
 
 ## Adapt one to your skill
 

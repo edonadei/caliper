@@ -92,12 +92,11 @@ validation.
   `expect:` the question, `assert:` that nothing was done yet.
 - **Mid-conversation tasks.** For a skill a human enters by slash command, or a
   playbook that assumes earlier turns, plant them with `history: ./h.yaml`: a
-  list starting with a user turn, each `- user: <text>` or
-  `- assistant: <text>`, where an assistant turn may add `shell:` entries of
-  `run:` and `output:`. `prompt:` is the next user turn. Make `setup:` build
-  what the history claims: the agent trusts a planted output over the disk. A
-  planted `/skill-name` loads nothing, so plant the skill's instructions in the
-  user turn. The judge reads planted turns as prior context, never as the
+  list starting with a user or skill turn, each `- user: <text>`,
+  `- skill: <declared skill>` (optional `args:`), or `- assistant: <text>`,
+  where an assistant turn may add `shell:` entries of `run:` and `output:`. `prompt:` is the next user turn. Make `setup:` build
+  what the history claims: the agent trusts a planted output over the disk. Enter a
+  slash-only skill with `skill:`, not `user: /name`, which loads nothing. The judge reads planted turns as prior context, never as the
   agent's. claude-code only.
 - **Attempt workdir.** `setup:`, the agent, `assert:` and `cleanup:` all run in
   one fresh, empty directory per attempt, so relative paths mean the same file

@@ -69,8 +69,8 @@ agent's. Use them as context; grade only the transcript below.
 def _format_prior(history: Sequence[PlantedTurn]) -> str:
     lines: list[str] = []
     for turn in history:
-        if turn.user is not None:
-            lines.append(f"[user] {turn.user}")
+        if turn.from_user:
+            lines.append(f"[user] {turn.command if turn.skill else turn.user}")
             continue
         if turn.assistant:
             lines.append(f"[assistant] {turn.assistant}")
@@ -141,6 +141,7 @@ _VERSION_PROBE = [
 # A planted history exercising every kind of planted turn.
 _HISTORY_PROBE = [
     PlantedTurn(user="question"),
+    PlantedTurn(skill="mode", args="on"),
     PlantedTurn(
         assistant="looking",
         shell=[PlantedShellCall(run="ls", output="x" * 100_000)],

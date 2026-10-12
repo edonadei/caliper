@@ -61,23 +61,42 @@ class PlantedShellCall(BaseModel):
 
 
 class PlantedTurn(BaseModel):
-    """One turn of a planted history: the user's text, or the assistant's.
+    """One turn of a planted history: the user's text, the assistant's, or a
+    declared skill the user invoked by its slash command.
 
     Backend-neutral; each harness translates the list into its CLI's own session
-    format (docs/adr/0036).
+    format. A ``skill`` turn names the skill rather than copying it, so each
+    attempt expands the installed ``SKILL.md`` (docs/adr/0036).
     """
 
     user: str | None = None
     assistant: str | None = None
     shell: list[PlantedShellCall] = []
+    skill: str | None = None
+    args: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
+    @property
+    def from_user(self) -> bool:
+        """Whether the user said it: their text, or a skill they invoked."""
+        return self.assistant is None
+
+    @property
+    def command(self) -> str:
+        """A skill turn as the user typed it: ``/name args``."""
+        return " ".join(part for part in (f"/{self.skill}", self.args) if part)
+
     @model_validator(mode="after")
     def check_shape(self) -> PlantedTurn:
-        if (self.user is None) == (self.assistant is None):
-            raise ValueError("a turn has exactly one of `user:` or `assistant:`")
-        if self.user is not None and self.shell:
+        kinds = (self.user, self.assistant, self.skill)
+        if sum(kind is not None for kind in kinds) != 1:
+            raise ValueError(
+                "a turn has exactly one of `user:`, `assistant:` or `skill:`"
+            )
+        if self.args is not None and self.skill is None:
+            raise ValueError("only a skill turn takes `args:`")
+        if self.from_user and self.shell:
             raise ValueError("only an assistant turn can run `shell:` commands")
         if self.assistant is not None and not self.assistant.strip() and not self.shell:
             raise ValueError("an assistant turn needs text or `shell:` commands")
@@ -103,7 +122,7 @@ def load_history(path: Path) -> list[PlantedTurn]:
     except ValidationError as exc:
         raise ValueError(f"history {_history_error(exc)}") from None
     # The model's API opens a conversation with the user, and every CLI with it.
-    if turns[0].user is None:
+    if not turns[0].from_user:
         raise ValueError(f"history {path} must start with a user turn")
     return turns
 

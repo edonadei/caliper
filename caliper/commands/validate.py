@@ -12,6 +12,7 @@ from caliper.skills import (
     SkillResolutionError,
     resolve_skills,
     validate_activates,
+    validate_planted_skills,
 )
 
 console = Console()
@@ -63,6 +64,15 @@ def validate_cmd(
         # naming a skill we simply could not see would fail a correct spec for a
         # connectivity reason.
         validate_activates(spec.tasks, refs, closed=not fetcher.unresolved)
+        validate_planted_skills(
+            {
+                task.name: turns
+                for task in spec.tasks
+                if (turns := task.planted_history(spec_file.parent)) is not None
+            },
+            refs,
+            closed=not fetcher.unresolved,
+        )
     except SkillResolutionError as exc:
         fail(BadInput(str(exc), title="Validation failed"))
 

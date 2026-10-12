@@ -26,6 +26,7 @@ from caliper.judge.eval_judge import EvalJudge, render_judge_prompt
 from caliper.main import app
 from caliper.runner import run
 from caliper.schema.spec import PlantedShellCall, PlantedTurn, load_spec
+from caliper.skills import SkillResolutionError, resolve_skills
 from caliper.workdir import AttemptWorkdir
 
 _HISTORY = """\
@@ -92,6 +93,8 @@ def test_a_missing_history_file_is_refused(tmp_path) -> None:
         ("- hi\n", "turn 1: Input should be"),
         ("- user: hi\n  said: x\n", "turn 1: unknown key `said`"),
         ("- user: hi\n  assistant: yo\n", "turn 1: a turn has exactly one of"),
+        ("- user: hi\n  skill: x\n", "turn 1: a turn has exactly one of"),
+        ("- user: hi\n  args: x\n", "turn 1: only a skill turn takes `args:`"),
         ("- shell: []\n", "turn 1: a turn has exactly one of"),
         (
             "- user: hi\n  shell:\n    - run: ls\n      output: x\n",
@@ -108,6 +111,15 @@ def test_a_missing_history_file_is_refused(tmp_path) -> None:
 def test_a_malformed_history_is_refused_by_turn(tmp_path, text, needle) -> None:
     with pytest.raises(ValidationError, match=needle):
         load_spec(_spec(tmp_path, history_text=text))
+
+
+def test_a_history_can_open_by_invoking_a_skill(tmp_path) -> None:
+    text = "- skill: repro-first\n  args: the double dash\n- assistant: On it.\n"
+    task = load_spec(_spec(tmp_path, history_text=text)).tasks[0]
+
+    assert task.planted_history(tmp_path)[0] == PlantedTurn(
+        skill="repro-first", args="the double dash"
+    )
 
 
 def test_validate_reports_a_malformed_history(tmp_path) -> None:
@@ -147,6 +159,17 @@ def test_each_attempt_is_handed_its_tasks_planted_turns(tmp_path) -> None:
     assert ctx.prompt == "p"
 
 
+def test_a_skill_turn_must_name_a_declared_skill(tmp_path) -> None:
+    spec_path = _spec(tmp_path, history_text="- skill: repro-first\n")
+
+    with pytest.raises(SkillResolutionError, match="repro-first"):
+        _resolve(spec_path, ScriptedHarness(supports_history=True))
+
+    result = CliRunner().invoke(app, ["validate", str(spec_path)])
+    assert result.exit_code != 0
+    assert "repro-first" in result.output
+
+
 @pytest.mark.parametrize("backend", ["codex", "pi", "hermes"])
 def test_a_backend_without_history_refuses_the_spec_by_name(tmp_path, backend) -> None:
 
@@ -157,7 +180,7 @@ def test_a_backend_without_history_refuses_the_spec_by_name(tmp_path, backend) -
 # --- claude-code ----------------------------------------------------------------
 
 
-def _claude_spawn(monkeypatch, tmp_path, history):
+def _claude_spawn(monkeypatch, tmp_path, history, skill_refs=()):
     """Run claude-code once over ``history``; what it spawned, and the session file."""
 
     seen: dict = {}
@@ -185,6 +208,7 @@ def _claude_spawn(monkeypatch, tmp_path, history):
             isolated_home=str(tmp_path / "home"),
             workdir=str(tmp_path / "work"),
             history=history,
+            skill_refs=list(skill_refs),
         )
     )
     return seen
@@ -235,6 +259,47 @@ def test_claude_code_resumes_a_session_written_from_the_history(
         }
     ]
     assert last == [{"type": "text", "text": "One call site, in invoice.py."}]
+
+
+_REPRO_FIRST = (
+    "---\nname: repro-first\ndescription: d\ndisable-model-invocation: true\n---\n\n"
+    "Write the failing test first.\n"
+)
+
+
+def test_claude_code_plants_a_skill_turn_as_the_expanded_command(
+    monkeypatch, tmp_path
+) -> None:
+    """Expanded from the installed SKILL.md, so the history never copies it."""
+    (tmp_path / "skill").mkdir()
+    (tmp_path / "skill" / "SKILL.md").write_text(_REPRO_FIRST)
+    refs = resolve_skills(["./skill/SKILL.md"], tmp_path)
+    history = [
+        PlantedTurn(skill="repro-first", args="the double dash"),
+        PlantedTurn(assistant="On it."),
+    ]
+
+    seen = _claude_spawn(monkeypatch, tmp_path, history, refs)
+
+    planted = seen["lines"][0]["message"]["content"]
+    assert planted.startswith("<command-name>/repro-first</command-name>")
+    assert "Write the failing test first." in planted
+    assert "---" not in planted
+    assert planted.endswith("ARGUMENTS: the double dash")
+    installed = tmp_path / "home" / ".claude" / "skills" / "repro-first"
+    assert f"Base directory for this skill: {installed}" in planted
+
+
+def test_an_ablated_skill_turn_is_the_bare_command(monkeypatch, tmp_path) -> None:
+    """With the skill not installed, what the user typed is all that's left."""
+    history = [
+        PlantedTurn(skill="repro-first", args="the double dash"),
+        PlantedTurn(assistant="On it."),
+    ]
+
+    seen = _claude_spawn(monkeypatch, tmp_path, history)
+
+    assert seen["lines"][0]["message"]["content"] == "/repro-first the double dash"
 
 
 def test_claude_code_starts_fresh_without_a_history(monkeypatch, tmp_path) -> None:
@@ -312,3 +377,11 @@ def test_the_judge_gets_the_turns_the_attempt_resumed_from(tmp_path) -> None:
     assert seen == planted
     assert planted[0] == planted[1]
     assert planted[0][0].user.startswith("Migrate billing")
+
+
+def test_the_judge_sees_a_skill_turn_as_the_command_the_user_typed() -> None:
+    history = [PlantedTurn(skill="repro-first", args="the double dash")]
+
+    assert "[user] /repro-first the double dash" in render_judge_prompt(
+        "x", [], history
+    )

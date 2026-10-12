@@ -345,8 +345,8 @@ The quick start covers the basics. A spec can also:
 - run **`setup:` and `cleanup:`** shell hooks in each attempt's workdir (each
   killed after 600 seconds)
 - start a task **mid-conversation** (`history:`): the agent resumes from
-  planted user and assistant turns, shell calls included, and the prompt is the
-  next turn. `setup:` and the history must agree, since the agent trusts a
+  planted user and assistant turns, shell calls included, or from a slash-only
+  skill the user entered (`skill:`), and the prompt is the next turn. `setup:` and the history must agree, since the agent trusts a
   planted output over the disk. claude-code only for now
 - extend `PATH` or **forbid files** the agent must not read (`sandbox:`)
 - assert **silence** (`activates: []`) or a **delegation chain**

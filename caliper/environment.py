@@ -29,7 +29,13 @@ from caliper.schema.spec import (
     TaskSpec,
 )
 from caliper.skillfetch import SkillFetcher
-from caliper.skills import SkillRef, apply_ablation, resolve_skills, validate_activates
+from caliper.skills import (
+    SkillRef,
+    apply_ablation,
+    resolve_skills,
+    validate_activates,
+    validate_planted_skills,
+)
 from caliper.workdir import AttemptWorkdir
 
 
@@ -178,6 +184,15 @@ def resolve_environment(
     # --ablate an `activates:` naming the removed skill has its expectation
     # dropped, not violated (docs/adr/0015).
     validate_activates(spec.tasks, declared_refs)
+    histories = {
+        task.id: turns
+        for task in spec.tasks
+        if (turns := task.planted_history(spec_dir)) is not None
+    }
+    validate_planted_skills(
+        {task.name: histories[task.id] for task in spec.tasks if task.id in histories},
+        declared_refs,
+    )
     # `--ablate` names a declared subject — a skill or an mcp: server — and this
     # removes it. Duplicates collapse: `--ablate x --ablate x` removes one.
     ablation = apply_ablation(declared_refs, list(ablate), mcp_servers=spec.mcp)
@@ -204,11 +219,6 @@ def resolve_environment(
             "mcp: block from the spec."
         )
 
-    histories = {
-        task.id: turns
-        for task in spec.tasks
-        if (turns := task.planted_history(spec_dir)) is not None
-    }
     # Starting such a task at turn 1 would measure a different task, so refuse
     # rather than drop the history (docs/adr/0036).
     if histories and not harness.supports_history:

@@ -26,7 +26,7 @@ from caliper.harness.mcp import merge_user_servers, resolve_servers
 from caliper.harness.refusal import ConfigSignal
 from caliper.schema.results import TokenUsage
 from caliper.schema.spec import PlantedTurn
-from caliper.skills import frontmatter_name
+from caliper.skills import frontmatter_name, skill_body
 
 
 def preferred_nvm_node_bin() -> str | None:
@@ -308,9 +308,38 @@ class ClaudeCodeHarness(CliHarness):
         projects = Path(ctx.isolated_home) / ".claude" / "projects"
         path = projects / re.sub(r"[^A-Za-z0-9]", "-", workdir) / f"{session_id}.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
-        lines = _session_lines(ctx.history or [], session_id=session_id, cwd=workdir)
+        lines = _session_lines(
+            ctx.history or [],
+            session_id=session_id,
+            cwd=workdir,
+            invoke=lambda turn: self._invoked_skill(ctx, turn),
+        )
         path.write_text("".join(json.dumps(line) + "\n" for line in lines))
         return session_id
+
+    def _invoked_skill(self, ctx: RunContext, turn: PlantedTurn) -> str:
+        """A planted ``skill:`` turn as the CLI writes an expanded slash command.
+
+        Read from the installed copy, so the history never repeats the skill and
+        an edit to it reaches the next run. An ablated skill isn't installed:
+        the turn is then the bare command, which the CLI would not expand either.
+        """
+        directory = self.skills_root(ctx) / (turn.skill or "")
+        installed = directory / "SKILL.md"
+        if not installed.is_file():
+            return turn.command
+        parts = [f"<command-name>/{turn.skill}</command-name>"]
+        if turn.args:
+            parts.append(f"<command-args>{turn.args}</command-args>")
+        parts += [
+            "",
+            f"Base directory for this skill: {directory}",
+            "",
+            skill_body(installed.read_text()),
+        ]
+        if turn.args:
+            parts += ["", f"ARGUMENTS: {turn.args}"]
+        return "\n".join(parts)
 
     def _materialize_mcp_config(self, ctx: RunContext) -> Path:
         """Write the declared MCP servers into ``.caliper-mcp.json`` for the run.
@@ -636,13 +665,18 @@ class ClaudeCodeHarness(CliHarness):
 
 
 def _session_lines(
-    history: list[PlantedTurn], *, session_id: str, cwd: str
+    history: list[PlantedTurn],
+    *,
+    session_id: str,
+    cwd: str,
+    invoke: Callable[[PlantedTurn], str],
 ) -> list[dict]:
     """``history`` as Claude Code session lines, one message per line.
 
     Only the fields a resume was seen to need (2.1.296): without a
     ``timestamp`` the CLI does not find the session at all. A planted shell
-    call is a ``Bash`` tool use, answered by a ``tool_result`` user message.
+    call is a ``Bash`` tool use, answered by a ``tool_result`` user message;
+    ``invoke`` writes a planted ``skill:`` turn.
     """
     lines: list[dict] = []
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
@@ -661,8 +695,8 @@ def _session_lines(
         )
 
     for turn in history:
-        if turn.user is not None:
-            add("user", turn.user)
+        if turn.from_user:
+            add("user", turn.user if turn.skill is None else invoke(turn))
             continue
         # Each tool use is answered by the result with its id.
         calls = [

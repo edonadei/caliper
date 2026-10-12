@@ -89,6 +89,12 @@ class SkillRef:
         return self.path.parent
 
 
+def skill_body(text: str) -> str:
+    """A SKILL.md's instructions: everything after its frontmatter."""
+    block = _FRONTMATTER_RE.match(text)
+    return (text[block.end() :] if block else text).strip()
+
+
 def frontmatter_name(text: str) -> str | None:
     """The ``name:`` from a SKILL.md's YAML frontmatter, or ``None``."""
     import yaml
@@ -418,6 +424,32 @@ def validate_activates(
             "Add it to skills:, or correct "
             "the name (identity is the frontmatter name:, not the filename)."
         )
+
+
+def validate_planted_skills(
+    histories: dict[str, list], refs: list[SkillRef], *, closed: bool = True
+) -> None:
+    """Refuse a planted ``skill:`` turn naming a skill the spec never declared.
+
+    ``histories`` maps a task's name to its planted turns. The turn is expanded
+    from the installed skill, so an undeclared one has nothing to expand. Shared
+    by ``validate`` and the run seam, like :func:`validate_activates`.
+    """
+    if not closed:
+        return
+    declared = {ref.name for ref in refs}
+    for task_name, turns in histories.items():
+        for turn in turns:
+            if turn.skill is None or turn.skill in declared:
+                continue
+            listed = ", ".join(sorted(declared)) or "(none)"
+            raise SkillResolutionError(
+                f"Task '{task_name}' plants a /{turn.skill} turn, but the spec's "
+                f"skills: declares only {listed}.\n\n"
+                "A planted skill turn is expanded from the installed skill, so "
+                "add it to skills:, or correct the name (identity is the "
+                "frontmatter name:, not the filename)."
+            )
 
 
 def install_skills(

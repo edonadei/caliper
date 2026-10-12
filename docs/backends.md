@@ -214,7 +214,8 @@ backend that can't resume from it, with a message naming the backend.
 
 - **`claude-code`** writes the planted turns as a session file in the attempt's
   isolated `~/.claude/projects/`, under the attempt workdir, and resumes it with
-  `--resume`. A planted shell call becomes a `Bash` tool call and its result.
+  `--resume`. A planted shell call becomes a `Bash` tool call and its result,
+  and a planted `skill:` the slash command expanded from the installed skill.
 - **`codex`** and **`pi`** can resume a hand-written session too; their
   translators haven't landed yet.
 - **`hermes`** stores sessions in SQLite, and its only import path drops tool

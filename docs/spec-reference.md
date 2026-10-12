@@ -337,13 +337,23 @@ tasks:
 ```
 
 The path resolves against the spec's directory, like `assert: ./check.py`. The
-file is a list of turns, and it must start with a user turn. Each turn has
-exactly one of:
+file is a list of turns, and it must start with a user or skill turn. Each turn
+has exactly one of:
 
 - `user:`: what the user said.
+- `skill:`: a declared skill the user entered by its slash command, with
+  optional `args:`. Name it, don't paste it: each attempt expands the
+  installed `SKILL.md` the way the CLI expands a slash command, so an edit to
+  the skill reaches the next run. The skill must be in `skills:`.
 - `assistant:`: what the agent said, optionally with `shell:`, a list of
   commands it ran. Each command has `run:` and `output:`, the output the agent
   saw. An assistant turn needs text, `shell:` commands, or both.
+
+```yaml
+- skill: repro-first     # a slash-only mode (disable-model-invocation: true)
+  args: slugify("Hello  World") gives "hello--world"
+- assistant: Confirmed, two spaces give two dashes. Want me to fix it?
+```
 
 The shell is the only tool a planted turn can call.
 
@@ -354,10 +364,10 @@ The shell is the only tool a planted turn can call.
   transcript, so cheat detection, `activates:` and the judge never grade them as
   its behaviour. The judge still reads them, labelled as prior context, since
   "finish what we agreed" can't be graded without them.
-- **Planting a slash command doesn't load the skill.** A user turn of
-  `/poteto-mode` is plain text on resume. Plant the skill's instructions in the
-  user turn instead, which is what the CLI expands a slash command into. A
-  skill shown loaded in a planted turn doesn't count toward `activates:`.
+- **Plant a skill with `skill:`, not `user: /name`.** A user turn of
+  `/poteto-mode` is plain text on resume and loads nothing. A planted skill
+  doesn't count toward `activates:`. `--ablate` on it plants the bare command
+  instead, which makes the baseline "same conversation, without the skill".
 - **claude-code only, for now.** On codex, pi and hermes a spec with `history:`
   is refused before the first attempt. See
   [ADR 0036](adr/0036-planted-history-is-a-neutral-transcript-each-backend-resumes-natively.md).
