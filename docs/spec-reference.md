@@ -13,7 +13,7 @@ skills:                         # installed where the agent looks for skills,
   - ../evaluate-skill/SKILL.md  # a path source: whatever that file says today
   - repo: mattpocock/skills          # a git source: Caliper clones it
     ref: 49dd158d1076134a641b33efb035946536778336  # optional; omit to track the default branch
-    path: skills/engineering/tdd/SKILL.md  # optional; defaults to SKILL.md at the root
+    path: skills/engineering/tdd/SKILL.md  # one skill per entry; omit only if the repo root is a skill
                                 # omit `skills:` entirely for a bare agent
 
 # Note: there is no `backend`/`model` or `judge:` block. The engine is picked
@@ -117,9 +117,12 @@ An entry is written one of two ways, and the shape is the difference:
 | `- {repo: …, ref: …, path: …}` | a **git source**: Caliper clones it and resolves `ref:` to a commit |
 
 Git sources let you give your `description` real competition without vendoring
-someone else's repo into yours. One entry is one skill. Entries that share a repo
-and commit share one clone, so naming five skills from a pack costs five entries
-and one fetch.
+someone else's repo into yours. One entry is one skill, never a whole repo:
+`path:` names that skill's `SKILL.md`, and leaving it out only works when the
+repo root is itself a skill. A pack like `mattpocock/skills` keeps its skills in
+subfolders, so each one needs a `path:`. Entries that share a repo and commit
+share one clone, so naming five skills from a pack costs five entries and one
+fetch.
 
 `repo:` takes anything git can clone. A bare `owner/name` expands to
 `https://github.com/owner/name`. A URL, an `scp`-style `git@host:owner/name`, or
