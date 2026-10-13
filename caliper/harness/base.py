@@ -662,10 +662,7 @@ class CliHarness(HarnessBackend):
             refusal = classify(
                 cli_text,
                 self.config_signals,
-                diagnose=lambda text: (
-                    self._diagnose(proc, report, text)
-                    or self._rejected_option(proc, text)
-                ),
+                diagnose=self._diagnoser(proc, report),
             )
             if refusal is not None and refusal.kind is RefusalKind.CONFIG:
                 # Advice written for the agent names --model; the judge's flag
@@ -845,9 +842,15 @@ class CliHarness(HarnessBackend):
         return classify(
             cli_text,
             self.config_signals,
-            diagnose=lambda text: (
-                self._diagnose(proc, report, text) or self._rejected_option(proc, text)
-            ),
+            diagnose=self._diagnoser(proc, report),
+        )
+
+    def _diagnoser(
+        self, proc: ProcessResult, report: AgentReport
+    ) -> Callable[[str], str | None]:
+        """The structural diagnosis ``classify`` runs: the backend's, then the base's."""
+        return lambda text: (
+            self._diagnose(proc, report, text) or self._rejected_option(proc, text)
         )
 
     def _configuration_error(
@@ -1043,16 +1046,25 @@ class CliHarness(HarnessBackend):
         """
         return self.cli_path()
 
+    def _spawn_path(self, *, prompt: bool = False) -> str | None:
+        """The ``PATH`` the spawn gets, for a backend whose CLI needs it to start.
+
+        ``None``: the parent's own ``PATH`` will do.
+        """
+        return None
+
     def cli_version(self, *, prompt: bool = False) -> str | None:
         cli = self.spawned_cli(prompt=prompt)
         if cli is None:
             return None
+        path = self._spawn_path(prompt=prompt)
         try:
             result = subprocess.run(
                 [cli, "--version"],
                 capture_output=True,
                 text=True,
                 timeout=self.cli_version_timeout,
+                env=None if path is None else {**os.environ, "PATH": path},
             )
         except (OSError, subprocess.TimeoutExpired):
             return None

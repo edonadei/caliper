@@ -109,3 +109,13 @@ again to report the servers. A backend now declares that file as a `CliConfig`
 spelling), and `caliper/harness/cli_config.py` writes it between `_seed_home`
 and `_prepare` and reads it back. claude-code is not on it: its servers go in a
 separate `--mcp-config` file rather than beside its login.
+
+**Amended: the spawned binary is declared too.** A run records the CLI version
+its attempts and judge ran, and some refusals name the binary, so both have to
+be the binary that actually spawned. The base resolves it through `cli_path`;
+claude-code, which spawns a bare `claude`, declares `spawned_cli` and
+`_spawn_path` instead, so the base can probe and name that `claude` under the
+`PATH` the spawn gets. A diagnosis says `{cli}` where the binary goes, and the
+base fills it in when it raises, the way it fills in `{login}`. Recognizing a
+rejected option is shared: the backend CLIs' argument parsers word it
+identically, so it's the base's fallback `_diagnose`, not a per-backend signal.

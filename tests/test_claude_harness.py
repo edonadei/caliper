@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -973,8 +974,11 @@ def test_claude_cli_version_probes_the_claude_an_attempt_reaches(monkeypatch, tm
     )
     probes: list[list[str]] = []
 
+    paths: list[str] = []
+
     def fake_run(cmd, **kwargs):
         probes.append(cmd)
+        paths.append(kwargs["env"]["PATH"])
         return subprocess.CompletedProcess(
             cmd, 0, stdout="2.1.281 (Claude Code)\n", stderr=""
         )
@@ -983,6 +987,9 @@ def test_claude_cli_version_probes_the_claude_an_attempt_reaches(monkeypatch, tm
 
     assert ClaudeCodeHarness().cli_version() == "2.1.281 (Claude Code)"
     assert probes == [[str(claude), "--version"]]
+    # Run under that PATH too: `claude` is a Node script, and its `node` may be
+    # reachable only through the same prefixes.
+    assert paths[0].split(os.pathsep)[0] == str(tmp_path)
 
 
 def test_claude_judge_cli_version_probes_the_claude_a_prompt_reaches(

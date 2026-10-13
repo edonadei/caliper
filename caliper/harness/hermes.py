@@ -432,7 +432,7 @@ class HermesHarness(CliHarness):
             return None
         return (
             "hermes could not run the requested model.\n\n"
-            "The hermes CLI returned:\n"
+            "Caliper ran {cli}, which returned:\n"
             f"  {cli_text.strip()[:500]}\n\n"
             "Check the model id in `--model hermes:<provider>/<model>` (verify "
             "`hermes -z 'Reply OK' --model <model>` works in your normal shell), "

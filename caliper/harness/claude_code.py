@@ -505,13 +505,14 @@ class ClaudeCodeHarness(CliHarness):
 
     def spawned_cli(self, *, prompt: bool = False) -> str | None:
         # `claude` is spawned by name, so look it up on the PATH the spawn will
-        # actually get, not the bare parent PATH: an attempt's prefixes ahead of
-        # PATH, or a prompt call's nvm prefix.
+        # actually get, not the bare parent PATH.
+        return shutil.which("claude", path=self._spawn_path(prompt=prompt))
+
+    def _spawn_path(self, *, prompt: bool = False) -> str | None:
+        # An attempt's prefixes ahead of PATH, or a prompt call's nvm prefix.
         if prompt:
-            path = self._prompt_environment().get("PATH")
-        else:
-            path = os.pathsep.join([*self._path_prefixes(), os.environ.get("PATH", "")])
-        return shutil.which("claude", path=path)
+            return self._prompt_environment().get("PATH")
+        return os.pathsep.join([*self._path_prefixes(), os.environ.get("PATH", "")])
 
     def prompt_cli_missing(self) -> bool:
         return self.spawned_cli(prompt=True) is None

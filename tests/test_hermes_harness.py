@@ -472,7 +472,7 @@ def test_hermes_fails_on_an_unknown_model(monkeypatch, tmp_path) -> None:
         )
 
     _install(monkeypatch, home, fake_run)
-    with pytest.raises(HarnessConfigurationError, match="bogus-model-xyz"):
+    with pytest.raises(HarnessConfigurationError, match="bogus-model-xyz") as exc:
         HermesHarness().run(
             run_context(
                 prompt="Hello",
@@ -481,6 +481,8 @@ def test_hermes_fails_on_an_unknown_model(monkeypatch, tmp_path) -> None:
                 isolated_home=str(iso),
             )
         )
+
+    assert "Caliper ran hermes (Hermes Agent v0.18.0)" in str(exc.value)
 
 
 def test_hermes_fails_on_an_unknown_model_with_a_nonzero_exit(

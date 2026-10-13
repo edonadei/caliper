@@ -318,6 +318,9 @@ otherwise each engine grades itself, and `caliper compare` warns that the judges
 differ ([ADR 0034](docs/adr/0034-the-judge-follows-the-skill-backend-by-default.md)). There's no direct-API backend: to use API billing, configure
 one of these CLIs with an API key.
 
+Caliper doesn't install or update these CLIs: each one updates itself, and every
+saved run records which CLI version it used.
+
 Setup details for each backend, the full `--model` syntax, and MCP support by
 backend are in **[docs/backends.md](docs/backends.md)**.
 
