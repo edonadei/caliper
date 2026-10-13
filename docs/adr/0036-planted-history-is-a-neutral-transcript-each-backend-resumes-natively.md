@@ -29,8 +29,8 @@ caliper already copies in. Each agent answered from a planted user turn and a
 planted tool result. Each also trusted a planted tool result that contradicted
 the file on disk.
 
-claude-code ships first. Codex and pi follow with their own translators, and
-until then a spec with `history:` is refused on them like on hermes.
+claude-code shipped first, then codex. Pi follows with its own translator,
+and until then a spec with `history:` is refused on it like on hermes.
 
 ## One neutral format, translated at the harness boundary
 
@@ -80,8 +80,9 @@ If #8650 lands, hermes can join with a translator like the other three backends.
   from the attempt's transcript, so the judge and cheat detection never grade
   them as the agent's behaviour. The judge receives them separately, labelled as
   prior context, because "finish what we agreed" can't be graded without them.
-  On claude-code this costs nothing: the `stream-json` output of a resumed
-  session does not replay the earlier turns.
+  On claude-code and codex this costs nothing: neither the `stream-json`
+  output of a resumed claude-code session nor the `--json` output of a
+  resumed codex rollout replays the earlier turns.
 - **Activation in the planted history is not activation.** A skill shown as
   loaded in a planted turn was put there by the author. Only skills the agent
   loads after resuming count toward `activates:`.
@@ -100,5 +101,15 @@ If #8650 lands, hermes can join with a translator like the other three backends.
 - **The session formats are undocumented CLI internals.** They can change between
   CLI versions. Caliper writes only the minimal fields each probe needed (on
   claude-code 2.1.296, a line without a `timestamp` makes the session invisible
-  to `--resume`), and a format break shows up as the CLI rejecting the resume,
-  an `infra_error`, not a silent wrong score.
+  to `--resume`; on codex 0.162.0, a `session_meta` missing any of its keys
+  fails the resume, though their values aren't checked). A break in the
+  session's header shows up as the CLI rejecting the resume, an `infra_error`.
+  A break in a single turn may not: codex 0.162.0 skips a rollout item it
+  can't parse and carries on, so the attempt runs without that turn and is
+  graded as usual. `tests/history-smoke.eval.yaml`, whose answer exists only
+  in a planted tool result, is the check to run after a CLI upgrade.
+- **Codex adds its setup context after the planted turns.** On resume, codex
+  appends the skill list, `AGENTS.md` and its environment context as new
+  messages after the history, where a real session has them before the first
+  user turn. The planted turns read as if they ran without them. Agents still
+  answered from the history in every probe.

@@ -227,8 +227,9 @@ def resolve_environment(
             "backend cannot resume an attempt from planted turns."
         )
         hint = harness.history_unsupported_hint or (
-            "Only the 'claude-code' backend implements history: in this "
-            "release. Re-run with --model claude-code (the default engine)."
+            "Only the 'claude-code' and 'codex' backends implement history: in "
+            "this release. Re-run with --model claude-code (the default "
+            "engine) or --model codex."
         )
         raise HarnessConfigurationError(f"{message}\n\n{hint}")
 

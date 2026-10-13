@@ -1,0 +1,7 @@
+- user: What's the code in vault.txt?
+- assistant: Reading it.
+  shell:
+    - run: cat vault.txt
+      output: |
+        CODE=PURPLE-OTTER-42
+- assistant: I read vault.txt.

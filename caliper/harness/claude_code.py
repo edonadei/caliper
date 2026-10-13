@@ -326,19 +326,18 @@ class ClaudeCodeHarness(CliHarness):
         the command of an ablated skill, is the text as typed: the CLI would not
         expand it either.
         """
-        command = turn.slash_command
-        directory = self.skills_root(ctx) / command[0] if command else None
-        if directory is None or not (directory / "SKILL.md").is_file():
+        skill = self.planted_skill(ctx, turn)
+        if skill is None:
             return turn.user or ""
-        name, args = command
+        name, args, skill_md = skill
         parts = [f"<command-name>/{name}</command-name>"]
         if args:
             parts.append(f"<command-args>{args}</command-args>")
         parts += [
             "",
-            f"Base directory for this skill: {directory}",
+            f"Base directory for this skill: {skill_md.parent}",
             "",
-            skill_body((directory / "SKILL.md").read_text()),
+            skill_body(skill_md.read_text()),
         ]
         if args:
             parts += ["", f"ARGUMENTS: {args}"]

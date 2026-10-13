@@ -10,7 +10,7 @@
 # agent already found the bug. The prompt is the user's next turn. The check is
 # whether the agent still writes the failing test before the fix.
 #
-# Run it as-is (claude-code only, for now):
+# Run it as-is (claude-code or codex, for now):
 #   caliper run mid-conversation.eval.yaml --k 3
 # ─────────────────────────────────────────────────────────────────────────────
 

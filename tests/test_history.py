@@ -21,6 +21,7 @@ from caliper.harness.base import (
     PromptResult,
 )
 from caliper.harness.claude_code import ClaudeCodeHarness
+from caliper.harness.codex import CodexHarness
 from caliper.judge.base import JudgeResult
 from caliper.judge.eval_judge import EvalJudge, render_judge_prompt
 from caliper.main import app
@@ -186,11 +187,14 @@ def test_a_slash_command_naming_no_declared_skill_is_warned_about(tmp_path) -> N
     assert "repro-frist" in result.output
 
 
-@pytest.mark.parametrize("backend", ["codex", "pi", "hermes"])
+@pytest.mark.parametrize("backend", ["pi", "hermes"])
 def test_a_backend_without_history_refuses_the_spec_by_name(tmp_path, backend) -> None:
 
-    with pytest.raises(HarnessConfigurationError, match=f"'{backend}' backend"):
+    with pytest.raises(HarnessConfigurationError, match=f"'{backend}' backend") as e:
         _resolve(_spec(tmp_path), get_harness(backend))
+    # Pointed at the backends that can resume it.
+    assert "--model claude-code" in str(e.value)
+    assert "--model codex" in str(e.value)
 
 
 # --- claude-code ----------------------------------------------------------------
@@ -332,6 +336,147 @@ def test_parallel_attempts_write_separate_sessions(monkeypatch, tmp_path) -> Non
 
     assert first["path"] != second["path"]
     assert first["lines"][0]["sessionId"] != second["lines"][0]["sessionId"]
+
+
+# --- codex ----------------------------------------------------------------------
+
+
+def _codex_spawn(monkeypatch, tmp_path, history, skill_refs=()):
+    """Run codex once over ``history``; what it spawned, and the rollout file."""
+
+    seen: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1:] == ["--version"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="codex-cli 0.162.0\n")
+        seen["cmd"], seen["stdin"] = cmd, kwargs["input"]
+        if "resume" in cmd:
+            session_id = cmd[cmd.index("resume") + 1]
+            [path] = (tmp_path / "home" / ".codex" / "sessions").glob(
+                f"*/*/*/rollout-*-{session_id}.jsonl"
+            )
+            seen["path"] = path
+            seen["lines"] = [json.loads(line) for line in path.read_text().splitlines()]
+        stdout = json.dumps(
+            {"type": "item.completed", "item": {"type": "agent_message", "text": "ok"}}
+        )
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda name: "codex")
+    monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing")
+    patch_cli_calls(monkeypatch, fake_run)
+    (tmp_path / "home").mkdir(parents=True)
+    (tmp_path / "work").mkdir()
+    CodexHarness().run(
+        run_context(
+            prompt="Finish it.",
+            isolated_home=str(tmp_path / "home"),
+            workdir=str(tmp_path / "work"),
+            history=history,
+            skill_refs=list(skill_refs),
+        )
+    )
+    return seen
+
+
+def test_codex_resumes_a_rollout_written_from_the_history(
+    monkeypatch, tmp_path
+) -> None:
+
+    history = load_spec(_spec(tmp_path)).tasks[0].planted_history(tmp_path)
+    seen = _codex_spawn(monkeypatch, tmp_path, history)
+
+    # The exec flags stay ahead of the subcommand; the prompt is still stdin.
+    cmd = seen["cmd"]
+    assert cmd[1] == "exec"
+    assert cmd[-3:] == ["resume", seen["path"].stem[-36:], "-"]
+    assert cmd.index("--json") < cmd.index("resume")
+    assert seen["stdin"] == "Finish it."
+
+    meta, *items = seen["lines"]
+    session_id = cmd[-2]
+    assert meta["type"] == "session_meta"
+    assert meta["payload"]["id"] == meta["payload"]["session_id"] == session_id
+    assert meta["payload"]["cwd"] == os.path.realpath(tmp_path / "work")
+    assert meta["payload"]["source"] == "exec"
+    assert all(line["timestamp"] for line in seen["lines"])
+    assert {line["type"] for line in items} == {"response_item"}
+
+    first, said, call, output, last = (line["payload"] for line in items)
+    assert first == {
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": history[0].user}],
+    }
+    assert said == {
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": "Searching for the old client."}],
+    }
+    assert call["type"] == "function_call"
+    assert call["name"] == "exec_command"
+    assert json.loads(call["arguments"]) == {"cmd": 'grep -rn "BillingClient(" src'}
+    assert output == {
+        "type": "function_call_output",
+        "call_id": call["call_id"],
+        "output": "src/invoice.py:12: client = BillingClient()\n",
+    }
+    assert last["content"] == [
+        {"type": "output_text", "text": "One call site, in invoice.py."}
+    ]
+
+
+def test_codex_plants_a_slash_command_as_the_invoked_skill(
+    monkeypatch, tmp_path
+) -> None:
+    """Codex's own shape: the typed $name, then the installed SKILL.md."""
+    (tmp_path / "skill").mkdir()
+    (tmp_path / "skill" / "SKILL.md").write_text(_REPRO_FIRST)
+    refs = resolve_skills(["./skill/SKILL.md"], tmp_path)
+    history = [
+        PlantedTurn(user="/repro-first the double dash"),
+        PlantedTurn(assistant="On it."),
+    ]
+
+    seen = _codex_spawn(monkeypatch, tmp_path, history, refs)
+
+    typed, skill = (
+        line["payload"]["content"][0]["text"] for line in seen["lines"][1:3]
+    )
+    assert typed == "$repro-first the double dash"
+    installed = tmp_path / "home" / ".codex" / "skills" / "repro-first" / "SKILL.md"
+    assert skill == (
+        f"<skill>\n<name>repro-first</name>\n<path>{installed}</path>\n"
+        f"{_REPRO_FIRST}\n</skill>"
+    )
+
+
+def test_codex_leaves_an_ablated_skills_command_as_typed(monkeypatch, tmp_path) -> None:
+    history = [
+        PlantedTurn(user="/repro-first the double dash"),
+        PlantedTurn(assistant="On it."),
+    ]
+
+    seen = _codex_spawn(monkeypatch, tmp_path, history)
+
+    texts = [line["payload"]["content"][0]["text"] for line in seen["lines"][1:]]
+    assert texts == ["/repro-first the double dash", "On it."]
+
+
+def test_codex_starts_fresh_without_a_history(monkeypatch, tmp_path) -> None:
+    seen = _codex_spawn(monkeypatch, tmp_path, None)
+
+    assert "resume" not in seen["cmd"]
+    assert not (tmp_path / "home" / ".codex" / "sessions").exists()
+
+
+def test_codex_attempts_write_separate_rollouts(monkeypatch, tmp_path) -> None:
+    history = [PlantedTurn(user="hi"), PlantedTurn(assistant="hello")]
+    first = _codex_spawn(monkeypatch, tmp_path / "a", history)
+    second = _codex_spawn(monkeypatch, tmp_path / "b", history)
+
+    assert first["cmd"][-2] != second["cmd"][-2]
+    assert first["path"].is_relative_to(tmp_path / "a" / "home" / ".codex")
 
 
 # --- the judge ------------------------------------------------------------------
