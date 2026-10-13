@@ -20,7 +20,7 @@ The chores are now declared:
 | Hook | The backend says | The base does |
 |---|---|---|
 | `seed_files(ctx)` | which `(real, isolated)` files to copy | copies each one that exists, creating parents |
-| `cli_name` / `cli_path_env_var` / `cli_candidates()` | what the binary is called and where else to look | env-var override → candidates → `PATH` |
+| `cli_name` / `cli_path_env_var` / `cli_candidates()` | what the binary is called and where else to look | env-var override → `PATH` → candidates |
 | `cli_unavailable_message` / `cli_version_timeout` | what to say when the CLI is missing, and how long `--version` may take | finds the CLI, probes it, raises the message (amended below) |
 | `env_passthrough` (+ `_isolated_env`) | any extra vars, any extra `PATH` prefixes | isolated `HOME`, deduplicated `PATH`, allowlisted passthrough |
 | `_read` | what its finished process said, read once into an `AgentReport` | supplies the last-assistant tail, salvages raw stdout, classifies refusals; `AgentReport` guards usage and the MCP inventory |

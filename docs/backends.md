@@ -101,9 +101,10 @@ npm install -g @openai/codex
 codex login
 ```
 
-`--model codex` calls `codex exec`. If the Codex desktop app is installed,
-Caliper prefers the app-bundled binary over `codex` on `PATH`. Set
-`CODEX_CLI_PATH` to force a specific binary.
+`--model codex` calls `codex exec`. Caliper runs the `codex` on your `PATH`, the
+same one your shell runs, and falls back to the binary bundled in the Codex
+desktop app only when `PATH` has none. Set `CODEX_CLI_PATH` to force a specific
+binary.
 
 ## pi
 
