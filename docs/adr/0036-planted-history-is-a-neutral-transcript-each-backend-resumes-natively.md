@@ -102,6 +102,14 @@ If #8650 lands, hermes can join with a translator like the other three backends.
   CLI versions. Caliper writes only the minimal fields each probe needed (on
   claude-code 2.1.296, a line without a `timestamp` makes the session invisible
   to `--resume`; on codex 0.162.0, a `session_meta` missing any of its keys
-  fails the resume, though their values aren't checked), and a format break
-  shows up as the CLI rejecting the resume, an `infra_error`, not a silent
-  wrong score.
+  fails the resume, though their values aren't checked). A break in the
+  session's header shows up as the CLI rejecting the resume, an `infra_error`.
+  A break in a single turn may not: codex 0.162.0 skips a rollout item it
+  can't parse and carries on, so the attempt runs without that turn and is
+  graded as usual. `tests/history-smoke.eval.yaml`, whose answer exists only
+  in a planted tool result, is the check to run after a CLI upgrade.
+- **Codex adds its setup context after the planted turns.** On resume, codex
+  appends the skill list, `AGENTS.md` and its environment context as new
+  messages after the history, where a real session has them before the first
+  user turn. The planted turns read as if they ran without them. Agents still
+  answered from the history in every probe.

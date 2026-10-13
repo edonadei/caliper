@@ -219,8 +219,8 @@ backend that can't resume from it, with a message naming the backend.
 - **`codex`** writes them as a rollout file in the attempt's isolated
   `$CODEX_HOME/sessions/` and resumes it with `codex exec resume <id>`. A
   planted shell call becomes an `exec_command` call and its output, and a
-  planted `/name` of an installed skill codex's `$name` mention followed by the
-  installed `SKILL.md`, as codex injects it.
+  planted `/name` of an installed skill becomes codex's `$name` mention followed
+  by the installed `SKILL.md`, as codex injects it.
 - **`pi`** can resume a hand-written session too; its translator hasn't landed
   yet.
 - **`hermes`** stores sessions in SQLite, and its only import path drops tool

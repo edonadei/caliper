@@ -201,27 +201,12 @@ class CodexHarness(CliHarness):
             / f"rollout-{now.strftime('%Y-%m-%dT%H-%M-%S')}-{session_id}.jsonl"
         )
         path.parent.mkdir(parents=True, exist_ok=True)
-        timestamp = now.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-        # Codex refuses a rollout whose meta lacks any of these keys, but the
-        # version and provider recorded aren't checked: the resumed turn runs
-        # on the attempt's own config.
-        meta = {
-            "id": session_id,
-            "session_id": session_id,
-            "timestamp": timestamp,
-            "cwd": os.path.realpath(ctx.workdir),
-            "originator": "caliper",
-            "cli_version": "",
-            "source": "exec",
-            "model_provider": "openai",
-        }
-        lines = [{"timestamp": timestamp, "type": "session_meta", "payload": meta}]
-        for item in _rollout_items(
-            ctx.history or [], lambda turn: self._user_turn(ctx, turn)
-        ):
-            lines.append(
-                {"timestamp": timestamp, "type": "response_item", "payload": item}
-            )
+        lines = _rollout_lines(
+            ctx.history or [],
+            session_id=session_id,
+            cwd=os.path.realpath(ctx.workdir),
+            user_turn=lambda turn: self._user_turn(ctx, turn),
+        )
         path.write_text("".join(json.dumps(line) + "\n" for line in lines))
         return session_id
 
@@ -231,7 +216,9 @@ class CodexHarness(CliHarness):
         ``/name`` of an installed skill is codex's ``$name`` mention, followed by
         the ``<skill>`` message codex injects, read from the installed copy so an
         edit to the skill reaches the next run. Anything else, including the
-        command of an ablated skill, is the text as typed.
+        command of an ablated skill, is the text as typed. The ``<skill>``
+        message keeps the frontmatter, unlike claude-code's expansion: codex
+        0.162.0 writes the whole file.
         """
         skill = self.planted_skill(ctx, turn)
         if skill is None:
@@ -541,15 +528,32 @@ class CodexHarness(CliHarness):
         return text[:500]
 
 
-def _rollout_items(
-    history: list[PlantedTurn], user_turn: Callable[[PlantedTurn], list[str]]
+def _rollout_lines(
+    history: list[PlantedTurn],
+    *,
+    session_id: str,
+    cwd: str,
+    user_turn: Callable[[PlantedTurn], list[str]],
 ) -> list[dict]:
-    """``history`` as codex rollout ``response_item`` payloads.
+    """``history`` as codex rollout lines: the ``session_meta``, then one item per line.
 
-    Only the fields a resume was seen to need (0.162.0). A planted shell call
-    is an ``exec_command`` function call, answered by the output with its
-    ``call_id``; ``user_turn`` writes a user turn's messages.
+    Only the fields a resume was seen to need (0.162.0). Codex refuses a
+    rollout whose meta lacks any of its keys, but doesn't check the version or
+    provider recorded: the resumed turn runs on the attempt's own config. A
+    planted shell call is an ``exec_command`` function call, answered by the
+    output with its ``call_id``; ``user_turn`` writes a user turn's messages.
     """
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    meta = {
+        "id": session_id,
+        "session_id": session_id,
+        "timestamp": timestamp,
+        "cwd": cwd,
+        "originator": "caliper",
+        "cli_version": "",
+        "source": "exec",
+        "model_provider": "openai",
+    }
 
     def message(role: str, text: str) -> dict:
         kind = "input_text" if role == "user" else "output_text"
@@ -581,7 +585,13 @@ def _rollout_items(
                     "output": call.output,
                 },
             ]
-    return items
+    return [
+        {"timestamp": timestamp, "type": "session_meta", "payload": meta},
+        *(
+            {"timestamp": timestamp, "type": "response_item", "payload": item}
+            for item in items
+        ),
+    ]
 
 
 def _usage(usage: dict) -> TokenUsage:
