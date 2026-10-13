@@ -354,12 +354,13 @@ exactly one of:
   commands it ran. Each command has `run:` and `output:`, the output the agent
   saw. An assistant turn needs text, `shell:` commands, or both.
 
-A user turn that opens with `/name`, where `name` is a skill in `skills:`, is
-that slash command: the user entered the skill. Each attempt expands the
-installed `SKILL.md` the way the CLI expands a typed command, so the history
-names the skill instead of pasting it, and an edit to the skill reaches the
-next run. Anything else stays plain text; `validate` and `run` warn about a
-`/name` matching no declared skill, which is usually a typo.
+A user turn that opens with `/name`, where `name` is a skill in `skills:`
+(case included, on every OS), is that slash command: the user entered the
+skill. Each attempt expands the installed `SKILL.md` the way the CLI expands a
+typed command, so the history names the skill instead of pasting it, and an
+edit to the skill reaches the next run. Anything else stays plain text;
+`validate` and `run` warn about a `/name` matching no declared skill, which is
+usually a typo.
 
 ```yaml
 - user: /repro-first slugify("Hello  World") gives "hello--world"   # a slash-only mode

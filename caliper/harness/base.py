@@ -24,7 +24,12 @@ from caliper.harness.refusal import (
 )
 from caliper.schema.results import TokenUsage
 from caliper.schema.spec import McpServer, PlantedTurn
-from caliper.skills import SkillRef, frontmatter_name, install_skills
+from caliper.skills import (
+    SkillRef,
+    declared_slash_command,
+    frontmatter_name,
+    install_skills,
+)
 from caliper.workdir import StepCancelled
 
 if TYPE_CHECKING:
@@ -737,16 +742,15 @@ class CliHarness(HarnessBackend):
     def planted_skill(
         self, ctx: RunContext, turn: PlantedTurn
     ) -> tuple[str, str, Path] | None:
-        """``(name, args, SKILL.md)`` for a planted ``/name`` of an installed skill.
+        """``(name, args, SKILL.md)`` for a planted ``/name`` of a declared skill.
 
         ``None`` for any other turn, including the command of an ablated skill:
         not installed, the CLI would leave it as typed (docs/adr/0036).
         """
-        command = turn.slash_command
+        command = declared_slash_command(turn, ctx.skill_refs)
         if command is None:
             return None
-        skill_md = self.skills_root(ctx) / command[0] / "SKILL.md"
-        return (*command, skill_md) if skill_md.is_file() else None
+        return (*command, self.skills_root(ctx) / command[0] / "SKILL.md")
 
     # Where this backend keeps the user layer it loads beside the spec's own,
     # relative to the skills root's parent; staged by
@@ -932,16 +936,18 @@ class CliHarness(HarnessBackend):
     cli_version_timeout: int = 10
 
     def cli_candidates(self) -> tuple[Path, ...]:
-        """Well-known install locations to try before ``PATH``. Default: none.
+        """Well-known install locations to try when ``PATH`` has no match. Default: none.
 
-        For an agent shipped inside an application bundle, which is where the
-        current build lives even when an older copy is on ``PATH``. Resolved at
-        call time, so a candidate may depend on state the process picks up.
+        For an agent shipped inside an application bundle. ``PATH`` wins because
+        a bundle updates on the app's schedule and can trail the CLI the user
+        runs in their shell, which then rejects models that CLI accepts.
+        Resolved at call time, so a candidate may depend on state the process
+        picks up.
         """
         return ()
 
     def cli_path(self) -> str | None:
-        """Locate this backend's CLI: env-var override, then candidates, then PATH.
+        """Locate this backend's CLI: env-var override, then PATH, then candidates.
 
         One order for every backend. Without it each adapter spelled the same
         three steps itself, and they drifted — the override was checked for
@@ -951,10 +957,13 @@ class CliHarness(HarnessBackend):
             configured = os.environ.get(self.cli_path_env_var)
             if configured and Path(configured).exists():
                 return configured
+        on_path = shutil.which(self.cli_name) if self.cli_name else None
+        if on_path:
+            return on_path
         for candidate in self.cli_candidates():
             if candidate.exists():
                 return str(candidate)
-        return shutil.which(self.cli_name) if self.cli_name else None
+        return None
 
     def prompt_cli_missing(self) -> bool:
         return self.cli_name is not None and self.cli_path() is None

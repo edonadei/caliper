@@ -72,7 +72,9 @@ stay traceable even though the spec doesn't pin an engine.
   Otherwise it's the model you named.
 - `judge_model` stays empty for an `assert:`-only run, where no LLM judge ran.
 - When `--judge-model` names no model, the judge uses its CLI's own default
-  model, like the skill does.
+  model, like the skill does. The `codex` judge reads your real
+  `~/.codex/config.toml`, so a `model =` pinned there applies to it, while an
+  attempt drops that pin.
 - A spec with `expect:` stops before its first attempt if the judge's CLI
   isn't installed, rather than recording a `judge_error` on every attempt.
 
@@ -101,9 +103,10 @@ npm install -g @openai/codex
 codex login
 ```
 
-`--model codex` calls `codex exec`. If the Codex desktop app is installed,
-Caliper prefers the app-bundled binary over `codex` on `PATH`. Set
-`CODEX_CLI_PATH` to force a specific binary.
+`--model codex` calls `codex exec`. Caliper runs the `codex` on your `PATH`, the
+same one your shell runs, and falls back to the binary bundled in the Codex
+desktop app only when `PATH` has none. Set `CODEX_CLI_PATH` to force a specific
+binary.
 
 ## pi
 
@@ -215,11 +218,11 @@ backend that can't resume from it, with a message naming the backend.
 - **`claude-code`** writes the planted turns as a session file in the attempt's
   isolated `~/.claude/projects/`, under the attempt workdir, and resumes it with
   `--resume`. A planted shell call becomes a `Bash` tool call and its result,
-  and a planted `/name` of an installed skill the slash command, expanded.
+  and a planted `/name` of a declared skill the slash command, expanded.
 - **`codex`** writes them as a rollout file in the attempt's isolated
   `$CODEX_HOME/sessions/` and resumes it with `codex exec resume <id>`. A
   planted shell call becomes an `exec_command` call and its output, and a
-  planted `/name` of an installed skill becomes codex's `$name` mention followed
+  planted `/name` of a declared skill becomes codex's `$name` mention followed
   by the installed `SKILL.md`, as codex injects it.
 - **`pi`** writes them as a session file in the attempt's isolated
   `PI_CODING_AGENT_DIR/sessions/` and resumes it with `--session <path>` in

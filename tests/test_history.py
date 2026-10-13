@@ -322,6 +322,35 @@ def test_an_ablated_skills_command_stays_as_typed(monkeypatch, tmp_path) -> None
     assert seen["lines"][0]["message"]["content"] == "/repro-first the double dash"
 
 
+@pytest.mark.parametrize("harness", [ClaudeCodeHarness(), CodexHarness()])
+def test_a_slash_command_matches_a_declared_skill_case_sensitively(
+    harness, tmp_path
+) -> None:
+    """``/REPRO-FIRST`` stays as typed on every OS, as validate warns it will.
+
+    The skills root holds a ``REPRO-FIRST/SKILL.md``, which is what a
+    case-insensitive file system resolves for the installed ``repro-first``, so
+    this holds without depending on the machine's file system.
+    """
+    (tmp_path / "skill").mkdir()
+    (tmp_path / "skill" / "SKILL.md").write_text(_REPRO_FIRST)
+    refs = resolve_skills(["./skill/SKILL.md"], tmp_path)
+    ctx = run_context(isolated_home=str(tmp_path / "home"), skill_refs=refs)
+    for name in ("repro-first", "REPRO-FIRST"):
+        (harness.skills_root(ctx) / name).mkdir(parents=True, exist_ok=True)
+        (harness.skills_root(ctx) / name / "SKILL.md").write_text(_REPRO_FIRST)
+
+    typed = harness.planted_skill(ctx, PlantedTurn(user="/REPRO-FIRST go"))
+    declared = harness.planted_skill(ctx, PlantedTurn(user="/repro-first go"))
+
+    assert typed is None
+    assert declared == (
+        "repro-first",
+        "go",
+        harness.skills_root(ctx) / "repro-first" / "SKILL.md",
+    )
+
+
 def test_claude_code_starts_fresh_without_a_history(monkeypatch, tmp_path) -> None:
     seen = _claude_spawn(monkeypatch, tmp_path, None)
 
