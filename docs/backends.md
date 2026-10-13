@@ -72,7 +72,9 @@ stay traceable even though the spec doesn't pin an engine.
   Otherwise it's the model you named.
 - `judge_model` stays empty for an `assert:`-only run, where no LLM judge ran.
 - When `--judge-model` names no model, the judge uses its CLI's own default
-  model, like the skill does.
+  model, like the skill does. The `codex` judge reads your real
+  `~/.codex/config.toml`, so a `model =` pinned there applies to it, while an
+  attempt drops that pin.
 - A spec with `expect:` stops before its first attempt if the judge's CLI
   isn't installed, rather than recording a `judge_error` on every attempt.
 

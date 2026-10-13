@@ -476,14 +476,15 @@ class CodexHarness(CliHarness):
         )
         if any(marker in lowered for marker in model_markers):
             summary = self._summarize_cli_configuration_error(cli_text)
+            # No "leave the model out" advice: the judge reads the user's
+            # config.toml, so its pinned model still applies (docs/adr/0012).
             return (
                 "Codex CLI cannot run the requested model with this account or "
                 "installed version.\n\n"
                 f"Caliper ran {self._cli_label()}, which returned:\n"
                 f"  {summary}\n\n"
-                "Without a model in `--model codex:<model>`, Codex picks one: "
-                "the judge takes the `model` in ~/.codex/config.toml, an attempt "
-                "the Codex CLI's built-in default.\n\n"
+                "With no model named, the one Codex picks can come from your "
+                "Codex config.\n\n"
                 "If the `codex` in your shell is newer, set CODEX_CLI_PATH to it. "
                 "Otherwise upgrade the Codex CLI or app, or pass a model this "
                 "CLI and account support as `--model codex:<model>`, then retry "
@@ -519,9 +520,6 @@ class CodexHarness(CliHarness):
 
     def _summarize_cli_configuration_error(self, text: str) -> str:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
-        version_line = next(
-            (line for line in lines if line.startswith("OpenAI Codex")), None
-        )
         error_lines = [line for line in lines if line.startswith("ERROR:")]
         detail_lines = [
             line
@@ -534,10 +532,8 @@ class CodexHarness(CliHarness):
             and not line.startswith(("stream error:", "ERROR:"))
         ]
 
-        useful = []
-        if version_line:
-            useful.append(version_line)
-        useful.extend(error_lines[:2])
+        # The version is in the message's ``_cli_label``, not repeated here.
+        useful = list(error_lines[:2])
         useful.extend(line for line in detail_lines[:2] if line not in useful)
         if useful:
             return "\n  ".join(useful[:5])

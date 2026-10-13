@@ -549,6 +549,7 @@ def test_codex_judge_refused_model_is_not_a_login(monkeypatch, tmp_path) -> None
     assert "CODEX_CLI_PATH" in message
     # Leaving the model out is not a fix: the judge then reads config.toml's pin.
     assert "(no model)" not in message
+    assert "can come from your Codex config" in message
     assert "`--judge-model codex:<model>`" in message
     assert "`--model codex" not in message
 
