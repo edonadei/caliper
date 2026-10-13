@@ -380,7 +380,8 @@ def test_codex_fails_clearly_when_cli_requires_newer_version(
 
     message = str(exc.value)
     assert "requested model" in message
-    assert "upgrade the Codex app or CLI" in message
+    assert "Caliper ran codex (codex-cli 0.46.0)" in message
+    assert "upgrade the Codex CLI or app" in message
     assert "Hello" not in message
 
 
