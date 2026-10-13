@@ -24,7 +24,12 @@ from caliper.harness.refusal import (
 )
 from caliper.schema.results import TokenUsage
 from caliper.schema.spec import McpServer, PlantedTurn
-from caliper.skills import SkillRef, frontmatter_name, install_skills
+from caliper.skills import (
+    SkillRef,
+    declared_slash_command,
+    frontmatter_name,
+    install_skills,
+)
 from caliper.workdir import StepCancelled
 
 if TYPE_CHECKING:
@@ -737,16 +742,15 @@ class CliHarness(HarnessBackend):
     def planted_skill(
         self, ctx: RunContext, turn: PlantedTurn
     ) -> tuple[str, str, Path] | None:
-        """``(name, args, SKILL.md)`` for a planted ``/name`` of an installed skill.
+        """``(name, args, SKILL.md)`` for a planted ``/name`` of a declared skill.
 
         ``None`` for any other turn, including the command of an ablated skill:
         not installed, the CLI would leave it as typed (docs/adr/0036).
         """
-        command = turn.slash_command
+        command = declared_slash_command(turn, ctx.skill_refs)
         if command is None:
             return None
-        skill_md = self.skills_root(ctx) / command[0] / "SKILL.md"
-        return (*command, skill_md) if skill_md.is_file() else None
+        return (*command, self.skills_root(ctx) / command[0] / "SKILL.md")
 
     # Where this backend keeps the user layer it loads beside the spec's own,
     # relative to the skills root's parent; staged by
