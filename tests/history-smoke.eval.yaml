@@ -2,6 +2,7 @@
 # one. The same spec runs unchanged on each:
 #   caliper run tests/history-smoke.eval.yaml --model claude-code
 #   caliper run tests/history-smoke.eval.yaml --model codex
+#   caliper run tests/history-smoke.eval.yaml --model pi
 # Pinned isolated: see test_every_smoke_eval_pins_isolation.
 user_customizations: false
 
