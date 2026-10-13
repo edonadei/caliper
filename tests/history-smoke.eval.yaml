@@ -1,0 +1,14 @@
+# End-to-end smoke eval for a planted history:, on every backend that resumes
+# one. The same spec runs unchanged on each:
+#   caliper run tests/history-smoke.eval.yaml --model claude-code
+#   caliper run tests/history-smoke.eval.yaml --model codex
+# Pinned isolated: see test_every_smoke_eval_pins_isolation.
+user_customizations: false
+
+tasks:
+  # vault.txt never exists: the code is only in the planted tool result.
+  - name: Answers from a planted tool result
+    history: ./fixtures/history/vault.history.yaml
+    prompt: Without running any command, what was the code you read? Answer with just the code.
+    expect: >
+      The response gives the code PURPLE-OTTER-42 and runs no command to find it.

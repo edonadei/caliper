@@ -206,7 +206,7 @@ See [MCP servers](spec-reference.md#mcp-servers-mcp) for the spec format.
 | Backend | `history:` |
 |---|---|
 | `claude-code` | ✅ |
-| `codex` | ❌ not yet |
+| `codex` | ✅ |
 | `pi` | ❌ not yet |
 | `hermes` | ❌ refused |
 
@@ -217,8 +217,13 @@ backend that can't resume from it, with a message naming the backend.
   isolated `~/.claude/projects/`, under the attempt workdir, and resumes it with
   `--resume`. A planted shell call becomes a `Bash` tool call and its result,
   and a planted `/name` of an installed skill the slash command, expanded.
-- **`codex`** and **`pi`** can resume a hand-written session too; their
-  translators haven't landed yet.
+- **`codex`** writes them as a rollout file in the attempt's isolated
+  `$CODEX_HOME/sessions/` and resumes it with `codex exec resume <id>`. A
+  planted shell call becomes an `exec_command` call and its output, and a
+  planted `/name` of an installed skill becomes codex's `$name` mention followed
+  by the installed `SKILL.md`, as codex injects it.
+- **`pi`** can resume a hand-written session too; its translator hasn't landed
+  yet.
 - **`hermes`** stores sessions in SQLite, and its only import path drops tool
   calls and their output, so it can't resume a history faithfully
   ([ADR 0036](adr/0036-planted-history-is-a-neutral-transcript-each-backend-resumes-natively.md)).

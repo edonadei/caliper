@@ -5,7 +5,9 @@ import os
 import shutil
 import sys
 import tempfile
+import uuid
 from collections.abc import Callable
+from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 
@@ -24,6 +26,7 @@ from caliper.harness.cli_config import TOML, CliConfig
 from caliper.harness.mcp import ResolvedMcpServer
 from caliper.harness.refusal import AUTH_MARKERS, ConfigSignal
 from caliper.schema.results import TokenUsage
+from caliper.schema.spec import PlantedTurn
 
 CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
 
@@ -84,6 +87,7 @@ class CodexHarness(CliHarness):
         self._model = model
 
     supports_mcp = True
+    supports_history = True
     cli_config = CODEX_CONFIG
     user_rules = ("AGENTS.md", "AGENTS.override.md")
     user_settings_file = "config.toml"
@@ -174,7 +178,57 @@ class CodexHarness(CliHarness):
         ]
         if ctx.model:
             cmd[2:2] = ["--model", ctx.model]
+        # The prompt becomes the next user turn after the planted ones. The
+        # exec flags stay ahead of the subcommand, and the JSON stream does not
+        # replay the planted turns, so they never reach the transcript.
+        if ctx.history:
+            cmd[-1:-1] = ["resume", self._write_rollout(ctx)]
         return cmd, full_prompt, None
+
+    def _write_rollout(self, ctx: RunContext) -> str:
+        """Write the planted ``ctx.history`` as a rollout codex can resume; return its id.
+
+        Per attempt, in the attempt's own codex home (docs/adr/0036). Codex finds
+        a resumed id by scanning ``sessions/``, so no index is written; the
+        ``cwd`` is the attempt workdir, though resume by id doesn't check it.
+        """
+        now = datetime.now(timezone.utc)
+        session_id = str(uuid.uuid4())
+        sessions = Path(ctx.isolated_home) / ".codex" / "sessions"
+        path = (
+            sessions
+            / now.strftime("%Y/%m/%d")
+            / f"rollout-{now.strftime('%Y-%m-%dT%H-%M-%S')}-{session_id}.jsonl"
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lines = _rollout_lines(
+            ctx.history or [],
+            session_id=session_id,
+            cwd=os.path.realpath(ctx.workdir),
+            user_turn=lambda turn: self._user_turn(ctx, turn),
+        )
+        path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+        return session_id
+
+    def _user_turn(self, ctx: RunContext, turn: PlantedTurn) -> list[str]:
+        """A planted user turn's messages, as codex stores what was typed.
+
+        ``/name`` of an installed skill is codex's ``$name`` mention, followed by
+        the ``<skill>`` message codex injects, read from the installed copy so an
+        edit to the skill reaches the next run. Anything else, including the
+        command of an ablated skill, is the text as typed. The ``<skill>``
+        message keeps the frontmatter, unlike claude-code's expansion: codex
+        0.162.0 writes the whole file.
+        """
+        skill = self.planted_skill(ctx, turn)
+        if skill is None:
+            return [turn.user or ""]
+        name, args, skill_md = skill
+        return [
+            f"${name} {args}".rstrip(),
+            f"<skill>\n<name>{name}</name>\n<path>{skill_md}</path>\n"
+            f"{skill_md.read_text()}\n</skill>",
+        ]
 
     @staticmethod
     def _connector_overrides(ctx: RunContext) -> tuple[str, ...]:
@@ -472,6 +526,72 @@ class CodexHarness(CliHarness):
         if useful:
             return "\n  ".join(useful[:5])
         return text[:500]
+
+
+def _rollout_lines(
+    history: list[PlantedTurn],
+    *,
+    session_id: str,
+    cwd: str,
+    user_turn: Callable[[PlantedTurn], list[str]],
+) -> list[dict]:
+    """``history`` as codex rollout lines: the ``session_meta``, then one item per line.
+
+    Only the fields a resume was seen to need (0.162.0). Codex refuses a
+    rollout whose meta lacks any of its keys, but doesn't check the version or
+    provider recorded: the resumed turn runs on the attempt's own config. A
+    planted shell call is an ``exec_command`` function call, answered by the
+    output with its ``call_id``; ``user_turn`` writes a user turn's messages.
+    """
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    meta = {
+        "id": session_id,
+        "session_id": session_id,
+        "timestamp": timestamp,
+        "cwd": cwd,
+        "originator": "caliper",
+        "cli_version": "",
+        "source": "exec",
+        "model_provider": "openai",
+    }
+
+    def message(role: str, text: str) -> dict:
+        kind = "input_text" if role == "user" else "output_text"
+        return {
+            "type": "message",
+            "role": role,
+            "content": [{"type": kind, "text": text}],
+        }
+
+    items: list[dict] = []
+    for turn in history:
+        if turn.user is not None:
+            items += [message("user", text) for text in user_turn(turn)]
+            continue
+        if turn.assistant:
+            items.append(message("assistant", turn.assistant))
+        for call in turn.shell:
+            call_id = f"call_planted_{len(items)}"
+            items += [
+                {
+                    "type": "function_call",
+                    "name": "exec_command",
+                    "arguments": json.dumps({"cmd": call.run}),
+                    "call_id": call_id,
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": call.output,
+                },
+            ]
+    return [
+        {"timestamp": timestamp, "type": "session_meta", "payload": meta},
+        *(
+            {"timestamp": timestamp, "type": "response_item", "payload": item}
+            for item in items
+        ),
+    ]
 
 
 def _usage(usage: dict) -> TokenUsage:
