@@ -206,7 +206,7 @@ See [MCP servers](spec-reference.md#mcp-servers-mcp) for the spec format.
 |---|---|
 | `claude-code` | ✅ |
 | `codex` | ✅ |
-| `pi` | ❌ not yet |
+| `pi` | ✅ |
 | `hermes` | ❌ refused |
 
 A spec whose tasks declare `history:` is refused before the first attempt on a
@@ -221,8 +221,11 @@ backend that can't resume from it, with a message naming the backend.
   planted shell call becomes an `exec_command` call and its output, and a
   planted `/name` of an installed skill becomes codex's `$name` mention followed
   by the installed `SKILL.md`, as codex injects it.
-- **`pi`** can resume a hand-written session too; its translator hasn't landed
-  yet.
+- **`pi`** writes them as a session file in the attempt's isolated
+  `PI_CODING_AGENT_DIR/sessions/` and resumes it with `--session <path>` in
+  place of `--no-session`. A planted shell call becomes a `bash` tool call and
+  its result, and a planted `/name` of an installed skill becomes what pi
+  expands `/skill:name` to.
 - **`hermes`** stores sessions in SQLite, and its only import path drops tool
   calls and their output, so it can't resume a history faithfully
   ([ADR 0036](adr/0036-planted-history-is-a-neutral-transcript-each-backend-resumes-natively.md)).

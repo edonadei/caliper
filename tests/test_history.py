@@ -22,6 +22,7 @@ from caliper.harness.base import (
 )
 from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.harness.codex import CodexHarness
+from caliper.harness.pi import PiHarness
 from caliper.judge.base import JudgeResult
 from caliper.judge.eval_judge import EvalJudge, render_judge_prompt
 from caliper.main import app
@@ -187,14 +188,13 @@ def test_a_slash_command_naming_no_declared_skill_is_warned_about(tmp_path) -> N
     assert "repro-frist" in result.output
 
 
-@pytest.mark.parametrize("backend", ["pi", "hermes"])
-def test_a_backend_without_history_refuses_the_spec_by_name(tmp_path, backend) -> None:
+def test_a_backend_without_history_refuses_the_spec_by_name(tmp_path) -> None:
 
-    with pytest.raises(HarnessConfigurationError, match=f"'{backend}' backend") as e:
-        _resolve(_spec(tmp_path), get_harness(backend))
+    with pytest.raises(HarnessConfigurationError, match="'hermes' backend") as e:
+        _resolve(_spec(tmp_path), get_harness("hermes"))
     # Pointed at the backends that can resume it.
-    assert "--model claude-code" in str(e.value)
-    assert "--model codex" in str(e.value)
+    for backend in ("claude-code", "codex", "pi"):
+        assert f"--model {backend}" in str(e.value)
 
 
 # --- claude-code ----------------------------------------------------------------
@@ -477,6 +477,145 @@ def test_codex_attempts_write_separate_rollouts(monkeypatch, tmp_path) -> None:
 
     assert first["cmd"][-2] != second["cmd"][-2]
     assert first["path"].is_relative_to(tmp_path / "a" / "home" / ".codex")
+
+
+# --- pi -------------------------------------------------------------------------
+
+
+def _pi_spawn(monkeypatch, tmp_path, history, skill_refs=()):
+    """Run pi once over ``history``; what it spawned, and the session file."""
+
+    seen: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1:] == ["--version"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="0.87.1\n")
+        seen["cmd"], seen["stdin"] = cmd, kwargs["stdin"]
+        if "--session" in cmd:
+            path = Path(cmd[cmd.index("--session") + 1])
+            seen["path"] = path
+            seen["lines"] = [json.loads(line) for line in path.read_text().splitlines()]
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n, **_: "pi")
+    patch_cli_calls(monkeypatch, fake_run)
+    (tmp_path / "home").mkdir(parents=True)
+    (tmp_path / "work").mkdir()
+    PiHarness().run(
+        run_context(
+            prompt="Finish it.",
+            isolated_home=str(tmp_path / "home"),
+            workdir=str(tmp_path / "work"),
+            history=history,
+            skill_refs=list(skill_refs),
+        )
+    )
+    return seen
+
+
+def test_pi_resumes_a_session_written_from_the_history(monkeypatch, tmp_path) -> None:
+
+    history = load_spec(_spec(tmp_path)).tasks[0].planted_history(tmp_path)
+    seen = _pi_spawn(monkeypatch, tmp_path, history)
+
+    cmd = seen["cmd"]
+    assert "--no-session" not in cmd
+    assert cmd[-1] == "Finish it."
+    # Left open, stdin hangs pi after it loads the session (pi 0.87.1).
+    assert seen["stdin"] is subprocess.DEVNULL
+    # In the attempt's own agent dir, never the real ~/.pi, and under sessions/:
+    # pi moves a session file left in the agent dir's root.
+    agent_dir = tmp_path / "home" / ".pi" / "agent"
+    assert seen["path"].parent == agent_dir / "sessions"
+
+    header, *entries = seen["lines"]
+    assert header["type"] == "session"
+    assert header["version"] == 3
+    assert header["id"]
+    assert header["timestamp"]
+    assert header["cwd"] == os.path.realpath(tmp_path / "work")
+    assert {entry["type"] for entry in entries} == {"message"}
+    assert [entry["parentId"] for entry in entries] == [
+        None,
+        *(entry["id"] for entry in entries[:-1]),
+    ]
+    assert all(entry["timestamp"] for entry in entries)
+
+    first, said, result, last = (entry["message"] for entry in entries)
+    assert first["role"] == "user"
+    assert first["content"] == [{"type": "text", "text": history[0].user}]
+    assert said["role"] == "assistant"
+    text, call = said["content"]
+    assert text == {"type": "text", "text": "Searching for the old client."}
+    assert call["type"] == "toolCall"
+    assert call["name"] == "bash"
+    assert call["arguments"] == {"command": 'grep -rn "BillingClient(" src'}
+    assert said["stopReason"] == "toolUse"
+    assert {"api", "provider", "model", "usage"} <= said.keys()
+    assert result == {
+        "role": "toolResult",
+        "toolCallId": call["id"],
+        "toolName": "bash",
+        "content": [
+            {"type": "text", "text": "src/invoice.py:12: client = BillingClient()\n"}
+        ],
+        "isError": False,
+        "timestamp": result["timestamp"],
+    }
+    assert last["content"] == [
+        {"type": "text", "text": "One call site, in invoice.py."}
+    ]
+    assert last["stopReason"] == "stop"
+
+
+def test_pi_plants_a_slash_command_as_the_expanded_skill(monkeypatch, tmp_path) -> None:
+    """pi's own shape: what it expands /skill:name to, from the installed copy."""
+    (tmp_path / "skill").mkdir()
+    (tmp_path / "skill" / "SKILL.md").write_text(_REPRO_FIRST)
+    refs = resolve_skills(["./skill/SKILL.md"], tmp_path)
+    history = [
+        PlantedTurn(user="/repro-first the double dash"),
+        PlantedTurn(assistant="On it."),
+    ]
+
+    seen = _pi_spawn(monkeypatch, tmp_path, history, refs)
+
+    [typed] = seen["lines"][1]["message"]["content"]
+    installed = tmp_path / "home" / ".pi" / "agent" / "skills" / "repro-first"
+    assert typed["text"] == (
+        f'<skill name="repro-first" location="{installed / "SKILL.md"}">\n'
+        f"References are relative to {installed}.\n\n"
+        "Write the failing test first.\n</skill>\n\nthe double dash"
+    )
+
+
+def test_pi_leaves_an_ablated_skills_command_as_typed(monkeypatch, tmp_path) -> None:
+    history = [
+        PlantedTurn(user="/repro-first the double dash"),
+        PlantedTurn(assistant="On it."),
+    ]
+
+    seen = _pi_spawn(monkeypatch, tmp_path, history)
+
+    texts = [line["message"]["content"][0]["text"] for line in seen["lines"][1:]]
+    assert texts == ["/repro-first the double dash", "On it."]
+
+
+def test_pi_starts_fresh_without_a_history(monkeypatch, tmp_path) -> None:
+    seen = _pi_spawn(monkeypatch, tmp_path, None)
+
+    assert "--no-session" in seen["cmd"]
+    assert "--session" not in seen["cmd"]
+    assert not (tmp_path / "home" / ".pi" / "agent" / "sessions").exists()
+
+
+def test_pi_attempts_write_separate_sessions(monkeypatch, tmp_path) -> None:
+    history = [PlantedTurn(user="hi"), PlantedTurn(assistant="hello")]
+    first = _pi_spawn(monkeypatch, tmp_path / "a", history)
+    second = _pi_spawn(monkeypatch, tmp_path / "b", history)
+
+    assert first["lines"][0]["id"] != second["lines"][0]["id"]
+    assert first["path"].is_relative_to(tmp_path / "a" / "home" / ".pi")
 
 
 # --- the judge ------------------------------------------------------------------
