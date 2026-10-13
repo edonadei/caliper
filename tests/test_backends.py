@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
-
 import pytest
 from typer.testing import CliRunner
 
@@ -35,35 +33,9 @@ def test_an_unknown_backend_is_refused_by_name() -> None:
         get_harness("bogus")
 
 
-def test_update_cli_points_hermes_at_its_own_updater() -> None:
-    result = runner.invoke(app, ["update-cli", "hermes", "--yes"])
+def test_caliper_does_not_manage_agent_cli_installs() -> None:
+    """Each CLI updates itself; a run records which build it used instead."""
+    result = runner.invoke(app, ["update-cli", "--check"])
 
-    assert result.exit_code == 1
-    assert "hermes update" in result.output
-
-
-def test_update_cli_all_updates_every_npm_cli_around_a_self_updating_one(
-    monkeypatch, tmp_path
-) -> None:
-    installs = []
-
-    def fake_run(cmd, **kwargs):
-        if cmd[:3] == ["npm", "install", "-g"]:
-            installs.append(cmd[3])
-        return subprocess.CompletedProcess(cmd, 0, stdout="1.0.0\n", stderr="")
-
-    monkeypatch.setattr("caliper.commands.update_cli.shutil.which", lambda n: n)
-    monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", tmp_path / "none")
-    for var in ("CODEX_CLI_PATH", "HERMES_CLI_PATH", "PI_CLI_PATH"):
-        monkeypatch.delenv(var, raising=False)
-    monkeypatch.setattr("caliper.commands.update_cli.subprocess.run", fake_run)
-
-    result = runner.invoke(app, ["update-cli", "all", "--yes"])
-
-    assert result.exit_code == 0, result.output
-    assert installs == [
-        "@anthropic-ai/claude-code",
-        "@openai/codex",
-        "@earendil-works/pi-coding-agent",
-    ]
-    assert "hermes update" in result.output
+    assert result.exit_code == 2
+    assert "No such command" in result.output

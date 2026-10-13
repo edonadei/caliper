@@ -9,7 +9,7 @@ from pathlib import Path
 
 from caliper.backends import DEFAULT_BACKEND
 from caliper.harness import get_harness
-from caliper.harness.base import ConversationTurn
+from caliper.harness.base import ConversationTurn, HarnessBackend
 from caliper.judge.base import Judge, JudgeResult, PromptBackend
 from caliper.schema.results import TranscriptTurn
 from caliper.schema.spec import (
@@ -308,6 +308,22 @@ class EvalJudge(Judge):
         # since a harness holds only its model.
         self._harness = harness
 
+    def cli_version(self) -> str | None:
+        # A prompt double answers without a CLI, so only a real backend is asked.
+        harness = self._prompt_harness()
+        if isinstance(harness, HarnessBackend):
+            return harness.cli_version(prompt=True)
+        return None
+
+    def _prompt_harness(self) -> PromptBackend | None:
+        """The backend that answers the autorater, or ``None`` for an unknown one."""
+        if self._harness is None:
+            try:
+                self._harness = get_harness(self.backend, self.model)
+            except ValueError:
+                return None
+        return self._harness
+
     def evaluate(
         self,
         task: TaskSpec,
@@ -358,14 +374,9 @@ class EvalJudge(Judge):
         # An autorater is one bare prompt through a CLI agent — the same
         # backend adapters that run attempts also answer the judge, via the
         # ``run_prompt`` half of the backend seam.
-        if self._harness is None:
-            try:
-                self._harness = get_harness(self.backend, self.model)
-            except ValueError:
-                return _AutoraterVerdict.error(
-                    f"Unknown judge backend: {self.backend!r}"
-                )
-        harness = self._harness
+        harness = self._prompt_harness()
+        if harness is None:
+            return _AutoraterVerdict.error(f"Unknown judge backend: {self.backend!r}")
 
         prompt = render_judge_prompt(task.expect or "", transcript, history)
 

@@ -385,6 +385,60 @@ def test_codex_fails_clearly_when_cli_requires_newer_version(
     assert "Hello" not in message
 
 
+def test_a_codex_that_rejects_an_option_points_at_its_override(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "codex")
+    monkeypatch.setattr(
+        "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
+    )
+
+    def fake_run(cmd, **kwargs):
+        if cmd == ["codex", "--version"]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="codex-cli 0.46.0\n", stderr=""
+            )
+        return subprocess.CompletedProcess(
+            cmd,
+            2,
+            stdout="",
+            stderr="error: unexpected argument '--output-last-message' found\n",
+        )
+
+    patch_cli_calls(monkeypatch, fake_run)
+
+    with pytest.raises(HarnessConfigurationError) as exc:
+        CodexHarness().run(
+            run_context(prompt="Hello", timeout=12, isolated_home=str(tmp_path))
+        )
+
+    message = str(exc.value)
+    assert "Caliper ran codex (codex-cli 0.46.0)" in message
+    assert "unexpected argument '--output-last-message'" in message
+    assert "CODEX_CLI_PATH" in message
+
+
+def test_an_agent_quoting_a_rejected_option_does_not_stop_the_run(
+    monkeypatch, tmp_path
+) -> None:
+    """A clean exit means the CLI ran; whatever it printed is not about itself."""
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "codex")
+    monkeypatch.setattr(
+        "caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing-codex"
+    )
+
+    def fake_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout="", stderr="error: unexpected argument '--x' found\n"
+        )
+
+    patch_cli_calls(monkeypatch, fake_run)
+
+    CodexHarness().run(
+        run_context(prompt="Hello", timeout=12, isolated_home=str(tmp_path))
+    )
+
+
 def test_codex_with_a_lapsed_login_names_its_login_command(
     monkeypatch, tmp_path
 ) -> None:

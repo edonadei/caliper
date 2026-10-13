@@ -481,7 +481,7 @@ class CodexHarness(CliHarness):
             return (
                 "Codex CLI cannot run the requested model with this account or "
                 "installed version.\n\n"
-                f"Caliper ran {self._cli_label()}, which returned:\n"
+                "Caliper ran {cli}, which returned:\n"
                 f"  {summary}\n\n"
                 "With no model named, the one Codex picks can come from your "
                 "Codex config.\n\n"
@@ -503,20 +503,6 @@ class CodexHarness(CliHarness):
             )
 
         return None
-
-    def _cli_label(self) -> str:
-        """The binary that ran and its version, e.g. ``/bin/codex (codex-cli 0.162.0)``.
-
-        Several installs commonly coexist (npm, Homebrew, the app bundle), and
-        a model refusal usually means caliper ran an older one than the shell.
-        """
-        cli = self.cli_path()
-        if not cli:
-            return "the Codex CLI"
-        version = self._capture_output(
-            [cli, "--version"], timeout=self.cli_version_timeout
-        )
-        return f"{cli} ({version})" if version else cli
 
     def _summarize_cli_configuration_error(self, text: str) -> str:
         lines = [line.strip() for line in text.splitlines() if line.strip()]

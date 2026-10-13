@@ -144,6 +144,12 @@ def run(
     skill_refs = environment.skill_refs
     if before_attempts is not None:
         before_attempts()
+    # Once per run, before the first attempt: which build of each CLI produced
+    # these numbers. Not per attempt — a mid-run self-update is rare, and the
+    # next run's `compare` shows it anyway.
+    judged = any(task.expect for task in spec.tasks)
+    cli_version = harness.cli_version()
+    judge_cli_version = judge.cli_version() if judged else None
 
     # Only the installed skills: a snapshot claims "this is what produced the
     # score", which an ablated skill demonstrably did not.
@@ -244,9 +250,9 @@ def run(
             ),
             # Like judge_model, None when no task could have reached an
             # autorater: there is no prompt to rebuild.
-            judge_prompt_version=judge.prompt_version
-            if any(task.expect for task in spec.tasks)
-            else None,
+            judge_prompt_version=judge.prompt_version if judged else None,
+            cli_version=cli_version,
+            judge_cli_version=judge_cli_version,
             era=ERA_INSTALL_AND_DISCOVER,
             ablated=environment.ablated,
             # What the run's tool environment actually held, so a saved run

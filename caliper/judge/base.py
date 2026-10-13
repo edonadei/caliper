@@ -72,6 +72,10 @@ class Judge(Protocol):
     model: str | None
     prompt_version: str | None
 
+    def cli_version(self) -> str | None:
+        """The first ``--version`` line of the CLI the autorater runs, if known."""
+        ...
+
     def evaluate(
         self,
         task: TaskSpec,

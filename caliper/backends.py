@@ -1,9 +1,9 @@
 """Every backend caliper knows, and the facts about each that live outside its harness.
 
-The one table that ``--model``, ``get_harness``, ``update-cli`` and the reporter
-read, so adding a backend is one entry here plus its harness class. What a
-backend *does* stays in its harness (docs/adr/0020); this holds only what the
-rest of caliper must know without building one. Stdlib-only, so the spec schema
+The one table that ``--model``, ``get_harness`` and the reporter read, so
+adding a backend is one entry here plus its harness class. What a backend
+*does* stays in its harness (docs/adr/0020); this holds only what the rest of
+caliper must know without building one. Stdlib-only, so the spec schema
 can import it without pulling in the harnesses.
 """
 
@@ -13,27 +13,12 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class Npm:
-    """A CLI `caliper update-cli` updates with ``npm install -g``."""
-
-    package: str
-
-
-@dataclass(frozen=True)
-class SelfUpdate:
-    """A CLI that updates itself, so `caliper update-cli` points at its command."""
-
-    command: str
-
-
-@dataclass(frozen=True)
 class Backend:
     name: str
     # ``module:Class``, imported only when the backend is used. A string rather
     # than an import because only caliper.harness may import a backend module
     # (the TID251 banned-api rule in pyproject.toml).
     harness: str
-    updater: Npm | SelfUpdate
     # How the agent spells an MCP tool: ``mcp<sep><server><sep><tool>``
     # (docs/CONTEXT.md → MCP server (declared)).
     mcp_tool_separator: str = "__"
@@ -45,23 +30,19 @@ BACKENDS: dict[str, Backend] = {
         Backend(
             "claude-code",
             "caliper.harness.claude_code:ClaudeCodeHarness",
-            Npm("@anthropic-ai/claude-code"),
         ),
         Backend(
             "codex",
             "caliper.harness.codex:CodexHarness",
-            Npm("@openai/codex"),
         ),
         Backend(
             "hermes",
             "caliper.harness.hermes:HermesHarness",
-            SelfUpdate("hermes update"),
             mcp_tool_separator="_",
         ),
         Backend(
             "pi",
             "caliper.harness.pi:PiHarness",
-            Npm("@earendil-works/pi-coding-agent"),
         ),
     )
 }

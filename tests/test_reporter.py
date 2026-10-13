@@ -768,3 +768,17 @@ def test_a_hermes_server_with_a_leading_underscore_is_counted() -> None:
     # the backend, not the name, says which form it is.
     results = _mcp_run([("tool_use", "mcp__mail_read")], ["_mail"], backend="hermes")
     assert _mcp_calls(results)["_mail"] == (1, 1, 1)
+
+
+def test_the_header_names_the_cli_build_that_ran() -> None:
+    results = _make_results([_make_task("task-001", passed=True)])
+    results.run.cli_version = "2.1.281 (Claude Code)"
+
+    cli_row = next(ln for ln in _render(results).splitlines() if "cli" in ln.split())
+    assert cli_row.split() == ["cli", "2.1.281", "(Claude", "Code)"]
+
+
+def test_a_run_saved_before_cli_versions_has_no_cli_row() -> None:
+    out = _render(_make_results([_make_task("task-001", passed=True)]))
+
+    assert not any("cli" in ln.split() for ln in out.splitlines())

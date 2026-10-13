@@ -69,8 +69,7 @@ class ClaudeCodeHarness(CliHarness):
     speaks_modern_mcp = True
     user_rules = ("CLAUDE.md",)
     user_settings_file = "settings.json"
-    # Only for `caliper update-cli`; attempts spawn a bare `claude` (see
-    # CliHarness.cli_name).
+    # Attempts spawn a bare `claude`; see `spawned_cli` for where it resolves.
     cli_name = "claude"
     # The CLI classifies a real skill only at .claude/skills/<name>/SKILL.md and
     # exposes the agent's choice as a dedicated Skill tool call naming it.
@@ -446,7 +445,7 @@ class ClaudeCodeHarness(CliHarness):
             model_part = f" '{self._model}'" if self._model else ""
             return (
                 f"Claude Code cannot run the requested model{model_part}.\n\n"
-                "The Claude CLI returned:\n"
+                "Caliper ran {cli}, which returned:\n"
                 f"  {said}\n\n"
                 "Pass `--model claude-code:<model>` with a model this account "
                 "can use, or `--model claude-code` for the CLI default, then "
@@ -461,7 +460,7 @@ class ClaudeCodeHarness(CliHarness):
             return (
                 "Claude Code exited before the eval attempt could run because the "
                 "Claude CLI crashed during startup.\n\n"
-                "The Claude CLI returned:\n"
+                "Caliper ran {cli}, which returned:\n"
                 f"  {summary}\n\n"
                 "Fix the local Claude Code CLI or Node.js runtime, then rerun caliper. "
                 "You can confirm the same failure outside caliper with "
@@ -504,17 +503,21 @@ class ClaudeCodeHarness(CliHarness):
             cmd += ["--model", model]
         return PromptCall(cmd)
 
+    def spawned_cli(self, *, prompt: bool = False) -> str | None:
+        # `claude` is spawned by name, so look it up on the PATH the spawn will
+        # actually get, not the bare parent PATH: an attempt's prefixes ahead of
+        # PATH, or a prompt call's nvm prefix.
+        if prompt:
+            path = self._prompt_environment().get("PATH")
+        else:
+            path = os.pathsep.join([*self._path_prefixes(), os.environ.get("PATH", "")])
+        return shutil.which("claude", path=path)
+
     def prompt_cli_missing(self) -> bool:
-        # `claude` is spawned by name, so look it up on the PATH the prompt call
-        # will actually get (with the nvm prefix), not the bare parent PATH.
-        return (
-            shutil.which("claude", path=self._prompt_environment().get("PATH")) is None
-        )
+        return self.spawned_cli(prompt=True) is None
 
     def login_command(self) -> list[str]:
-        # The `claude` an attempt reaches: the same prefixes, ahead of PATH.
-        path = os.pathsep.join([*self._path_prefixes(), os.environ.get("PATH", "")])
-        return [shutil.which("claude", path=path) or "claude", "auth", "login"]
+        return [self.spawned_cli() or "claude", "auth", "login"]
 
     def _prompt_environment(self) -> dict[str, str]:
         env = dict(os.environ)

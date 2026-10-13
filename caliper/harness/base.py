@@ -458,6 +458,15 @@ class HarnessBackend(ABC):
         """The argv that logs this backend's CLI in, or ``None`` if it has none."""
         return None
 
+    def cli_version(self, *, prompt: bool = False) -> str | None:
+        """The first ``--version`` line of the CLI an attempt spawns.
+
+        With ``prompt``, of the CLI a bare prompt spawns instead, which a
+        backend may look up differently. ``None`` when there is no CLI or it
+        could not say. Default ``None``: a backend with nothing to probe.
+        """
+        return None
+
     def prompt_cli_missing(self) -> bool:
         """True when the CLI a bare prompt would spawn is not installed here.
 
@@ -653,14 +662,19 @@ class CliHarness(HarnessBackend):
             refusal = classify(
                 cli_text,
                 self.config_signals,
-                diagnose=lambda text: self._diagnose(proc, report, text),
+                diagnose=lambda text: (
+                    self._diagnose(proc, report, text)
+                    or self._rejected_option(proc, text)
+                ),
             )
             if refusal is not None and refusal.kind is RefusalKind.CONFIG:
                 # Advice written for the agent names --model; the judge's flag
                 # is --judge-model.
                 advice = refusal.message.replace("`--model ", "`--judge-model ")
                 raise self._configuration_error(
-                    f"The {self.name} judge cannot run.\n\n{advice}", refusal
+                    f"The {self.name} judge cannot run.\n\n{advice}",
+                    refusal,
+                    prompt=True,
                 )
             resolved = report.resolved_model or model
             if refusal is not None:
@@ -831,12 +845,18 @@ class CliHarness(HarnessBackend):
         return classify(
             cli_text,
             self.config_signals,
-            diagnose=lambda text: self._diagnose(proc, report, text),
+            diagnose=lambda text: (
+                self._diagnose(proc, report, text) or self._rejected_option(proc, text)
+            ),
         )
 
     def _configuration_error(
-        self, message: str, refusal: CliRefusal
+        self, message: str, refusal: CliRefusal, *, prompt: bool = False
     ) -> HarnessConfigurationError:
+        # Probed only for a diagnosis that names the binary: the attempt's, or
+        # with ``prompt`` the judge's, which a backend may resolve differently.
+        if "{cli}" in message:
+            message = message.replace("{cli}", self._cli_label(prompt=prompt))
         if refusal.login:
             # The panel names the same resolved binary the prompt would run.
             command = self.login_command()
@@ -856,6 +876,56 @@ class CliHarness(HarnessBackend):
         words alone belongs in ``config_signals``.
         """
         return None
+
+    #: How each argument parser a backend CLI is built on rejects an option:
+    #: commander (claude, pi), clap (codex), argparse (hermes).
+    _REJECTED_OPTION_MARKERS = (
+        "error: unknown option",
+        "error: unexpected argument",
+        "error: unrecognized arguments",
+    )
+
+    def _rejected_option(self, proc: ProcessResult, cli_text: str) -> str | None:
+        """The CLI refused an option caliper passed: usually it is too old.
+
+        Only on a failed exit, so an agent that ran a command printing the same
+        words cannot stop the run.
+        """
+        if proc.returncode == 0:
+            return None
+        line = next(
+            (
+                line.strip()
+                for line in cli_text.splitlines()
+                if any(m in line.lower() for m in self._REJECTED_OPTION_MARKERS)
+            ),
+            None,
+        )
+        if line is None:
+            return None
+        override = (
+            f", or set {self.cli_path_env_var} to a newer one"
+            if self.cli_path_env_var
+            else ""
+        )
+        return (
+            f"The {self.name} CLI does not accept an option Caliper passed.\n\n"
+            f"Caliper ran {{cli}}, which returned:\n  {line}\n\n"
+            f"Update the CLI{override}, then rerun caliper."
+        )
+
+    def _cli_label(self, *, prompt: bool = False) -> str:
+        """The binary that ran and its version, e.g. ``/bin/codex (codex-cli 0.162.0)``.
+
+        Several installs commonly coexist (npm, Homebrew, an app bundle), and a
+        refusal that hinges on the binary usually means caliper ran a different
+        one than the user's shell.
+        """
+        cli = self.spawned_cli(prompt=prompt)
+        if not cli:
+            return f"the {self.name} CLI"
+        version = self.cli_version(prompt=prompt)
+        return f"{cli} ({version})" if version else cli
 
     def _cli_text(self, proc: ProcessResult, report: AgentReport) -> str:
         """What the CLI itself wrote, as opposed to what the agent said.
@@ -918,7 +988,7 @@ class CliHarness(HarnessBackend):
     #: The binary :meth:`cli_path` looks for on ``PATH``. A backend may declare one
     #: without spawning through :meth:`cli_path`: claude-code spawns a bare
     #: ``claude`` and leaves the lookup to the attempt's ``PATH``, and declares
-    #: the name so `caliper update-cli` can report which binary that is.
+    #: the name so :meth:`spawned_cli` can report which binary that is.
     cli_name: str | None = None
 
     #: The env var that overrides :attr:`cli_name` with an explicit path. Honored
@@ -965,6 +1035,31 @@ class CliHarness(HarnessBackend):
                 return str(candidate)
         return None
 
+    def spawned_cli(self, *, prompt: bool = False) -> str | None:
+        """The binary an attempt spawns, or with ``prompt`` a bare prompt does.
+
+        :meth:`cli_path` for every backend that spawns what it finds; one that
+        spawns a bare name overrides this to look it up where the spawn will.
+        """
+        return self.cli_path()
+
+    def cli_version(self, *, prompt: bool = False) -> str | None:
+        cli = self.spawned_cli(prompt=prompt)
+        if cli is None:
+            return None
+        try:
+            result = subprocess.run(
+                [cli, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=self.cli_version_timeout,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        # Some CLIs print their version to stderr.
+        text = (result.stdout or result.stderr).strip()
+        return text.splitlines()[0] if result.returncode == 0 and text else None
+
     def prompt_cli_missing(self) -> bool:
         return self.cli_name is not None and self.cli_path() is None
 
@@ -978,8 +1073,13 @@ class CliHarness(HarnessBackend):
         if self.cli_unavailable_message is None:
             return
         cli = self.cli_path()
-        if cli is None or not self._version_ok(cli, timeout=self.cli_version_timeout):
+        if cli is None:
             raise HarnessConfigurationError(self.cli_unavailable_message)
+        if not self._version_ok(cli, timeout=self.cli_version_timeout):
+            # Found but not runnable: it may not be the binary the user expects.
+            raise HarnessConfigurationError(
+                f"{self.cli_unavailable_message}\n\nCaliper ran {cli}."
+            )
 
     #: Vars forwarded from the parent environment into an isolated run. Locale
     #: and terminal shape are not state the agent carries between attempts, and
