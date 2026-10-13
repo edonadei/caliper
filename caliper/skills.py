@@ -23,7 +23,7 @@ from pathlib import Path
 
 from caliper.sandbox import SpecSandbox
 from caliper.schema.results import MCP_ABLATION_PREFIX
-from caliper.schema.spec import GitSkillSource, McpServer
+from caliper.schema.spec import GitSkillSource, McpServer, PlantedTurn
 from caliper.skillfetch import SkillFetcher, SkillFetchError
 
 # ``--ablate`` names its subject bare when only one kind declares it, and by
@@ -426,6 +426,20 @@ def validate_activates(
         )
 
 
+def declared_slash_command(
+    turn: PlantedTurn, refs: list[SkillRef]
+) -> tuple[str, str] | None:
+    """A planted turn's ``(name, args)`` when ``name`` is one of ``refs``.
+
+    Matched exactly, case included, and never by what the file system resolves:
+    a case-insensitive one would find ``vault-skill`` for ``/VAULT-SKILL`` and
+    plant a different conversation per OS. Both the warning and the planting ask
+    here, so they can't disagree.
+    """
+    command = turn.slash_command
+    return command if command and command[0] in {ref.name for ref in refs} else None
+
+
 def undeclared_slash_commands(
     histories: dict[str, list], refs: list[SkillRef]
 ) -> list[str]:
@@ -435,14 +449,13 @@ def undeclared_slash_commands(
     can open a sentence. But it is more often a typo or a skill missing from
     ``skills:``, which would quietly run the task without it.
     """
-    declared = {ref.name for ref in refs}
     return [
         f"Task '{task_name}' plants a turn opening with /{command[0]}, but "
         "skills: declares no such skill, so the turn stays plain text. Add it "
         "to skills: if it should enter that skill."
         for task_name, turns in histories.items()
         for turn in turns
-        if (command := turn.slash_command) and command[0] not in declared
+        if (command := turn.slash_command) and not declared_slash_command(turn, refs)
     ]
 
 
