@@ -161,6 +161,35 @@ def test_stale_cli_path_falls_through_to_discovery(
 
 
 @pytest.mark.parametrize("backend", DISCOVERING_BACKENDS)
+def test_path_cli_beats_an_installed_candidate(backend, monkeypatch, tmp_path) -> None:
+    """The CLI the user's shell runs wins over one bundled in an app.
+
+    A bundle updates on the app's schedule: a stale one rejected models the
+    shell's CLI accepted.
+    """
+    harness = backend()
+    bundled = tmp_path / "bundled-cli"
+    bundled.write_text("")
+    monkeypatch.delenv(harness.cli_path_env_var, raising=False)
+    monkeypatch.setattr(backend, "cli_candidates", lambda _self: (bundled,))
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "/usr/bin/x")
+
+    assert harness.cli_path() == "/usr/bin/x"
+
+
+@pytest.mark.parametrize("backend", DISCOVERING_BACKENDS)
+def test_candidate_is_used_when_path_has_no_cli(backend, monkeypatch, tmp_path) -> None:
+    harness = backend()
+    bundled = tmp_path / "bundled-cli"
+    bundled.write_text("")
+    monkeypatch.delenv(harness.cli_path_env_var, raising=False)
+    monkeypatch.setattr(backend, "cli_candidates", lambda _self: (bundled,))
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: None)
+
+    assert harness.cli_path() == str(bundled)
+
+
+@pytest.mark.parametrize("backend", DISCOVERING_BACKENDS)
 def test_cli_path_is_none_when_nothing_is_installed(backend, monkeypatch) -> None:
     harness = backend()
     monkeypatch.delenv(harness.cli_path_env_var, raising=False)

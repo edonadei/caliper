@@ -262,15 +262,16 @@ def test_codex_json_stream_keeps_unknown_tool_items(monkeypatch, tmp_path) -> No
     assert result.transcript[0].tool_input["name"] == "lookup"
 
 
-def test_codex_prefers_app_bundled_cli(monkeypatch, tmp_path) -> None:
+def test_codex_prefers_path_cli_over_app_bundle(monkeypatch, tmp_path) -> None:
     app_cli = tmp_path / "Codex.app" / "Contents" / "Resources" / "codex"
     app_cli.parent.mkdir(parents=True)
     app_cli.write_text("")
 
     monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", app_cli)
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "old-codex")
+    monkeypatch.delenv("CODEX_CLI_PATH", raising=False)
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _name: "codex")
 
-    assert CodexHarness().cli_path() == str(app_cli)
+    assert CodexHarness().cli_path() == "codex"
 
 
 def test_codex_config_copy_strips_top_level_model(monkeypatch, tmp_path) -> None:

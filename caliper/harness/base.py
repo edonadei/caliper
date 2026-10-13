@@ -918,16 +918,18 @@ class CliHarness(HarnessBackend):
     cli_version_timeout: int = 10
 
     def cli_candidates(self) -> tuple[Path, ...]:
-        """Well-known install locations to try before ``PATH``. Default: none.
+        """Well-known install locations to try when ``PATH`` has no match. Default: none.
 
-        For an agent shipped inside an application bundle, which is where the
-        current build lives even when an older copy is on ``PATH``. Resolved at
-        call time, so a candidate may depend on state the process picks up.
+        For an agent shipped inside an application bundle. ``PATH`` wins because
+        a bundle updates on the app's schedule and can trail the CLI the user
+        runs in their shell, which then rejects models that CLI accepts.
+        Resolved at call time, so a candidate may depend on state the process
+        picks up.
         """
         return ()
 
     def cli_path(self) -> str | None:
-        """Locate this backend's CLI: env-var override, then candidates, then PATH.
+        """Locate this backend's CLI: env-var override, then PATH, then candidates.
 
         One order for every backend. Without it each adapter spelled the same
         three steps itself, and they drifted — the override was checked for
@@ -937,10 +939,13 @@ class CliHarness(HarnessBackend):
             configured = os.environ.get(self.cli_path_env_var)
             if configured and Path(configured).exists():
                 return configured
+        on_path = shutil.which(self.cli_name) if self.cli_name else None
+        if on_path:
+            return on_path
         for candidate in self.cli_candidates():
             if candidate.exists():
                 return str(candidate)
-        return shutil.which(self.cli_name) if self.cli_name else None
+        return None
 
     def prompt_cli_missing(self) -> bool:
         return self.cli_name is not None and self.cli_path() is None
