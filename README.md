@@ -348,7 +348,7 @@ The quick start covers the basics. A spec can also:
   planted user and assistant turns, shell calls included, and the prompt is the
   next turn. A user turn of `/name` enters that declared skill, as if typed.
   `setup:` and the history must agree, since the agent trusts a planted output
-  over the disk. claude-code and codex for now
+  over the disk. Every backend but hermes
 - extend `PATH` or **forbid files** the agent must not read (`sandbox:`)
 - assert **silence** (`activates: []`) or a **delegation chain**
   (`activates: [mine, helper]`)
