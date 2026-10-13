@@ -479,13 +479,15 @@ class CodexHarness(CliHarness):
             return (
                 "Codex CLI cannot run the requested model with this account or "
                 "installed version.\n\n"
-                "Caliper uses `codex exec` for `--model codex`. The Codex CLI "
-                "returned:\n"
+                f"Caliper ran {self._cli_label()}, which returned:\n"
                 f"  {summary}\n\n"
-                "Pass `--model codex` (no model) to use the Codex CLI default, "
-                "upgrade the Codex app "
-                "or CLI, or choose a model supported by the installed Codex CLI "
-                "and account, then retry the eval."
+                "Without a model in `--model codex:<model>`, Codex picks one: "
+                "the judge takes the `model` in ~/.codex/config.toml, an attempt "
+                "the Codex CLI's built-in default.\n\n"
+                "If the `codex` in your shell is newer, set CODEX_CLI_PATH to it. "
+                "Otherwise upgrade the Codex CLI or app, or pass a model this "
+                "CLI and account support as `--model codex:<model>`, then retry "
+                "the eval."
             )
 
         if (
@@ -500,6 +502,20 @@ class CodexHarness(CliHarness):
             )
 
         return None
+
+    def _cli_label(self) -> str:
+        """The binary that ran and its version, e.g. ``/bin/codex (codex-cli 0.162.0)``.
+
+        Several installs commonly coexist (npm, Homebrew, the app bundle), and
+        a model refusal usually means caliper ran an older one than the shell.
+        """
+        cli = self.cli_path()
+        if not cli:
+            return "the Codex CLI"
+        version = self._capture_output(
+            [cli, "--version"], timeout=self.cli_version_timeout
+        )
+        return f"{cli} ({version})" if version else cli
 
     def _summarize_cli_configuration_error(self, text: str) -> str:
         lines = [line.strip() for line in text.splitlines() if line.strip()]

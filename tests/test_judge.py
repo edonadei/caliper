@@ -519,15 +519,24 @@ def test_codex_judge_crash_does_not_read_the_echoed_prompt(
 
 def test_codex_judge_refused_model_is_not_a_login(monkeypatch, tmp_path) -> None:
     _codex_cli_present(monkeypatch, tmp_path)
-    _spawn(
-        monkeypatch,
-        returncode=1,
-        stderr=(
-            'ERROR: {"type":"error","status":400,"error":{"type":'
-            '"invalid_request_error","message":"The \'bad-model\' model is not '
-            'supported when using Codex with a ChatGPT account."}}\n'
-        ),
-    )
+
+    def fake_run(cmd, **kwargs):
+        if cmd == ["codex.cmd", "--version"]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="codex-cli 0.155.0\n", stderr=""
+            )
+        return subprocess.CompletedProcess(
+            cmd,
+            1,
+            stdout="",
+            stderr=(
+                'ERROR: {"type":"error","status":400,"error":{"type":'
+                '"invalid_request_error","message":"The \'bad-model\' model is '
+                'not supported when using Codex with a ChatGPT account."}}\n'
+            ),
+        )
+
+    patch_cli_calls(monkeypatch, fake_run)
 
     with pytest.raises(HarnessConfigurationError) as exc:
         CodexHarness().run_prompt("anything", cwd=str(tmp_path))
@@ -535,8 +544,13 @@ def test_codex_judge_refused_model_is_not_a_login(monkeypatch, tmp_path) -> None
     message = str(exc.value)
     assert "Codex CLI cannot run the requested model" in message
     assert "codex login" not in message
-    assert "Pass `--judge-model codex` (no model)" in message
-    assert "`--model codex`" not in message
+    # A stale binary is the usual cause: name the one that ran, and the override.
+    assert "Caliper ran codex.cmd (codex-cli 0.155.0)" in message
+    assert "CODEX_CLI_PATH" in message
+    # Leaving the model out is not a fix: the judge then reads config.toml's pin.
+    assert "(no model)" not in message
+    assert "`--judge-model codex:<model>`" in message
+    assert "`--model codex" not in message
 
 
 def test_a_cancelled_judge_call_is_not_a_verdict(monkeypatch, tmp_path) -> None:
