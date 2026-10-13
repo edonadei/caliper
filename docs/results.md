@@ -185,12 +185,14 @@ what it ablated.
 
 How to read the diff:
 
-- **The header compares the two environments.** Each row (engine, judge,
-  skills, MCP servers, setup) shows A and B side by side, and collapses to
+- **The header compares the two environments.** Each row (engine, CLI, judge,
+  judge CLI, skills, MCP servers, setup) shows A and B side by side, and collapses to
   `same` when they match, so the rows that differ are the ones you read. A
   difference that is the experiment (the subject of an ablation pair, or the
   engine in a harness comparison) is cyan; one that confounds the result is
-  yellow and has a warning below the table.
+  yellow and has a warning below the table. A different CLI version is yellow
+  too, since an upgrade can explain a regression, but it never stops the
+  comparison. A run saved before versions were recorded shows `unknown`.
 - **The two runs are the column headers**: `before` is A, `after` is B. An
   ablation pair is titled `without <subject>` and `with <subject>`; when the
   removed side is the bare agent, it reads `without any skills or servers`.
@@ -358,6 +360,17 @@ and any script the judge wrote.
   deleted once the attempt ends. It's `null` for a direct verdict.
 
 All three are `null` on runs saved before they were recorded.
+
+### CLI version fields
+
+- `RunMeta.cli_version` is the first line of `--version` from the CLI the
+  attempts ran, for example `2.1.281 (Claude Code)`. It's probed once, before
+  the first attempt, from the same binary the attempts spawn.
+- `RunMeta.judge_cli_version` is the same for the CLI the judge's autorater
+  ran. It's `null` when no task had an `expect:`.
+
+Both are `null` when the probe failed, and on runs saved before they were
+recorded. Only the version is saved, never the binary's path.
 
 ### Derived totals
 

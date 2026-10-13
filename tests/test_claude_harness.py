@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -616,6 +617,97 @@ def test_claude_harness_stops_the_run_on_an_unavailable_model(
     assert "--model" in message
 
 
+def _claude_on_attempt_path(monkeypatch, tmp_path) -> Path:
+    """A `claude` only the attempt's PATH prefixes reach, so the test owns it."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    claude = bin_dir / "claude"
+    claude.write_text("#!/bin/sh\n")
+    claude.chmod(0o755)
+    monkeypatch.setenv("PATH", "/nonexistent")
+    monkeypatch.setattr(
+        ClaudeCodeHarness, "_path_prefixes", lambda self: [str(bin_dir)]
+    )
+    return claude
+
+
+def test_an_unavailable_model_names_the_claude_that_ran(monkeypatch, tmp_path) -> None:
+    claude = _claude_on_attempt_path(monkeypatch, tmp_path)
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1:] == ["--version"]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="2.1.281 (Claude Code)\n", stderr=""
+            )
+        result = {
+            "type": "result",
+            "is_error": True,
+            "api_error_status": 404,
+            "result": "There's an issue with the selected model (claude-bogus-9).",
+        }
+        return subprocess.CompletedProcess(cmd, 1, stdout=json.dumps(result), stderr="")
+
+    patch_cli_calls(monkeypatch, fake_run)
+
+    with pytest.raises(HarnessConfigurationError) as exc:
+        ClaudeCodeHarness(model="claude-bogus-9").run(
+            run_context(prompt="hello", isolated_home=str(tmp_path / "home"))
+        )
+
+    assert f"Caliper ran {claude} (2.1.281 (Claude Code))" in str(exc.value)
+
+
+def test_a_claude_that_crashes_at_startup_is_named(monkeypatch, tmp_path) -> None:
+    """Its `--version` crashes too, so the message names the path alone."""
+    claude = _claude_on_attempt_path(monkeypatch, tmp_path)
+
+    def fake_run(cmd, **kwargs):
+        stderr = "\n".join(
+            [
+                "file:///opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js:470",
+                "TypeError: Cannot read properties of undefined (reading 'prototype')",
+                "Node.js v25.1.0",
+            ]
+        )
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr=stderr)
+
+    patch_cli_calls(monkeypatch, fake_run)
+
+    with pytest.raises(HarnessConfigurationError) as exc:
+        ClaudeCodeHarness().run(
+            run_context(prompt="hello", isolated_home=str(tmp_path / "home"))
+        )
+
+    message = str(exc.value)
+    assert "Claude CLI crashed during startup" in message
+    assert f"Caliper ran {claude}, which returned" in message
+
+
+def test_a_claude_that_rejects_an_option_is_named(monkeypatch, tmp_path) -> None:
+    claude = _claude_on_attempt_path(monkeypatch, tmp_path)
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1:] == ["--version"]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="1.0.0 (Claude Code)\n", stderr=""
+            )
+        return subprocess.CompletedProcess(
+            cmd, 1, stdout="", stderr="error: unknown option '--strict-mcp-config'\n"
+        )
+
+    patch_cli_calls(monkeypatch, fake_run)
+
+    with pytest.raises(HarnessConfigurationError) as exc:
+        ClaudeCodeHarness().run(
+            run_context(prompt="hello", isolated_home=str(tmp_path / "home"))
+        )
+
+    message = str(exc.value)
+    assert "does not accept an option Caliper passed" in message
+    assert f"Caliper ran {claude} (1.0.0 (Claude Code))" in message
+    assert "unknown option '--strict-mcp-config'" in message
+
+
 def test_claude_harness_leaves_an_agent_writing_about_a_404_alone(
     monkeypatch, tmp_path
 ) -> None:
@@ -869,3 +961,58 @@ def test_claude_login_uses_the_claude_an_attempt_reaches(monkeypatch, tmp_path):
     )
 
     assert ClaudeCodeHarness().login_command() == [str(claude), "auth", "login"]
+
+
+def test_claude_cli_version_probes_the_claude_an_attempt_reaches(monkeypatch, tmp_path):
+    """Not the caller's PATH: a Homebrew-only claude is on the attempt's prefixes."""
+    claude = tmp_path / "claude"
+    claude.write_text("#!/bin/sh\n")
+    claude.chmod(0o755)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setattr(
+        ClaudeCodeHarness, "_path_prefixes", lambda self: [str(tmp_path)]
+    )
+    probes: list[list[str]] = []
+
+    paths: list[str] = []
+
+    def fake_run(cmd, **kwargs):
+        probes.append(cmd)
+        paths.append(kwargs["env"]["PATH"])
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout="2.1.281 (Claude Code)\n", stderr=""
+        )
+
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+
+    assert ClaudeCodeHarness().cli_version() == "2.1.281 (Claude Code)"
+    assert probes == [[str(claude), "--version"]]
+    # Run under that PATH too: `claude` is a Node script, and its `node` may be
+    # reachable only through the same prefixes.
+    assert paths[0].split(os.pathsep)[0] == str(tmp_path)
+
+
+def test_claude_judge_cli_version_probes_the_claude_a_prompt_reaches(
+    monkeypatch, tmp_path
+):
+    """A bare prompt gets nvm's Node ahead of PATH, but not the Homebrew prefixes."""
+    import caliper.harness.claude_code as claude_code
+
+    claude = tmp_path / "claude"
+    claude.write_text("#!/bin/sh\n")
+    claude.chmod(0o755)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setattr(claude_code, "preferred_nvm_node_bin", lambda: str(tmp_path))
+    monkeypatch.setattr(ClaudeCodeHarness, "_path_prefixes", lambda self: [])
+    probes: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        probes.append(cmd)
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout="2.1.281 (Claude Code)\n", stderr=""
+        )
+
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+
+    assert ClaudeCodeHarness().cli_version(prompt=True) == "2.1.281 (Claude Code)"
+    assert probes == [[str(claude), "--version"]]

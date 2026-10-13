@@ -232,6 +232,13 @@ class RunMeta(BaseModel):
     # the versions match. ``None`` when no task had an ``expect:``, or for runs
     # saved before it was recorded.
     judge_prompt_version: str | None = None
+    # The first line of ``--version`` from the CLI the attempts ran, and from the
+    # one the judge's autorater ran. Probed once, before the first attempt, so a
+    # regression can be read against a CLI upgrade. ``None`` when the probe
+    # failed, for a judge that never called an autorater, and for runs saved
+    # before they were recorded.
+    cli_version: str | None = None
+    judge_cli_version: str | None = None
     # True when the run stopped before every attempt ran — Ctrl-C, or a fatal
     # error diagnosed mid-run. The attempts that *did* run are saved and scored
     # normally (every denominator is usable attempts, not k), so this is the

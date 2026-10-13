@@ -574,6 +574,59 @@ def test_run_records_what_rebuilds_the_judge_input(tmp_path) -> None:
     assert results.task_results[0].expect == "says hello"
 
 
+class _VersionedVerdictPrompt(ScriptedHarness):
+    """A judge backend that answers the autorater and reports its CLI's version."""
+
+    def run_prompt(self, prompt, *, model=None, cwd, timeout=60) -> PromptResult:
+        return _VerdictPrompt().run_prompt(prompt, model=model, cwd=cwd)
+
+
+def test_runmeta_records_which_cli_ran_the_attempts_and_the_judge(tmp_path) -> None:
+    spec_path = tmp_path / "prov.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    spec = EvalSpec(
+        tasks=[TaskSpec(id="t1", name="t", prompt="p", expect="says hello")]
+    )
+
+    results = run(
+        spec=spec,
+        spec_path=spec_path,
+        harness=ScriptedHarness(agent_result(), cli_version="2.1.281 (Claude Code)"),
+        judge=EvalJudge(
+            backend="codex",
+            harness=_VersionedVerdictPrompt(cli_version="codex-cli 0.162.0"),
+        ),
+        k=1,
+        workers=1,
+        timeout=30,
+    )
+
+    assert results.run.cli_version == "2.1.281 (Claude Code)"
+    assert results.run.judge_cli_version == "codex-cli 0.162.0"
+
+
+def test_an_assert_only_run_records_no_judge_cli(tmp_path) -> None:
+    """No autorater ran, so there is no judge binary to name."""
+    spec_path = tmp_path / "prov.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+
+    results = run(
+        spec=_one_task_spec(),
+        spec_path=spec_path,
+        harness=ScriptedHarness(agent_result(), cli_version="codex-cli 0.162.0"),
+        judge=EvalJudge(
+            backend="codex",
+            harness=_VersionedVerdictPrompt(cli_version="codex-cli 0.162.0"),
+        ),
+        k=1,
+        workers=1,
+        timeout=30,
+    )
+
+    assert results.run.cli_version == "codex-cli 0.162.0"
+    assert results.run.judge_cli_version is None
+
+
 def test_runmeta_records_resolved_model_over_requested_and_warns(tmp_path) -> None:
     """RunMeta names what ran, not what was asked for (#131).
 

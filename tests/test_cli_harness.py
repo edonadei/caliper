@@ -65,7 +65,8 @@ SEED_INVENTORIES = [
 
 # The three backends that spawn the binary ``cli_path`` finds. claude-code is
 # absent on purpose: it spawns a bare ``claude`` and leaves the lookup to the
-# attempt's PATH, declaring ``cli_name`` only for `caliper update-cli`.
+# attempt's PATH, so it resolves its binary there rather than through
+# ``cli_path``.
 DISCOVERING_BACKENDS = [CodexHarness, HermesHarness, PiHarness]
 
 
@@ -661,6 +662,48 @@ def test_hermes_answer_on_stderr_is_not_a_refusal_after_a_failed_exit() -> None:
     assert harness._refusal(proc, report) is None
 
 
+@pytest.mark.parametrize("backend", DISCOVERING_BACKENDS)
+def test_cli_version_is_the_first_line_the_spawned_cli_reports(
+    backend, monkeypatch
+) -> None:
+    harness = backend()
+    monkeypatch.delenv(harness.cli_path_env_var, raising=False)
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "/bin/agent")
+    probes: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        probes.append(cmd)
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout="agent-cli 1.2.3\nbuilt yesterday\n", stderr=""
+        )
+
+    monkeypatch.setattr("caliper.harness.base.subprocess.run", fake_run)
+
+    assert harness.cli_version() == "agent-cli 1.2.3"
+    assert harness.cli_version(prompt=True) == "agent-cli 1.2.3"
+    assert probes == [["/bin/agent", "--version"]] * 2
+
+
+@pytest.mark.parametrize("backend", DISCOVERING_BACKENDS)
+def test_cli_version_is_unknown_when_the_probe_fails(backend, monkeypatch) -> None:
+    harness = backend()
+    monkeypatch.delenv(harness.cli_path_env_var, raising=False)
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "/bin/agent")
+    _probe_exits(monkeypatch, 1)
+
+    assert harness.cli_version() is None
+
+
+@pytest.mark.parametrize("backend", DISCOVERING_BACKENDS)
+def test_cli_version_is_unknown_when_nothing_is_installed(backend, monkeypatch) -> None:
+    harness = backend()
+    monkeypatch.delenv(harness.cli_path_env_var, raising=False)
+    monkeypatch.setattr(backend, "cli_candidates", lambda _self: ())
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: None)
+
+    assert harness.cli_version() is None
+
+
 # --- readiness: declared by the backend, checked by the base -----------------
 
 
@@ -717,10 +760,12 @@ def test_a_cli_whose_version_probe_fails_is_not_ready(monkeypatch, tmp_path):
     monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "/bin/stub")
     probes = _probe_exits(monkeypatch, 1)
 
-    with pytest.raises(HarnessConfigurationError, match="stub-cli is missing"):
+    with pytest.raises(HarnessConfigurationError, match="stub-cli is missing") as exc:
         _ReadyHarness().run(run_context(isolated_home=str(tmp_path)))
 
     assert probes == [["/bin/stub", "--version"]]
+    # Found but not runnable: name the binary, which may not be the one expected.
+    assert "Caliper ran /bin/stub." in str(exc.value)
 
 
 def test_a_runnable_cli_is_ready(monkeypatch, tmp_path):

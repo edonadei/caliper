@@ -320,3 +320,53 @@ def test_no_comparable_task_shows_no_overall_delta(capsys, monkeypatch) -> None:
         "no task measured on both sides",
     ]
     assert "+0.0pp" not in overall
+
+
+def _cli_row(out: str, key: str = "cli") -> list[str]:
+    return next(ln for ln in out.splitlines() if ln.split()[:1] == [key]).split()
+
+
+def test_compare_flags_a_cli_upgrade_between_the_runs(capsys, monkeypatch) -> None:
+    monkeypatch.setattr("caliper.reporter.console", Console(width=160))
+    a = _run([_task("alpha", [P, P])])
+    b = _run([_task("alpha", [P, F])])
+    a.run.cli_version = "codex-cli 0.161.0"
+    b.run.cli_version = "codex-cli 0.162.0"
+
+    print_comparison(diff_runs(a, b))
+
+    assert _cli_row(capsys.readouterr().out) == [
+        "cli",
+        "codex-cli",
+        "0.161.0",
+        "codex-cli",
+        "0.162.0",
+    ]
+
+
+def test_compare_says_same_for_one_cli_build(capsys, monkeypatch) -> None:
+    monkeypatch.setattr("caliper.reporter.console", Console(width=160))
+    a = _run([_task("alpha", [P, P])])
+    b = _run([_task("alpha", [P, F])])
+    a.run.cli_version = b.run.cli_version = "codex-cli 0.162.0"
+
+    print_comparison(diff_runs(a, b))
+
+    assert _cli_row(capsys.readouterr().out) == ["cli", "codex-cli", "0.162.0", "same"]
+
+
+def test_compare_shows_an_unrecorded_cli_as_unknown(capsys, monkeypatch) -> None:
+    """A run saved before versions were recorded still compares against one after."""
+    monkeypatch.setattr("caliper.reporter.console", Console(width=160))
+    a = _run([_task("alpha", [P, P])])
+    b = _run([_task("alpha", [P, F])])
+    b.run.cli_version = "codex-cli 0.162.0"
+
+    print_comparison(diff_runs(a, b))
+
+    assert _cli_row(capsys.readouterr().out) == [
+        "cli",
+        "unknown",
+        "codex-cli",
+        "0.162.0",
+    ]

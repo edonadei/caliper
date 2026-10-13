@@ -695,6 +695,9 @@ def test_the_judge_gets_the_turns_the_attempt_resumed_from(tmp_path) -> None:
     class Judge:
         backend, model, prompt_version = "test", None, None
 
+        def cli_version(self):
+            return None
+
         def evaluate(self, task, transcript, workdir, history=None):
             seen.append(history)
             (tmp_path / "h.history.yaml").write_text("- user: edited\n")

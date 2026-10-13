@@ -379,6 +379,8 @@ def _print_run_header(results: RunResults) -> None:
     )
     grid = _env_grid()
     grid.add_row("engine", _engine_text(run.backend, run.model))
+    if run.cli_version:
+        grid.add_row("cli", run.cli_version)
     # Only when a judge actually ran: an assert-only run would otherwise name a
     # grader that never graded anything.
     if _judged(results) and run.judge_backend:
@@ -392,6 +394,8 @@ def _print_run_header(results: RunResults) -> None:
             if same
             else _engine_text(run.judge_backend, run.judge_model or "default model"),
         )
+        if run.judge_cli_version and run.judge_cli_version != run.cli_version:
+            grid.add_row("judge cli", run.judge_cli_version)
     skills = [s.name for s in results.skill_snapshots if s.name]
     if skills or run.ablated_skills:
         grid.add_row("skills", _names(skills, run.ablated_skills))
@@ -1207,6 +1211,15 @@ def _env_row(
     grid.add_row(Text(key, style=style), a, b)
 
 
+def _cli_row(grid: Table, key: str, a: str | None, b: str | None) -> None:
+    """Two runs' CLI builds, when either recorded one; a difference in yellow."""
+    if a is None and b is None:
+        return
+    ta = Text(a or "unknown", style="" if a else "dim")
+    tb = Text(b or "unknown", style="" if b else "dim")
+    _env_row(grid, key, ta, tb, a != b, "yellow")
+
+
 def _side_names(mine: list[str], theirs: list[str], style: str) -> Text:
     """A comma list whose members missing from the other side are highlighted."""
     text = Text()
@@ -1258,6 +1271,8 @@ def _print_compare_header(comp: RunComparison) -> None:
     # mistake: caliper warns on none of it, so it is cyan.
     ea, eb = _engine_text(a.backend, a.model), _engine_text(b.backend, b.model)
     _env_row(grid, "engine", ea, eb, ea.plain != eb.plain, "bold cyan")
+    # A CLI upgrade is a likely cause of a regression: flagged, never refused.
+    _cli_row(grid, "cli", a.cli_version, b.cli_version)
     if a.judge_backend or b.judge_backend:
         ja = _engine_text(a.judge_backend, a.judge_model or "default model")
         jb = _engine_text(b.judge_backend, b.judge_model or "default model")
@@ -1269,6 +1284,7 @@ def _print_compare_header(comp: RunComparison) -> None:
             ja.plain != jb.plain,
             "yellow" if comp.judge_mismatch else "bold cyan",
         )
+        _cli_row(grid, "judge cli", a.judge_cli_version, b.judge_cli_version)
     sa, sb = comp.a_skills, comp.b_skills
     if sa or sb:
         style = "bold cyan" if ablation else "yellow"

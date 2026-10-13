@@ -16,11 +16,6 @@ same enum. Two exceptions carry the two ordinary
 verdicts on a request — :class:`BadInput` (the caller's spec, path or reference
 is wrong) and :class:`CannotRun` (caliper cannot get far enough to answer) — and
 the domain's own exceptions are mapped as they arrive.
-
-Deliberately **not** in here: ``update-cli``. Its exits report a declined
-confirmation, a missing npm, and npm's own return code — user-interaction
-outcomes that have nothing to do with whether an eval ran. Folding them in would
-make one table answer two unrelated questions.
 """
 
 from __future__ import annotations

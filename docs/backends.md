@@ -159,14 +159,20 @@ for.
 
 If a run fails because no model is selected or a provider login lapsed, Caliper
 tells you to run `hermes model`. Set `HERMES_CLI_PATH` to force a specific
-binary. Hermes updates itself, so `caliper update-cli hermes` points you at
-`hermes update` instead of running npm.
+binary.
 
-## Checking CLI versions
+## CLI versions
 
-```bash
-caliper update-cli --check
-```
+Caliper doesn't install or update agent CLIs: update each one the way you
+installed it (`claude update`, `hermes update`, or npm). Every saved run
+records the `--version` of the CLI its attempts ran and of the one its judge
+ran, `caliper report` shows them, and `caliper compare` flags a difference
+between two runs (see [Results JSON](results.md#cli-version-fields)).
+
+When a CLI rejects the model, rejects an option Caliper passed, or is found but
+won't run, the error names the binary Caliper ran and its version. Several
+installs often coexist (npm, Homebrew, an app bundle), so check it's the one
+your shell runs, or set the backend's `*_CLI_PATH` to force one.
 
 ## MCP support by backend
 

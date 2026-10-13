@@ -95,6 +95,7 @@ class ScriptedHarness(HarnessBackend):
         supports_mcp: bool = False,
         mcp_unsupported_hint: str | None = None,
         supports_history: bool = False,
+        cli_version: str | None = None,
     ) -> None:
         self.script = script if script is not None else agent_result()
         self._name = name
@@ -102,6 +103,7 @@ class ScriptedHarness(HarnessBackend):
         self.supports_mcp = supports_mcp
         self.mcp_unsupported_hint = mcp_unsupported_hint
         self.supports_history = supports_history
+        self._cli_version = cli_version
         self.contexts: list[RunContext] = []
         # Attempts run on worker threads (docs/adr/0018).
         self._lock = threading.Lock()
@@ -117,6 +119,9 @@ class ScriptedHarness(HarnessBackend):
     @property
     def attempts(self) -> list[int]:
         return [ctx.attempt for ctx in self.contexts]
+
+    def cli_version(self, *, prompt: bool = False) -> str | None:
+        return self._cli_version
 
     def run(self, ctx: RunContext) -> AttemptResult:
         with self._lock:
@@ -139,6 +144,9 @@ class ScriptedJudge:
         self.result = result or JudgeResult(passed=True)
         self.calls = 0
         self._lock = threading.Lock()
+
+    def cli_version(self) -> str | None:
+        return None
 
     def evaluate(self, task, transcript, workdir, history=None) -> JudgeResult:
         with self._lock:

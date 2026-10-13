@@ -318,6 +318,9 @@ otherwise each engine grades itself, and `caliper compare` warns that the judges
 differ ([ADR 0034](docs/adr/0034-the-judge-follows-the-skill-backend-by-default.md)). There's no direct-API backend: to use API billing, configure
 one of these CLIs with an API key.
 
+Caliper doesn't install or update these CLIs: each one updates itself, and every
+saved run records which CLI version it used.
+
 Setup details for each backend, the full `--model` syntax, and MCP support by
 backend are in **[docs/backends.md](docs/backends.md)**.
 
@@ -370,7 +373,6 @@ The full format, with every field, is in
 | `caliper list [spec]` | List specs and saved runs. Per spec, each row shows its **Run** ID and what that run **ablated**, which is how you find the run to diff against |
 | `caliper report <spec-or-result>` | Re-render saved results |
 | `caliper compare <A> <B>` | Diff two saved runs of the same eval, task by task. Each side is a spec name (that spec's **latest** run) or a results-JSON path; they must be two distinct runs |
-| `caliper update-cli [backend]` | Check or update installed agent CLI versions |
 
 Results are saved under the nearest `.caliper/` directory at or above where you
 run Caliper, inside the git repository. See
