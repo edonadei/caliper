@@ -87,6 +87,9 @@ def test_windows_attempt_env_names_a_home_python_can_resolve(
     # Python on Windows ignores HOME: Path.home() reads USERPROFILE, and hermes
     # finds its own root through LOCALAPPDATA.
     monkeypatch.setattr(sys, "platform", "win32")
+    # shutil.which takes its Windows branch on the faked platform, which needs
+    # _winapi; the lookup is beside the point here.
+    monkeypatch.setattr(HermesHarness, "cli_path", lambda _self: "hermes")
     monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\me\AppData\Local")
     monkeypatch.setenv("USERPROFILE", r"C:\Users\me")
     ctx = run_context(isolated_home=str(tmp_path))
