@@ -522,7 +522,10 @@ class CliHarness(HarnessBackend):
         self._ensure_ready(ctx)
         self._seed_home(ctx)
         if self.cli_config is not None:
-            self.cli_config.write(ctx, backend=self.name)
+            attempt_copy = Path(ctx.isolated_home) / self.cli_config.path
+            self.cli_config.write(
+                ctx, backend=self.name, real=self.user_path(attempt_copy, ctx)
+            )
         self._prepare(ctx)
         # Imported here: the user layer reads this module's types.
         from caliper.harness import user_layer
@@ -768,6 +771,14 @@ class CliHarness(HarnessBackend):
     # :mod:`caliper.harness.user_layer` (docs/adr/0028).
     user_rules: tuple[str, ...] = ()
     user_settings_file: str | None = None
+
+    def user_path(self, isolated: Path, ctx: RunContext) -> Path:
+        """The user's own copy of a path inside the attempt's isolated home.
+
+        Default: the same path under the real home. Overridden where the CLI
+        keeps its home elsewhere on some platform (hermes on Windows).
+        """
+        return Path.home() / isolated.relative_to(ctx.isolated_home)
 
     def stage_plugins(self, ctx: RunContext) -> tuple[list[str], dict[str, str]]:
         """Stage the user's plugins; return their ``plugin:`` files and skills.

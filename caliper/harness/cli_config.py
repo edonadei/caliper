@@ -72,19 +72,25 @@ class CliConfig:
     dropped_keys: frozenset[str] = frozenset()
     # One declared server in this CLI's spelling.
     entry: Callable[[ResolvedMcpServer], dict] = ResolvedMcpServer.entry
+    # Settings the attempt's copy always carries, merged over the user's: what
+    # the attempt itself needs from the CLI, not a user setting.
+    pinned: Callable[[], dict] = dict
 
-    def write(self, ctx: RunContext, *, backend: str) -> None:
+    def write(self, ctx: RunContext, *, backend: str, real: Path | None = None) -> None:
         """Write the attempt's copy, or nothing when there is nothing to write.
 
-        Nothing is written when the user has no config and the spec declares no
-        server. A config the CLI could not parse either is refused here.
+        ``real`` is the user's copy, when it is not at ``path`` under the home.
+        Nothing is written when the user has no config, the spec declares no
+        server and nothing is pinned. A config the CLI could not parse either is
+        refused here.
         """
         declared = {
             name: self.entry(resolved)
             for name, resolved in resolve_servers(ctx.mcp_servers).items()
         }
-        real = Path.home() / self.path
-        if not real.exists() and not declared:
+        pinned = self.pinned()
+        real = real or Path.home() / self.path
+        if not real.exists() and not declared and not pinned:
             return
 
         config = self._load(real, backend=backend) if real.exists() else {}
@@ -92,13 +98,18 @@ class CliConfig:
         if not ctx.user_customizations:
             config = {k: v for k, v in config.items() if k in self.connection_keys}
         config = {k: v for k, v in config.items() if k not in self.dropped_keys}
+        for key, value in pinned.items():
+            current = config.get(key)
+            if isinstance(current, dict) and isinstance(value, dict):
+                value = {**current, **value}
+            config[key] = value
         config.pop(self.servers_key, None)
         if servers:
             config[self.servers_key] = servers
 
         target = Path(ctx.isolated_home) / self.path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(self.codec.dumps(config))
+        target.write_text(self.codec.dumps(config), encoding="utf-8")
         target.chmod(0o600)
 
     def read(self, ctx: RunContext) -> dict:
@@ -106,7 +117,7 @@ class CliConfig:
         target = Path(ctx.isolated_home) / self.path
         if not target.exists():
             return {}
-        loaded = self.codec.loads(target.read_text())
+        loaded = self.codec.loads(target.read_text(encoding="utf-8"))
         return loaded if isinstance(loaded, dict) else {}
 
     def servers(self, ctx: RunContext) -> set[str]:
@@ -116,7 +127,7 @@ class CliConfig:
 
     def _load(self, real: Path, *, backend: str) -> dict:
         try:
-            loaded = self.codec.loads(real.read_text())
+            loaded = self.codec.loads(real.read_text(encoding="utf-8"))
         except self.codec.error as exc:
             raise HarnessConfigurationError(
                 f"{backend}'s config at {real} is not valid {self.codec.name} "

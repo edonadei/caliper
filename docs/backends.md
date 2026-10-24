@@ -145,7 +145,8 @@ auto-generated skills. To keep its score comparable with the other backends,
 Caliper **normalizes it to a neutral agent**:
 
 - Every attempt runs in an isolated `HERMES_HOME` seeded with your `~/.hermes`
-  auth and config only, never `SOUL.md` or `MEMORY.md`.
+  (on Windows, `%LOCALAPPDATA%\hermes`) auth and config only, never `SOUL.md`
+  or `MEMORY.md`.
 - Attempts run with `--ignore-rules` and `--yolo`, so an approval prompt can't
   hang the non-interactive oneshot.
 - Only the spec's declared skills are installed. Hermes' `--skills` flag
@@ -160,6 +161,17 @@ for.
 If a run fails because no model is selected or a provider login lapsed, Caliper
 tells you to run `hermes model`. Set `HERMES_CLI_PATH` to force a specific
 binary.
+
+### Hermes on Windows
+
+Hermes on Windows needs Git for Windows' `sh` on `PATH`. It also only starts
+from a home inside its own install root, so each attempt's isolated home is a
+temporary profile, `%LOCALAPPDATA%\hermes\profiles\caliper-*`. That profile is
+marked standalone, so neither its gateway nor your running one reaches across.
+It shows in `hermes profile list` while the attempt runs. Caliper stops the
+attempt's gateway and removes the profile once the attempt is read, and a later
+run sweeps any profile left behind for a day
+([ADR 0037](adr/0037-hermes-attempt-home-lives-under-the-hermes-root-on-windows.md)).
 
 ## CLI versions
 
@@ -257,7 +269,7 @@ hosted OAuth connector a spec can't declare. `--no-user-customizations`, or
 |---|---|
 | `claude-code` | The `mcpServers` in your `~/.claude.json`, plus claude.ai connectors, `~/.claude/skills`, `CLAUDE.md`, `settings.json` (including hooks, permissions and env), and enabled user-scope plugins from the installed registry |
 | `codex` | The `[mcp_servers.*]` tables in your `~/.codex/config.toml`, your installed plugins (`~/.codex/plugins`, copied into the attempt), ChatGPT apps (`codex_apps`), `~/.codex/skills`, `AGENTS.md` / `AGENTS.override.md`, and `config.toml` settings (the top-level model pin is still stripped) |
-| `hermes` | `~/.hermes/skills` and `config.yaml`, including `mcp_servers`; persona and memory remain excluded |
+| `hermes` | `~/.hermes/skills` and `config.yaml` (`%LOCALAPPDATA%\hermes` on Windows), including `mcp_servers`; persona and memory remain excluded |
 | `pi` | Nothing: no MCP by design. The run records it as off, and warns only if a flag or the spec asked for it |
 
 - **The spec wins a name clash.** A declared skill or server replaces your own of the
