@@ -271,21 +271,13 @@ _LEGACY_EXCHANGE = [
 ]
 
 
+# What a backend that speaks 2026-07-28 sends first, as Claude Code does.
 _MODERN_EXCHANGE = [
-    _LEGACY_EXCHANGE[0],
-    [
-        "server",
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "error": {"code": -32601, "message": "Method not found"},
-        },
-    ],
     [
         "client",
         {
             "jsonrpc": "2.0",
-            "id": 2,
+            "id": 1,
             "method": "server/discover",
             "params": {
                 "_meta": {
@@ -303,7 +295,7 @@ _MODERN_EXCHANGE = [
         "server",
         {
             "jsonrpc": "2.0",
-            "id": 2,
+            "id": 1,
             "result": {
                 "supportedVersions": ["2026-07-28"],
                 "capabilities": {"tools": {}},
@@ -314,7 +306,7 @@ _MODERN_EXCHANGE = [
         "client",
         {
             "jsonrpc": "2.0",
-            "id": 3,
+            "id": 2,
             "method": "tools/list",
             "params": {
                 "_meta": {
@@ -332,7 +324,7 @@ _MODERN_EXCHANGE = [
         "server",
         {
             "jsonrpc": "2.0",
-            "id": 3,
+            "id": 2,
             "result": {
                 "resultType": "complete",
                 "tools": [],
@@ -857,7 +849,7 @@ _MODERN_TOOLS = {
 def _modern_server(
     tmp_path, discover_reply: dict, tools_reply: dict = _MODERN_TOOLS
 ) -> dict[str, McpServer]:
-    """A server that rejects initialize, then answers 2026-07-28 requests.
+    """A server that rejects initialize and answers 2026-07-28 requests.
 
     It exits instead of answering a modern request that lacks the 2026-07-28
     ``_meta``, so a passing check proves preflight sent it.
@@ -865,16 +857,20 @@ def _modern_server(
     script = tmp_path / "modern.py"
     script.write_text(
         "import json, sys\n"
-        "def answer(body):\n"
-        "    request = json.loads(sys.stdin.readline())\n"
-        "    if request['method'] != 'initialize' and request['params']['_meta']"
-        "['io.modelcontextprotocol/protocolVersion'] != '2026-07-28': sys.exit(2)\n"
+        "for line in sys.stdin:\n"
+        "    request = json.loads(line)\n"
+        "    if 'id' not in request: continue\n"
+        "    if request['method'] == 'initialize':\n"
+        f"        body = {_NOT_FOUND!r}\n"
+        "    elif request['params']['_meta']"
+        "['io.modelcontextprotocol/protocolVersion'] != '2026-07-28':\n"
+        "        sys.exit(2)\n"
+        "    elif request['method'] == 'server/discover':\n"
+        f"        body = {discover_reply!r}\n"
+        "    else:\n"
+        f"        body = {tools_reply!r}\n"
         "    print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], **body}), "
         "flush=True)\n"
-        f"answer({_NOT_FOUND!r})\n"
-        f"answer({discover_reply!r})\n"
-        f"answer({tools_reply!r})\n"
-        "sys.stdin.readline()\n"
     )
     return {"modern": McpServer(command=sys.executable, args=[str(script)])}
 
@@ -980,7 +976,7 @@ def test_preflight_accepts_a_whole_ttl_written_as_a_float(tmp_path) -> None:
             "server",
             {
                 "jsonrpc": "2.0",
-                "id": 3,
+                "id": 2,
                 "result": {
                     "resultType": "complete",
                     "tools": [],
@@ -1652,3 +1648,117 @@ def test_preflight_rejects_a_tool_the_agent_could_not_use(tmp_path, tools) -> No
         preflight_stdio_servers(
             _legacy_server(tmp_path, _LEGACY_INIT, {"result": {"tools": tools}})
         )
+
+
+def _dual_era_server(
+    tmp_path, tools_reply: dict = _MODERN_TOOLS
+) -> dict[str, McpServer]:
+    """A server answering both revisions by method, as a dual-era server does.
+
+    A ``tools/list`` without the 2026-07-28 ``_meta`` gets a legacy tool list.
+    """
+    script = tmp_path / "dual.py"
+    script.write_text(
+        "import json, sys\n"
+        "for line in sys.stdin:\n"
+        "    request = json.loads(line)\n"
+        "    if 'id' not in request: continue\n"
+        "    if request['method'] == 'initialize':\n"
+        f"        body = {_LEGACY_INIT!r}\n"
+        "    elif request['method'] == 'server/discover':\n"
+        f"        body = {_DISCOVERED_TOOLS!r}\n"
+        "    elif 'params' in request:\n"
+        f"        body = {tools_reply!r}\n"
+        "    else:\n"
+        "        body = {'result': {'tools': []}}\n"
+        "    print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], **body}), "
+        "flush=True)\n"
+    )
+    return {"dual": McpServer(command=sys.executable, args=[str(script)])}
+
+
+def test_preflight_checks_a_dual_era_server_in_2026_07_28_when_the_agent_speaks_it(
+    tmp_path,
+) -> None:
+    """Claude Code stays on 2026-07-28 with such a server, so its tool list
+    there is the one that has to be valid."""
+    with pytest.raises(
+        HarnessConfigurationError,
+        match=r"^MCP server 'dual' listed tools without a valid resultType",
+    ):
+        preflight_stdio_servers(
+            _dual_era_server(tmp_path, {"result": {"tools": []}}),
+            speaks_modern=True,
+        )
+
+
+@pytest.mark.parametrize(
+    ("speaks_modern", "exchange"),
+    [(True, _MODERN_EXCHANGE), (False, _LEGACY_EXCHANGE)],
+    ids=["modern-backend", "legacy-backend"],
+)
+def test_preflight_opens_a_dual_era_server_as_the_backend_agent_does(
+    tmp_path, speaks_modern, exchange
+) -> None:
+    servers = _dual_era_server(tmp_path)
+    marker = _record_server(tmp_path / "dual.py")
+    preflight_stdio_servers(servers, speaks_modern=speaks_modern)
+
+    assert json.loads(marker.read_text())[1:] == exchange
+
+
+def _initialize_only_server(tmp_path, on_discover: str) -> dict[str, McpServer]:
+    """A legacy server that answers ``server/discover`` with an error, by
+    exiting, or not at all."""
+    reaction = {
+        "error": f"        body = {_NOT_FOUND!r}\n",
+        "exit": "        sys.exit(1)\n",
+        "silent": "        continue\n",
+    }[on_discover]
+    script = tmp_path / "legacy.py"
+    script.write_text(
+        "import json, sys\n"
+        "for line in sys.stdin:\n"
+        "    request = json.loads(line)\n"
+        "    if 'id' not in request: continue\n"
+        "    if request['method'] == 'initialize':\n"
+        f"        body = {_LEGACY_INIT!r}\n"
+        "    elif request['method'] == 'tools/list':\n"
+        "        body = {'result': {'tools': []}}\n"
+        "    else:\n" + reaction + "    print(json.dumps({'jsonrpc': '2.0', "
+        "'id': request['id'], **body}), flush=True)\n"
+    )
+    return {"legacy": McpServer(command=sys.executable, args=[str(script)])}
+
+
+def test_preflight_falls_back_to_initialize_when_discovery_is_rejected(
+    tmp_path,
+) -> None:
+    servers = _initialize_only_server(tmp_path, "error")
+    marker = _record_server(tmp_path / "legacy.py")
+    preflight_stdio_servers(servers, speaks_modern=True)
+
+    initialize, init_reply, initialized, tools, tools_reply = _LEGACY_EXCHANGE
+    assert json.loads(marker.read_text())[1:] == [
+        _MODERN_EXCHANGE[0],
+        ["server", {"jsonrpc": "2.0", "id": 1, **_NOT_FOUND}],
+        ["client", {**initialize[1], "id": 2}],
+        ["server", {**init_reply[1], "id": 2}],
+        initialized,
+        ["client", {**tools[1], "id": 3}],
+        ["server", {**tools_reply[1], "id": 3}],
+    ]
+
+
+@pytest.mark.parametrize("on_discover", ["exit", "silent"])
+def test_preflight_restarts_a_legacy_server_that_does_not_answer_discovery(
+    tmp_path, on_discover
+) -> None:
+    servers = _initialize_only_server(tmp_path, on_discover)
+    marker = _record_server(tmp_path / "legacy.py")
+    start = time.monotonic()
+    preflight_stdio_servers(servers, speaks_modern=True)
+
+    # The marker holds the fresh process's exchange.
+    assert json.loads(marker.read_text())[1:] == _LEGACY_EXCHANGE
+    assert time.monotonic() - start < 8

@@ -108,131 +108,207 @@ def preflight_stdio_servers(
     neither failure becomes a scored attempt or a hanging agent. ``timeout``
     bounds the whole check across every server; an attempt passes its
     ``--timeout`` so a server that starts slowly gets the same budget the agent
-    would. A server that speaks only MCP 2026-07-28 passes only when
-    ``speaks_modern`` says the agent's own client can connect to it.
+    would. ``speaks_modern`` says the agent's own client speaks MCP 2026-07-28:
+    preflight then opens the way that client does, and a server that speaks
+    only 2026-07-28 passes only then (docs/adr/0035).
     """
-    if os.name == "nt":
-        from caliper.harness import windows_job
-    else:
-        windows_job = None
     deadline = time.monotonic() + timeout
     for name, server in resolve_servers(declared).items():
         if cancel.requested():
             raise McpPreflightInterrupted
         if server.is_remote:
             continue
-        initialize = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-03-26",
-                "capabilities": {},
-                "clientInfo": {"name": "caliper-preflight", "version": "1"},
-            },
-        }
+
+        def spawn(server: ResolvedMcpServer = server):
+            return _spawned(server, extra_path=extra_path, env=env, cwd=cwd)
+
         try:
-            with tempfile.TemporaryDirectory(
-                prefix="caliper-mcp-preflight-"
-            ) as tmp_dir:
-                # Keep preflight as narrow as the attempt's environment, so a
-                # server cannot pass by relying on an ambient host variable.
-                process_env = (
-                    dict(env)
-                    if env is not None
-                    else {
-                        "HOME": tmp_dir,
-                        "PATH": os.pathsep.join(
-                            [*(extra_path or []), os.environ.get("PATH", "")]
-                        ),
-                    }
-                )
-                if (
-                    env is None
-                    and sys.platform == "win32"
-                    and "SystemRoot" in os.environ
-                ):
-                    process_env["SystemRoot"] = os.environ["SystemRoot"]  # noqa: SIM112
-                process_env.update(server.env)
-                process = subprocess.Popen(
-                    [server.command, *server.args],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    text=True,
-                    encoding="utf-8",
-                    cwd=cwd or tmp_dir,
-                    env=process_env,
-                    start_new_session=os.name == "posix",
-                    creationflags=(
-                        windows_job.CREATE_SUSPENDED if windows_job is not None else 0
-                    ),
-                )
-                job = None
-                try:
-                    if windows_job is not None:
-                        job = windows_job.assign_and_resume(process)
-                    with cancel.track(process):
-                        response = _exchange(
-                            process, initialize, name, deadline, timeout
-                        )
-                        if "result" not in response:
-                            _discover(
-                                process,
-                                name,
-                                deadline,
-                                timeout,
-                                speaks_modern=speaks_modern,
-                            )
-                            stage = "discovery"
-                        else:
-                            _initialized(
-                                process, response.get("result"), name, deadline, timeout
-                            )
-                            stage = "initialization"
-                        try:
-                            process.wait(timeout=0.05)
-                        except subprocess.TimeoutExpired:
-                            pass
-                        else:
-                            raise HarnessConfigurationError(
-                                f"MCP server '{name}' exited after {stage}"
-                            )
-                finally:
-                    if os.name == "posix":
-                        # Capture children before terminating the launcher;
-                        # reparenting would otherwise hide them from the walk.
-                        descendants: set[psutil.Process] = set()
-                        with contextlib.suppress(psutil.Error):
-                            descendants.update(
-                                psutil.Process(process.pid).children(recursive=True)
-                            )
-                        with contextlib.suppress(OSError):
-                            os.killpg(process.pid, signal.SIGTERM)
-                        with contextlib.suppress(subprocess.TimeoutExpired):
-                            process.wait(timeout=1)
-                        # The launcher can exit before another group member.
-                        with contextlib.suppress(OSError):
-                            os.killpg(process.pid, signal.SIGKILL)
-                        for child in descendants:
-                            with contextlib.suppress(
-                                psutil.NoSuchProcess, psutil.AccessDenied
-                            ):
-                                child.kill()
-                        psutil.wait_procs(list(descendants), timeout=1)
-                    elif job is not None:
-                        windows_job.close(job)
-                    elif process.poll() is None:
-                        process.kill()
-                    try:
-                        process.wait(timeout=1)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait(timeout=1)
+            if speaks_modern:
+                _check_discover_first(spawn, name, deadline, timeout)
+            else:
+                _check_initialize_first(spawn, name, deadline, timeout)
         except (OSError, ValueError) as exc:
             raise HarnessConfigurationError(
                 f"MCP server '{name}' failed to start: {exc}"
             ) from exc
+
+
+@contextlib.contextmanager
+def _spawned(
+    server: ResolvedMcpServer,
+    *,
+    extra_path: list[str] | None,
+    env: dict[str, str] | None,
+    cwd: str | None,
+):
+    """Start ``server``, and stop it and every process it started afterwards."""
+    if os.name == "nt":
+        from caliper.harness import windows_job
+    else:
+        windows_job = None
+    with tempfile.TemporaryDirectory(prefix="caliper-mcp-preflight-") as tmp_dir:
+        # Keep preflight as narrow as the attempt's environment, so a
+        # server cannot pass by relying on an ambient host variable.
+        process_env = (
+            dict(env)
+            if env is not None
+            else {
+                "HOME": tmp_dir,
+                "PATH": os.pathsep.join(
+                    [*(extra_path or []), os.environ.get("PATH", "")]
+                ),
+            }
+        )
+        if env is None and sys.platform == "win32" and "SystemRoot" in os.environ:
+            process_env["SystemRoot"] = os.environ["SystemRoot"]  # noqa: SIM112
+        process_env.update(server.env)
+        process = subprocess.Popen(
+            [server.command, *server.args],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            cwd=cwd or tmp_dir,
+            env=process_env,
+            start_new_session=os.name == "posix",
+            creationflags=(
+                windows_job.CREATE_SUSPENDED if windows_job is not None else 0
+            ),
+        )
+        job = None
+        try:
+            if windows_job is not None:
+                job = windows_job.assign_and_resume(process)
+            with cancel.track(process):
+                yield process
+        finally:
+            if os.name == "posix":
+                # Capture children before terminating the launcher;
+                # reparenting would otherwise hide them from the walk.
+                descendants: set[psutil.Process] = set()
+                with contextlib.suppress(psutil.Error):
+                    descendants.update(
+                        psutil.Process(process.pid).children(recursive=True)
+                    )
+                with contextlib.suppress(OSError):
+                    os.killpg(process.pid, signal.SIGTERM)
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    process.wait(timeout=1)
+                # The launcher can exit before another group member.
+                with contextlib.suppress(OSError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                for child in descendants:
+                    with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
+                        child.kill()
+                psutil.wait_procs(list(descendants), timeout=1)
+            elif job is not None:
+                windows_job.close(job)
+            elif process.poll() is None:
+                process.kill()
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=1)
+
+
+def _check_initialize_first(spawn, name: str, deadline: float, timeout: float) -> None:
+    """Check a server the way an agent that speaks only legacy MCP opens it."""
+    with spawn() as process:
+        response = _exchange(process, _initialize(1), name, deadline, timeout)
+        if "result" in response:
+            _initialized(process, response["result"], 2, name, deadline, timeout)
+            _still_running(process, name, "initialization")
+            return
+        # Discovery runs only after that rejection so a legacy server never
+        # sees a request it may not handle. It only tells a 2026-07-28 server,
+        # which this backend's agent cannot open, from a broken one.
+        try:
+            response = _probe(process, 2, name, deadline)
+        except (HarnessConfigurationError, ValueError) as exc:
+            raise _rejected(name) from exc
+        if (unsupported := _unsupported_reply(name, response)) is not None:
+            raise unsupported
+        if not _is_discovery(response):
+            raise _rejected(name)
+        if _MODERN_PROTOCOL_VERSION not in response["result"]["supportedVersions"]:
+            raise _unsupported(name, response["result"]["supportedVersions"])
+        raise HarnessConfigurationError(
+            f"MCP server '{name}' speaks only MCP {_MODERN_PROTOCOL_VERSION}, "
+            "which this backend's agent cannot connect to. Use a server that "
+            "also answers initialize, or a backend that speaks "
+            f"{_MODERN_PROTOCOL_VERSION}."
+        )
+
+
+def _check_discover_first(spawn, name: str, deadline: float, timeout: float) -> None:
+    """Check a server the way an agent that speaks MCP 2026-07-28 opens it.
+
+    The stdio transport's fallback: ``server/discover`` first, and
+    ``initialize`` only when the reply is not a discovery or a recognized
+    2026-07-28 error. Claude Code stays on 2026-07-28 with a server that
+    speaks both revisions, so that is the exchange preflight checks.
+    """
+    with spawn() as process:
+        try:
+            response = _probe(process, 1, name, deadline)
+        except (HarnessConfigurationError, ValueError):
+            # A legacy server may stay silent, exit or garble on an unknown
+            # request. A read may still be waiting on this process, so fall
+            # back on a fresh one.
+            response = None
+        if response is not None:
+            if (unsupported := _unsupported_reply(name, response)) is not None:
+                raise unsupported
+            if _is_discovery(response):
+                _discovered(process, response["result"], 2, name, deadline, timeout)
+                _still_running(process, name, "discovery")
+            else:
+                _fall_back(process, 2, name, deadline, timeout)
+            return
+    with spawn() as process:
+        _fall_back(process, 1, name, deadline, timeout)
+
+
+def _fall_back(
+    process: subprocess.Popen,
+    request_id: int,
+    name: str,
+    deadline: float,
+    timeout: float,
+) -> None:
+    """Open a server that did not answer discovery as a legacy server."""
+    response = _exchange(process, _initialize(request_id), name, deadline, timeout)
+    if "result" not in response:
+        raise _rejected(name)
+    _initialized(process, response["result"], request_id + 1, name, deadline, timeout)
+    _still_running(process, name, "initialization")
+
+
+def _still_running(process: subprocess.Popen, name: str, stage: str) -> None:
+    try:
+        process.wait(timeout=0.05)
+    except subprocess.TimeoutExpired:
+        return
+    raise HarnessConfigurationError(f"MCP server '{name}' exited after {stage}")
+
+
+def _initialize(request_id: int) -> dict:
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": {"name": "caliper-preflight", "version": "1"},
+        },
+    }
+
+
+def _rejected(name: str) -> HarnessConfigurationError:
+    return HarnessConfigurationError(f"MCP server '{name}' rejected initialize")
 
 
 def _send(process: subprocess.Popen, message: dict) -> None:
@@ -380,6 +456,7 @@ def _list_tools(
 def _initialized(
     process: subprocess.Popen,
     result: object,
+    tools_id: int,
     name: str,
     deadline: float,
     timeout: float,
@@ -405,66 +482,67 @@ def _initialized(
         f"notifications/initialized within {timeout:g} seconds",
     )
     if "tools" in result["capabilities"]:
-        _list_tools(process, 2, name, deadline, timeout)
+        _list_tools(process, tools_id, name, deadline, timeout)
 
 
-def _discover(
+def _probe(
+    process: subprocess.Popen, request_id: int, name: str, deadline: float
+) -> dict:
+    """Send ``server/discover``, waiting only as long as Claude Code does.
+
+    A legacy server may stay silent on an unknown request.
+    """
+    return _exchange(
+        process,
+        {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "server/discover",
+            "params": {"_meta": _MODERN_META},
+        },
+        name,
+        min(deadline, time.monotonic() + _DISCOVER_TIMEOUT),
+        _DISCOVER_TIMEOUT,
+    )
+
+
+def _is_discovery(response: dict) -> bool:
+    result = response.get("result")
+    return (
+        "error" not in response
+        and isinstance(result, dict)
+        and isinstance(result.get("supportedVersions"), list)
+        and isinstance(result.get("capabilities"), dict)
+    )
+
+
+def _unsupported_reply(name: str, response: dict) -> HarnessConfigurationError | None:
+    """An ``UnsupportedProtocolVersion`` reply: a live 2026-era server, but one
+    that is not to be opened with ``initialize`` either."""
+    error = response.get("error")
+    if (
+        not isinstance(error, dict)
+        or error.get("code") != _UNSUPPORTED_PROTOCOL_VERSION
+    ):
+        return None
+    data = error.get("data")
+    return _unsupported(name, data.get("supported") if isinstance(data, dict) else None)
+
+
+def _discovered(
     process: subprocess.Popen,
+    result: dict,
+    tools_id: int,
     name: str,
     deadline: float,
     timeout: float,
-    *,
-    speaks_modern: bool,
 ) -> None:
-    """Check a server that rejected ``initialize`` as a 2026-07-28 server.
-
-    Discovery runs only after that rejection so a legacy server never sees a
-    request it may not handle (docs/adr/0035).
-    """
-    # A legacy server may stay silent or exit on an unknown request; either way
-    # it already rejected initialize, so wait only briefly before saying so.
-    try:
-        response = _exchange(
-            process,
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "server/discover",
-                "params": {"_meta": _MODERN_META},
-            },
-            name,
-            min(deadline, time.monotonic() + _DISCOVER_TIMEOUT),
-            _DISCOVER_TIMEOUT,
-        )
-    except (HarnessConfigurationError, ValueError) as exc:
-        raise HarnessConfigurationError(
-            f"MCP server '{name}' rejected initialize"
-        ) from exc
-    result = response.get("result")
-    error = response.get("error")
-    if isinstance(error, dict) and error.get("code") == _UNSUPPORTED_PROTOCOL_VERSION:
-        data = error.get("data")
-        raise _unsupported(
-            name, data.get("supported") if isinstance(data, dict) else None
-        )
-    if "error" in response or not (
-        isinstance(result, dict)
-        and isinstance(result.get("supportedVersions"), list)
-        and isinstance(result.get("capabilities"), dict)
-    ):
-        raise HarnessConfigurationError(f"MCP server '{name}' rejected initialize")
+    """Check a server that answered ``server/discover``, as Claude Code would."""
     if _MODERN_PROTOCOL_VERSION not in result["supportedVersions"]:
         raise _unsupported(name, result["supportedVersions"])
-    if not speaks_modern:
-        raise HarnessConfigurationError(
-            f"MCP server '{name}' speaks only MCP {_MODERN_PROTOCOL_VERSION}, "
-            "which this backend's agent cannot connect to. Use a server that "
-            "also answers initialize, or a backend that speaks "
-            f"{_MODERN_PROTOCOL_VERSION}."
-        )
     if "tools" not in result["capabilities"]:
         return
-    tools = _list_tools(process, 3, name, deadline, timeout, _MODERN_META)
+    tools = _list_tools(process, tools_id, name, deadline, timeout, _MODERN_META)
     # 2026-07-28 requires these fields, and Claude Code drops the server's tools
     # when one is missing.
     ttl = tools.get("ttlMs")
