@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 
 import pytest
 import yaml
@@ -16,6 +17,16 @@ from caliper.harness.base import (
 from caliper.harness.hermes import HERMES_CONFIG, HermesHarness
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
+
+
+@pytest.fixture(autouse=True)
+def _posix_layout(monkeypatch):
+    """These tests read the POSIX home layout, whatever the host.
+
+    The Windows layout, an attempt home under the hermes root that is released
+    after the run, is covered in test_hermes_windows.py.
+    """
+    monkeypatch.setattr(sys, "platform", "linux")
 
 
 def _version(cmd):
@@ -38,6 +49,8 @@ def _fake_home(tmp_path):
 
 def _install(monkeypatch, home, on_run):
     monkeypatch.setenv("HOME", str(home))
+    # Path.home() on a Windows host reads USERPROFILE, not HOME.
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.delenv("HERMES_CLI_PATH", raising=False)
     monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n: "hermes")
     patch_cli_calls(monkeypatch, on_run)

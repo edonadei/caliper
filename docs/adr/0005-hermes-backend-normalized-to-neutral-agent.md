@@ -1,5 +1,11 @@
 # Hermes is supported as a stateful backend normalized to a neutral agent
 
+> **Amended by [0037](0037-hermes-attempt-home-lives-under-the-hermes-root-on-windows.md):**
+> on Windows the isolated `HERMES_HOME` cannot sit in the temp dir. Hermes
+> boots only from a home under the root that owns its installed dependencies, so
+> each attempt gets a fresh standalone profile under `%LOCALAPPDATA%\hermes`,
+> removed after the attempt. Neutralization is unchanged.
+
 We admit `hermes` (Nous Research's Hermes Agent CLI) as a flat backend, but only
 after **stripping it to a neutral agent** on every invocation: each attempt runs
 in an isolated `HERMES_HOME`, with `--ignore-rules` set (skips `AGENTS.md`,

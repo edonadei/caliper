@@ -167,7 +167,9 @@ CLI with an API key. Remote OAuth MCP isn't supported on `codex` or `hermes`. An
 
 `hermes` is stateful, so Caliper strips it to a neutral agent per attempt:
 isolated `HERMES_HOME`, no persona or memory, `--ignore-rules`, and only the
-declared skills installed.
+declared skills installed. On Windows that home is a temporary standalone
+profile under `%LOCALAPPDATA%\hermes`, and Git for Windows' `sh` must be on
+`PATH`.
 
 An MCP tool call appears in the transcript as `mcp__<server>__<tool>` on
 `claude-code` and `codex`, and `mcp_<server>_<tool>` on `hermes`. If the spec
@@ -196,7 +198,7 @@ itself, merged with what the spec declares:
 |---|---|
 | `claude-code` | `~/.claude/skills`, `CLAUDE.md`, `settings.json`, enabled user-scope plugins, `~/.claude.json` MCP servers and claude.ai connectors |
 | `codex` | `~/.codex/skills`, `AGENTS.md` / `AGENTS.override.md`, plugins, settings, `~/.codex/config.toml` MCP servers and ChatGPT apps (its top-level model pin is stripped) |
-| `hermes` | `~/.hermes/skills`, settings, `~/.hermes/config.yaml` MCP servers (still `--ignore-rules`, no persona or memory) |
+| `hermes` | `~/.hermes/skills`, settings, `~/.hermes/config.yaml` MCP servers (`%LOCALAPPDATA%\hermes` on Windows; still `--ignore-rules`, no persona or memory) |
 | `pi` | nothing |
 
 A declared skill or server wins a name clash, even when ablated, and `--ablate`

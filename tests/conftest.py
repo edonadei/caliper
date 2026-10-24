@@ -282,6 +282,17 @@ def _clear_host_cli_overrides(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_local_app_data(monkeypatch, tmp_path_factory):
+    """No test reaches the developer's real ``%LOCALAPPDATA%``.
+
+    On Windows a hermes attempt home lives under ``%LOCALAPPDATA%\\hermes``
+    (docs/adr/0037), so a test that runs hermes there would otherwise write into
+    the developer's own hermes root.
+    """
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path_factory.mktemp("localappdata")))
+
+
+@pytest.fixture(autouse=True)
 def _clear_cancellation():
     """No test leaks a cancelled run into the next one.
 

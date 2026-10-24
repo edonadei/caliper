@@ -116,7 +116,7 @@ def stage(harness: CliHarness, ctx: RunContext) -> StagedUserLayer:
 def _copy_rules(harness: CliHarness, ctx: RunContext) -> list[str]:
     """Copy the user's rules files; record the settings file the home already has."""
     target = harness.skills_root(ctx).parent
-    source = _real(target, ctx)
+    source = harness.user_path(target, ctx)
     names = []
     for name in harness.user_rules:
         if (source / name).is_file():
@@ -132,7 +132,7 @@ def _copy_rules(harness: CliHarness, ctx: RunContext) -> list[str]:
 def _install_skills(harness: CliHarness, ctx: RunContext) -> list[str]:
     """Install the user's own skills flat at the skills root; return their names."""
     root = harness.skills_root(ctx)
-    source = _real(root, ctx)
+    source = harness.user_path(root, ctx)
     refs: list[SkillRef] = []
     # Follow user-installed directory symlinks, but install independent copies.
     visited: set[Path] = set()
@@ -162,8 +162,3 @@ def _install_skills(harness: CliHarness, ctx: RunContext) -> list[str]:
         refs.append(SkillRef(name, path))
     install_skills(refs, root, ctx.forbidden_files)
     return sorted(ref.name for ref in refs)
-
-
-def _real(isolated: Path, ctx: RunContext) -> Path:
-    """The user's own copy of a path inside the attempt's isolated home."""
-    return Path.home() / isolated.relative_to(ctx.isolated_home)

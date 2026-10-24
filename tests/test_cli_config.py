@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import stat
+import sys
 
 import pytest
 
@@ -90,6 +91,8 @@ def test_nothing_is_written_without_a_config_or_a_server(
     monkeypatch, tmp_path, config, backend, connection, ambient
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    # Pinned settings are written regardless: hermes pins some on Windows.
+    monkeypatch.setattr(sys, "platform", "linux")
 
     ctx = _write(config, backend, tmp_path, mcp_servers=None)
 
@@ -111,3 +114,17 @@ def test_a_config_the_cli_cannot_parse_is_refused(
         HarnessConfigurationError, match=f"not valid {config.codec.name}"
     ):
         _write(config, backend, tmp_path)
+
+
+@pytest.mark.parametrize(("config", "backend", "connection", "ambient"), CONFIGS)
+def test_a_utf8_config_survives_a_non_utf8_locale(
+    tmp_path, config, backend, connection, ambient
+) -> None:
+    # Windows' default text codec is cp1252, which cannot decode most UTF-8.
+    real = tmp_path / "real.cfg"
+    real.write_bytes(config.codec.dumps({connection: "café → ☕"}).encode("utf-8"))
+    context = run_context(isolated_home=str(tmp_path / "iso"))
+
+    config.write(context, backend=backend, real=real)
+
+    assert config.read(context)[connection] == "café → ☕"

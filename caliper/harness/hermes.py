@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import shutil
+import sys
+import tempfile
+import time
 from collections.abc import Callable
 from dataclasses import replace
 from functools import partial
@@ -8,6 +14,7 @@ from pathlib import Path
 
 from caliper.harness.base import (
     AgentReport,
+    AttemptResult,
     CliHarness,
     ConversationTurn,
     HarnessConfigurationError,
@@ -29,6 +36,7 @@ from caliper.schema.results import TokenUsage
 # rewritten rather than copied (``HERMES_CONFIG``).
 _SEED_FILES = ("auth.json", ".env")
 
+
 # Hermes reads MCP servers from config.yaml's ``mcp_servers``, beside its model
 # settings. Isolated, the model endpoints and the execution host survive and the
 # user's own servers do not: the tool-environment half of hermes'
@@ -36,12 +44,21 @@ _SEED_FILES = ("auth.json", ".env")
 # rendering unchanged and infers HTTP/SSE from the URL; remote OAuth needs an
 # interactive browser flow the harness cannot drive, so only header-auth
 # remotes are expressible.
+def _pinned_config() -> dict:
+    # A Windows attempt home is a named profile under the user's hermes root
+    # (docs/adr/0037). Standalone, its own gateway serves only the attempt rather
+    # than reserving every profile the user's running gateway already owns, and
+    # that gateway in turn never adopts it.
+    return {"gateway": {"standalone": True}} if sys.platform == "win32" else {}
+
+
 HERMES_CONFIG = CliConfig(
     path=".hermes/config.yaml",
     codec=YAML,
     connection_keys=frozenset(
         {"model", "provider", "providers", "custom_providers", "terminal"}
     ),
+    pinned=_pinned_config,
 )
 
 
@@ -51,6 +68,29 @@ _RECOVERY_EXPORT_TIMEOUT = 5
 
 # The assistant turn hermes v0.21 exports when it never reached the model.
 _NOT_PROCESSED = "your request was not processed"
+
+# A Windows attempt home is a named profile ``profiles/caliper-*`` under the
+# user's hermes root, marked as caliper's so a sweep never touches a user
+# profile; a leftover is swept once it is a day old (docs/adr/0037).
+_WINDOWS_PROFILE_PREFIX = "caliper-"
+_ATTEMPT_MARKER = ".caliper-attempt"
+_STALE_ATTEMPT_SECONDS = 24 * 60 * 60
+# Seconds for `hermes gateway stop` on the attempt's own gateway; it takes
+# several, since the gateway drains before it exits.
+_GATEWAY_STOP_TIMEOUT = 30
+
+
+def user_hermes_home() -> Path:
+    """The developer's own hermes home, as hermes itself places it by default.
+
+    ``%LOCALAPPDATA%\\hermes`` on Windows (falling back under the user profile,
+    as hermes does), ``~/.hermes`` elsewhere.
+    """
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA", "").strip()
+        base = Path(local) if local else Path.home() / "AppData" / "Local"
+        return base / "hermes"
+    return Path.home() / ".hermes"
 
 
 class HermesHarness(CliHarness):
@@ -68,6 +108,11 @@ class HermesHarness(CliHarness):
     ``HERMES_HOME`` seeded with auth/config only (no persona/memory) and
     ``--ignore-rules`` on the command, so the only skill in play is the
     skill-under-test staged into ``HERMES_HOME/skills/<name>``.
+
+    On Windows that home cannot sit in the temp dir: hermes boots only from a
+    ``HERMES_HOME`` under the root that owns its installed dependencies. So
+    ``isolated_home/.hermes`` is a junction to a fresh directory under that root,
+    released once the attempt is read (docs/adr/0037).
     """
 
     supports_mcp = True
@@ -104,19 +149,90 @@ class HermesHarness(CliHarness):
     def name(self) -> str:
         return "hermes"
 
+    def run(self, ctx: RunContext) -> AttemptResult:
+        attempt_home = self._attach_windows_home(ctx)
+        try:
+            return super().run(ctx)
+        finally:
+            # After the read, not in _command's cleanup: a timed-out attempt's
+            # recovery export and the MCP inventory both read this home.
+            if attempt_home is not None:
+                self._release_windows_home(ctx, attempt_home)
+
     def seed_files(self, ctx: RunContext) -> list[tuple[Path, Path]]:
         # Isolate Hermes' whole home per attempt (parallel-safe; never mutates
-        # the user's real ~/.hermes). Seeding only auth/config — not SOUL.md or
+        # the user's real hermes home). Seeding only auth/config — not SOUL.md or
         # MEMORY.md — is what neutralizes the agent; --ignore-rules on the
         # command completes the strip.
-        real_home = Path.home() / ".hermes"
+        real_home = user_hermes_home()
         hermes_home = self._hermes_home(ctx)
         return [(real_home / name, hermes_home / name) for name in _SEED_FILES]
+
+    def user_path(self, isolated: Path, ctx: RunContext) -> Path:
+        # The attempt's .hermes stands for the user's hermes home, which is not
+        # under the real home on Windows.
+        try:
+            inside = isolated.relative_to(self._hermes_home(ctx))
+        except ValueError:
+            return super().user_path(isolated, ctx)
+        return user_hermes_home() / inside
 
     @staticmethod
     def _hermes_home(ctx: RunContext) -> Path:
         """The per-attempt ``HERMES_HOME``, a function of the isolated home."""
         return Path(ctx.isolated_home) / ".hermes"
+
+    def _attach_windows_home(self, ctx: RunContext) -> Path | None:
+        """On Windows, point the attempt's ``.hermes`` at a fresh profile.
+
+        A named profile under the root, so hermes resolves the root's committed
+        dependency environment, and standalone from its first file on (the
+        pinned config), so neither its gateway nor the user's reaches across.
+        A junction rather than a symlink: creating one needs no privilege.
+        ``None`` elsewhere, where the temp-dir home boots.
+        """
+        if sys.platform != "win32":
+            return None
+        # Imported here: the module exists only on Windows.
+        import _winapi
+
+        profiles = user_hermes_home() / "profiles"
+        profiles.mkdir(parents=True, exist_ok=True)
+        _sweep_stale_attempts(profiles)
+        attempt_home = Path(
+            tempfile.mkdtemp(prefix=_WINDOWS_PROFILE_PREFIX, dir=profiles)
+        )
+        link = self._hermes_home(ctx)
+        try:
+            (attempt_home / _ATTEMPT_MARKER).write_text("")
+            (attempt_home / "config.yaml").write_text(YAML.dumps(_pinned_config()))
+            link.parent.mkdir(parents=True, exist_ok=True)
+            _winapi.CreateJunction(str(attempt_home), str(link))
+        except BaseException:
+            shutil.rmtree(attempt_home, ignore_errors=True)
+            raise
+        return attempt_home
+
+    def _release_windows_home(self, ctx: RunContext, attempt_home: Path) -> None:
+        # `hermes -z` starts an --idle-exit gateway for the attempt's profile,
+        # which outlives the oneshot and holds files in the home: stop it first.
+        cli = self.cli_path()
+        if cli and (attempt_home / "gateway.lock").exists():
+            # Best-effort: a gateway still running leaves a marked home behind.
+            with contextlib.suppress(Exception):
+                self._execute(
+                    [cli, "gateway", "stop"],
+                    env=self._environment(ctx),
+                    cwd=ctx.workdir,
+                    timeout=_GATEWAY_STOP_TIMEOUT,
+                    stdin=None,
+                )
+        # Then the junction (removing it never touches its target), then the
+        # home; whatever is still held is left, marked, for a later sweep.
+        link = self._hermes_home(ctx)
+        if os.path.lexists(link):
+            os.rmdir(link)
+        _remove_attempt_home(attempt_home)
 
     def _prepare(self, ctx: RunContext) -> None:
         self._hermes_home(ctx).mkdir(parents=True, exist_ok=True)
@@ -161,11 +277,19 @@ class HermesHarness(CliHarness):
             '"$CALIPER_HERMES" sessions export - 2>/dev/null\n'
             "exit $rc\n"
         )
-        return ["/bin/sh", "-c", script], None, None
+        # Windows cannot spawn the POSIX path /bin/sh (WinError 2); its sh
+        # (Git for Windows) is found on PATH.
+        shell = "sh" if sys.platform == "win32" else "/bin/sh"
+        return [shell, "-c", script], None, None
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
+        hermes_home = self._hermes_home(ctx)
+        if sys.platform == "win32":
+            # The junction's target: hermes places a home under its root by the
+            # resolved path, never the temp-dir link.
+            hermes_home = Path(os.path.realpath(hermes_home))
         extra = {
-            "HERMES_HOME": str(self._hermes_home(ctx)),
+            "HERMES_HOME": str(hermes_home),
             "CALIPER_HERMES": self.cli_path() or "hermes",
             "CALIPER_PROMPT": ctx.prompt,
             # A source-checkout hermes keeps its dependency state under
@@ -177,6 +301,14 @@ class HermesHarness(CliHarness):
         }
         if ctx.model:
             extra["CALIPER_MODEL"] = ctx.model
+        if sys.platform == "win32":
+            # Python on Windows ignores HOME: Path.home() reads USERPROFILE, so
+            # the isolated home goes there too, or hermes "could not determine
+            # home directory". Hermes finds its root through LOCALAPPDATA.
+            extra["USERPROFILE"] = ctx.isolated_home
+            local = os.environ.get("LOCALAPPDATA")
+            if local:
+                extra["LOCALAPPDATA"] = local
         return self._isolated_env(ctx, extra=extra)
 
     def _recover_timed_out(
@@ -438,6 +570,43 @@ class HermesHarness(CliHarness):
             "`hermes -z 'Reply OK' --model <model>` works in your normal shell), "
             "then rerun caliper."
         )
+
+
+def _sweep_stale_attempts(profiles: Path) -> None:
+    """Remove Windows attempt homes a crashed or locked-out release left behind.
+
+    Only caliper's own (the marker), and only those untouched for a day, so
+    neither a user's profile nor a concurrent run's live home is at risk.
+    """
+    cutoff = time.time() - _STALE_ATTEMPT_SECONDS
+    for leftover in profiles.glob(f"{_WINDOWS_PROFILE_PREFIX}*"):
+        try:
+            if (leftover / _ATTEMPT_MARKER).is_file() and (
+                leftover.stat().st_mtime < cutoff
+            ):
+                _remove_attempt_home(leftover)
+        except OSError:
+            continue
+
+
+def _remove_attempt_home(home: Path) -> None:
+    """Remove what can be removed; keep the marker while anything else is held.
+
+    A plain ``rmtree`` would delete the marker beside a locked file, leaving a
+    leftover no later sweep could recognize as caliper's.
+    """
+    for entry in home.iterdir():
+        if entry.name == _ATTEMPT_MARKER:
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry, ignore_errors=True)
+        else:
+            with contextlib.suppress(OSError):
+                entry.unlink()
+    if [entry.name for entry in home.iterdir()] == [_ATTEMPT_MARKER]:
+        with contextlib.suppress(OSError):
+            (home / _ATTEMPT_MARKER).unlink()
+            home.rmdir()
 
 
 def _usage(record: dict) -> TokenUsage | None:

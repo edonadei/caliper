@@ -98,15 +98,18 @@ def test_seeds_declared_files_verbatim(
     backend, inventory, monkeypatch, tmp_path
 ) -> None:
     """The backend's required auth/config inventory is copied verbatim (ADR-0012)."""
-    real_home = tmp_path / "real"
-    monkeypatch.setattr(Path, "home", lambda: real_home)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "real")
+    harness = backend()
+    home = tmp_path / "home"
+    ctx = run_context(isolated_home=str(home))
     for relative, contents in inventory.items():
-        source = real_home / relative
+        # Where the backend keeps the user's copy: not always under the real
+        # home (hermes on Windows, docs/adr/0037).
+        source = harness.user_path(home / relative, ctx)
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text(contents)
 
-    home = tmp_path / "home"
-    backend()._seed_home(run_context(isolated_home=str(home)))
+    harness._seed_home(ctx)
 
     assert {
         path.relative_to(home).as_posix(): path.read_text()

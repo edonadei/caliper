@@ -62,6 +62,7 @@ jobs:
             # caliper/harness/windows_job.py, which only runs on Windows.
             test-path: >-
               tests/test_cli_harness.py
+              tests/test_hermes_windows.py
               tests/test_workdir.py
               tests/test_smoke_fixtures.py
               tests/test_mcp.py::test_preflight_initializes_a_local_server
