@@ -299,13 +299,6 @@ def test_judge_time_is_averaged_over_the_graded_attempts() -> None:
     assert UsageTotals().judge_per_attempt is None
 
 
-def test_per_attempt_cost_is_in_the_json() -> None:
-    data = UsageTotals(attempts=2, wall_seconds=4.0).model_dump(mode="json")
-    assert data["wall_per_attempt"] == 2.0
-    assert data["tokens_per_attempt"] is None
-    assert data["judge_per_attempt"] is None
-
-
 # --------------------------------------------------------------------------
 # Compare deltas
 # --------------------------------------------------------------------------

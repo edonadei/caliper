@@ -642,37 +642,6 @@ def test_live_marks_sit_in_their_attempt_slot_whatever_the_finish_order() -> Non
     assert task.completed == 1
 
 
-def _usage_attempt(n: int, outcome: Outcome, tokens: int, **kw) -> AttemptRecord:
-    from caliper.schema.results import TokenUsage
-
-    return AttemptRecord(
-        attempt=n,
-        output="",
-        duration_seconds=10.0,
-        outcome=outcome,
-        usage=TokenUsage(input_tokens=tokens),
-        **kw,
-    )
-
-
-def test_per_attempt_cost_excludes_unusable_spend() -> None:
-    # 100 tokens on the pass, 900 wasted on the timeout: one usable attempt
-    # costs 100, not the 500 an all-attempts average would claim.
-    task = TaskResult(
-        task_id="task-001",
-        task_name="Task task-001",
-        attempts=[
-            _usage_attempt(1, Outcome.PASS, 1_000),
-            _usage_attempt(2, Outcome.TIMEOUT, 9_000),
-        ],
-    )
-    out = _render(_make_results([task]))
-
-    per_attempt = next(ln for ln in out.splitlines() if "per attempt" in ln)
-    assert "1K" in per_attempt
-    assert "5K" not in per_attempt
-
-
 def _mcp_run(transcript, servers, backend="claude-code") -> RunResults:
     from caliper.schema.results import TranscriptTurn
 

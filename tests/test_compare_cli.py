@@ -33,7 +33,14 @@ runner = CliRunner()
 
 
 def _write_run(
-    root: Path, spec: str, ts: datetime, *, ablated: list[str], skills: list[str]
+    root: Path,
+    spec: str,
+    ts: datetime,
+    *,
+    ablated: list[str],
+    skills: list[str],
+    attempt: AttemptRecord | None = None,
+    expected: list[str] | None = None,
 ) -> Path:
     results = RunResults(
         run=RunMeta(
@@ -52,10 +59,12 @@ def _write_run(
                 task_id="task-001",
                 task_name="alpha",
                 attempts=[
-                    AttemptRecord(
+                    attempt
+                    or AttemptRecord(
                         attempt=1, output="", duration_seconds=1.0, outcome=Outcome.PASS
                     )
                 ],
+                activation_expected=expected,
             )
         ],
         aggregate=AggregateScore(avg_score=1.0, scored_tasks=1, per_task=[]),
@@ -169,57 +178,34 @@ def test_an_unknown_format_is_refused(argv) -> None:
     assert "Invalid value for '--format'" in output
 
 
-def _numbers_run(root: Path, ts: datetime, outcome: Outcome, fired: bool) -> Path:
-    """One task asserting it activates `mine`, one attempt of 1000 tokens."""
-    results = RunResults(
-        run=RunMeta(
-            spec="demo",
-            timestamp=ts,
-            k=1,
-            backend="claude-code",
-            era=ERA_INSTALL_AND_DISCOVER,
-        ),
-        skill_snapshots=[SkillSnapshot(name="mine", path="/x/mine/SKILL.md")],
-        task_results=[
-            TaskResult(
-                task_id="task-001",
-                task_name="alpha",
-                attempts=[
-                    AttemptRecord(
-                        attempt=1,
-                        output="",
-                        duration_seconds=4.0,
-                        outcome=outcome,
-                        usage=TokenUsage(input_tokens=1000),
-                        activated=["mine"] if fired else [],
-                        activation_passed=fired,
-                        judge_seconds=2.0,
-                    )
-                ],
-                activation_expected=["mine"],
-            )
-        ],
-        aggregate=AggregateScore(avg_score=0.0, per_task=[]),
-    )
-    out_dir = root / ".caliper" / "results" / "demo"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{ts.strftime('%Y-%m-%dT%H-%M-%SZ')}.json"
-    path.write_text(json.dumps(results.model_dump(mode="json")))
-    return path
-
-
 def test_json_carries_the_numbers_the_table_prints(monkeypatch, tmp_path) -> None:
     # The table is a shell over the comparison; a number it prints that the
     # JSON lacks would leave an agent on --format json reading less.
-    a = _numbers_run(
-        tmp_path, datetime(2026, 8, 4, 10, 0, tzinfo=timezone.utc), Outcome.PASS, True
-    )
-    b = _numbers_run(
-        tmp_path,
-        datetime(2026, 8, 4, 10, 30, tzinfo=timezone.utc),
-        Outcome.TASK_FAIL,
-        False,
-    )
+    def side(minute: int, outcome: Outcome, fired: bool) -> Path:
+        # One attempt of 1000 tokens, asserting it activates `mine`.
+        attempt = AttemptRecord(
+            attempt=1,
+            output="",
+            duration_seconds=4.0,
+            outcome=outcome,
+            usage=TokenUsage(input_tokens=1000),
+            activated=["mine"] if fired else [],
+            activation_passed=fired,
+            judge_seconds=2.0,
+        )
+        ts = datetime(2026, 8, 4, 10, minute, tzinfo=timezone.utc)
+        return _write_run(
+            tmp_path,
+            "demo",
+            ts,
+            ablated=[],
+            skills=["mine"],
+            attempt=attempt,
+            expected=["mine"],
+        )
+
+    a = side(0, Outcome.PASS, True)
+    b = side(30, Outcome.TASK_FAIL, False)
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["compare", str(a), str(b), "--format", "json"])
     assert result.exit_code == 0, result.output

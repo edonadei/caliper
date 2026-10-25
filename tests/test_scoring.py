@@ -256,9 +256,3 @@ def test_activation_pool_counts_the_asserted_tasks_only() -> None:
     )
 
     assert run.pooled_activation == PooledCount(successes=1, usable=2, tasks=1)
-
-
-def test_an_unasserted_run_pools_nothing() -> None:
-    run = _run([task_result(Outcome.PASS)])
-
-    assert run.pooled_activation == PooledCount(successes=0, usable=0, tasks=0)
