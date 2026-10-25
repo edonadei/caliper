@@ -125,6 +125,8 @@ class HermesHarness(CliHarness):
         "to run on hermes."
     )
     cli_config = HERMES_CONFIG
+    config_home_env = "HERMES_HOME"
+    config_home = ".hermes"
     user_settings_file = "config.yaml"
     cli_name = "hermes"
     cli_path_env_var = "HERMES_CLI_PATH"
@@ -164,18 +166,13 @@ class HermesHarness(CliHarness):
         # the user's real hermes home). Seeding only auth/config — not SOUL.md or
         # MEMORY.md — is what neutralizes the agent; --ignore-rules on the
         # command completes the strip.
-        real_home = user_hermes_home()
+        real_home = self.user_config_home()
         hermes_home = self._hermes_home(ctx)
         return [(real_home / name, hermes_home / name) for name in _SEED_FILES]
 
-    def user_path(self, isolated: Path, ctx: RunContext) -> Path:
-        # The attempt's .hermes stands for the user's hermes home, which is not
-        # under the real home on Windows.
-        try:
-            inside = isolated.relative_to(self._hermes_home(ctx))
-        except ValueError:
-            return super().user_path(isolated, ctx)
-        return user_hermes_home() / inside
+    def _default_config_home(self) -> Path:
+        # Not under the real home on Windows.
+        return user_hermes_home()
 
     @staticmethod
     def _hermes_home(ctx: RunContext) -> Path:
@@ -346,7 +343,7 @@ class HermesHarness(CliHarness):
         # A bare prompt is a single call: `hermes -z` prints only the final
         # response text. --ignore-rules keeps persona/memory out of the answer;
         # unlike an attempt run there is no isolated HERMES_HOME — the call
-        # deliberately reuses the developer's real ~/.hermes.
+        # deliberately reuses the operator's own hermes home.
         cmd = [hermes, "-z", prompt, "--ignore-rules"]
         if model:
             cmd[2:2] = ["--model", model]
@@ -477,7 +474,7 @@ class HermesHarness(CliHarness):
                 "no anthropic credentials found",
             ),
             "hermes has no usable model/provider configured for the eval.\n\n"
-            "Caliper copies your `~/.hermes` auth and config into an isolated "
+            "Caliper copies your hermes home's (`$HERMES_HOME`, else `~/.hermes`) auth and config into an isolated "
             "home and runs `hermes -z`. The hermes CLI returned:\n"
             "  {text}\n\n"
             "Select and authenticate a model provider with `{login}` "
@@ -501,10 +498,10 @@ class HermesHarness(CliHarness):
             ),
             "hermes cannot run with the current provider/credential "
             "configuration.\n\n"
-            "Caliper copies your `~/.hermes` auth and config into an isolated "
+            "Caliper copies your hermes home's (`$HERMES_HOME`, else `~/.hermes`) auth and config into an isolated "
             "home and runs `hermes -z`. The hermes CLI returned:\n"
             "  {text}\n\n"
-            "Make sure `~/.hermes/config.yaml`'s default model/provider points "
+            "Make sure your hermes home's `config.yaml` default model/provider points "
             "at a provider you have credits for (an earlier default may have "
             "gone stale), verify `hermes -z 'Reply OK'` works in your normal "
             "shell, then rerun caliper.",
@@ -513,8 +510,8 @@ class HermesHarness(CliHarness):
             AUTH_MARKERS,
             "hermes cannot run with the current authentication "
             "configuration.\n\n"
-            "Caliper drives the local hermes CLI and reuses its `~/.hermes` "
-            "credentials. The hermes CLI returned:\n"
+            "Caliper drives the local hermes CLI and reuses the "
+            "credentials in its home (`$HERMES_HOME`, else `~/.hermes`). The hermes CLI returned:\n"
             "  {text}\n\n"
             "Authenticate hermes (`hermes auth add <provider>`, or `{login}` "
             "to pick a provider and log in), verify `hermes -z 'Reply "

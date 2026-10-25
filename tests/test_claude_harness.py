@@ -779,6 +779,31 @@ def test_claude_harness_credentials_source(
 
 
 @pytest.mark.parametrize(
+    ("config_dir", "service"),
+    [
+        (None, "Claude Code-credentials"),
+        # The CLI suffixes the entry with the config dir's sha256, first 8 hex.
+        ("/Users/op/.claude-work", "Claude Code-credentials-a749a638"),
+    ],
+)
+def test_claude_harness_reads_the_keychain_entry_of_the_selected_config_dir(
+    monkeypatch, tmp_path, config_dir, service
+) -> None:
+    if config_dir is not None:
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", config_dir)
+    monkeypatch.setattr("caliper.harness.claude_code.sys.platform", "darwin")
+    harness = ClaudeCodeHarness()
+    asked = []
+    monkeypatch.setattr(
+        harness, "_capture_output", lambda cmd, timeout: asked.append(cmd)
+    )
+
+    harness._prepare(run_context(isolated_home=str(tmp_path / "iso")))
+
+    assert asked == [["security", "find-generic-password", "-s", service, "-w"]]
+
+
+@pytest.mark.parametrize(
     "message",
     [
         "Failed to authenticate: OAuth session expired and could not be refreshed",

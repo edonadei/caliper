@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import re
 import shutil
 import sys
+import unicodedata
 import uuid
 from collections.abc import Callable
 from functools import partial
@@ -77,6 +79,11 @@ class ClaudeCodeHarness(CliHarness):
     # `claude setup-token` is the documented way to authenticate a headless run,
     # and the stripped HOME is exactly the case it exists for.
     env_passthrough = CliHarness.env_passthrough + ("CLAUDE_CODE_OAUTH_TOKEN",)
+    # Attempts are left on the default layout under the isolated HOME rather
+    # than pointed at a config dir: setting it moves .claude.json inside and
+    # renames the Keychain entry the CLI reads (docs/adr/0038).
+    config_home_env = "CLAUDE_CONFIG_DIR"
+    config_home = ".claude"
 
     @property
     def name(self) -> str:
@@ -91,21 +98,22 @@ class ClaudeCodeHarness(CliHarness):
         return Path(ctx.isolated_home) / ".claude" / ".credentials.json"
 
     def seed_files(self, ctx: RunContext) -> list[tuple[Path, Path]]:
-        # Auth files from the real HOME, so the CLI finds its credentials.
+        # Auth files from the operator's config home, so the CLI finds its credentials.
         # Without them the isolated HOME makes claude fall back to
         # ANTHROPIC_API_KEY (which may be absent or unfunded).
-        real_home = Path.home()
         home = Path(ctx.isolated_home)
-        files = [
-            (real_home / ".claude.json", home / ".claude.json"),
-            (real_home / ".claude" / ".credentials.json", self._credentials_file(ctx)),
-        ]
-
+        isolated = [home / ".claude.json", self._credentials_file(ctx)]
         if ctx.user_customizations:
-            files.append(
-                (real_home / ".claude/settings.json", home / ".claude/settings.json")
-            )
-        return files
+            isolated.append(home / ".claude/settings.json")
+        return [(self.user_path(path, ctx), path) for path in isolated]
+
+    def user_path(self, isolated: Path, ctx: RunContext) -> Path:
+        # .claude.json sits beside ~/.claude by default, inside the config dir
+        # when the operator sets one.
+        selected = self.selected_config_home()
+        if selected and isolated == Path(ctx.isolated_home) / ".claude.json":
+            return selected / ".claude.json"
+        return super().user_path(isolated, ctx)
 
     def user_skill_name(self, path: Path) -> str:
         # For personal Claude skills, frontmatter name is only a display label.
@@ -117,7 +125,7 @@ class ClaudeCodeHarness(CliHarness):
     def _copy_plugins(self, ctx: RunContext) -> list[str]:
         """Copy each enabled user-scope plugin into a private installation."""
         names: list[str] = []
-        real = Path.home() / ".claude"
+        real = self.user_config_home()
         target = Path(ctx.isolated_home) / ".claude"
         registry = real / "plugins/installed_plugins.json"
         if not registry.is_file():
@@ -532,19 +540,25 @@ class ClaudeCodeHarness(CliHarness):
 
     def _seed_credentials_from_keychain(self, dst: Path) -> None:
         out = self._capture_output(
-            [
-                "security",
-                "find-generic-password",
-                "-s",
-                "Claude Code-credentials",
-                "-w",
-            ],
+            ["security", "find-generic-password", "-s", self._keychain_service(), "-w"],
             timeout=5,
         )
         if out:
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_text(out)
             dst.chmod(0o600)
+
+    def _keychain_service(self) -> str:
+        """The Keychain entry the operator's CLI keeps its OAuth login under.
+
+        Suffixed, as the CLI names it, with the first 8 hex digits of the
+        config dir's sha256 when ``CLAUDE_CONFIG_DIR`` is set.
+        """
+        config_dir = os.environ.get(self.config_home_env, "")
+        if not config_dir:
+            return "Claude Code-credentials"
+        digest = hashlib.sha256(unicodedata.normalize("NFC", config_dir).encode())
+        return f"Claude Code-credentials-{digest.hexdigest()[:8]}"
 
     def _read(self, proc: ProcessResult, ctx: RunContext) -> AgentReport:
         return self._read_stream(proc.stdout)

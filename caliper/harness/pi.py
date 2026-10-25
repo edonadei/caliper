@@ -23,7 +23,7 @@ from caliper.schema.spec import PlantedShellCall
 _PROVIDER_DIAGNOSIS = (
     "pi cannot run with the current provider/credential "
     "configuration.\n\n"
-    "Caliper copies your `~/.pi/agent` auth and settings verbatim "
+    "Caliper copies your pi agent dir (`$PI_CODING_AGENT_DIR`, else `~/.pi/agent`) auth and settings verbatim "
     "and passes a model to pi only when you select one. The pi CLI "
     "returned:\n"
     "  {text}\n\n"
@@ -64,6 +64,8 @@ class PiHarness(CliHarness):
 
     cli_name = "pi"
     cli_path_env_var = "PI_CLI_PATH"
+    config_home_env = "PI_CODING_AGENT_DIR"
+    config_home = ".pi/agent"
     cli_unavailable_message = (
         "pi CLI is not available for the `pi` backend.\n\n"
         "Install the pi coding agent (`npm install -g "
@@ -86,7 +88,7 @@ class PiHarness(CliHarness):
         # a model that resolves by hand must resolve in the attempt too (#178).
         # Its `!command` and `$NAME` credentials run in the isolated env, so
         # home-relative or env-based ones don't resolve (docs/backends.md → pi).
-        real = Path.home() / ".pi" / "agent"
+        real = self.user_config_home()
         agent_dir = self._agent_dir(ctx)
         return [
             (real / name, agent_dir / name)
@@ -262,8 +264,8 @@ class PiHarness(CliHarness):
             (*AUTH_MARKERS, "oauth refresh failed", "invalid_grant", "refresh token"),
             "pi cannot run with the current authentication "
             "configuration.\n\n"
-            "Caliper drives the local pi CLI and reuses its `~/.pi/agent` "
-            "credentials. The pi CLI returned:\n"
+            "Caliper drives the local pi CLI and reuses the "
+            "credentials in its agent dir (`$PI_CODING_AGENT_DIR`, else `~/.pi/agent`). The pi CLI returned:\n"
             "  {text}\n\n"
             "Authenticate pi (e.g. `pi` then `/login`, or set the provider "
             "API key), verify `pi --print 'Reply OK'` works in your normal "

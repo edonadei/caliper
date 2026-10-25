@@ -201,6 +201,10 @@ itself, merged with what the spec declares:
 | `hermes` | `~/.hermes/skills`, settings, `~/.hermes/config.yaml` MCP servers (`%LOCALAPPDATA%\hermes` on Windows; still `--ignore-rules`, no persona or memory) |
 | `pi` | nothing |
 
+The paths are the defaults. When the CLI's own config-home variable is set
+(`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `PI_CODING_AGENT_DIR`, `HERMES_HOME`),
+attempts read the user layer and the login from there, as the judge does.
+
 A declared skill or server wins a name clash, even when ablated, and `--ablate`
 can't name the user's own. User skills count as activations: one that fires
 fails an exact `activates:` match. Skills a CLI ships itself are not user skills.
