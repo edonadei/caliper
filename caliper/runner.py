@@ -433,6 +433,7 @@ def _finish_task(
         attempts=sorted(records, key=lambda r: r.attempt),
         activation_expected=env.environment.expected_activation(task),
         expect=task.expect,
+        prompt=task.prompt,
     )
     if env.on_task_done and len(result.attempts) < k:
         env.on_task_done(result)

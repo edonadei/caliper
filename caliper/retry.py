@@ -69,12 +69,18 @@ class RetryPolicy:
 def merge(invocations: list[AttemptResult]) -> AttemptResult:
     """Fold every invocation of one attempt into the attempt's single result.
 
-    Three different rules, one per kind of field, and each is a claim:
+    Four different rules, one per kind of field, and each is a claim:
 
-    * **What happened** — transcript, output, exit code, timeout flag, resolved
-      model — comes from the **last** invocation. The earlier ones produced no
+    * **How it ended** — output, exit code, timeout flag, resolved model —
+      comes from the **last** invocation. The earlier ones produced no
       measurement, which is precisely why they were retried; keeping their
       output would report a throttle message as the agent's answer.
+    * **What the agent did** — the transcript — is **every** invocation's turns,
+      in order. A retry reuses the attempt's workdir, so an invocation that
+      conversed before its CLI was throttled can leave work the last one
+      inherits; the cheat check, activation and the judge must see how it got
+      there. A salvaged invocation adds nothing: its one turn is the CLI
+      talking, not the agent.
     * **What it cost** — tokens — is **summed**. Those tokens were really spent,
       even by an invocation that died holding them, and hiding them would make a
       heavily-retried run look cheaper than a clean one.
@@ -87,8 +93,12 @@ def merge(invocations: list[AttemptResult]) -> AttemptResult:
     last = invocations[-1]
     if len(invocations) == 1:
         return last
+    earlier = [
+        turn for inv in invocations[:-1] if not inv.salvaged for turn in inv.transcript
+    ]
     return replace(
         last,
+        transcript=[*earlier, *last.transcript],
         duration_seconds=sum(inv.duration_seconds for inv in invocations),
         usage=_merge_usage([inv.usage for inv in invocations]),
     )

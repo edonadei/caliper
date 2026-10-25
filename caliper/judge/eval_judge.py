@@ -21,8 +21,9 @@ from caliper.schema.spec import (
 from caliper.workdir import AttemptWorkdir, StepPhase
 
 _SYSTEM = """\
-You are an evaluation judge for an AI assistant. You will be shown a conversation \
-transcript and an expectation describing what success looks like.
+You are an evaluation judge for an AI assistant. You will be shown the user's request, \
+the transcript of the assistant's attempt at it, and an expectation describing what \
+success looks like.
 
 You have two response modes:
 
@@ -47,6 +48,10 @@ _USER_TMPL = """\
 {expect}
 </expectation>
 {prior}
+<request>
+{request}
+</request>
+
 <transcript>
 {transcript}
 </transcript>
@@ -108,20 +113,25 @@ def _format_transcript(turns: Sequence[ConversationTurn | TranscriptTurn]) -> st
 
 def render_judge_prompt(
     expect: str,
+    request: str,
     transcript: Sequence[ConversationTurn | TranscriptTurn],
     history: Sequence[PlantedTurn] | None = None,
 ) -> str:
     """The exact prompt the autorater is sent for one attempt.
 
+    ``request`` is the task's prompt. It comes from the task rather than the
+    transcript, where only some backends record the user's turn.
+
     Public so a saved run's judge input can be rebuilt from what the run already
-    stores — ``TaskResult.expect`` and ``AttemptRecord.transcript`` — rather
-    than saving the prompt a second time. Faithful only while
+    stores — ``TaskResult.expect``, ``TaskResult.prompt`` and
+    ``AttemptRecord.transcript`` — rather than saving the prompt a second time. Faithful only while
     ``JUDGE_PROMPT_VERSION`` matches the run's ``judge_prompt_version``, and,
     for a task with ``history:``, while its history file is unchanged.
     """
     user_msg = _USER_TMPL.format(
         expect=expect,
         prior=_format_prior(history) if history else "",
+        request=request,
         transcript=_format_transcript(transcript),
     )
     return f"{_SYSTEM}\n\n{user_msg}"
@@ -155,9 +165,9 @@ def _prompt_version() -> str:
     A change to the templates or to the transcript formatting (a new truncation
     limit, say) moves the hash without anyone remembering to bump it.
     """
-    rendered = render_judge_prompt("expectation", _VERSION_PROBE)
-    rendered += render_judge_prompt("expectation", [])
-    rendered += render_judge_prompt("expectation", [], _HISTORY_PROBE)
+    rendered = render_judge_prompt("expectation", "request", _VERSION_PROBE)
+    rendered += render_judge_prompt("expectation", "request", [])
+    rendered += render_judge_prompt("expectation", "request", [], _HISTORY_PROBE)
     return hashlib.sha256(rendered.encode()).hexdigest()[:12]
 
 
@@ -378,7 +388,9 @@ class EvalJudge(Judge):
         if harness is None:
             return _AutoraterVerdict.error(f"Unknown judge backend: {self.backend!r}")
 
-        prompt = render_judge_prompt(task.expect or "", transcript, history)
+        prompt = render_judge_prompt(
+            task.expect or "", task.prompt, transcript, history
+        )
 
         # In the workdir, not the spec dir: the judge grades what the agent left
         # there, and must not sit beside the answer key or write into the
