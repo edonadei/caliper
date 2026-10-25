@@ -474,7 +474,7 @@ class HermesHarness(CliHarness):
                 "no anthropic credentials found",
             ),
             "hermes has no usable model/provider configured for the eval.\n\n"
-            "Caliper copies your `~/.hermes` auth and config into an isolated "
+            "Caliper copies your hermes home's (`$HERMES_HOME`, else `~/.hermes`) auth and config into an isolated "
             "home and runs `hermes -z`. The hermes CLI returned:\n"
             "  {text}\n\n"
             "Select and authenticate a model provider with `{login}` "
@@ -498,10 +498,10 @@ class HermesHarness(CliHarness):
             ),
             "hermes cannot run with the current provider/credential "
             "configuration.\n\n"
-            "Caliper copies your `~/.hermes` auth and config into an isolated "
+            "Caliper copies your hermes home's (`$HERMES_HOME`, else `~/.hermes`) auth and config into an isolated "
             "home and runs `hermes -z`. The hermes CLI returned:\n"
             "  {text}\n\n"
-            "Make sure `~/.hermes/config.yaml`'s default model/provider points "
+            "Make sure your hermes home's `config.yaml` default model/provider points "
             "at a provider you have credits for (an earlier default may have "
             "gone stale), verify `hermes -z 'Reply OK'` works in your normal "
             "shell, then rerun caliper.",
@@ -510,8 +510,8 @@ class HermesHarness(CliHarness):
             AUTH_MARKERS,
             "hermes cannot run with the current authentication "
             "configuration.\n\n"
-            "Caliper drives the local hermes CLI and reuses its `~/.hermes` "
-            "credentials. The hermes CLI returned:\n"
+            "Caliper drives the local hermes CLI and reuses the "
+            "credentials in its home (`$HERMES_HOME`, else `~/.hermes`). The hermes CLI returned:\n"
             "  {text}\n\n"
             "Authenticate hermes (`hermes auth add <provider>`, or `{login}` "
             "to pick a provider and log in), verify `hermes -z 'Reply "

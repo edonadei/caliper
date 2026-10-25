@@ -26,7 +26,7 @@ from caliper.skills import skill_body
 _PROVIDER_DIAGNOSIS = (
     "pi cannot run with the current provider/credential "
     "configuration.\n\n"
-    "Caliper copies your `~/.pi/agent` auth and settings verbatim "
+    "Caliper copies your pi agent dir (`$PI_CODING_AGENT_DIR`, else `~/.pi/agent`) auth and settings verbatim "
     "and passes a model to pi only when you select one. The pi CLI "
     "returned:\n"
     "  {text}\n\n"
@@ -307,8 +307,8 @@ class PiHarness(CliHarness):
             (*AUTH_MARKERS, "oauth refresh failed", "invalid_grant", "refresh token"),
             "pi cannot run with the current authentication "
             "configuration.\n\n"
-            "Caliper drives the local pi CLI and reuses its `~/.pi/agent` "
-            "credentials. The pi CLI returned:\n"
+            "Caliper drives the local pi CLI and reuses the "
+            "credentials in its agent dir (`$PI_CODING_AGENT_DIR`, else `~/.pi/agent`). The pi CLI returned:\n"
             "  {text}\n\n"
             "Authenticate pi (e.g. `pi` then `/login`, or set the provider "
             "API key), verify `pi --print 'Reply OK'` works in your normal "
