@@ -123,7 +123,9 @@ someone else's repo into yours. One entry is one skill, never a whole repo:
 repo root is itself a skill. A pack like `mattpocock/skills` keeps its skills in
 subfolders, so each one needs a `path:`. Entries that share a repo and commit
 share one clone, so naming five skills from a pack costs five entries and one
-fetch.
+fetch. `path:` is relative to the repo root and uses forward slashes, the way
+git writes paths, on every OS. A `..`, a leading `/`, a backslash or a drive
+letter such as `C:` is refused.
 
 `repo:` takes anything git can clone. A bare `owner/name` expands to
 `https://github.com/owner/name`. A URL, an `scp`-style `git@host:owner/name`, or
