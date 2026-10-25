@@ -376,6 +376,12 @@ recorded. Only the version is saved, never the binary's path.
 
 - `report --format json` adds a derived `usage_totals` block. The saved JSON
   keeps the raw per-attempt `usage`; totals are always derived, never persisted.
+- `usage_totals`, and `compare`'s `a_usage` / `b_usage`, carry the per-attempt
+  cost the tables print: `tokens_per_attempt` and `wall_per_attempt`, over the
+  usable attempts only (unusable spend is its own line), and
+  `judge_per_attempt`, over the attempts a judge graded. Each is `null` when
+  there is nothing to divide by: no usable attempt, no tokens reported, or no
+  judge.
 
 ### Activation fields
 
@@ -443,6 +449,13 @@ recorded. Only the version is saved, never the binary's path.
 - `TaskComparison` has `a_activation`/`b_activation`/`activation_delta`/
   `activation_regression`, and `RunComparison` has `has_activation_regression`,
   kept strictly separate from `has_regression`.
+- `RunComparison` has `a_matched_activation_avg`/`b_matched_activation_avg`, the
+  activation table's footer: the average over the tasks with verdicts on both
+  sides. `aggregate_activation_delta` is their difference. All three are `null`
+  when no task has verdicts on both sides, as on a skill-ablation pair.
+- `RunComparison` names the tasks behind its notes: `regressions`,
+  `activation_regressions`, and `unmeasured` (matched tasks left out of the
+  success average; trigger probes are never listed).
 - `RunComparison` has `a_skills`/`b_skills`: the names of the skills each side
   installed, in snapshot order. They are what the compare header's `skills` row
   shows. A comparison serialized before the fields existed reads them as `[]`.

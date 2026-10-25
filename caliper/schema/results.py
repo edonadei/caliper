@@ -427,6 +427,35 @@ def mean_rate(rates: list[float]) -> float:
     return sum(rates) / len(rates) if rates else 0.0
 
 
+@dataclass(frozen=True)
+class PooledCount:
+    """Successes over usable attempts, summed across the tasks an average was
+    taken over.
+
+    The detail printed beside a headline, never the headline: that is a mean of
+    per-task rates (docs/adr/0007), and with unequal denominators the two
+    disagree. Read-side only, never in the JSON, where every task already
+    carries its own successes and usable count.
+    """
+
+    successes: int
+    usable: int
+    tasks: int
+
+    @classmethod
+    def of(cls, pairs: list[tuple[int, int]]) -> PooledCount:
+        """Pool one ``(successes, usable)`` pair per averaged task."""
+        return cls(
+            successes=sum(s for s, _ in pairs),
+            usable=sum(u for _, u in pairs),
+            tasks=len(pairs),
+        )
+
+    @property
+    def rate(self) -> float | None:
+        return success_rate(self.successes, self.usable)
+
+
 @dataclass
 class OutcomeCounts:
     """A task's attempt outcomes, counted.
@@ -701,6 +730,32 @@ class UsageTotals(BaseModel):
     @property
     def usable_wall_seconds(self) -> float:
         return self.wall_seconds - self.unusable_wall_seconds
+
+    # Per attempt over the usable ones, tokens and wall alike: an unusable
+    # attempt's spend is reported on its own, not averaged in. ``None`` with no
+    # usable attempt, rather than a total divided by a guessed 1.
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def tokens_per_attempt(self) -> int | None:
+        if not self.tokens_reported or not self.usable_attempts:
+            return None
+        return (self.total_tokens - self.unusable_tokens) // self.usable_attempts
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def wall_per_attempt(self) -> float | None:
+        if not self.usable_attempts:
+            return None
+        return self.usable_wall_seconds / self.usable_attempts
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def judge_per_attempt(self) -> float | None:
+        """Over the attempts that reached a judge. ``None`` when none did: an
+        assert-only run had no judge, which is not a fast one."""
+        if not self.judged_attempts:
+            return None
+        return self.judge_seconds / self.judged_attempts
 
     @classmethod
     def from_task_results(cls, task_results: list[TaskResult]) -> UsageTotals:
@@ -1133,6 +1188,24 @@ class RunResults(BaseModel):
         return UsageTotals.from_task_results(self.task_results)
 
     @property
+    def pooled_success(self) -> PooledCount:
+        """Pooled over the tasks the headline averages: the scored ones."""
+        return PooledCount.of(
+            [(t.successes, t.usable) for t in self.task_results if t.score is not None]
+        )
+
+    @property
+    def pooled_activation(self) -> PooledCount:
+        """Pooled over the tasks the activation headline averages."""
+        return PooledCount.of(
+            [
+                (t.activation_successes, t.activation_usable)
+                for t in self.task_results
+                if t.activation_score is not None
+            ]
+        )
+
+    @property
     def noise_counts(self) -> dict[Outcome, int]:
         """How many attempts ended in each execution-noise outcome, by name.
 
@@ -1247,17 +1320,6 @@ class RunComparison(BaseModel):
     matched: list[TaskComparison]
     unmatched_a: list[str]
     unmatched_b: list[str]
-    # Aggregate over the fully-comparable set (tasks measured on *both* sides).
-    a_matched_avg: float
-    b_matched_avg: float
-    aggregate_delta: float
-    has_regression: bool
-    # Strictly separate from ``has_regression``: a description that stopped
-    # firing and a body that stopped working have opposite fixes, so one flag
-    # covering both would point at neither. A run can regress on activation
-    # while execution is flat, and that is the signal a `description` edit
-    # needs.
-    has_activation_regression: bool = False
     k_mismatch: bool
     spec_mismatch: bool
     # The two runs installed different skill neighbourhoods. A warning, not a
@@ -1301,6 +1363,115 @@ class RunComparison(BaseModel):
     # win, not a failure (docs/CONTEXT.md → Regression).
     a_usage: UsageTotals
     b_usage: UsageTotals
+
+    # The tasks each headline is averaged over: those measured on *both*
+    # sides, so a delta is strictly like-for-like. Read side: the JSON already
+    # carries every matched row.
+    @property
+    def comparable(self) -> list[TaskComparison]:
+        """Matched tasks with an execution score on both sides."""
+        return [
+            tc
+            for tc in self.matched
+            if tc.a_score is not None and tc.b_score is not None
+        ]
+
+    @property
+    def activation_comparable(self) -> list[TaskComparison]:
+        """Matched tasks with activation verdicts on both sides."""
+        return [
+            tc
+            for tc in self.matched
+            if tc.a_activation is not None and tc.b_activation is not None
+        ]
+
+    # The same average rule the run's own headline uses, so a delta is a
+    # difference between two numbers built the same way.
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def a_matched_avg(self) -> float:
+        return mean_rate([tc.a_score for tc in self.comparable])
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def b_matched_avg(self) -> float:
+        return mean_rate([tc.b_score for tc in self.comparable])
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def aggregate_delta(self) -> float:
+        return self.b_matched_avg - self.a_matched_avg
+
+    # The pooled counts printed beside each side's average.
+    @property
+    def a_pooled(self) -> PooledCount:
+        return PooledCount.of(
+            [(tc.a_counts.successes, tc.a_counts.usable) for tc in self.comparable]
+        )
+
+    @property
+    def b_pooled(self) -> PooledCount:
+        return PooledCount.of(
+            [(tc.b_counts.successes, tc.b_counts.usable) for tc in self.comparable]
+        )
+
+    # The activation scoreboard's headline, beside the execution one and never
+    # folded in (docs/adr/0014). ``None`` when no task has verdicts on both
+    # sides: on a skill-ablation pair one side has none at all.
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def a_matched_activation_avg(self) -> float | None:
+        both = self.activation_comparable
+        return mean_rate([tc.a_activation for tc in both]) if both else None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def b_matched_activation_avg(self) -> float | None:
+        both = self.activation_comparable
+        return mean_rate([tc.b_activation for tc in both]) if both else None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def aggregate_activation_delta(self) -> float | None:
+        a, b = self.a_matched_activation_avg, self.b_matched_activation_avg
+        return None if a is None or b is None else b - a
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def regressions(self) -> list[str]:
+        """The matched tasks that regressed, by the any-below rule."""
+        return [tc.task_name for tc in self.matched if tc.regression]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def has_regression(self) -> bool:
+        return bool(self.regressions)
+
+    # Strictly separate from the execution regressions: a description that
+    # stopped firing and a body that stopped working have opposite fixes, so
+    # one flag covering both would point at neither. A run can regress on
+    # activation while execution is flat, and that is the signal a
+    # `description` edit needs.
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def activation_regressions(self) -> list[str]:
+        return [tc.task_name for tc in self.matched if tc.activation_regression]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def has_activation_regression(self) -> bool:
+        return bool(self.activation_regressions)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def unmeasured(self) -> list[str]:
+        """Matched tasks left out of the success average for want of a score on
+        a side. A trigger probe is not one: it asked no execution question."""
+        return [
+            tc.task_name
+            for tc in self.matched
+            if (tc.a_score is None or tc.b_score is None) and not tc.probe
+        ]
 
     @computed_field  # type: ignore[prop-decorator]
     @property

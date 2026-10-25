@@ -7,12 +7,17 @@ what ``AggregateScore.from_task_results`` does across tasks.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from conftest import task_result
 
 from caliper.schema.results import (
     AggregateScore,
     AttemptRecord,
     Outcome,
+    PooledCount,
+    RunMeta,
+    RunResults,
     TaskResult,
     pass_at_k,
     pass_hat_k,
@@ -203,3 +208,57 @@ def test_a_declared_skill_gets_a_row_even_when_it_never_fired() -> None:
     )
 
     assert [s.skill for s in agg.activation_per_skill] == ["dormant"]
+
+
+# --- the pooled count beside the average -------------------------------------
+#
+# The headline is a mean of per-task rates (docs/adr/0007); the pooled count is
+# what the table prints beside it, so it is counted here, over the same tasks.
+
+
+def _run(tasks: list[TaskResult]) -> RunResults:
+    return RunResults(
+        run=RunMeta(
+            spec="demo",
+            timestamp=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            k=3,
+            backend="claude-code",
+        ),
+        task_results=tasks,
+        aggregate=AggregateScore.from_task_results(tasks, k=3),
+    )
+
+
+def test_success_pool_counts_the_scored_tasks_only() -> None:
+    run = _run(
+        [
+            _task("t1", "One", Outcome.PASS, Outcome.TASK_FAIL, Outcome.TIMEOUT),
+            _task("t2", "Two", Outcome.PASS, Outcome.PASS),
+            # Never measured: excluded from the average, so from the pool too.
+            _task("t3", "Three", Outcome.TIMEOUT, Outcome.INFRA_ERROR),
+        ]
+    )
+
+    assert run.pooled_success == PooledCount(successes=3, usable=4, tasks=2)
+
+
+def test_activation_pool_counts_the_asserted_tasks_only() -> None:
+    run = _run(
+        [
+            _asserting(
+                (Outcome.PASS, ["a"]),
+                (Outcome.TASK_FAIL, []),
+                (Outcome.TIMEOUT, []),
+                expected=["a"],
+            ),
+            task_result(Outcome.PASS, task_id="t2", name="Two"),
+        ]
+    )
+
+    assert run.pooled_activation == PooledCount(successes=1, usable=2, tasks=1)
+
+
+def test_an_unasserted_run_pools_nothing() -> None:
+    run = _run([task_result(Outcome.PASS)])
+
+    assert run.pooled_activation == PooledCount(successes=0, usable=0, tasks=0)

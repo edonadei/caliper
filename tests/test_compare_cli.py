@@ -26,6 +26,7 @@ from caliper.schema.results import (
     RunResults,
     SkillSnapshot,
     TaskResult,
+    TokenUsage,
 )
 
 runner = CliRunner()
@@ -166,3 +167,73 @@ def test_an_unknown_format_is_refused(argv) -> None:
     output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
     assert result.exit_code == 2
     assert "Invalid value for '--format'" in output
+
+
+def _numbers_run(root: Path, ts: datetime, outcome: Outcome, fired: bool) -> Path:
+    """One task asserting it activates `mine`, one attempt of 1000 tokens."""
+    results = RunResults(
+        run=RunMeta(
+            spec="demo",
+            timestamp=ts,
+            k=1,
+            backend="claude-code",
+            era=ERA_INSTALL_AND_DISCOVER,
+        ),
+        skill_snapshots=[SkillSnapshot(name="mine", path="/x/mine/SKILL.md")],
+        task_results=[
+            TaskResult(
+                task_id="task-001",
+                task_name="alpha",
+                attempts=[
+                    AttemptRecord(
+                        attempt=1,
+                        output="",
+                        duration_seconds=4.0,
+                        outcome=outcome,
+                        usage=TokenUsage(input_tokens=1000),
+                        activated=["mine"] if fired else [],
+                        activation_passed=fired,
+                        judge_seconds=2.0,
+                    )
+                ],
+                activation_expected=["mine"],
+            )
+        ],
+        aggregate=AggregateScore(avg_score=0.0, per_task=[]),
+    )
+    out_dir = root / ".caliper" / "results" / "demo"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{ts.strftime('%Y-%m-%dT%H-%M-%SZ')}.json"
+    path.write_text(json.dumps(results.model_dump(mode="json")))
+    return path
+
+
+def test_json_carries_the_numbers_the_table_prints(monkeypatch, tmp_path) -> None:
+    # The table is a shell over the comparison; a number it prints that the
+    # JSON lacks would leave an agent on --format json reading less.
+    a = _numbers_run(
+        tmp_path, datetime(2026, 8, 4, 10, 0, tzinfo=timezone.utc), Outcome.PASS, True
+    )
+    b = _numbers_run(
+        tmp_path,
+        datetime(2026, 8, 4, 10, 30, tzinfo=timezone.utc),
+        Outcome.TASK_FAIL,
+        False,
+    )
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["compare", str(a), str(b), "--format", "json"])
+    assert result.exit_code == 0, result.output
+
+    data = json.loads(result.output)
+    for side in ("a_usage", "b_usage"):
+        assert data[side]["tokens_per_attempt"] == 1000
+        assert data[side]["wall_per_attempt"] == 4.0
+        assert data[side]["judge_per_attempt"] == 2.0
+    assert data["a_matched_activation_avg"] == 1.0
+    assert data["b_matched_activation_avg"] == 0.0
+    assert data["aggregate_activation_delta"] == -1.0
+    assert data["regressions"] == ["alpha"]
+    assert data["activation_regressions"] == ["alpha"]
+    assert data["unmeasured"] == []
+    assert data["has_regression"] is True
+    assert data["aggregate_delta"] == -1.0
