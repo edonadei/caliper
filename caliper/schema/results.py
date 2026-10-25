@@ -550,6 +550,10 @@ class TaskResult(BaseModel):
     # input survives a later edit to the spec (``render_judge_prompt``).
     # ``None`` = no `expect:`, or a run saved before it was recorded.
     expect: str | None = None
+    # The task's `prompt:` as it read when this run ran: the request the judge
+    # graded the transcript against (``render_judge_prompt``). ``None`` for a
+    # run saved before it was recorded.
+    prompt: str | None = None
 
     @property
     def counts(self) -> OutcomeCounts:

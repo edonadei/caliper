@@ -393,8 +393,8 @@ The shell is the only tool a planted turn can call.
 
 ### LLM autorater (`expect:`)
 
-The judge engine reads the full attempt transcript and decides whether the
-`expect` condition was met. Every backend captures tool-call traces, and the
+The judge engine reads the task's `prompt:` and the full attempt transcript,
+and decides whether the `expect` condition was met. Every backend captures tool-call traces, and the
 judge sees them, so it can verify things like "the agent used tool X" without
 relying on the final text alone.
 
@@ -435,6 +435,10 @@ tasks:
 ```
 
 When both `expect` and `assert` are present, both must pass.
+
+An `assert:` script, like a script the judge writes, runs under the Python
+running Caliper, with your environment minus `PYTHONOPTIMIZE`. That variable
+strips `assert` statements, so leaving it set would pass every check unrun.
 
 ## Attempt workdir
 
@@ -479,7 +483,7 @@ skills:
   - ../calendar-scheduler/SKILL.md    # a neighbour it might steal work from
 
 tasks:
-  # Autorater: the LLM judge reads the transcript and decides
+  # Autorater: the LLM judge reads the request and the transcript and decides
   - name: Flags emails that need a reply
     setup: >-
       mkdir -p inbox

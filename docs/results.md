@@ -139,7 +139,10 @@ twice (2s then 4s, jittered) and records the result as **one** attempt with a
 retried anything says so under its usage summary. Two failures are deliberately
 *not* retried: a timeout (nothing says the next spawn is faster) and a bare crash
 (retrying would hide a defect that reproduces). `--fail-fast` counts
-attempts, not spawns, so a streak of N can cost up to 3N spawns.
+attempts, not spawns, so a streak of N can cost up to 3N spawns. A retry reuses
+the attempt's workdir, so the saved `transcript` holds every spawn's turns in
+order: work a throttled spawn left behind is graded, and checked for cheating,
+with the rest.
 
 **A spending cap stops the run.** A cap or usage limit won't clear before the
 last attempt, so Caliper aborts instead of spending every remaining attempt
@@ -346,13 +349,17 @@ and any script the judge wrote.
 
 - `TaskResult.expect` is the task's `expect:` as it read when the run was
   judged, so the judge's input survives a later edit to the spec.
+- `TaskResult.prompt` is the task's `prompt:` as it read when the run ran: the
+  request the judge graded the transcript against. It's `null` for runs saved
+  before it was recorded.
 - `RunMeta.judge_prompt_version` names how the judge renders its prompt: its
-  templates and its transcript formatting. With `expect` and an attempt's
-  `transcript`, `caliper.judge.eval_judge.render_judge_prompt(expect, transcript)` rebuilds
+  templates and its transcript formatting. With `expect`, `prompt` and an
+  attempt's `transcript`,
+  `caliper.judge.eval_judge.render_judge_prompt(expect, prompt, transcript)` rebuilds
   the exact prompt the judge was sent, as long as the version matches the
   installed `JUDGE_PROMPT_VERSION`. It's `null` when no task had an `expect:`.
   A task with `history:` also showed the judge its planted turns as prior
-  context. The run doesn't save them, so pass the task's history as the third
+  context. The run doesn't save them, so pass the task's history as the fourth
   argument, read from its file, to rebuild that prompt.
 - `AttemptRecord.autorater_script` is the Python the judge wrote when it chose
   to check with a script instead of giving a direct verdict. It's saved whether
