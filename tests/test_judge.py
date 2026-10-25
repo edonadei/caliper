@@ -266,6 +266,9 @@ _MALFORMED_ANSWERS = [
     '{"mode": "banana", "passed": true}',
     '{"mode": "script", "code": 42}',
     '{"mode": "script", "code": ["assert True"]}',
+    '{"mode": "script", "code": ""}',
+    '{"mode": "script", "code": "   "}',
+    '{"mode": "script", "code": "\\n\\t\\n"}',
 ]
 
 

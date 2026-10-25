@@ -255,7 +255,8 @@ def _parse_rich_response(raw: str, workdir: AttemptWorkdir) -> _AutoraterVerdict
         code = verdict.get("code", "")
         if not isinstance(code, str):
             return _AutoraterVerdict.error(f"Judge returned non-string code: {code!r}")
-        if not code:
+        # Blank code runs no check, and a check that ran nothing is not a pass.
+        if not code.strip():
             return _AutoraterVerdict.error("Judge returned empty script")
         passed, evidence = _run_inline_script(code, workdir, "check")
         detail = f"{reasoning} | script: {'ok' if passed else evidence}"
