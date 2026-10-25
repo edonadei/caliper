@@ -696,7 +696,7 @@ def test_the_judge_sees_the_planted_turns_as_prior_context(attempt_workdir) -> N
 
 def test_the_judge_prompt_has_no_prior_context_without_a_history() -> None:
 
-    assert "<prior_context>" not in render_judge_prompt("x", [])
+    assert "<prior_context>" not in render_judge_prompt("x", "p", [])
 
 
 def test_the_judge_gets_the_turns_the_attempt_resumed_from(tmp_path) -> None:

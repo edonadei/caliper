@@ -295,6 +295,17 @@ def _isolate_local_app_data(monkeypatch, tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_caliper_config(monkeypatch, tmp_path_factory):
+    """No test sees the developer's own ``caliper login chatgpt``.
+
+    Signed in, every codex attempt would run on the plan provider instead of the
+    seeded ``auth.json`` the codex tests expect.
+    """
+    config = tmp_path_factory.mktemp("caliper-config")
+    monkeypatch.setattr("caliper.chatgpt.config_home", lambda: config)
+
+
+@pytest.fixture(autouse=True)
 def _clear_cancellation():
     """No test leaks a cancelled run into the next one.
 

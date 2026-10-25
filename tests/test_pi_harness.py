@@ -94,6 +94,44 @@ def test_pi_omits_model_and_skill_when_unspecified(monkeypatch, tmp_path) -> Non
     assert "--skill" not in run_cmd
 
 
+def test_pi_passes_a_flag_shaped_prompt_as_the_task(monkeypatch, tmp_path) -> None:
+    """A prompt like ``--version`` is the task, not an option pi acts on."""
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[1:] == ["--version"]:
+            return _version(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n, **_: "pi")
+    patch_cli_calls(monkeypatch, fake_run)
+
+    PiHarness().run(
+        run_context(prompt="--version", timeout=12, isolated_home=str(tmp_path))
+    )
+
+    assert calls[1][-2:] == ["--", "--version"]
+
+
+def test_pi_judge_passes_a_flag_shaped_prompt_as_the_message(
+    monkeypatch, tmp_path
+) -> None:
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n, **_: "pi")
+    monkeypatch.delenv("PI_CLI_PATH", raising=False)
+    patch_cli_calls(monkeypatch, fake_run)
+
+    PiHarness().run_prompt("--help", cwd=str(tmp_path))
+
+    assert calls[-1][-2:] == ["--", "--help"]
+
+
 def test_pi_json_stream_captures_tool_calls(monkeypatch, tmp_path) -> None:
     def fake_run(cmd, **kwargs):
         if cmd[1:] == ["--version"]:

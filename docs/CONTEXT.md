@@ -744,6 +744,15 @@ is [[retry|retried]]; a spending cap or a misconfiguration stops the run. See
 docs/adr/0030-a-cli-refusal-is-read-from-what-the-cli-wrote.md.
 _Avoid_: infra signal, provider signal (for the misconfiguration case).
 
+## Plan login
+
+Caliper's own Sign in with ChatGPT login (`caliper login chatgpt`), which runs
+the `codex` backend's attempts and judge on the user's ChatGPT plan. Caliper
+holds and refreshes it, and an attempt gets only a short-lived access token,
+never the login itself. Without one, codex attempts use a copy of the Codex
+CLI's own login. See docs/adr/0039-caliper-owns-the-chatgpt-plan-login.md.
+_Avoid_: ChatGPT auth, codex login (that is the Codex CLI's own).
+
 ## Usable / unusable attempt
 
 An attempt that got a **fair shot** at the task is *usable*: `pass`, `task_fail`,

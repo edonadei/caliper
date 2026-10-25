@@ -50,7 +50,9 @@ of these CLIs with an API key (for example `ANTHROPIC_API_KEY` or
 When a run stops because the agent's or the judge's CLI is not logged in, it
 exits `2` with a `Not logged in` error that says how to log in. In an
 interactive terminal, `caliper run` also offers to run that backend's login
-command (`claude auth login`, `codex login` or `hermes model`) and reruns the
+command (`claude auth login`, `codex login` or `hermes model`, or
+`caliper login chatgpt` when you [signed Caliper in to
+ChatGPT](#running-on-your-chatgpt-plan)) and reruns the
 eval once the login succeeds. pi logs in only from its own terminal UI, so it
 gets no offer.
 
@@ -94,7 +96,8 @@ stay traceable even though the spec doesn't pin an engine.
 - When `--judge-model` names no model, the judge uses its CLI's own default
   model, like the skill does. The `codex` judge reads your real
   `~/.codex/config.toml` (under `CODEX_HOME` when set), so a `model =` pinned there applies to it, while an
-  attempt drops that pin.
+  attempt drops that pin. After `caliper login chatgpt`, the `codex` judge
+  runs on your ChatGPT plan, like the attempts.
 - A spec with `expect:` stops before its first attempt if the judge's CLI
   isn't installed, rather than recording a `judge_error` on every attempt.
 
@@ -127,6 +130,46 @@ codex login
 same one your shell runs, and falls back to the binary bundled in the Codex
 desktop app only when `PATH` has none. Set `CODEX_CLI_PATH` to force a specific
 binary.
+
+### Running on your ChatGPT plan
+
+Each attempt normally gets a copy of your `~/.codex/auth.json`. With a ChatGPT
+login that copy is fragile: when an attempt refreshes its token, the new token
+is deleted with the attempt, and parallel attempts all try to refresh with the
+same one. Your own Codex login can stop working until you run `codex login`
+again.
+
+To run codex on a Plus or Pro plan, sign Caliper in to ChatGPT itself:
+
+```bash
+caliper login chatgpt
+```
+
+This opens your browser. Allow Caliper to use your plan. The login is stored in
+`~/.config/caliper/chatgpt.json` (under `XDG_CONFIG_HOME` when set, and
+`%APPDATA%\caliper` on Windows), not in `~/.codex`. From then on:
+
+- Caliper refreshes the login itself, one refresh at a time, before an attempt
+  starts.
+- Each attempt and the judge get a short-lived access token, valid for at least
+  the attempt's `--timeout`. They never see your `auth.json`.
+- A refresh OpenAI refuses stops the run with `Not logged in` and points at
+  `caliper login chatgpt`.
+
+`caliper logout chatgpt` revokes the session and deletes the file. Codex runs
+then use your Codex CLI login again.
+
+Some things don't work on a plan login:
+
+- Plan usage rejects some Responses features, including hosted connectors,
+  `tool_search` and `temperature`. An eval that needs them fails there.
+- An access token lasts an hour. Attempts can't refresh while they run, so one
+  with a longer `--timeout` may see its token expire.
+- On a remote machine, run `caliper login chatgpt` locally and copy
+  `chatgpt.json` over SSH. Leave the remote `host-id` file in place.
+- A fresh CI runner can't keep a refreshed login, so CI should use an API key.
+
+See [ADR 0039](adr/0039-caliper-owns-the-chatgpt-plan-login.md).
 
 ## pi
 
