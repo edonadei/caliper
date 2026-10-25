@@ -434,6 +434,10 @@ tasks:
 
 When both `expect` and `assert` are present, both must pass.
 
+An `assert:` script, like a script the judge writes, runs under the Python
+running Caliper, with your environment minus `PYTHONOPTIMIZE`. That variable
+strips `assert` statements, so leaving it set would pass every check unrun.
+
 ## Attempt workdir
 
 Every attempt gets a fresh, empty directory. `setup:`, the agent, `assert:`, the
