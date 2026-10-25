@@ -113,12 +113,11 @@ class ExpiringHarness(HarnessBackend):
 class SleepHarness(CliHarness):
     """A CLI harness whose agent is ``sleep`` — something to interrupt."""
 
+    config_home = ".sleep"
+
     @property
     def name(self) -> str:
         return "sleep"
-
-    def skills_root(self, ctx) -> Path:  # pragma: no cover - never installs
-        return Path(ctx.isolated_home) / "skills"
 
     def _command(self, ctx):  # pragma: no cover - driven through _execute
         return ["sleep", "30"], None, None

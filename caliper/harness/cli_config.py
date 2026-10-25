@@ -4,7 +4,7 @@ Some agents keep their MCP servers in the same file as their login and model
 settings (codex's ``config.toml``, hermes' ``config.yaml``), so the file cannot
 be copied verbatim like a ``seed_files`` entry (docs/adr/0012). A backend
 declares that file as a :class:`CliConfig` and this module rewrites it into the
-attempt's isolated home:
+attempt's config home (docs/CONTEXT.md → Config home):
 
 - isolated, only the connection keys survive, so the user's ambient state never
   reaches the attempt (docs/adr/0028);
@@ -61,7 +61,7 @@ YAML = Codec(
 class CliConfig:
     """A backend's config file, as data (docs/adr/0020)."""
 
-    # Relative to the home directory, the user's and the attempt's alike.
+    # Relative to the config home, the user's and the attempt's alike.
     path: str
     codec: Codec
     # The keys an isolated attempt keeps: what the CLI needs to connect.
@@ -76,20 +76,18 @@ class CliConfig:
     # the attempt itself needs from the CLI, not a user setting.
     pinned: Callable[[], dict] = dict
 
-    def write(self, ctx: RunContext, *, backend: str, real: Path | None = None) -> None:
-        """Write the attempt's copy, or nothing when there is nothing to write.
+    def write(self, ctx: RunContext, home: Path, *, backend: str, real: Path) -> None:
+        """Write the attempt's copy into ``home``, its config home, from ``real``.
 
-        ``real`` is the user's copy, when it is not at ``path`` under the home.
-        Nothing is written when the user has no config, the spec declares no
-        server and nothing is pinned. A config the CLI could not parse either is
-        refused here.
+        ``real`` is the user's copy. Nothing is written when the user has no
+        config, the spec declares no server and nothing is pinned. A config the
+        CLI could not parse either is refused here.
         """
         declared = {
             name: self.entry(resolved)
             for name, resolved in resolve_servers(ctx.mcp_servers).items()
         }
         pinned = self.pinned()
-        real = real or Path.home() / self.path
         if not real.exists() and not declared and not pinned:
             return
 
@@ -107,22 +105,22 @@ class CliConfig:
         if servers:
             config[self.servers_key] = servers
 
-        target = Path(ctx.isolated_home) / self.path
+        target = home / self.path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(self.codec.dumps(config), encoding="utf-8")
         target.chmod(0o600)
 
-    def read(self, ctx: RunContext) -> dict:
-        """The attempt's copy as written; empty when none was."""
-        target = Path(ctx.isolated_home) / self.path
+    def read(self, home: Path) -> dict:
+        """The attempt's copy in ``home`` as written; empty when none was."""
+        target = home / self.path
         if not target.exists():
             return {}
         loaded = self.codec.loads(target.read_text(encoding="utf-8"))
         return loaded if isinstance(loaded, dict) else {}
 
-    def servers(self, ctx: RunContext) -> set[str]:
-        """The MCP servers the attempt's copy holds."""
-        servers = self.read(ctx).get(self.servers_key)
+    def servers(self, home: Path) -> set[str]:
+        """The MCP servers the attempt's copy in ``home`` holds."""
+        servers = self.read(home).get(self.servers_key)
         return set(servers) if isinstance(servers, dict) else set()
 
     def _load(self, real: Path, *, backend: str) -> dict:

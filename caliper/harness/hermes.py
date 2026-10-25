@@ -53,7 +53,7 @@ def _pinned_config() -> dict:
 
 
 HERMES_CONFIG = CliConfig(
-    path=".hermes/config.yaml",
+    path="config.yaml",
     codec=YAML,
     connection_keys=frozenset(
         {"model", "provider", "providers", "custom_providers", "terminal"}
@@ -161,23 +161,17 @@ class HermesHarness(CliHarness):
             if attempt_home is not None:
                 self._release_windows_home(ctx, attempt_home)
 
-    def seed_files(self, ctx: RunContext) -> list[tuple[Path, Path]]:
+    def seed_files(self, ctx: RunContext) -> list[Path]:
         # Isolate Hermes' whole home per attempt (parallel-safe; never mutates
         # the user's real hermes home). Seeding only auth/config — not SOUL.md or
         # MEMORY.md — is what neutralizes the agent; --ignore-rules on the
         # command completes the strip.
-        real_home = self.user_config_home()
-        hermes_home = self._hermes_home(ctx)
-        return [(real_home / name, hermes_home / name) for name in _SEED_FILES]
+        hermes_home = self.attempt_config_home(ctx)
+        return [hermes_home / name for name in _SEED_FILES]
 
     def _default_config_home(self) -> Path:
         # Not under the real home on Windows.
         return user_hermes_home()
-
-    @staticmethod
-    def _hermes_home(ctx: RunContext) -> Path:
-        """The per-attempt ``HERMES_HOME``, a function of the isolated home."""
-        return Path(ctx.isolated_home) / ".hermes"
 
     def _attach_windows_home(self, ctx: RunContext) -> Path | None:
         """On Windows, point the attempt's ``.hermes`` at a fresh profile.
@@ -199,7 +193,7 @@ class HermesHarness(CliHarness):
         attempt_home = Path(
             tempfile.mkdtemp(prefix=_WINDOWS_PROFILE_PREFIX, dir=profiles)
         )
-        link = self._hermes_home(ctx)
+        link = self.attempt_config_home(ctx)
         try:
             (attempt_home / _ATTEMPT_MARKER).write_text("")
             (attempt_home / "config.yaml").write_text(YAML.dumps(_pinned_config()))
@@ -226,16 +220,10 @@ class HermesHarness(CliHarness):
                 )
         # Then the junction (removing it never touches its target), then the
         # home; whatever is still held is left, marked, for a later sweep.
-        link = self._hermes_home(ctx)
+        link = self.attempt_config_home(ctx)
         if os.path.lexists(link):
             os.rmdir(link)
         _remove_attempt_home(attempt_home)
-
-    def _prepare(self, ctx: RunContext) -> None:
-        self._hermes_home(ctx).mkdir(parents=True, exist_ok=True)
-
-    def skills_root(self, ctx: RunContext) -> Path:
-        return self._hermes_home(ctx) / "skills"
 
     def bundled_skill_names(self, source: Path) -> set[str]:
         # Hermes lists the skills it ships as `name:hash` lines.
@@ -280,13 +268,7 @@ class HermesHarness(CliHarness):
         return [shell, "-c", script], None, None
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
-        hermes_home = self._hermes_home(ctx)
-        if sys.platform == "win32":
-            # The junction's target: hermes places a home under its root by the
-            # resolved path, never the temp-dir link.
-            hermes_home = Path(os.path.realpath(hermes_home))
         extra = {
-            "HERMES_HOME": str(hermes_home),
             "CALIPER_HERMES": self.cli_path() or "hermes",
             "CALIPER_PROMPT": ctx.prompt,
             # A source-checkout hermes keeps its dependency state under
@@ -299,6 +281,10 @@ class HermesHarness(CliHarness):
         if ctx.model:
             extra["CALIPER_MODEL"] = ctx.model
         if sys.platform == "win32":
+            # The junction's target: hermes places a home under its root by the
+            # resolved path, never the temp-dir link.
+            home = self.attempt_config_home(ctx)
+            extra["HERMES_HOME"] = str(Path(os.path.realpath(home)))
             # Python on Windows ignores HOME: Path.home() reads USERPROFILE, so
             # the isolated home goes there too, or hermes "could not determine
             # home directory". Hermes finds its root through LOCALAPPDATA.
@@ -356,7 +342,11 @@ class HermesHarness(CliHarness):
         concrete model; the MCP inventory is the ``config.yaml`` the attempt
         ran with.
         """
-        report = AgentReport(read_mcp_servers=partial(HERMES_CONFIG.servers, ctx))
+        report = AgentReport(
+            read_mcp_servers=partial(
+                HERMES_CONFIG.servers, self.attempt_config_home(ctx)
+            )
+        )
         record = self._load_export(proc.stdout)
         if record is None:
             return report

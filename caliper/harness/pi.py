@@ -77,7 +77,7 @@ class PiHarness(CliHarness):
     def name(self) -> str:
         return "pi"
 
-    def seed_files(self, ctx: RunContext) -> list[tuple[Path, Path]]:
+    def seed_files(self, ctx: RunContext) -> list[Path]:
         # pi reads auth/settings from its config dir. The real config is copied
         # verbatim into a per-attempt directory (parallel-safe; never mutates
         # the user's real ~/.pi) that PI_CODING_AGENT_DIR then points pi at.
@@ -88,25 +88,10 @@ class PiHarness(CliHarness):
         # a model that resolves by hand must resolve in the attempt too (#178).
         # Its `!command` and `$NAME` credentials run in the isolated env, so
         # home-relative or env-based ones don't resolve (docs/backends.md → pi).
-        real = self.user_config_home()
-        agent_dir = self._agent_dir(ctx)
+        agent_dir = self.attempt_config_home(ctx)
         return [
-            (real / name, agent_dir / name)
-            for name in ("auth.json", "settings.json", "models.json")
+            agent_dir / name for name in ("auth.json", "settings.json", "models.json")
         ]
-
-    @staticmethod
-    def _agent_dir(ctx: RunContext) -> Path:
-        """The per-attempt config dir pi is pointed at via PI_CODING_AGENT_DIR.
-
-        Derived from the isolated home rather than stashed for a later hook to
-        find: it is a function of the context, so there is nothing to remember
-        between them (docs/adr/0024-a-seam-carries-only-what-its-readers-use.md).
-        """
-        return Path(ctx.isolated_home) / ".pi" / "agent"
-
-    def skills_root(self, ctx: RunContext) -> Path:
-        return self._agent_dir(ctx) / "skills"
 
     def _command(
         self, ctx: RunContext
@@ -114,11 +99,11 @@ class PiHarness(CliHarness):
         pi = self.cli_path() or "pi"
         # The prompt becomes the next user turn after the planted ones. The JSON
         # stream does not replay them, so they never reach the transcript.
-        session = (
-            ["--session", str(PI_SESSION.plant(ctx, self.skills_root(ctx)).path)]
-            if ctx.history
-            else ["--no-session"]
-        )
+        session = ["--no-session"]
+        if ctx.history:
+            home = self.attempt_config_home(ctx)
+            planted = PI_SESSION.plant(ctx, home, self.skills_root(ctx))
+            session = ["--session", str(planted.path)]
         cmd = [
             pi,
             "--print",
@@ -141,9 +126,7 @@ class PiHarness(CliHarness):
         return cmd, None, None
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
-        return self._isolated_env(
-            ctx, extra={"PI_CODING_AGENT_DIR": str(self._agent_dir(ctx))}
-        )
+        return self._isolated_env(ctx)
 
     def _read(self, proc: ProcessResult, ctx: RunContext) -> AgentReport:
         return self._read_stream(proc.stdout)

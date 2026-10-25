@@ -129,10 +129,11 @@ def test_windows_config_pins_a_standalone_gateway(monkeypatch, tmp_path, loads) 
     real = tmp_path / "real.yaml"
     real.write_text("model: m\ngateway:\n  standalone: false\n  port: 1\n")
     ctx = run_context(isolated_home=str(tmp_path / "iso"), user_customizations=loads)
+    home = tmp_path / "iso" / ".hermes"
 
-    HERMES_CONFIG.write(ctx, backend="hermes", real=real)
+    HERMES_CONFIG.write(ctx, home, backend="hermes", real=real)
 
-    gateway = HERMES_CONFIG.read(ctx)["gateway"]
+    gateway = HERMES_CONFIG.read(home)["gateway"]
     assert gateway["standalone"] is True
     # The user's other gateway settings load only with their customizations.
     assert ("port" in gateway) is loads
@@ -143,19 +144,21 @@ def test_windows_config_is_written_even_when_the_user_has_none(
 ) -> None:
     monkeypatch.setattr(sys, "platform", "win32")
     ctx = run_context(isolated_home=str(tmp_path / "iso"))
+    home = tmp_path / "iso" / ".hermes"
 
-    HERMES_CONFIG.write(ctx, backend="hermes", real=tmp_path / "missing.yaml")
+    HERMES_CONFIG.write(ctx, home, backend="hermes", real=tmp_path / "missing.yaml")
 
-    assert HERMES_CONFIG.read(ctx) == {"gateway": {"standalone": True}}
+    assert HERMES_CONFIG.read(home) == {"gateway": {"standalone": True}}
 
 
 def test_posix_config_pins_nothing(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(sys, "platform", "linux")
     ctx = run_context(isolated_home=str(tmp_path / "iso"))
+    home = tmp_path / "iso" / ".hermes"
 
-    HERMES_CONFIG.write(ctx, backend="hermes", real=tmp_path / "missing.yaml")
+    HERMES_CONFIG.write(ctx, home, backend="hermes", real=tmp_path / "missing.yaml")
 
-    assert HERMES_CONFIG.read(ctx) == {}
+    assert HERMES_CONFIG.read(home) == {}
 
 
 @windows_only

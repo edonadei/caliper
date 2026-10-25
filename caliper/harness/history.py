@@ -116,8 +116,14 @@ class SessionFormat(ABC):
     def envelope(self, message: dict, previous: dict | None, session: Session) -> dict:
         """``message`` as a line of the file; ``previous`` is the line before it."""
 
-    def plant(self, ctx: RunContext, skills_root: Path) -> PlantedSession:
+    def plant(
+        self, ctx: RunContext, config_home: Path, skills_root: Path
+    ) -> PlantedSession:
         """Write ``ctx.history`` as a session for this attempt to resume.
+
+        ``config_home`` is the attempt's (docs/CONTEXT.md → Config home), where
+        the CLI keeps its sessions; ``skills_root`` is where a planted ``/name``
+        finds the skill it expands.
 
         A fresh session per call: parallel attempts, and a retried one, never
         share a file. A ``/name`` matches a declared skill exactly, case
@@ -127,7 +133,7 @@ class SessionFormat(ABC):
         session = Session(
             id=str(uuid.uuid4()),
             cwd=os.path.realpath(ctx.workdir),
-            config_dir=skills_root.parent,
+            config_dir=config_home,
             now=datetime.now(timezone.utc),
         )
         messages: list[dict] = []

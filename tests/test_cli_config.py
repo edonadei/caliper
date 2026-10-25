@@ -38,41 +38,39 @@ def _user_config(home, config, connection, ambient):
 
 
 def _write(config, backend, tmp_path, **ctx):
-    iso = tmp_path / "iso"
-    context = run_context(isolated_home=str(iso), **ctx)
-    config.write(context, backend=backend)
-    return context
+    """Write the attempt's copy from the operator's at ``home``; its config home."""
+    attempt = tmp_path / "iso" / "config-home"
+    context = run_context(isolated_home=str(tmp_path / "iso"), **ctx)
+    real = tmp_path / "home" / config.path
+    config.write(context, attempt, backend=backend, real=real)
+    return attempt
 
 
 @pytest.mark.parametrize(("config", "backend", "connection", "ambient"), CONFIGS)
 def test_isolated_keeps_only_connection_keys_and_declared_servers(
-    monkeypatch, tmp_path, config, backend, connection, ambient
+    tmp_path, config, backend, connection, ambient
 ) -> None:
-    home = tmp_path / "home"
-    monkeypatch.setenv("HOME", str(home))
-    _user_config(home, config, connection, ambient)
+    _user_config(tmp_path / "home", config, connection, ambient)
 
-    ctx = _write(
+    attempt = _write(
         config, backend, tmp_path, mcp_servers={"echo": McpServer(command="echo")}
     )
 
-    written = config.read(ctx)
+    written = config.read(attempt)
     assert written[connection] == "kept"
     assert ambient not in written
-    assert config.servers(ctx) == {"echo"}
-    mode = (tmp_path / "iso" / config.path).stat().st_mode
+    assert config.servers(attempt) == {"echo"}
+    mode = (attempt / config.path).stat().st_mode
     assert stat.S_IMODE(mode) == 0o600
 
 
 @pytest.mark.parametrize(("config", "backend", "connection", "ambient"), CONFIGS)
 def test_user_customizations_merge_servers_and_the_spec_wins(
-    monkeypatch, tmp_path, config, backend, connection, ambient
+    tmp_path, config, backend, connection, ambient
 ) -> None:
-    home = tmp_path / "home"
-    monkeypatch.setenv("HOME", str(home))
-    _user_config(home, config, connection, ambient)
+    _user_config(tmp_path / "home", config, connection, ambient)
 
-    ctx = _write(
+    attempt = _write(
         config,
         backend,
         tmp_path,
@@ -81,7 +79,7 @@ def test_user_customizations_merge_servers_and_the_spec_wins(
         user_customizations=True,
     )
 
-    written = config.read(ctx)
+    written = config.read(attempt)
     assert written[ambient] == "leaked"
     assert written[config.servers_key]["personal"]["command"] == "declared"
 
@@ -90,23 +88,20 @@ def test_user_customizations_merge_servers_and_the_spec_wins(
 def test_nothing_is_written_without_a_config_or_a_server(
     monkeypatch, tmp_path, config, backend, connection, ambient
 ) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     # Pinned settings are written regardless: hermes pins some on Windows.
     monkeypatch.setattr(sys, "platform", "linux")
 
-    ctx = _write(config, backend, tmp_path, mcp_servers=None)
+    attempt = _write(config, backend, tmp_path, mcp_servers=None)
 
-    assert not (tmp_path / "iso" / config.path).exists()
-    assert config.servers(ctx) == set()
+    assert not (attempt / config.path).exists()
+    assert config.servers(attempt) == set()
 
 
 @pytest.mark.parametrize(("config", "backend", "connection", "ambient"), CONFIGS)
 def test_a_config_the_cli_cannot_parse_is_refused(
-    monkeypatch, tmp_path, config, backend, connection, ambient
+    tmp_path, config, backend, connection, ambient
 ) -> None:
-    home = tmp_path / "home"
-    monkeypatch.setenv("HOME", str(home))
-    path = home / config.path
+    path = tmp_path / "home" / config.path
     path.parent.mkdir(parents=True)
     path.write_text("[unclosed\n  - : {")
 
@@ -123,8 +118,13 @@ def test_a_utf8_config_survives_a_non_utf8_locale(
     # Windows' default text codec is cp1252, which cannot decode most UTF-8.
     real = tmp_path / "real.cfg"
     real.write_bytes(config.codec.dumps({connection: "café → ☕"}).encode("utf-8"))
-    context = run_context(isolated_home=str(tmp_path / "iso"))
+    attempt = tmp_path / "iso" / "config-home"
 
-    config.write(context, backend=backend, real=real)
+    config.write(
+        run_context(isolated_home=str(tmp_path / "iso")),
+        attempt,
+        backend=backend,
+        real=real,
+    )
 
-    assert config.read(context)[connection] == "café → ☕"
+    assert config.read(attempt)[connection] == "café → ☕"

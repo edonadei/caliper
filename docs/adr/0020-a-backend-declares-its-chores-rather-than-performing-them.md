@@ -19,7 +19,8 @@ The chores are now declared:
 
 | Hook | The backend says | The base does |
 |---|---|---|
-| `seed_files(ctx)` | which `(real, isolated)` files to copy | copies each one that exists, creating parents |
+| `config_home` / `config_home_env` | where its CLI keeps its config, and the variable that moves it | derives the attempt's config home, creates it, points the variable at it (amended below) |
+| `seed_files(ctx)` | which files to copy, by where they land in the isolated home | finds the user's copy of each, copies each one that exists, creating parents |
 | `cli_name` / `cli_path_env_var` / `cli_candidates()` | what the binary is called and where else to look | env-var override → `PATH` → candidates |
 | `cli_unavailable_message` / `cli_version_timeout` | what to say when the CLI is missing, and how long `--version` may take | finds the CLI, probes it, raises the message (amended below) |
 | `env_passthrough` (+ `_isolated_env`) | any extra vars, any extra `PATH` prefixes | isolated `HOME`, deduplicated `PATH`, allowlisted passthrough |
@@ -49,6 +50,8 @@ must see the verbatim copy already in place, and on macOS claude-code's Keychain
 credentials must replace a seeded `.credentials.json`, which may be stale (#180),
 rather than be overwritten by it. Reversing the two would silently break both, so the order is
 stated in `run` and in `_prepare`'s docstring rather than left to be discovered.
+
+(Amended below: the order now lives in one method, `stage_home`.)
 
 ## Costs accepted
 
@@ -131,3 +134,33 @@ resume goes in its argv. A planted call's id is now the format's prefix plus the
 turn's index and the call's, the same scheme on every backend; the prefix is
 kept per CLI (`toolu_planted` on claude-code), since the ids are opaque pairing
 keys inside one file.
+
+**Amended: the attempt's config home has one owner, and staging is one phase.**
+`config_home` was declared on the base ([0038](0038-attempts-read-the-config-home-the-operators-cli-reads.md)),
+but each backend still worked out the attempt's copy by hand: about fifteen
+sites spelled `isolated_home / ".codex"` and its siblings, every `skills_root`
+was that path plus `skills`, codex, pi and hermes each pointed their CLI's
+variable at it in `_environment`, and the user layer and planted history got it
+back as `skills_root(ctx).parent`. The base now derives it once,
+`attempt_config_home(ctx)` (docs/CONTEXT.md → Config home), and does the chores
+that follow from it:
+
+- `skills_root` is that home plus `skills`, and no backend overrides it.
+- `seed_files(ctx)` names only where each file lands; the base finds the user's
+  copy through `user_path`, the rule claude-code already used for `.claude.json`.
+- The base points `config_home_env` at the attempt's config home. claude-code
+  declares `exports_config_home = False`, the exception
+  [0038](0038-attempts-read-the-config-home-the-operators-cli-reads.md) records.
+- A `CliConfig.path` is relative to the config home, and its reads and writes
+  take that home.
+
+The order recorded above used to be written inline in `run`, so a test that
+wanted a staged home replayed part of it through private hooks and skipped the
+rest. It is now one public method on `CliHarness`, `stage_home(ctx)`: seed
+files, then the `cli_config` rewrite, then `_prepare`, then the user layer,
+then the skill neighbourhood. `run` calls it after `_ensure_ready`, and tests
+call it too. It is not on `HarnessBackend`: the run seam stays `run(ctx)`
+([0023](0023-the-run-seam-takes-one-context.md)). hermes' Windows junction
+([0037](0037-hermes-attempt-home-lives-under-the-hermes-root-on-windows.md))
+stays in hermes' `run`, around the whole attempt, because it can only be
+released after the read.
