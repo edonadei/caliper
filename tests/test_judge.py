@@ -339,7 +339,7 @@ def test_eval_judge_claude_code_invokes_claude_cli(
     # The judge must not see the account's claude.ai connectors (#129).
     assert "--strict-mcp-config" in cmd
     assert cmd[cmd.index("--model") + 1] == "claude-test"
-    assert "The assistant says hello." in cmd[2]
+    assert "The assistant says hello." in cmd[-1]
     # The harness polls communicate() while enforcing the 60s deadline.
     assert 0 < kwargs["timeout"] <= 60
 

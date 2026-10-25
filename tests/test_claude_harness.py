@@ -87,10 +87,44 @@ def test_claude_harness_accepts_runner_contract_with_extra_path(
     )
     assert cmd[:2] == ["claude", "-p"]
     # The prompt reaches the agent verbatim — no skill text, no invocation.
-    assert cmd[2] == "Review the diff"
+    assert cmd[-1] == "Review the diff"
     assert "--dangerously-skip-permissions" in cmd
     assert cmd[cmd.index("--model") + 1] == "claude-test"
     assert kwargs["env"]["PATH"].startswith(str(tmp_path / "bin"))
+
+
+def test_claude_passes_a_flag_shaped_prompt_as_the_task(monkeypatch, tmp_path) -> None:
+    """A prompt like ``--version`` is the task, not an option claude acts on."""
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    patch_cli_calls(monkeypatch, fake_run)
+
+    ClaudeCodeHarness().run(
+        run_context(prompt="--version", isolated_home=str(tmp_path / "home"))
+    )
+
+    cmd = next(cmd for cmd in calls if cmd[:2] == ["claude", "-p"])
+    assert cmd[-2:] == ["--", "--version"]
+
+
+def test_claude_judge_passes_a_flag_shaped_prompt_as_the_message(
+    monkeypatch, tmp_path
+) -> None:
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    patch_cli_calls(monkeypatch, fake_run)
+
+    ClaudeCodeHarness().run_prompt("--help", cwd=str(tmp_path))
+
+    assert calls[-1][-2:] == ["--", "--help"]
 
 
 def test_claude_harness_reports_cli_startup_crash_before_auth(
