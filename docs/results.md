@@ -139,7 +139,10 @@ twice (2s then 4s, jittered) and records the result as **one** attempt with a
 retried anything says so under its usage summary. Two failures are deliberately
 *not* retried: a timeout (nothing says the next spawn is faster) and a bare crash
 (retrying would hide a defect that reproduces). `--fail-fast` counts
-attempts, not spawns, so a streak of N can cost up to 3N spawns.
+attempts, not spawns, so a streak of N can cost up to 3N spawns. A retry reuses
+the attempt's workdir, so the saved `transcript` holds every spawn's turns in
+order: work a throttled spawn left behind is graded, and checked for cheating,
+with the rest.
 
 **A spending cap stops the run.** A cap or usage limit won't clear before the
 last attempt, so Caliper aborts instead of spending every remaining attempt

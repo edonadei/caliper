@@ -162,7 +162,9 @@ caliper run spec.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001
 | `hermes` | Hermes Agent CLI, authenticated | stdio and remote with header auth |
 
 Every backend is a CLI agent using its own auth; for API billing, configure the
-CLI with an API key. Remote OAuth MCP isn't supported on `codex` or `hermes`. An
+CLI with an API key. To run `codex` on a ChatGPT plan, run `caliper login
+chatgpt` once: attempts and the judge then get a short-lived token instead of a
+copy of `~/.codex/auth.json`, which parallel attempts can break by refreshing. Remote OAuth MCP isn't supported on `codex` or `hermes`. An
 `mcp:` spec on a backend that can't honour it is a hard error.
 
 `hermes` is stateful, so Caliper strips it to a neutral agent per attempt:
