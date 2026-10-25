@@ -5,6 +5,14 @@
 > guarded with `answered()`. The harness reads it once, from what the CLI wrote,
 > and carries it as `AttemptResult.refusal`; the retry seam acts on that field.
 
+> **Amended:** the transcript is no longer the last invocation's alone. Since
+> 0030 an invocation that conversed can be throttled, and a retry reuses the
+> attempt's workdir, so its work survives into the attempt. The merged
+> transcript is every invocation's turns in order, a salvaged one's excepted
+> (that turn is the CLI talking). Otherwise a forbidden read before the 429
+> left no evidence while its result was graded. Output, exit code and resolved
+> model still come from the last invocation.
+
 An **attempt** is one measured shot at the task; an **invocation** is one spawn
 of the agent. They used to be the same object. They are not, because an
 invocation the provider refuses — a 429, an overload, a 503 — produces no
