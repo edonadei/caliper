@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import json
-import os
 import uuid
 from collections.abc import Callable
-from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 
@@ -18,10 +15,10 @@ from caliper.harness.base import (
     RunContext,
     stream_events,
 )
+from caliper.harness.history import PlantedSkill, Session, SessionFormat
 from caliper.harness.refusal import AUTH_MARKERS, ConfigSignal
 from caliper.schema.results import TokenUsage
-from caliper.schema.spec import PlantedTurn
-from caliper.skills import skill_body
+from caliper.schema.spec import PlantedShellCall
 
 _PROVIDER_DIAGNOSIS = (
     "pi cannot run with the current provider/credential "
@@ -116,7 +113,7 @@ class PiHarness(CliHarness):
         # The prompt becomes the next user turn after the planted ones. The JSON
         # stream does not replay them, so they never reach the transcript.
         session = (
-            ["--session", str(self._write_session(ctx))]
+            ["--session", str(PI_SESSION.plant(ctx, self.skills_root(ctx)).path)]
             if ctx.history
             else ["--no-session"]
         )
@@ -140,46 +137,6 @@ class PiHarness(CliHarness):
         # mode pi otherwise blocks reading stdin (e.g. for a trust confirmation)
         # and hangs until timeout.
         return cmd, None, None
-
-    def _write_session(self, ctx: RunContext) -> Path:
-        """Write the planted ``ctx.history`` as a session pi can resume; return its path.
-
-        Per attempt, in the attempt's own agent dir (docs/adr/0036), and under
-        ``sessions/``: pi 0.87.1 moves a session file it finds in the agent dir's
-        root. pi appends the resumed turns to this same file.
-        """
-        now = datetime.now(timezone.utc)
-        session_id = str(uuid.uuid4())
-        sessions = self._agent_dir(ctx) / "sessions"
-        path = sessions / f"{now.strftime('%Y-%m-%dT%H-%M-%S')}_{session_id}.jsonl"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        lines = _session_lines(
-            ctx.history or [],
-            session_id=session_id,
-            cwd=os.path.realpath(ctx.workdir),
-            user_turn=lambda turn: self._user_turn(ctx, turn),
-        )
-        path.write_text("".join(json.dumps(line) + "\n" for line in lines))
-        return path
-
-    def _user_turn(self, ctx: RunContext, turn: PlantedTurn) -> str:
-        """A planted user turn as pi would have stored it.
-
-        ``/name`` of an installed skill is what pi expands ``/skill:name`` to,
-        read from the installed copy so an edit to the skill reaches the next
-        run. Anything else, including the command of an ablated skill, is the
-        text as typed.
-        """
-        skill = self.planted_skill(ctx, turn)
-        if skill is None:
-            return turn.user or ""
-        name, args, skill_md = skill
-        block = (
-            f'<skill name="{name}" location="{skill_md}">\n'
-            f"References are relative to {skill_md.parent}.\n\n"
-            f"{skill_body(skill_md.read_text())}\n</skill>"
-        )
-        return f"{block}\n\n{args}" if args else block
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
         return self._isolated_env(
@@ -324,56 +281,55 @@ class PiHarness(CliHarness):
         return None
 
 
-def _session_lines(
-    history: list[PlantedTurn],
-    *,
-    session_id: str,
-    cwd: str,
-    user_turn: Callable[[PlantedTurn], str],
-) -> list[dict]:
-    """``history`` as pi session lines: the ``session`` header, then one message per line.
+def _text(value: str) -> dict:
+    return {"type": "text", "text": value}
 
-    Only the fields a resume was seen to need (0.87.1). Messages chain by
-    ``id``/``parentId``. A planted assistant turn names no real model: pi
-    resumes on the attempt's own, whatever a turn records. A planted shell
-    call is a ``bash`` tool call, answered by the ``toolResult`` with its id;
-    ``user_turn`` writes a user turn's text.
+
+# A planted assistant turn's usage: it cost the attempt nothing.
+_NO_USAGE = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0}
+
+
+class _PiSession(SessionFormat):
+    """A pi session: the ``session`` header, then one message per line.
+
+    Fields as a resume was seen to need them (0.87.1). Messages chain by
+    ``id``/``parentId``. The file goes under the agent dir's ``sessions/``:
+    pi moves a session file it finds in the agent dir's root, and appends the
+    resumed turns to this same file. A planted assistant turn names no real
+    model: pi resumes on the attempt's own, whatever a turn records. A planted
+    shell call is a ``bash`` tool call, answered by the ``toolResult`` with its
+    id.
     """
-    now = datetime.now(timezone.utc)
-    timestamp = now.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-    millis = int(now.timestamp() * 1000)
-    header = {
-        "type": "session",
-        "version": 3,
-        "id": session_id,
-        "timestamp": timestamp,
-        "cwd": cwd,
-    }
-    entries: list[dict] = []
-    usage = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0}
 
-    def add(message: dict) -> None:
-        entries.append(
-            {
-                "type": "message",
-                "id": uuid.uuid4().hex[:8],
-                "parentId": entries[-1]["id"] if entries else None,
-                "timestamp": timestamp,
-                "message": {**message, "timestamp": millis},
-            }
+    def path(self, session: Session) -> Path:
+        stamp = session.now.strftime("%Y-%m-%dT%H-%M-%S")
+        return session.config_dir / "sessions" / f"{stamp}_{session.id}.jsonl"
+
+    def header(self, session: Session) -> dict:
+        return {
+            "type": "session",
+            "version": 3,
+            "id": session.id,
+            "timestamp": session.timestamp,
+            "cwd": session.cwd,
+        }
+
+    def user(self, text: str) -> list[dict]:
+        return [{"role": "user", "content": [_text(text)]}]
+
+    def skill(self, skill: PlantedSkill) -> list[dict]:
+        """What pi expands ``/skill:name`` to."""
+        block = (
+            f'<skill name="{skill.name}" location="{skill.skill_md}">\n'
+            f"References are relative to {skill.skill_md.parent}.\n\n"
+            f"{skill.body}\n</skill>"
         )
+        return self.user(f"{block}\n\n{skill.args}" if skill.args else block)
 
-    def text(value: str) -> dict:
-        return {"type": "text", "text": value}
-
-    for turn in history:
-        if turn.user is not None:
-            add({"role": "user", "content": [text(user_turn(turn))]})
-            continue
-        calls = [
-            (f"call_planted_{len(entries)}_{i}", c) for i, c in enumerate(turn.shell)
-        ]
-        content = [text(turn.assistant)] if turn.assistant else []
+    def assistant(
+        self, text: str | None, calls: list[tuple[str, PlantedShellCall]]
+    ) -> list[dict]:
+        content = [_text(text)] if text else []
         content += [
             {
                 "type": "toolCall",
@@ -383,28 +339,40 @@ def _session_lines(
             }
             for call_id, call in calls
         ]
-        add(
-            {
-                "role": "assistant",
-                "content": content,
-                "api": "caliper",
-                "provider": "caliper",
-                "model": "planted",
-                "usage": usage,
-                "stopReason": "toolUse" if calls else "stop",
-            }
-        )
-        for call_id, call in calls:
-            add(
+        said = {
+            "role": "assistant",
+            "content": content,
+            "api": "caliper",
+            "provider": "caliper",
+            "model": "planted",
+            "usage": _NO_USAGE,
+            "stopReason": "toolUse" if calls else "stop",
+        }
+        return [
+            said,
+            *(
                 {
                     "role": "toolResult",
                     "toolCallId": call_id,
                     "toolName": "bash",
-                    "content": [text(call.output)],
+                    "content": [_text(call.output)],
                     "isError": False,
                 }
-            )
-    return [header, *entries]
+                for call_id, call in calls
+            ),
+        ]
+
+    def envelope(self, message: dict, previous: dict | None, session: Session) -> dict:
+        return {
+            "type": "message",
+            "id": uuid.uuid4().hex[:8],
+            "parentId": previous["id"] if previous else None,
+            "timestamp": session.timestamp,
+            "message": {**message, "timestamp": int(session.now.timestamp() * 1000)},
+        }
+
+
+PI_SESSION = _PiSession()
 
 
 def _usage(usages: list[dict]) -> TokenUsage:
