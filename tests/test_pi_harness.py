@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 from conftest import patch_cli_calls, run_context
 
 from caliper.harness.base import HarnessConfigurationError, LoginRequired
-from caliper.harness.pi import PiHarness
+from caliper.harness.pi import PiHarness, _windows_bash
 from caliper.harness.refusal import RefusalKind
 from caliper.skills import resolve_skills
 
@@ -448,6 +450,200 @@ def test_pi_seeds_models_json_so_custom_providers_resolve(
 
     seeded = tmp_path / "home" / ".pi" / "agent" / "models.json"
     assert seeded.read_text() == '{"providers": {"mock": {}}}'
+
+
+_real_popen = subprocess.Popen
+_real_which = shutil.which
+
+
+def _host_run(cmd, **kwargs) -> subprocess.CompletedProcess:
+    """Really run ``cmd``: ``patch_cli_calls`` replaces ``Popen`` for everyone."""
+    with _real_popen(
+        cmd,
+        shell=kwargs.get("shell", False),
+        stdin=subprocess.PIPE if "input" in kwargs else subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors=kwargs.get("errors"),
+    ) as proc:
+        out, err = proc.communicate(kwargs.get("input"), kwargs.get("timeout"))
+    return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
+
+
+def _attempt_models(monkeypatch, tmp_path, models: dict) -> dict:
+    """Run an attempt with ``models`` as the user's models.json; return the seeded one."""
+    return json.loads(_attempt_models_text(monkeypatch, tmp_path, json.dumps(models)))
+
+
+def _attempt_models_text(monkeypatch, tmp_path, text: str) -> str:
+    """Run an attempt with ``text`` as the user's models.json; return the seeded one.
+
+    The real home is ``tmp_path / "real"`` for this process and any child it
+    spawns, so a home-relative credential command can only resolve on the host.
+    """
+    real_home = tmp_path / "real"
+    agent = real_home / ".pi" / "agent"
+    agent.mkdir(parents=True, exist_ok=True)
+    (agent / "models.json").write_text(text, encoding="utf-8")
+    monkeypatch.setattr(Path, "home", lambda: real_home)
+    monkeypatch.setenv("HOME", str(real_home))
+    monkeypatch.setenv("USERPROFILE", str(real_home))
+
+    def fake_run(cmd, **kwargs):
+        if isinstance(cmd, str) or cmd[0] != "pi":
+            return _host_run(cmd, **kwargs)  # a credential command, on the host
+        if cmd[1:] == ["--version"]:
+            return _version(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    # Only pi is faked: the host's bash must still be found for a credential.
+    monkeypatch.setattr(
+        "caliper.harness.base.shutil.which",
+        lambda name, **kw: "pi" if name == "pi" else _real_which(name, **kw),
+    )
+    patch_cli_calls(monkeypatch, fake_run)
+    PiHarness().run(run_context(isolated_home=str(tmp_path / "home"), timeout=30))
+    seeded = tmp_path / "home" / ".pi" / "agent" / "models.json"
+    return seeded.read_text(encoding="utf-8")
+
+
+def _python(code: str) -> str:
+    """A shell command running ``code`` that sh, bash and cmd.exe all parse alike."""
+    return f'"{Path(sys.executable).as_posix()}" -c "{code}"'
+
+
+def test_pi_resolves_a_home_relative_credential_command_on_the_host(
+    monkeypatch, tmp_path
+) -> None:
+    # pi runs `!command` keys at request time, and inside the attempt HOME is
+    # the attempt's own empty home, so `!cat ~/token` would read nothing (#219).
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / "token").write_text("s3cret\n")
+    read_token = _python(
+        "import pathlib; print((pathlib.Path.home() / 'token').read_text())"
+    )
+    models = {"providers": {"mine": {"apiKey": "!" + read_token}}}
+
+    seeded = _attempt_models(monkeypatch, tmp_path, models)
+
+    assert seeded["providers"]["mine"]["apiKey"] == "s3cret"
+
+
+def test_pi_resolves_env_credentials_the_attempt_does_not_inherit(
+    monkeypatch, tmp_path
+) -> None:
+    # The attempt env passes through only a few variables, so `$MY_TOKEN` in a
+    # key or header would resolve to nothing there (#219).
+    monkeypatch.setenv("MY_TOKEN", "tok")
+    monkeypatch.setenv("MY_ORG", "acme")
+    models = {
+        "providers": {
+            "mine": {
+                "apiKey": "$MY_TOKEN",
+                "headers": {"Authorization": "Bearer ${MY_TOKEN}"},
+                "models": [{"id": "m", "headers": {"X-Org": "org-$MY_ORG"}}],
+                "modelOverrides": {"m": {"headers": {"X-Team": "${MY_ORG}/core"}}},
+            }
+        }
+    }
+
+    provider = _attempt_models(monkeypatch, tmp_path, models)["providers"]["mine"]
+
+    assert provider["apiKey"] == "tok"
+    assert provider["headers"] == {"Authorization": "Bearer tok"}
+    assert provider["models"][0]["headers"] == {"X-Org": "org-acme"}
+    assert provider["modelOverrides"]["m"]["headers"] == {"X-Team": "acme/core"}
+
+
+def test_pi_writes_resolved_credentials_so_pi_reads_them_literally(
+    monkeypatch, tmp_path
+) -> None:
+    # pi still parses what caliper writes: a resolved `$` must be `$$` and a
+    # leading `!` must be `$!`, or pi would expand or execute the secret itself.
+    monkeypatch.setenv("DOLLAR_KEY", "p$ss$WORD")
+    models = {
+        "providers": {
+            "dollar": {"apiKey": "$DOLLAR_KEY"},
+            "bang": {"apiKey": "!" + _python("print('!x')")},
+        }
+    }
+
+    providers = _attempt_models(monkeypatch, tmp_path, models)["providers"]
+
+    assert providers["dollar"]["apiKey"] == "p$$ss$$WORD"
+    assert providers["bang"]["apiKey"] == "$!x"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" and _windows_bash() is None,
+    reason="pi runs credential commands in bash on Windows; no bash here",
+)
+def test_pi_runs_credential_commands_in_the_shell_pi_uses(
+    monkeypatch, tmp_path
+) -> None:
+    # pi runs `!command` with sh on POSIX and with bash on Windows, never
+    # cmd.exe, so arithmetic expansion works in both and must work here too.
+    models = {"providers": {"mine": {"apiKey": "!echo $((40 + 2))"}}}
+
+    seeded = _attempt_models(monkeypatch, tmp_path, models)
+
+    assert seeded["providers"]["mine"]["apiKey"] == "42"
+
+
+def test_pi_leaves_credentials_the_host_cannot_resolve_as_written(
+    monkeypatch, tmp_path
+) -> None:
+    # Unresolvable on the host means pi fails in the attempt with its own
+    # error, naming the variable or command, as it would by hand.
+    monkeypatch.delenv("UNSET_TOKEN", raising=False)
+    models = {
+        "providers": {
+            "unset": {"apiKey": "$UNSET_TOKEN"},
+            "failing": {"apiKey": "!" + _python("raise SystemExit(1)")},
+            "literal": {"apiKey": "sk-abc$"},
+        }
+    }
+
+    providers = _attempt_models(monkeypatch, tmp_path, models)["providers"]
+
+    assert providers == models["providers"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    ['{"providers": {"a": {"apiKey": "sk-1"}}}', "{not json", '{"providers": []}'],
+)
+def test_pi_seeds_a_models_json_with_nothing_to_resolve_untouched(
+    monkeypatch, tmp_path, text
+) -> None:
+    # A malformed file is pi's to report, as it would by hand, not a crash here.
+    assert _attempt_models_text(monkeypatch, tmp_path, text) == text
+
+
+def test_pi_resolves_credentials_in_a_models_json_with_a_bom(
+    monkeypatch, tmp_path
+) -> None:
+    # pi strips a UTF-8 BOM before parsing, and Windows editors write one.
+    monkeypatch.setenv("MY_TOKEN", "tok")
+    text = "﻿" + json.dumps({"providers": {"mine": {"apiKey": "$MY_TOKEN"}}})
+
+    seeded = json.loads(_attempt_models_text(monkeypatch, tmp_path, text))
+
+    assert seeded["providers"]["mine"]["apiKey"] == "tok"
+
+
+def test_pi_reads_a_credential_command_that_prints_non_utf8_without_crashing(
+    monkeypatch, tmp_path
+) -> None:
+    # pi decodes the output leniently; a stray byte must not end the attempt.
+    write_byte = _python("import sys; sys.stdout.buffer.write(bytes([255]))")
+    models = {"providers": {"mine": {"apiKey": "!" + write_byte}}}
+
+    seeded = _attempt_models(monkeypatch, tmp_path, models)
+
+    assert seeded["providers"]["mine"]["apiKey"] == "�"
 
 
 def test_pi_declares_mcp_unsupported_by_design() -> None:
