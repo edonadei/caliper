@@ -32,7 +32,8 @@ _THROTTLE_SIGNALS = re.compile(
 # No: the account is out of budget, and every remaining attempt of the run would
 # meet the same wall. Aborts the run rather than being retried or repeated.
 _CAP_SIGNALS = re.compile(
-    r"spending cap|quota (?:exceeded|reached)|usage limit",
+    # ``usage_limit`` too: a ChatGPT plan's ``subscription_sharing_usage_limit_exceeded``.
+    r"spending cap|quota (?:exceeded|reached)|usage[ _]limit",
     re.IGNORECASE,
 )
 
