@@ -280,7 +280,7 @@ different setup, so otherwise part of the difference is the setups.
 |---|---|
 | **Spec** | A `.eval.yaml` file that describes the skills and tasks to run |
 | **Backend** | The CLI agent that runs the skill (`claude-code`, `codex`, `pi`, `hermes`) |
-| **Judge** | What decides pass/fail: an LLM reading the transcript (`expect:`), Python assertions (`assert:`), or both |
+| **Judge** | What decides pass/fail: an LLM reading the request and the transcript (`expect:`), Python assertions (`assert:`), or both |
 | **Success rate** | The primary score: run k times, measure how often a single run works |
 | **Neighbourhood** | The set of skills a spec declares (`skills:`). All installed, none preloaded, and all assertable. This is the competition your `description` has to win |
 | **Activation** | The agent *choosing* to load a skill. Asserted with `activates:` and scored on its own scoreboard, separate from the success rate |
@@ -306,7 +306,7 @@ caliper run my-skill.eval.yaml --model pi --judge-model claude-code
 | Backend | Requires |
 |---|---|
 | `claude-code` | Claude Code CLI installed and authenticated |
-| `codex` | Codex CLI (`npm install -g @openai/codex`), then `codex login` |
+| `codex` | Codex CLI (`npm install -g @openai/codex`), then `codex login`. For a ChatGPT plan, also run `caliper login chatgpt` ([why](docs/backends.md#running-on-your-chatgpt-plan)) |
 | `pi` | pi CLI (`npm install -g @earendil-works/pi-coding-agent`), authenticated |
 | `hermes` | Hermes Agent CLI (Nous Research), authenticated, with a default model set |
 
@@ -373,6 +373,8 @@ The full format, with every field, is in
 | `caliper list [spec]` | List specs and saved runs. Per spec, each row shows its **Run** ID and what that run **ablated**, which is how you find the run to diff against |
 | `caliper report <spec-or-result>` | Re-render saved results |
 | `caliper compare <A> <B>` | Diff two saved runs of the same eval, task by task. Each side is a spec name (that spec's **latest** run) or a results-JSON path; they must be two distinct runs |
+| `caliper login chatgpt` | Sign Caliper in to ChatGPT, so `codex` attempts and the judge run on your plan without touching `~/.codex/auth.json` ([details](docs/backends.md#running-on-your-chatgpt-plan)) |
+| `caliper logout chatgpt` | Revoke that login and go back to the Codex CLI's own |
 
 Results are saved under the nearest `.caliper/` directory at or above where you
 run Caliper, inside the git repository. See

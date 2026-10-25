@@ -115,7 +115,30 @@ def test_judge_input_can_be_rebuilt_from_the_saved_transcript(attempt_workdir) -
     )
 
     saved = [TranscriptTurn(**asdict(t)) for t in turns]
-    assert backend.prompts == [render_judge_prompt("writes a.txt", saved)]
+    assert backend.prompts == [render_judge_prompt("writes a.txt", "p", saved)]
+
+
+def test_the_judge_reads_the_request_it_grades_against(attempt_workdir) -> None:
+    """ "Answers the question" can't be graded without the question.
+
+    The request reaches the judge from the task, not the transcript: no backend
+    but hermes records the user turn, so reading it there would make the
+    judge's input depend on the backend.
+    """
+    backend = _verdict(True)
+
+    EvalJudge(backend="codex", harness=backend).evaluate(
+        task=_task(
+            prompt="What is the capital of France?",
+            expect="Answers the user question correctly.",
+        ),
+        transcript=[ConversationTurn(role="assistant", content="Paris")],
+        workdir=attempt_workdir,
+    )
+
+    assert (
+        "<request>\nWhat is the capital of France?\n</request>" in (backend.prompts[0])
+    )
 
 
 def test_prompt_version_moves_when_transcript_formatting_changes(monkeypatch) -> None:
@@ -319,7 +342,7 @@ def test_eval_judge_claude_code_invokes_claude_cli(
     # The judge must not see the account's claude.ai connectors (#129).
     assert "--strict-mcp-config" in cmd
     assert cmd[cmd.index("--model") + 1] == "claude-test"
-    assert "The assistant says hello." in cmd[2]
+    assert "The assistant says hello." in cmd[-1]
     # The harness polls communicate() while enforcing the 60s deadline.
     assert 0 < kwargs["timeout"] <= 60
 
