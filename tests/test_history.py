@@ -608,7 +608,7 @@ def test_claude_code_resumes_the_session_it_planted(monkeypatch, tmp_path) -> No
     seen = _spawn(monkeypatch, tmp_path, ClaudeCodeHarness(), _TWO_TURNS)
 
     cmd = seen["cmd"]
-    assert cmd[cmd.index("-p") + 1] == "Finish it."
+    assert cmd[-1] == "Finish it."
     session_id = cmd[cmd.index("--resume") + 1]
     projects = tmp_path / "home" / ".claude" / "projects"
     assert len(list(projects.glob(f"*/{session_id}.jsonl"))) == 1
@@ -696,7 +696,7 @@ def test_the_judge_sees_the_planted_turns_as_prior_context(attempt_workdir) -> N
 
 def test_the_judge_prompt_has_no_prior_context_without_a_history() -> None:
 
-    assert "<prior_context>" not in render_judge_prompt("x", [])
+    assert "<prior_context>" not in render_judge_prompt("x", "p", [])
 
 
 def test_the_judge_gets_the_turns_the_attempt_resumed_from(tmp_path) -> None:

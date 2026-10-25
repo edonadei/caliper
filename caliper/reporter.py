@@ -529,8 +529,10 @@ class _MarksColumn(ProgressColumn):
 def make_progress(tasks: list[str], k: int) -> tuple[Progress, dict[str, TaskID]]:
     progress = Progress(
         SpinnerColumn(finished_text=" "),
+        # A task name is the spec author's text, not markup: `[/]` is valid.
         TextColumn(
             "{task.description}",
+            markup=False,
             justify="left",
             table_column=Column(width=40, overflow="ellipsis", no_wrap=True),
         ),

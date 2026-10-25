@@ -7,6 +7,7 @@ and docs/CONTEXT.md → Skill source, Skill drift.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -111,9 +112,23 @@ def test_path_must_point_at_a_skill_md():
         _spec([{"repo": "owner/name", "path": "skills/tdd"}])
 
 
-def test_path_may_not_escape_the_repo():
+@pytest.mark.parametrize(
+    "path",
+    [
+        "../../etc/SKILL.md",
+        "/etc/SKILL.md",
+        # Windows reads these as leaving the checkout, whatever POSIX makes of them.
+        "..\\../SKILL.md",
+        "C:\\outside/SKILL.md",
+        "C:/outside/SKILL.md",
+        "C:SKILL.md",
+        "\\\\server\\share\\SKILL.md",
+        "skills\\tdd\\SKILL.md",
+    ],
+)
+def test_path_may_not_escape_the_repo(path):
     with pytest.raises(ValidationError, match="inside the repo"):
-        _spec([{"repo": "owner/name", "path": "../../etc/SKILL.md"}])
+        _spec([{"repo": "owner/name", "path": path}])
 
 
 def test_repo_is_required():
@@ -150,6 +165,21 @@ def test_fetch_honours_the_path_field(tmp_path: Path, origin: Path):
     )
     assert fetched is not None
     assert "name: pr-review" in fetched.path.read_text()
+
+
+def test_fetch_refuses_a_path_that_resolves_outside_the_checkout(
+    tmp_path: Path, origin: Path
+):
+    """The schema is the first line; the fetch checks where the path landed."""
+    fetcher = SkillFetcher(cache_dir=tmp_path / "cache")
+    checkout = fetcher.materialize(GitSkillSource(repo=str(origin))).checkout
+    outside = _write_skill(tmp_path / "outside", "host")
+    escape = os.path.relpath(outside, checkout)
+    # Past the validator, as Windows path rules once let one through.
+    src = GitSkillSource.model_construct(repo=str(origin), ref=None, path=escape)
+
+    with pytest.raises(SkillFetchError, match="inside the repo"):
+        fetcher.materialize(src)
 
 
 def test_a_pinned_sha_is_served_from_cache_without_network(

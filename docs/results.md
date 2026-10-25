@@ -349,13 +349,17 @@ and any script the judge wrote.
 
 - `TaskResult.expect` is the task's `expect:` as it read when the run was
   judged, so the judge's input survives a later edit to the spec.
+- `TaskResult.prompt` is the task's `prompt:` as it read when the run ran: the
+  request the judge graded the transcript against. It's `null` for runs saved
+  before it was recorded.
 - `RunMeta.judge_prompt_version` names how the judge renders its prompt: its
-  templates and its transcript formatting. With `expect` and an attempt's
-  `transcript`, `caliper.judge.eval_judge.render_judge_prompt(expect, transcript)` rebuilds
+  templates and its transcript formatting. With `expect`, `prompt` and an
+  attempt's `transcript`,
+  `caliper.judge.eval_judge.render_judge_prompt(expect, prompt, transcript)` rebuilds
   the exact prompt the judge was sent, as long as the version matches the
   installed `JUDGE_PROMPT_VERSION`. It's `null` when no task had an `expect:`.
   A task with `history:` also showed the judge its planted turns as prior
-  context. The run doesn't save them, so pass the task's history as the third
+  context. The run doesn't save them, so pass the task's history as the fourth
   argument, read from its file, to rebuild that prompt.
 - `AttemptRecord.autorater_script` is the Python the judge wrote when it chose
   to check with a script instead of giving a direct verdict. It's saved whether

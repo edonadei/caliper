@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
 import uuid
 from collections.abc import Callable
 from functools import partial
@@ -86,8 +92,8 @@ class PiHarness(CliHarness):
         # differs from codex (which strips its config default). models.json
         # defines custom providers (Ollama, proxies, any compatible baseUrl), so
         # a model that resolves by hand must resolve in the attempt too (#178).
-        # Its `!command` and `$NAME` credentials run in the isolated env, so
-        # home-relative or env-based ones don't resolve (docs/backends.md → pi).
+        # Its `!command` and `$NAME` credentials are resolved on the host in
+        # `_prepare`, once the copy is in place (docs/adr/0040).
         agent_dir = self.attempt_config_home(ctx)
         return [
             agent_dir / name for name in ("auth.json", "settings.json", "models.json")
@@ -119,11 +125,15 @@ class PiHarness(CliHarness):
         # No --skill: that flag preloads, and pi's own --no-skills exists
         # precisely because discovery is its default. The neighbourhood is
         # installed under the agent dir and pi finds it (docs/adr/0013).
-        cmd.append(ctx.prompt)
+        # `--` ends option parsing, so a prompt like `--version` is the task.
+        cmd += ["--", ctx.prompt]
         # stdin is left as None so the template closes it (DEVNULL): in --print
         # mode pi otherwise blocks reading stdin (e.g. for a trust confirmation)
         # and hangs until timeout.
         return cmd, None, None
+
+    def _prepare(self, ctx: RunContext) -> None:
+        _resolve_credentials(self.attempt_config_home(ctx) / "models.json")
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
         return self._isolated_env(ctx)
@@ -220,7 +230,7 @@ class PiHarness(CliHarness):
         cmd = [pi, "--print", "--mode", "json", "--no-session", "--approve"]
         if model:
             cmd += ["--model", model]
-        cmd.append(prompt)
+        cmd += ["--", prompt]
         # stdin None → the template closes it (DEVNULL): in --print mode pi
         # otherwise blocks reading stdin and hangs until timeout.
         return PromptCall(cmd)
@@ -264,6 +274,153 @@ class PiHarness(CliHarness):
         if "provider" in lowered and "api key" in lowered:
             return _PROVIDER_DIAGNOSIS.replace("{text}", cli_text)
         return None
+
+
+def _resolve_credentials(models_json: Path) -> None:
+    """Resolve the seeded models.json's credentials on the host, in place.
+
+    pi resolves ``!command`` and ``$NAME`` values in a provider's ``apiKey`` and
+    in every ``headers`` table when it makes a request, which in an attempt is
+    inside the isolated env. Resolving them here gives the attempt the values
+    the operator's own pi would use (docs/adr/0040). Anything the host can't
+    resolve, and any file pi itself would reject, is left as written.
+    """
+    try:
+        # utf-8-sig: pi strips a BOM before parsing, and Windows editors write one.
+        models = json.loads(models_json.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return
+    changed = False
+    for provider in _dict_members(_member(models, "providers")):
+        changed |= _resolve_field(provider, "apiKey")
+        tables = [provider, *_dict_members(_member(provider, "models"))]
+        tables += _dict_members(_member(provider, "modelOverrides"))
+        for headers in [_member(table, "headers") for table in tables]:
+            if isinstance(headers, dict):
+                for name in list(headers):
+                    changed |= _resolve_field(headers, name)
+    if changed:
+        models_json.write_text(json.dumps(models, indent=2), encoding="utf-8")
+        # It now holds resolved secrets (docs/adr/0040).
+        models_json.chmod(0o600)
+
+
+def _member(table: object, key: str) -> object:
+    """``table[key]`` when ``table`` is a JSON object, else ``None``."""
+    return table.get(key) if isinstance(table, dict) else None
+
+
+def _dict_members(container: object) -> list[dict]:
+    """The objects in a JSON array, or among a JSON object's values."""
+    if isinstance(container, dict):
+        container = list(container.values())
+    if not isinstance(container, list):
+        return []
+    return [value for value in container if isinstance(value, dict)]
+
+
+def _resolve_field(table: dict, name: str) -> bool:
+    value = table.get(name)
+    if not isinstance(value, str):
+        return False
+    if value.startswith("!"):
+        resolved = _run_credential_command(value[1:])
+    else:
+        resolved = _interpolate(value)
+    if resolved is None:
+        return False
+    # pi parses the written value again, so it must read back literally.
+    escaped = resolved.replace("$", "$$")
+    table[name] = "$" + escaped if escaped.startswith("!") else escaped
+    return True
+
+
+_ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _interpolate(value: str) -> str | None:
+    """``value`` with its ``$NAME`` / ``${NAME}`` references filled from the host.
+
+    Parsed the way pi parses it, ``$$`` and ``$!`` escapes included. ``None``
+    when there is no reference (a literal is left exactly as written) or when a
+    referenced variable is unset or empty, since pi treats both as missing.
+    """
+    out = []
+    i = 0
+    referenced = False
+    while (dollar := value.find("$", i)) >= 0:
+        out.append(value[i:dollar])
+        rest = value[dollar + 1 :]
+        if rest[:1] in ("$", "!"):
+            out.append(rest[0])
+            i = dollar + 2
+            continue
+        if rest.startswith("{") and (end := rest.find("}")) >= 0:
+            name, i = rest[1:end], dollar + end + 2
+            if not _ENV_NAME.fullmatch(name):
+                out.append(value[dollar:i])
+                continue
+        elif match := _ENV_NAME.match(rest):
+            name, i = match[0], dollar + 1 + match.end()
+        else:
+            out.append("$")
+            i = dollar + 1
+            continue
+        if not os.environ.get(name):
+            return None
+        out.append(os.environ[name])
+        referenced = True
+    out.append(value[i:])
+    return "".join(out) if referenced else None
+
+
+def _run_credential_command(command: str) -> str | None:
+    """Run a ``!command`` the way pi does: its stdout, trimmed, if it succeeds.
+
+    pi uses ``sh`` on POSIX. On Windows it prefers Git Bash, then a
+    ``bash.exe`` on ``PATH`` (legacy WSL bash reads the command from stdin),
+    and only then the default shell, which it also falls back to when bash
+    cannot start. Same 10s limit as pi, and the same lenient UTF-8 decoding.
+    """
+    bash = _windows_bash() if sys.platform == "win32" else None
+    if bash is not None:
+        legacy_wsl = re.fullmatch(
+            r"[a-z]:\\windows\\(system32|sysnative)\\bash\.exe", bash.lower()
+        )
+        try:
+            if legacy_wsl:
+                return _command_output([bash, "-s"], input=command)
+            return _command_output([bash, "-c", command], stdin=subprocess.DEVNULL)
+        except OSError:
+            pass
+    try:
+        return _command_output(command, shell=True, stdin=subprocess.DEVNULL)
+    except OSError:
+        return None
+
+
+def _command_output(cmd: str | list[str], **how: object) -> str | None:
+    """Trimmed stdout of ``cmd`` when it exits 0 and prints something, else ``None``."""
+    try:
+        proc = subprocess.run(
+            cmd,
+            **how,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    return (proc.stdout.strip() or None) if proc.returncode == 0 else None
+
+
+def _windows_bash() -> str | None:
+    for root in (os.environ.get("PROGRAMFILES"), os.environ.get("PROGRAMFILES(X86)")):
+        if root and (candidate := Path(root) / "Git" / "bin" / "bash.exe").is_file():
+            return str(candidate)
+    return shutil.which("bash.exe")
 
 
 def _text(value: str) -> dict:

@@ -277,7 +277,6 @@ class ClaudeCodeHarness(CliHarness):
         cmd = [
             "claude",
             "-p",
-            ctx.prompt,
             "--output-format",
             "stream-json",
             "--verbose",
@@ -305,6 +304,9 @@ class ClaudeCodeHarness(CliHarness):
             planted = CLAUDE_SESSION.plant(ctx, home, self.skills_root(ctx))
             cmd += ["--resume", planted.id]
 
+        # Last, behind `--`, so a prompt like `--version` is the task rather
+        # than an option claude acts on.
+        cmd += ["--", ctx.prompt]
         return cmd, None, lambda: mcp_config.unlink(missing_ok=True)
 
     def _materialize_mcp_config(self, ctx: RunContext) -> Path:
@@ -463,9 +465,10 @@ class ClaudeCodeHarness(CliHarness):
         # --strict-mcp-config with no --mcp-config: the judge sees no MCP
         # servers, so the account's claude.ai connectors neither reach it nor
         # get mistaken for the attempt's tools (docs/adr/0026).
-        cmd = ["claude", "-p", prompt, "--output-format", "json", "--strict-mcp-config"]
+        cmd = ["claude", "-p", "--output-format", "json", "--strict-mcp-config"]
         if model:
             cmd += ["--model", model]
+        cmd += ["--", prompt]
         return PromptCall(cmd)
 
     def spawned_cli(self, *, prompt: bool = False) -> str | None:
