@@ -231,6 +231,63 @@ def test_claude_plugins_use_private_installations(
         assert (iso / ".claude" / suffix).is_file()
 
 
+def test_claude_plugin_metadata_is_read_as_utf8(monkeypatch, tmp_path):
+    # "Ł" encodes to C5 81, and 0x81 is undefined in cp1252, Windows' default.
+    home = tmp_path / "real"
+    real = home / ".claude"
+    plugins = real / "plugins"
+    plugin = plugins / "cache" / "market" / "review" / "1.0"
+    (plugin / ".claude-plugin").mkdir(parents=True)
+    (plugin / ".claude-plugin/plugin.json").write_text(
+        json.dumps({"name": "review", "description": "Łódź"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (plugin / "skills/review").mkdir(parents=True)
+    (plugin / "skills/review/SKILL.md").write_text(
+        "---\nname: review\ndescription: Łódź\n---\nReview code", encoding="utf-8"
+    )
+    (real / "settings.json").write_text(
+        json.dumps({"enabledPlugins": {"review@market": True}})
+    )
+    (plugins / "installed_plugins.json").write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "plugins": {
+                    "review@market": [
+                        {
+                            "scope": "user",
+                            "installPath": str(plugin),
+                            "version": "Łódź",
+                        }
+                    ],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    # Path.home() on a Windows host reads USERPROFILE, not HOME.
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setattr(
+        ClaudeCodeHarness, "_seed_credentials_from_keychain", lambda *a: None
+    )
+    patch_cli_calls(
+        monkeypatch,
+        lambda cmd, **kwargs: subprocess.CompletedProcess(
+            cmd,
+            0,
+            stdout=json.dumps({"type": "system", "subtype": "init", "mcp_servers": []}),
+            stderr="",
+        ),
+    )
+    result = ClaudeCodeHarness().run(
+        run_context(isolated_home=str(tmp_path / "iso"), user_customizations=True)
+    )
+    assert "review:review" in result.user_skill_names
+
+
 @pytest.mark.parametrize(
     "frontmatter", ["description: Review", "name: renamed\ndescription: Review"]
 )
