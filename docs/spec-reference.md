@@ -106,7 +106,9 @@ prompt.
 
 A skill must be a `SKILL.md` in a directory, with frontmatter `name:` and
 `description:`. A lone slash-command `.md` is rejected: with no name and no
-description, there's nothing for an agent to discover.
+description, there's nothing for an agent to discover. Two entries can't share
+a name, even one that differs only in case: `foo` and `FOO` are one directory
+on macOS and Windows, so one skill would replace the other.
 
 ### Path sources and git sources
 
