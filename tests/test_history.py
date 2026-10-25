@@ -608,7 +608,7 @@ def test_claude_code_resumes_the_session_it_planted(monkeypatch, tmp_path) -> No
     seen = _spawn(monkeypatch, tmp_path, ClaudeCodeHarness(), _TWO_TURNS)
 
     cmd = seen["cmd"]
-    assert cmd[cmd.index("-p") + 1] == "Finish it."
+    assert cmd[-1] == "Finish it."
     session_id = cmd[cmd.index("--resume") + 1]
     projects = tmp_path / "home" / ".claude" / "projects"
     assert len(list(projects.glob(f"*/{session_id}.jsonl"))) == 1
