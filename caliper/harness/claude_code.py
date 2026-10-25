@@ -131,10 +131,12 @@ class ClaudeCodeHarness(CliHarness):
         if not registry.is_file():
             return names
         try:
-            data = json.loads(registry.read_text())
+            data = json.loads(registry.read_text(encoding="utf-8"))
             settings_path = target / "settings.json"
             settings = (
-                json.loads(settings_path.read_text()) if settings_path.exists() else {}
+                json.loads(settings_path.read_text(encoding="utf-8"))
+                if settings_path.exists()
+                else {}
             )
             enabled = settings.get("enabledPlugins", {})
             selected = {}
@@ -177,7 +179,7 @@ class ClaudeCodeHarness(CliHarness):
         paths = {}
         metadata_path = registry
         try:
-            for plugin_id, entries in json.loads(registry.read_text())[
+            for plugin_id, entries in json.loads(registry.read_text(encoding="utf-8"))[
                 "plugins"
             ].items():
                 for entry in entries:
@@ -187,7 +189,9 @@ class ClaudeCodeHarness(CliHarness):
                     manifest = root / ".claude-plugin/plugin.json"
                     metadata_path = manifest
                     metadata = (
-                        json.loads(manifest.read_text()) if manifest.exists() else {}
+                        json.loads(manifest.read_text(encoding="utf-8"))
+                        if manifest.exists()
+                        else {}
                     )
                     namespace = metadata.get("name", namespace)
                     if not isinstance(namespace, str) or not namespace:
@@ -212,7 +216,8 @@ class ClaudeCodeHarness(CliHarness):
                         for skill in skills:
                             metadata_path = skill
                             name = (
-                                frontmatter_name(skill.read_text()) or skill.parent.name
+                                frontmatter_name(skill.read_text(encoding="utf-8"))
+                                or skill.parent.name
                             )
                             command_name = (
                                 name
@@ -253,7 +258,7 @@ class ClaudeCodeHarness(CliHarness):
         """
         path = Path(ctx.isolated_home) / ".claude.json"
         try:
-            config = json.loads(path.read_text())
+            config = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return
         if not isinstance(config, dict) or not isinstance(
