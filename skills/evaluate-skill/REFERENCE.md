@@ -295,7 +295,7 @@ repo, so `caliper report <spec-name>` finds a run from anywhere in the project.
 Each run records every file each declared skill installed, the engine used
 for the skill and the judge and each one's CLI version, what was ablated, and per attempt the outcome, token
 usage, wall time, judge time, and the transcript. It also keeps the judge's input
-for debugging a verdict: each task's `expect`, the judge prompt version, and any
+for debugging a verdict: each task's `expect` and `prompt`, the judge prompt version, and any
 assertion script the judge wrote (`autorater_script`). `caliper report --verbose`
 shows the `expect` and the script; the default report does not.
 
