@@ -131,6 +131,7 @@ def test_pi_judge_passes_a_flag_shaped_prompt_as_the_message(
 
     assert calls[-1][-2:] == ["--", "--help"]
 
+
 def test_pi_json_stream_captures_tool_calls(monkeypatch, tmp_path) -> None:
     def fake_run(cmd, **kwargs):
         if cmd[1:] == ["--version"]:
