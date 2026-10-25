@@ -71,7 +71,8 @@ reviewed:
   to the export format and import it. Triage notes the PR targets an outdated
   schema.
 
-If #8650 lands, hermes can join with a translator like the other three backends.
+If #8650 lands, hermes can join by declaring a session format like the other three
+backends (`caliper/harness/history.py`).
 
 ## Consequences
 

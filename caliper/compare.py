@@ -18,7 +18,6 @@ from caliper.schema.results import (
     TaskComparison,
     TaskResult,
     UsageTotals,
-    mean_rate,
 )
 
 
@@ -341,15 +340,6 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         matched_count = min(len(a_by_name.get(name, [])), len(b_group))
         unmatched_b.extend(name for _ in b_group[matched_count:])
 
-    # Headline aggregate over tasks measured on both sides only.
-    comparable = [
-        tc for tc in matched if tc.a_score is not None and tc.b_score is not None
-    ]
-    # The same average rule the run's own headline uses, so a delta is a
-    # difference between two numbers built the same way.
-    a_avg = mean_rate([tc.a_score for tc in comparable])
-    b_avg = mean_rate([tc.b_score for tc in comparable])
-
     spec_mismatch = a_run.spec != b_run.spec
     k_mismatch = a_run.k != b_run.k
     warnings: list[str] = []
@@ -442,11 +432,6 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         matched=matched,
         unmatched_a=unmatched_a,
         unmatched_b=unmatched_b,
-        a_matched_avg=a_avg,
-        b_matched_avg=b_avg,
-        aggregate_delta=b_avg - a_avg,
-        has_regression=any(tc.regression for tc in matched),
-        has_activation_regression=any(tc.activation_regression for tc in matched),
         k_mismatch=k_mismatch,
         spec_mismatch=spec_mismatch,
         neighbourhood_mismatch=neighbourhood_mismatch,

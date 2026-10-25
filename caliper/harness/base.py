@@ -26,7 +26,6 @@ from caliper.schema.results import TokenUsage
 from caliper.schema.spec import McpServer, PlantedTurn
 from caliper.skills import (
     SkillRef,
-    declared_slash_command,
     frontmatter_name,
     install_skills,
 )
@@ -760,19 +759,6 @@ class CliHarness(HarnessBackend):
         The one backend-specific fact install-and-discover needs. Called after
         ``_prepare``, so it may read state that hook set up.
         """
-
-    def planted_skill(
-        self, ctx: RunContext, turn: PlantedTurn
-    ) -> tuple[str, str, Path] | None:
-        """``(name, args, SKILL.md)`` for a planted ``/name`` of a declared skill.
-
-        ``None`` for any other turn, including the command of an ablated skill:
-        not installed, the CLI would leave it as typed (docs/adr/0036).
-        """
-        command = declared_slash_command(turn, ctx.skill_refs)
-        if command is None:
-            return None
-        return (*command, self.skills_root(ctx) / command[0] / "SKILL.md")
 
     # Where this backend keeps the user layer it loads beside the spec's own,
     # relative to the skills root's parent; staged by

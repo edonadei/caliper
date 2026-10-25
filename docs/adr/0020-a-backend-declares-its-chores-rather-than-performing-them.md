@@ -119,3 +119,15 @@ claude-code, which spawns a bare `claude`, declares `spawned_cli` and
 base fills it in when it raises, the way it fills in `{login}`. Recognizing a
 rejected option is shared: the backend CLIs' argument parsers word it
 identically, so it's the base's fallback `_diagnose`, not a per-backend signal.
+
+**Amended: the planted session is declared too.** claude-code, codex and pi
+each planted a history (docs/adr/0036) with their own copy of the same work:
+walk the turns, pair each shell call with its result, expand a declared `/name`
+from the installed skill, chain the messages, and write the file per attempt. A
+backend now declares its session file as a `SessionFormat` (where it goes, its
+header, how each kind of turn is spelled, how a message becomes a line), and
+`caliper/harness/history.py` does the work. `_command` keeps only where the
+resume goes in its argv. A planted call's id is now the format's prefix plus the
+turn's index and the call's, the same scheme on every backend; the prefix is
+kept per CLI (`toolu_planted` on claude-code), since the ids are opaque pairing
+keys inside one file.

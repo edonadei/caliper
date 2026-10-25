@@ -249,6 +249,54 @@ def test_usage_totals_tokens_unreported_when_no_backend_data() -> None:
     totals = UsageTotals.from_task_results(tasks)
     assert totals.tokens_reported is False
     assert totals.wall_seconds == 5.0  # wall time is always real
+    assert totals.tokens_per_attempt is None
+    assert totals.wall_per_attempt == 5.0
+
+
+def test_per_attempt_cost_is_over_usable_attempts_only() -> None:
+    # 1001 + 1000 tokens over two passes, 9000 wasted on a timeout: the
+    # timeout's spend is its own line, not averaged in.
+    tasks = [
+        TaskResult(
+            task_id="task-001",
+            task_name="alpha",
+            attempts=[
+                _att(Outcome.PASS, 10.0, TokenUsage(input_tokens=1001)),
+                _att(Outcome.PASS, 11.0, TokenUsage(input_tokens=1000)),
+                _att(Outcome.TIMEOUT, 60.0, TokenUsage(input_tokens=9000)),
+            ],
+        )
+    ]
+    totals = UsageTotals.from_task_results(tasks)
+    assert totals.tokens_per_attempt == 1000
+    assert totals.wall_per_attempt == 10.5
+
+
+def test_per_attempt_cost_is_none_without_a_usable_attempt() -> None:
+    tasks = [
+        TaskResult(
+            task_id="task-001",
+            task_name="alpha",
+            attempts=[_att(Outcome.TIMEOUT, 60.0, TokenUsage(input_tokens=9000))],
+        )
+    ]
+    totals = UsageTotals.from_task_results(tasks)
+    assert totals.tokens_per_attempt is None
+    assert totals.wall_per_attempt is None
+
+
+def test_judge_time_is_averaged_over_the_graded_attempts() -> None:
+    graded = _att(Outcome.PASS, 10.0, None)
+    graded.judge_seconds = 3.0
+    tasks = [
+        TaskResult(
+            task_id="task-001",
+            task_name="alpha",
+            attempts=[graded, _att(Outcome.PASS, 10.0, None)],
+        )
+    ]
+    assert UsageTotals.from_task_results(tasks).judge_per_attempt == 3.0
+    assert UsageTotals().judge_per_attempt is None
 
 
 # --------------------------------------------------------------------------

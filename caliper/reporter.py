@@ -49,6 +49,7 @@ from caliper.schema.results import (
     ObservedActivation,
     Outcome,
     OutcomeCounts,
+    PooledCount,
     RunComparison,
     RunMeta,
     RunResults,
@@ -268,7 +269,7 @@ def _empty_rate(label: str = "") -> Text:
     return cell
 
 
-def _avg_detail(avg: float, successes: int, usable: int, tasks: int) -> str:
+def _avg_detail(avg: float, pooled: PooledCount) -> str:
     """`16/20 ✓` when the pooled count says the same thing as the average.
 
     The average is a mean of per-task rates (docs/adr/0007), so with unequal
@@ -276,9 +277,9 @@ def _avg_detail(avg: float, successes: int, usable: int, tasks: int) -> str:
     disagree make the reader pick one, so the detail then names what was
     averaged instead.
     """
-    if usable and abs(successes / usable - avg) < 0.0005:
-        return f"{successes}/{usable} {_CHECK}"
-    return f"avg of {tasks}"
+    if pooled.rate is not None and abs(pooled.rate - avg) < 0.0005:
+        return f"{pooled.successes}/{pooled.usable} {_CHECK}"
+    return f"avg of {pooled.tasks}"
 
 
 def _two_line(top: str, bottom: str) -> Text:
@@ -627,9 +628,9 @@ def _activation_cell(tr: TaskResult, k: int) -> Text:
     return _rate_cell(score, _activation_marks(tr, k), _rate_style(score))
 
 
-def _cost_cell(tokens: float | None, wall: str, style: str) -> Text:
+def _cost_cell(tokens: int | None, wall: str, style: str) -> Text:
     """Tokens and wall in one column, both right-aligned."""
-    shown = _fmt_tokens(int(tokens)) if tokens is not None else _RULE
+    shown = _fmt_tokens(tokens) if tokens is not None else _RULE
     return Text(shown.rjust(5) + wall.rjust(8), style=style)
 
 
@@ -685,16 +686,10 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
     per_attempt: list[Text] = [Text("per attempt", style="dim")]
     if show_success:
         if agg.measured:
-            scored = [t for t in tasks if t.score is not None]
             overall.append(
                 _rate_cell(
                     agg.avg_score,
-                    _avg_detail(
-                        agg.avg_score,
-                        sum(t.successes for t in scored),
-                        sum(t.usable for t in scored),
-                        agg.scored_tasks,
-                    ),
+                    _avg_detail(agg.avg_score, results.pooled_success),
                     "bold green" if agg.avg_score >= 0.99 else "bold",
                 )
             )
@@ -710,16 +705,10 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
         if agg.avg_activation_score is None:
             overall.append(_empty_rate())
         else:
-            asserted = [t for t in tasks if t.activation_score is not None]
             overall.append(
                 _rate_cell(
                     agg.avg_activation_score,
-                    _avg_detail(
-                        agg.avg_activation_score,
-                        sum(t.activation_successes for t in asserted),
-                        sum(t.activation_usable for t in asserted),
-                        len(asserted),
-                    ),
+                    _avg_detail(agg.avg_activation_score, results.pooled_activation),
                     "bold green" if agg.avg_activation_score >= 0.99 else "bold",
                 )
             )
@@ -731,15 +720,11 @@ def print_results(results: RunResults, verbose: bool = False) -> None:
             "bold",
         )
     )
-    # Per attempt over the usable ones, tokens and wall alike: an unusable
-    # attempt's spend is reported in its own note, not averaged in.
-    usable = usage.usable_attempts
+    wall = usage.wall_per_attempt
     per_attempt.append(
         _cost_cell(
-            (usage.total_tokens - usage.unusable_tokens) / usable
-            if usage.tokens_reported and usable
-            else None,
-            f"{usage.usable_wall_seconds / usable:.1f}s" if usable else _RULE,
+            usage.tokens_per_attempt,
+            f"{wall:.1f}s" if wall is not None else _RULE,
             "dim",
         )
     )
@@ -1013,8 +998,7 @@ def _run_notes(results: RunResults) -> list[_Note]:
         )
     # Only when a judge ran: an assert-only run would otherwise print a
     # confident "0s", which reads as a free judge rather than no judge.
-    if usage.judged_attempts:
-        per = usage.judge_seconds / usage.judged_attempts
+    if (per := usage.judge_per_attempt) is not None:
         notes.append(
             _Note(
                 2,
@@ -1379,27 +1363,18 @@ def print_comparison(comp: RunComparison, verbose: bool = False) -> None:
         table.add_row(*row)
 
     table.add_section()
-    comparable = [
-        tc for tc in comp.matched if tc.a_score is not None and tc.b_score is not None
-    ]
     delta = comp.aggregate_delta
-    if comparable:
-
-        def pooled(counts: list[OutcomeCounts]) -> tuple[int, int]:
-            return sum(c.successes for c in counts), sum(c.usable for c in counts)
-
-        sa, ua = pooled([tc.a_counts for tc in comparable])
-        sb, ub = pooled([tc.b_counts for tc in comparable])
+    if comp.comparable:
         table.add_row(
             Text("Success", style="bold"),
             _rate_cell(
                 comp.a_matched_avg,
-                _avg_detail(comp.a_matched_avg, sa, ua, len(comparable)),
+                _avg_detail(comp.a_matched_avg, comp.a_pooled),
                 "bold",
             ),
             _rate_cell(
                 comp.b_matched_avg,
-                _avg_detail(comp.b_matched_avg, sb, ub, len(comparable)),
+                _avg_detail(comp.b_matched_avg, comp.b_pooled),
                 "bold green" if delta > 0 else "bold red" if delta < 0 else "bold",
             ),
             _pp(delta),
@@ -1462,16 +1437,12 @@ def _cost_rows(table: Table, a: UsageTotals, b: UsageTotals) -> None:
         return text
 
     def tokens_each(u: UsageTotals) -> str | None:
-        # Over the usable attempts, like wall: unusable spend is its own line.
-        if not u.usable_attempts:
-            return None
-        return _fmt_tokens((u.total_tokens - u.unusable_tokens) // u.usable_attempts)
+        each = u.tokens_per_attempt
+        return None if each is None else _fmt_tokens(each)
 
     def wall_each(u: UsageTotals) -> str | None:
-        # Over the usable attempts: unusable spend is reported on its own line.
-        if not u.usable_attempts:
-            return None
-        return f"{u.usable_wall_seconds / u.usable_attempts:.1f}s"
+        each = u.wall_per_attempt
+        return None if each is None else f"{each:.1f}s"
 
     if a.tokens_reported and b.tokens_reported:
         table.add_row(
@@ -1495,16 +1466,11 @@ def _print_activation_diff(comp: RunComparison) -> None:
     verdicts at all, and a column of dashes would say nothing. When nothing
     moved it is one line, not a table of equal numbers.
     """
-    both = [
-        tc
-        for tc in comp.matched
-        if tc.a_activation is not None and tc.b_activation is not None
-    ]
-    if not both:
+    both = comp.activation_comparable
+    a_avg, b_avg = comp.a_matched_activation_avg, comp.b_matched_activation_avg
+    if a_avg is None or b_avg is None:
         return
     a_head, b_head = _side_heads(comp)
-    a_avg = sum(tc.a_activation for tc in both) / len(both)
-    b_avg = sum(tc.b_activation for tc in both) / len(both)
     console.print()
     if all(not tc.activation_delta for tc in both):
         plural = "s" if len(both) > 1 else ""
@@ -1555,14 +1521,14 @@ def _print_activation_diff(comp: RunComparison) -> None:
             if b_avg < a_avg
             else "bold",
         ),
-        _pp(b_avg - a_avg),
+        _pp(comp.aggregate_activation_delta),
     )
     console.print(table)
 
 
 def _compare_notes(comp: RunComparison) -> list[_Note]:
     notes: list[_Note] = []
-    regressions = [tc.task_name for tc in comp.matched if tc.regression]
+    regressions = comp.regressions
     if regressions:
         n = len(regressions)
         notes.append(
@@ -1576,7 +1542,7 @@ def _compare_notes(comp: RunComparison) -> list[_Note]:
     # Its own line, never merged with the execution regressions: a description
     # that stopped firing and a body that stopped working are fixed in different
     # places, so naming them together would hide which one moved.
-    activation = [tc.task_name for tc in comp.matched if tc.activation_regression]
+    activation = comp.activation_regressions
     if activation:
         n = len(activation)
         notes.append(
@@ -1603,11 +1569,7 @@ def _compare_notes(comp: RunComparison) -> list[_Note]:
                     "path source · the change under test",
                 )
             )
-    unmeasured = [
-        tc.task_name
-        for tc in comp.matched
-        if (tc.a_score is None or tc.b_score is None) and not (tc.probe)
-    ]
+    unmeasured = comp.unmeasured
     if unmeasured:
         notes.append(
             _Note(

@@ -10,7 +10,6 @@ import sys
 import unicodedata
 import uuid
 from collections.abc import Callable
-from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 
@@ -24,11 +23,12 @@ from caliper.harness.base import (
     RunContext,
     stream_events,
 )
+from caliper.harness.history import PlantedSkill, Session, SessionFormat
 from caliper.harness.mcp import merge_user_servers, resolve_servers
 from caliper.harness.refusal import ConfigSignal
 from caliper.schema.results import TokenUsage
-from caliper.schema.spec import PlantedTurn
-from caliper.skills import frontmatter_name, skill_body
+from caliper.schema.spec import PlantedShellCall
+from caliper.skills import frontmatter_name
 
 
 def preferred_nvm_node_bin() -> str | None:
@@ -299,56 +299,9 @@ class ClaudeCodeHarness(CliHarness):
         # The prompt becomes the next user turn after the planted ones. The
         # stream does not replay them, so they never reach the transcript.
         if ctx.history:
-            cmd += ["--resume", self._write_session(ctx)]
+            cmd += ["--resume", CLAUDE_SESSION.plant(ctx, self.skills_root(ctx)).id]
 
         return cmd, None, lambda: mcp_config.unlink(missing_ok=True)
-
-    def _write_session(self, ctx: RunContext) -> str:
-        """Write the planted ``ctx.history`` as a session the CLI can resume; return its id.
-
-        Per attempt, since the file embeds the attempt's workdir and is stored
-        under it (docs/adr/0036). The CLI looks the workdir's sessions up by its
-        real path with every other character a dash, in the isolated home.
-        """
-        workdir = os.path.realpath(ctx.workdir)
-        session_id = str(uuid.uuid4())
-        projects = Path(ctx.isolated_home) / ".claude" / "projects"
-        path = projects / re.sub(r"[^A-Za-z0-9]", "-", workdir) / f"{session_id}.jsonl"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        lines = _session_lines(
-            ctx.history or [],
-            session_id=session_id,
-            cwd=workdir,
-            user_turn=lambda turn: self._user_turn(ctx, turn),
-        )
-        path.write_text("".join(json.dumps(line) + "\n" for line in lines))
-        return session_id
-
-    def _user_turn(self, ctx: RunContext, turn: PlantedTurn) -> str:
-        """A planted user turn as the CLI would have stored it.
-
-        One opening with ``/name`` of an installed skill is the slash command
-        expanded, read from the installed copy so the history never repeats the
-        skill and an edit to it reaches the next run. Anything else, including
-        the command of an ablated skill, is the text as typed: the CLI would not
-        expand it either.
-        """
-        skill = self.planted_skill(ctx, turn)
-        if skill is None:
-            return turn.user or ""
-        name, args, skill_md = skill
-        parts = [f"<command-name>/{name}</command-name>"]
-        if args:
-            parts.append(f"<command-args>{args}</command-args>")
-        parts += [
-            "",
-            f"Base directory for this skill: {skill_md.parent}",
-            "",
-            skill_body(skill_md.read_text()),
-        ]
-        if args:
-            parts += ["", f"ARGUMENTS: {args}"]
-        return "\n".join(parts)
 
     def _materialize_mcp_config(self, ctx: RunContext) -> Path:
         """Write the declared MCP servers into ``.caliper-mcp.json`` for the run.
@@ -684,62 +637,75 @@ class ClaudeCodeHarness(CliHarness):
         return report
 
 
-def _session_lines(
-    history: list[PlantedTurn],
-    *,
-    session_id: str,
-    cwd: str,
-    user_turn: Callable[[PlantedTurn], str],
-) -> list[dict]:
-    """``history`` as Claude Code session lines, one message per line.
+class _ClaudeSession(SessionFormat):
+    """A Claude Code session: one message per line, chained by ``parentUuid``.
 
-    Only the fields a resume was seen to need (2.1.296): without a
-    ``timestamp`` the CLI does not find the session at all. A planted shell
-    call is a ``Bash`` tool use, answered by a ``tool_result`` user message;
-    ``user_turn`` writes a user turn's content.
+    Fields as a resume was seen to need them (2.1.296): without a ``timestamp``
+    the CLI does not find the session at all. It looks a workdir's sessions up
+    by the workdir's real path with every other character a dash. A planted
+    shell call is a ``Bash`` tool use, answered by a ``tool_result`` user
+    message.
     """
-    lines: list[dict] = []
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
-    def add(role: str, content: str | list[dict]) -> None:
-        lines.append(
-            {
-                "type": role,
-                "uuid": str(uuid.uuid4()),
-                "parentUuid": lines[-1]["uuid"] if lines else None,
-                "sessionId": session_id,
-                "cwd": cwd,
-                "timestamp": timestamp,
-                "message": {"role": role, "content": content},
-            }
-        )
+    call_prefix = "toolu_planted"
 
-    for turn in history:
-        if turn.user is not None:
-            add("user", user_turn(turn))
-            continue
-        # Each tool use is answered by the result with its id.
-        calls = [
-            (f"toolu_planted_{len(lines)}_{i}", c) for i, c in enumerate(turn.shell)
+    def path(self, session: Session) -> Path:
+        slug = re.sub(r"[^A-Za-z0-9]", "-", session.cwd)
+        return session.config_dir / "projects" / slug / f"{session.id}.jsonl"
+
+    def user(self, text: str) -> list[dict]:
+        return [{"role": "user", "content": text}]
+
+    def skill(self, skill: PlantedSkill) -> list[dict]:
+        """The slash command as the CLI stores one it expanded."""
+        parts = [f"<command-name>/{skill.name}</command-name>"]
+        if skill.args:
+            parts.append(f"<command-args>{skill.args}</command-args>")
+        parts += [
+            "",
+            f"Base directory for this skill: {skill.skill_md.parent}",
+            "",
+            skill.body,
         ]
-        blocks = [{"type": "text", "text": turn.assistant}] if turn.assistant else []
-        for tool_id, call in calls:
-            blocks.append(
-                {
-                    "type": "tool_use",
-                    "id": tool_id,
-                    "name": "Bash",
-                    "input": {"command": call.run},
-                }
-            )
-        add("assistant", blocks)
+        if skill.args:
+            parts += ["", f"ARGUMENTS: {skill.args}"]
+        return self.user("\n".join(parts))
+
+    def assistant(
+        self, text: str | None, calls: list[tuple[str, PlantedShellCall]]
+    ) -> list[dict]:
+        blocks = [{"type": "text", "text": text}] if text else []
+        blocks += [
+            {
+                "type": "tool_use",
+                "id": tool_id,
+                "name": "Bash",
+                "input": {"command": call.run},
+            }
+            for tool_id, call in calls
+        ]
+        messages = [{"role": "assistant", "content": blocks}]
         if calls:
             results = [
                 {"type": "tool_result", "tool_use_id": tool_id, "content": call.output}
                 for tool_id, call in calls
             ]
-            add("user", results)
-    return lines
+            messages.append({"role": "user", "content": results})
+        return messages
+
+    def envelope(self, message: dict, previous: dict | None, session: Session) -> dict:
+        return {
+            "type": message["role"],
+            "uuid": str(uuid.uuid4()),
+            "parentUuid": previous["uuid"] if previous else None,
+            "sessionId": session.id,
+            "cwd": session.cwd,
+            "timestamp": session.timestamp,
+            "message": message,
+        }
+
+
+CLAUDE_SESSION = _ClaudeSession()
 
 
 def _usage(result: dict) -> TokenUsage | None:

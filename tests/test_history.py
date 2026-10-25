@@ -20,9 +20,9 @@ from caliper.harness.base import (
     HarnessConfigurationError,
     PromptResult,
 )
-from caliper.harness.claude_code import ClaudeCodeHarness
-from caliper.harness.codex import CodexHarness
-from caliper.harness.pi import PiHarness
+from caliper.harness.claude_code import CLAUDE_SESSION, ClaudeCodeHarness
+from caliper.harness.codex import CODEX_ROLLOUT, CodexHarness
+from caliper.harness.pi import PI_SESSION, PiHarness
 from caliper.judge.base import JudgeResult
 from caliper.judge.eval_judge import EvalJudge, render_judge_prompt
 from caliper.main import app
@@ -197,58 +197,179 @@ def test_a_backend_without_history_refuses_the_spec_by_name(tmp_path) -> None:
         assert f"--model {backend}" in str(e.value)
 
 
-# --- claude-code ----------------------------------------------------------------
+# --- the planted session, on every backend that resumes one ----------------------
+
+# Each backend's session format, beside the harness whose skills root it reads.
+_FORMATS = [
+    pytest.param(ClaudeCodeHarness(), CLAUDE_SESSION, id="claude-code"),
+    pytest.param(CodexHarness(), CODEX_ROLLOUT, id="codex"),
+    pytest.param(PiHarness(), PI_SESSION, id="pi"),
+]
 
 
-def _claude_spawn(monkeypatch, tmp_path, history, skill_refs=()):
-    """Run claude-code once over ``history``; what it spawned, and the session file."""
-
-    seen: dict = {}
-
-    def fake_run(cmd, **kwargs):
-        if cmd[0] != "claude":
-            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
-        seen["cmd"] = cmd
-        if "--resume" in cmd:
-            session_id = cmd[cmd.index("--resume") + 1]
-            [path] = (tmp_path / "home" / ".claude" / "projects").glob(
-                f"*/{session_id}.jsonl"
-            )
-            seen["path"] = path
-            seen["lines"] = [json.loads(line) for line in path.read_text().splitlines()]
-        stdout = json.dumps({"type": "result", "result": "done"})
-        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
-
-    patch_cli_calls(monkeypatch, fake_run)
-    (tmp_path / "home").mkdir(parents=True)
-    (tmp_path / "work").mkdir()
-    ClaudeCodeHarness().run(
-        run_context(
-            prompt="Finish it.",
-            isolated_home=str(tmp_path / "home"),
-            workdir=str(tmp_path / "work"),
-            history=history,
-            skill_refs=list(skill_refs),
-        )
+def _plant(tmp_path, harness, fmt, history, skill_refs=()):
+    """Plant ``history`` for one attempt; the handle and the file's lines."""
+    ctx = run_context(
+        isolated_home=str(tmp_path / "home"),
+        workdir=str(tmp_path / "work"),
+        history=history,
+        skill_refs=list(skill_refs),
     )
-    return seen
+    (tmp_path / "work").mkdir(parents=True, exist_ok=True)
+    planted = fmt.plant(ctx, harness.skills_root(ctx))
+    lines = [json.loads(line) for line in planted.path.read_text().splitlines()]
+    return planted, lines
 
 
-def test_claude_code_resumes_a_session_written_from_the_history(
-    monkeypatch, tmp_path
+@pytest.mark.parametrize(("harness", "fmt"), _FORMATS)
+def test_a_planted_session_is_written_where_its_handle_points(
+    harness, fmt, tmp_path
 ) -> None:
+    history = [PlantedTurn(user="hi"), PlantedTurn(assistant="hello")]
 
+    planted, lines = _plant(tmp_path, harness, fmt, history)
+
+    assert planted.path.is_relative_to(tmp_path / "home")
+    assert planted.id in planted.path.name
+    assert {"hi", "hello"} <= set(_strings(lines))
+
+
+def _strings(value) -> list[str]:
+    """Every string in a session's lines, whatever the format nests them in."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        value = list(value.values())
+    if isinstance(value, list):
+        return [s for item in value for s in _strings(item)]
+    return []
+
+
+_REPRO_FIRST = (
+    "---\nname: repro-first\ndescription: d\ndisable-model-invocation: true\n---\n\n"
+    "Write the failing test first.\n"
+)
+
+
+def _install(harness, tmp_path, *names):
+    """Declare ``repro-first``; install a copy that differs from its source."""
+    (tmp_path / "skill").mkdir()
+    (tmp_path / "skill" / "SKILL.md").write_text(_REPRO_FIRST)
+    refs = resolve_skills(["./skill/SKILL.md"], tmp_path)
+    root = harness.skills_root(run_context(isolated_home=str(tmp_path / "home")))
+    for name in names:
+        (root / name).mkdir(parents=True, exist_ok=True)
+        (root / name / "SKILL.md").write_text(
+            _REPRO_FIRST.replace("Write the failing test first.", "Installed copy.")
+        )
+    return refs
+
+
+@pytest.mark.parametrize(("harness", "fmt"), _FORMATS)
+def test_a_declared_slash_command_plants_the_installed_skill(
+    harness, fmt, tmp_path
+) -> None:
+    """Read at run time, so the history never copies the skill (docs/adr/0036)."""
+    refs = _install(harness, tmp_path, "repro-first")
+    history = [PlantedTurn(user="/repro-first go"), PlantedTurn(assistant="On it.")]
+
+    _, lines = _plant(tmp_path, harness, fmt, history, refs)
+
+    planted = "\n".join(_strings(lines))
+    assert "Installed copy." in planted
+    assert "Write the failing test first." not in planted
+    assert "/repro-first go" not in _strings(lines)
+
+
+@pytest.mark.parametrize(("harness", "fmt"), _FORMATS)
+def test_an_ablated_skills_command_stays_as_typed(harness, fmt, tmp_path) -> None:
+    """With the skill not installed, the CLI wouldn't expand it either."""
+    history = [PlantedTurn(user="/repro-first go"), PlantedTurn(assistant="On it.")]
+
+    _, lines = _plant(tmp_path, harness, fmt, history)
+
+    assert "/repro-first go" in _strings(lines)
+
+
+@pytest.mark.parametrize(("harness", "fmt"), _FORMATS)
+def test_a_slash_command_matches_a_declared_skill_case_sensitively(
+    harness, fmt, tmp_path
+) -> None:
+    """``/REPRO-FIRST`` stays as typed on every OS, as validate warns it will.
+
+    The skills root holds a ``REPRO-FIRST/SKILL.md``, which is what a
+    case-insensitive file system resolves for the installed ``repro-first``, so
+    this holds without depending on the machine's file system.
+    """
+    refs = _install(harness, tmp_path, "repro-first", "REPRO-FIRST")
+    history = [PlantedTurn(user="/REPRO-FIRST go"), PlantedTurn(assistant="On it.")]
+
+    _, lines = _plant(tmp_path, harness, fmt, history, refs)
+
+    assert "/REPRO-FIRST go" in _strings(lines)
+    assert "Installed copy." not in "\n".join(_strings(lines))
+
+
+@pytest.mark.parametrize(("harness", "fmt"), _FORMATS)
+def test_each_planted_call_is_answered_by_its_own_result(
+    harness, fmt, tmp_path
+) -> None:
+    """One id per call, on its call and its result, across turns and within one."""
+    history = [
+        PlantedTurn(user="Look around."),
+        PlantedTurn(
+            assistant="Two at once.",
+            shell=[
+                PlantedShellCall(run="ls", output="a.py"),
+                PlantedShellCall(run="pwd", output="/work"),
+            ],
+        ),
+        PlantedTurn(
+            assistant="", shell=[PlantedShellCall(run="cat a.py", output="x = 1")]
+        ),
+    ]
+
+    _, lines = _plant(tmp_path, harness, fmt, history)
+
+    ids = [s for s in _strings(lines) if s.startswith(fmt.call_prefix)]
+    assert len(set(ids)) == 3
+    assert all(ids.count(call_id) == 2 for call_id in ids)
+
+
+@pytest.mark.parametrize(("harness", "fmt"), _FORMATS)
+def test_each_planting_is_a_session_of_its_own(harness, fmt, tmp_path) -> None:
+    """Parallel attempts, and a retried one, never share a file."""
+    history = [PlantedTurn(user="hi"), PlantedTurn(assistant="hello")]
+
+    first, _ = _plant(tmp_path, harness, fmt, history)
+    second, _ = _plant(tmp_path, harness, fmt, history)
+
+    assert first.id != second.id
+    assert first.path != second.path
+    assert first.path.exists()
+
+
+# --- each backend's format --------------------------------------------------------
+
+
+def _installed_md() -> str:
+    return _REPRO_FIRST.replace("Write the failing test first.", "Installed copy.")
+
+
+def test_claude_code_writes_a_chained_session_under_the_workdirs_slug(
+    tmp_path,
+) -> None:
     history = load_spec(_spec(tmp_path)).tasks[0].planted_history(tmp_path)
-    seen = _claude_spawn(monkeypatch, tmp_path, history)
 
-    cmd = seen["cmd"]
-    assert cmd[cmd.index("-p") + 1] == "Finish it."
+    planted, lines = _plant(tmp_path, ClaudeCodeHarness(), CLAUDE_SESSION, history)
+
     # Stored where the CLI looks for the workdir's sessions: its real path,
     # every other character a dash.
     workdir = os.path.realpath(tmp_path / "work")
-    assert seen["path"].parent.name == re.sub(r"[^A-Za-z0-9]", "-", workdir)
+    projects = tmp_path / "home" / ".claude" / "projects"
+    slug = re.sub(r"[^A-Za-z0-9]", "-", workdir)
+    assert planted.path == projects / slug / f"{planted.id}.jsonl"
 
-    lines = seen["lines"]
     assert [(line["type"], line["message"]["role"]) for line in lines] == [
         ("user", "user"),
         ("assistant", "assistant"),
@@ -260,7 +381,7 @@ def test_claude_code_resumes_a_session_written_from_the_history(
         None,
         *(line["uuid"] for line in lines[:-1]),
     ]
-    assert {line["sessionId"] for line in lines} == {seen["path"].stem}
+    assert {line["sessionId"] for line in lines} == {planted.id}
     assert {line["cwd"] for line in lines} == {workdir}
     # The CLI ignores a session whose lines carry no timestamp.
     assert all(line["timestamp"] for line in lines)
@@ -269,6 +390,7 @@ def test_claude_code_resumes_a_session_written_from_the_history(
     assert first == history[0].user
     assert call[0] == {"type": "text", "text": "Searching for the old client."}
     assert call[1]["type"] == "tool_use"
+    assert call[1]["id"].startswith("toolu_")
     assert call[1]["name"] == "Bash"
     assert call[1]["input"] == {"command": 'grep -rn "BillingClient(" src'}
     assert result == [
@@ -281,154 +403,43 @@ def test_claude_code_resumes_a_session_written_from_the_history(
     assert last == [{"type": "text", "text": "One call site, in invoice.py."}]
 
 
-_REPRO_FIRST = (
-    "---\nname: repro-first\ndescription: d\ndisable-model-invocation: true\n---\n\n"
-    "Write the failing test first.\n"
-)
-
-
-def test_claude_code_plants_a_slash_command_as_the_expanded_skill(
-    monkeypatch, tmp_path
-) -> None:
-    """Expanded from the installed SKILL.md, so the history never copies it."""
-    (tmp_path / "skill").mkdir()
-    (tmp_path / "skill" / "SKILL.md").write_text(_REPRO_FIRST)
-    refs = resolve_skills(["./skill/SKILL.md"], tmp_path)
+def test_claude_code_plants_a_slash_command_as_the_expanded_skill(tmp_path) -> None:
+    harness = ClaudeCodeHarness()
+    refs = _install(harness, tmp_path, "repro-first")
     history = [
         PlantedTurn(user="/repro-first the double dash"),
         PlantedTurn(assistant="On it."),
     ]
 
-    seen = _claude_spawn(monkeypatch, tmp_path, history, refs)
+    _, lines = _plant(tmp_path, harness, CLAUDE_SESSION, history, refs)
 
-    planted = seen["lines"][0]["message"]["content"]
-    assert planted.startswith("<command-name>/repro-first</command-name>")
-    assert "Write the failing test first." in planted
-    assert "---" not in planted
-    assert planted.endswith("ARGUMENTS: the double dash")
     installed = tmp_path / "home" / ".claude" / "skills" / "repro-first"
-    assert f"Base directory for this skill: {installed}" in planted
-
-
-def test_an_ablated_skills_command_stays_as_typed(monkeypatch, tmp_path) -> None:
-    """With the skill not installed, the CLI wouldn't expand it either."""
-    history = [
-        PlantedTurn(user="/repro-first the double dash"),
-        PlantedTurn(assistant="On it."),
-    ]
-
-    seen = _claude_spawn(monkeypatch, tmp_path, history)
-
-    assert seen["lines"][0]["message"]["content"] == "/repro-first the double dash"
-
-
-@pytest.mark.parametrize("harness", [ClaudeCodeHarness(), CodexHarness()])
-def test_a_slash_command_matches_a_declared_skill_case_sensitively(
-    harness, tmp_path
-) -> None:
-    """``/REPRO-FIRST`` stays as typed on every OS, as validate warns it will.
-
-    The skills root holds a ``REPRO-FIRST/SKILL.md``, which is what a
-    case-insensitive file system resolves for the installed ``repro-first``, so
-    this holds without depending on the machine's file system.
-    """
-    (tmp_path / "skill").mkdir()
-    (tmp_path / "skill" / "SKILL.md").write_text(_REPRO_FIRST)
-    refs = resolve_skills(["./skill/SKILL.md"], tmp_path)
-    ctx = run_context(isolated_home=str(tmp_path / "home"), skill_refs=refs)
-    for name in ("repro-first", "REPRO-FIRST"):
-        (harness.skills_root(ctx) / name).mkdir(parents=True, exist_ok=True)
-        (harness.skills_root(ctx) / name / "SKILL.md").write_text(_REPRO_FIRST)
-
-    typed = harness.planted_skill(ctx, PlantedTurn(user="/REPRO-FIRST go"))
-    declared = harness.planted_skill(ctx, PlantedTurn(user="/repro-first go"))
-
-    assert typed is None
-    assert declared == (
-        "repro-first",
-        "go",
-        harness.skills_root(ctx) / "repro-first" / "SKILL.md",
+    assert lines[0]["message"]["content"] == (
+        "<command-name>/repro-first</command-name>\n"
+        "<command-args>the double dash</command-args>\n\n"
+        f"Base directory for this skill: {installed}\n\n"
+        "Installed copy.\n\n"
+        "ARGUMENTS: the double dash"
     )
 
 
-def test_claude_code_starts_fresh_without_a_history(monkeypatch, tmp_path) -> None:
-    seen = _claude_spawn(monkeypatch, tmp_path, None)
-
-    assert "--resume" not in seen["cmd"]
-    assert not (tmp_path / "home" / ".claude" / "projects").exists()
-
-
-def test_parallel_attempts_write_separate_sessions(monkeypatch, tmp_path) -> None:
-    history = [PlantedTurn(user="hi"), PlantedTurn(assistant="hello")]
-    first = _claude_spawn(monkeypatch, tmp_path / "a", history)
-    second = _claude_spawn(monkeypatch, tmp_path / "b", history)
-
-    assert first["path"] != second["path"]
-    assert first["lines"][0]["sessionId"] != second["lines"][0]["sessionId"]
-
-
-# --- codex ----------------------------------------------------------------------
-
-
-def _codex_spawn(monkeypatch, tmp_path, history, skill_refs=()):
-    """Run codex once over ``history``; what it spawned, and the rollout file."""
-
-    seen: dict = {}
-
-    def fake_run(cmd, **kwargs):
-        if cmd[1:] == ["--version"]:
-            return subprocess.CompletedProcess(cmd, 0, stdout="codex-cli 0.162.0\n")
-        seen["cmd"], seen["stdin"] = cmd, kwargs["input"]
-        if "resume" in cmd:
-            session_id = cmd[cmd.index("resume") + 1]
-            [path] = (tmp_path / "home" / ".codex" / "sessions").glob(
-                f"*/*/*/rollout-*-{session_id}.jsonl"
-            )
-            seen["path"] = path
-            seen["lines"] = [json.loads(line) for line in path.read_text().splitlines()]
-        stdout = json.dumps(
-            {"type": "item.completed", "item": {"type": "agent_message", "text": "ok"}}
-        )
-        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
-
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda name: "codex")
-    monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing")
-    patch_cli_calls(monkeypatch, fake_run)
-    (tmp_path / "home").mkdir(parents=True)
-    (tmp_path / "work").mkdir()
-    CodexHarness().run(
-        run_context(
-            prompt="Finish it.",
-            isolated_home=str(tmp_path / "home"),
-            workdir=str(tmp_path / "work"),
-            history=history,
-            skill_refs=list(skill_refs),
-        )
-    )
-    return seen
-
-
-def test_codex_resumes_a_rollout_written_from_the_history(
-    monkeypatch, tmp_path
-) -> None:
-
+def test_codex_writes_a_rollout_after_its_session_meta(tmp_path) -> None:
     history = load_spec(_spec(tmp_path)).tasks[0].planted_history(tmp_path)
-    seen = _codex_spawn(monkeypatch, tmp_path, history)
 
-    # The exec flags stay ahead of the subcommand; the prompt is still stdin.
-    cmd = seen["cmd"]
-    assert cmd[1] == "exec"
-    assert cmd[-3:] == ["resume", seen["path"].stem[-36:], "-"]
-    assert cmd.index("--json") < cmd.index("resume")
-    assert seen["stdin"] == "Finish it."
+    planted, lines = _plant(tmp_path, CodexHarness(), CODEX_ROLLOUT, history)
 
-    meta, *items = seen["lines"]
-    session_id = cmd[-2]
+    # Found by scanning sessions/, so a dated path and no index.
+    sessions = tmp_path / "home" / ".codex" / "sessions"
+    year, month, day, name = planted.path.relative_to(sessions).parts
+    assert name.startswith(f"rollout-{year}-{month}-{day}T")
+    assert name.endswith(f"-{planted.id}.jsonl")
+
+    meta, *items = lines
     assert meta["type"] == "session_meta"
-    assert meta["payload"]["id"] == meta["payload"]["session_id"] == session_id
+    assert meta["payload"]["id"] == meta["payload"]["session_id"] == planted.id
     assert meta["payload"]["cwd"] == os.path.realpath(tmp_path / "work")
     assert meta["payload"]["source"] == "exec"
-    assert all(line["timestamp"] for line in seen["lines"])
+    assert all(line["timestamp"] for line in lines)
     assert {line["type"] for line in items} == {"response_item"}
 
     first, said, call, output, last = (line["payload"] for line in items)
@@ -455,112 +466,40 @@ def test_codex_resumes_a_rollout_written_from_the_history(
     ]
 
 
-def test_codex_plants_a_slash_command_as_the_invoked_skill(
-    monkeypatch, tmp_path
-) -> None:
-    """Codex's own shape: the typed $name, then the installed SKILL.md."""
-    (tmp_path / "skill").mkdir()
-    (tmp_path / "skill" / "SKILL.md").write_text(_REPRO_FIRST)
-    refs = resolve_skills(["./skill/SKILL.md"], tmp_path)
+def test_codex_plants_a_slash_command_as_the_invoked_skill(tmp_path) -> None:
+    """Codex's own shape: the typed $name, then the whole installed SKILL.md."""
+    harness = CodexHarness()
+    refs = _install(harness, tmp_path, "repro-first")
     history = [
         PlantedTurn(user="/repro-first the double dash"),
         PlantedTurn(assistant="On it."),
     ]
 
-    seen = _codex_spawn(monkeypatch, tmp_path, history, refs)
+    _, lines = _plant(tmp_path, harness, CODEX_ROLLOUT, history, refs)
 
-    typed, skill = (
-        line["payload"]["content"][0]["text"] for line in seen["lines"][1:3]
-    )
+    typed, skill = (line["payload"]["content"][0]["text"] for line in lines[1:3])
     assert typed == "$repro-first the double dash"
     installed = tmp_path / "home" / ".codex" / "skills" / "repro-first" / "SKILL.md"
     assert skill == (
         f"<skill>\n<name>repro-first</name>\n<path>{installed}</path>\n"
-        f"{_REPRO_FIRST}\n</skill>"
+        f"{_installed_md()}\n</skill>"
     )
 
 
-def test_codex_leaves_an_ablated_skills_command_as_typed(monkeypatch, tmp_path) -> None:
-    history = [
-        PlantedTurn(user="/repro-first the double dash"),
-        PlantedTurn(assistant="On it."),
-    ]
-
-    seen = _codex_spawn(monkeypatch, tmp_path, history)
-
-    texts = [line["payload"]["content"][0]["text"] for line in seen["lines"][1:]]
-    assert texts == ["/repro-first the double dash", "On it."]
-
-
-def test_codex_starts_fresh_without_a_history(monkeypatch, tmp_path) -> None:
-    seen = _codex_spawn(monkeypatch, tmp_path, None)
-
-    assert "resume" not in seen["cmd"]
-    assert not (tmp_path / "home" / ".codex" / "sessions").exists()
-
-
-def test_codex_attempts_write_separate_rollouts(monkeypatch, tmp_path) -> None:
-    history = [PlantedTurn(user="hi"), PlantedTurn(assistant="hello")]
-    first = _codex_spawn(monkeypatch, tmp_path / "a", history)
-    second = _codex_spawn(monkeypatch, tmp_path / "b", history)
-
-    assert first["cmd"][-2] != second["cmd"][-2]
-    assert first["path"].is_relative_to(tmp_path / "a" / "home" / ".codex")
-
-
-# --- pi -------------------------------------------------------------------------
-
-
-def _pi_spawn(monkeypatch, tmp_path, history, skill_refs=()):
-    """Run pi once over ``history``; what it spawned, and the session file."""
-
-    seen: dict = {}
-
-    def fake_run(cmd, **kwargs):
-        if cmd[1:] == ["--version"]:
-            return subprocess.CompletedProcess(cmd, 0, stdout="0.87.1\n")
-        seen["cmd"], seen["stdin"] = cmd, kwargs["stdin"]
-        if "--session" in cmd:
-            path = Path(cmd[cmd.index("--session") + 1])
-            seen["path"] = path
-            seen["lines"] = [json.loads(line) for line in path.read_text().splitlines()]
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-
-    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n, **_: "pi")
-    patch_cli_calls(monkeypatch, fake_run)
-    (tmp_path / "home").mkdir(parents=True)
-    (tmp_path / "work").mkdir()
-    PiHarness().run(
-        run_context(
-            prompt="Finish it.",
-            isolated_home=str(tmp_path / "home"),
-            workdir=str(tmp_path / "work"),
-            history=history,
-            skill_refs=list(skill_refs),
-        )
-    )
-    return seen
-
-
-def test_pi_resumes_a_session_written_from_the_history(monkeypatch, tmp_path) -> None:
-
+def test_pi_writes_a_chained_session_under_its_agent_dirs_sessions(tmp_path) -> None:
     history = load_spec(_spec(tmp_path)).tasks[0].planted_history(tmp_path)
-    seen = _pi_spawn(monkeypatch, tmp_path, history)
 
-    cmd = seen["cmd"]
-    assert "--no-session" not in cmd
-    assert cmd[-1] == "Finish it."
-    # Left open, stdin hangs pi after it loads the session (pi 0.87.1).
-    assert seen["stdin"] is subprocess.DEVNULL
+    planted, lines = _plant(tmp_path, PiHarness(), PI_SESSION, history)
+
     # In the attempt's own agent dir, never the real ~/.pi, and under sessions/:
     # pi moves a session file left in the agent dir's root.
     agent_dir = tmp_path / "home" / ".pi" / "agent"
-    assert seen["path"].parent == agent_dir / "sessions"
+    assert planted.path.parent == agent_dir / "sessions"
 
-    header, *entries = seen["lines"]
+    header, *entries = lines
     assert header["type"] == "session"
     assert header["version"] == 3
-    assert header["id"]
+    assert header["id"] == planted.id
     assert header["timestamp"]
     assert header["cwd"] == os.path.realpath(tmp_path / "work")
     assert {entry["type"] for entry in entries} == {"message"}
@@ -597,37 +536,121 @@ def test_pi_resumes_a_session_written_from_the_history(monkeypatch, tmp_path) ->
     assert last["stopReason"] == "stop"
 
 
-def test_pi_plants_a_slash_command_as_the_expanded_skill(monkeypatch, tmp_path) -> None:
+def test_pi_plants_a_slash_command_as_the_expanded_skill(tmp_path) -> None:
     """pi's own shape: what it expands /skill:name to, from the installed copy."""
-    (tmp_path / "skill").mkdir()
-    (tmp_path / "skill" / "SKILL.md").write_text(_REPRO_FIRST)
-    refs = resolve_skills(["./skill/SKILL.md"], tmp_path)
+    harness = PiHarness()
+    refs = _install(harness, tmp_path, "repro-first")
     history = [
         PlantedTurn(user="/repro-first the double dash"),
         PlantedTurn(assistant="On it."),
     ]
 
-    seen = _pi_spawn(monkeypatch, tmp_path, history, refs)
+    _, lines = _plant(tmp_path, harness, PI_SESSION, history, refs)
 
-    [typed] = seen["lines"][1]["message"]["content"]
+    [typed] = lines[1]["message"]["content"]
     installed = tmp_path / "home" / ".pi" / "agent" / "skills" / "repro-first"
     assert typed["text"] == (
         f'<skill name="repro-first" location="{installed / "SKILL.md"}">\n'
         f"References are relative to {installed}.\n\n"
-        "Write the failing test first.\n</skill>\n\nthe double dash"
+        "Installed copy.\n</skill>\n\nthe double dash"
     )
 
 
-def test_pi_leaves_an_ablated_skills_command_as_typed(monkeypatch, tmp_path) -> None:
-    history = [
-        PlantedTurn(user="/repro-first the double dash"),
-        PlantedTurn(assistant="On it."),
-    ]
+# --- each backend resumes what it planted ----------------------------------------
 
-    seen = _pi_spawn(monkeypatch, tmp_path, history)
+_TWO_TURNS = [PlantedTurn(user="hi"), PlantedTurn(assistant="hello")]
 
-    texts = [line["message"]["content"][0]["text"] for line in seen["lines"][1:]]
-    assert texts == ["/repro-first the double dash", "On it."]
+
+def _spawn(monkeypatch, tmp_path, harness, history, version=None):
+    """Run ``harness`` once over ``history``; the argv and stdin it spawned.
+
+    ``version`` is what the discovered CLI answers ``--version`` with; without
+    one, the agent is claude-code's bare ``claude``.
+    """
+
+    seen: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1:] == ["--version"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=version or "")
+        if version or cmd[0] == "claude":
+            seen["cmd"] = cmd
+            seen["input"], seen["stdin"] = kwargs.get("input"), kwargs.get("stdin")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+
+    patch_cli_calls(monkeypatch, fake_run)
+    (tmp_path / "home").mkdir(parents=True)
+    (tmp_path / "work").mkdir()
+    harness.run(
+        run_context(
+            prompt="Finish it.",
+            isolated_home=str(tmp_path / "home"),
+            workdir=str(tmp_path / "work"),
+            history=history,
+        )
+    )
+    return seen
+
+
+def _codex_spawn(monkeypatch, tmp_path, history):
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda name: "codex")
+    monkeypatch.setattr("caliper.harness.codex.CODEX_APP_CLI", tmp_path / "missing")
+    return _spawn(monkeypatch, tmp_path, CodexHarness(), history, "codex-cli 0.162.0\n")
+
+
+def _pi_spawn(monkeypatch, tmp_path, history):
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n, **_: "pi")
+    return _spawn(monkeypatch, tmp_path, PiHarness(), history, "0.87.1\n")
+
+
+def test_claude_code_resumes_the_session_it_planted(monkeypatch, tmp_path) -> None:
+    seen = _spawn(monkeypatch, tmp_path, ClaudeCodeHarness(), _TWO_TURNS)
+
+    cmd = seen["cmd"]
+    assert cmd[cmd.index("-p") + 1] == "Finish it."
+    session_id = cmd[cmd.index("--resume") + 1]
+    projects = tmp_path / "home" / ".claude" / "projects"
+    assert len(list(projects.glob(f"*/{session_id}.jsonl"))) == 1
+
+
+def test_claude_code_starts_fresh_without_a_history(monkeypatch, tmp_path) -> None:
+    seen = _spawn(monkeypatch, tmp_path, ClaudeCodeHarness(), None)
+
+    assert "--resume" not in seen["cmd"]
+    assert not (tmp_path / "home" / ".claude" / "projects").exists()
+
+
+def test_codex_resumes_the_rollout_it_planted(monkeypatch, tmp_path) -> None:
+    seen = _codex_spawn(monkeypatch, tmp_path, _TWO_TURNS)
+
+    # The exec flags stay ahead of the subcommand; the prompt is still stdin.
+    cmd = seen["cmd"]
+    assert cmd[1] == "exec"
+    assert cmd[-3] == "resume"
+    assert cmd[-1] == "-"
+    assert cmd.index("--json") < cmd.index("resume")
+    assert seen["input"] == "Finish it."
+    sessions = tmp_path / "home" / ".codex" / "sessions"
+    assert len(list(sessions.glob(f"*/*/*/rollout-*-{cmd[-2]}.jsonl"))) == 1
+
+
+def test_codex_starts_fresh_without_a_history(monkeypatch, tmp_path) -> None:
+    seen = _codex_spawn(monkeypatch, tmp_path, None)
+
+    assert "resume" not in seen["cmd"]
+    assert not (tmp_path / "home" / ".codex" / "sessions").exists()
+
+
+def test_pi_resumes_the_session_it_planted(monkeypatch, tmp_path) -> None:
+    seen = _pi_spawn(monkeypatch, tmp_path, _TWO_TURNS)
+
+    cmd = seen["cmd"]
+    assert "--no-session" not in cmd
+    assert Path(cmd[cmd.index("--session") + 1]).is_file()
+    assert cmd[-1] == "Finish it."
+    # Left open, stdin hangs pi after it loads the session (pi 0.87.1).
+    assert seen["stdin"] is subprocess.DEVNULL
 
 
 def test_pi_starts_fresh_without_a_history(monkeypatch, tmp_path) -> None:
@@ -636,15 +659,6 @@ def test_pi_starts_fresh_without_a_history(monkeypatch, tmp_path) -> None:
     assert "--no-session" in seen["cmd"]
     assert "--session" not in seen["cmd"]
     assert not (tmp_path / "home" / ".pi" / "agent" / "sessions").exists()
-
-
-def test_pi_attempts_write_separate_sessions(monkeypatch, tmp_path) -> None:
-    history = [PlantedTurn(user="hi"), PlantedTurn(assistant="hello")]
-    first = _pi_spawn(monkeypatch, tmp_path / "a", history)
-    second = _pi_spawn(monkeypatch, tmp_path / "b", history)
-
-    assert first["lines"][0]["id"] != second["lines"][0]["id"]
-    assert first["path"].is_relative_to(tmp_path / "a" / "home" / ".pi")
 
 
 # --- the judge ------------------------------------------------------------------

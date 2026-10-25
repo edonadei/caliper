@@ -26,13 +26,21 @@ from caliper.schema.results import (
     RunResults,
     SkillSnapshot,
     TaskResult,
+    TokenUsage,
 )
 
 runner = CliRunner()
 
 
 def _write_run(
-    root: Path, spec: str, ts: datetime, *, ablated: list[str], skills: list[str]
+    root: Path,
+    spec: str,
+    ts: datetime,
+    *,
+    ablated: list[str],
+    skills: list[str],
+    attempt: AttemptRecord | None = None,
+    expected: list[str] | None = None,
 ) -> Path:
     results = RunResults(
         run=RunMeta(
@@ -51,10 +59,12 @@ def _write_run(
                 task_id="task-001",
                 task_name="alpha",
                 attempts=[
-                    AttemptRecord(
+                    attempt
+                    or AttemptRecord(
                         attempt=1, output="", duration_seconds=1.0, outcome=Outcome.PASS
                     )
                 ],
+                activation_expected=expected,
             )
         ],
         aggregate=AggregateScore(avg_score=1.0, scored_tasks=1, per_task=[]),
@@ -166,3 +176,50 @@ def test_an_unknown_format_is_refused(argv) -> None:
     output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
     assert result.exit_code == 2
     assert "Invalid value for '--format'" in output
+
+
+def test_json_carries_the_numbers_the_table_prints(monkeypatch, tmp_path) -> None:
+    # The table is a shell over the comparison; a number it prints that the
+    # JSON lacks would leave an agent on --format json reading less.
+    def side(minute: int, outcome: Outcome, fired: bool) -> Path:
+        # One attempt of 1000 tokens, asserting it activates `mine`.
+        attempt = AttemptRecord(
+            attempt=1,
+            output="",
+            duration_seconds=4.0,
+            outcome=outcome,
+            usage=TokenUsage(input_tokens=1000),
+            activated=["mine"] if fired else [],
+            activation_passed=fired,
+            judge_seconds=2.0,
+        )
+        ts = datetime(2026, 8, 4, 10, minute, tzinfo=timezone.utc)
+        return _write_run(
+            tmp_path,
+            "demo",
+            ts,
+            ablated=[],
+            skills=["mine"],
+            attempt=attempt,
+            expected=["mine"],
+        )
+
+    a = side(0, Outcome.PASS, True)
+    b = side(30, Outcome.TASK_FAIL, False)
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["compare", str(a), str(b), "--format", "json"])
+    assert result.exit_code == 0, result.output
+
+    data = json.loads(result.output)
+    for side in ("a_usage", "b_usage"):
+        assert data[side]["tokens_per_attempt"] == 1000
+        assert data[side]["wall_per_attempt"] == 4.0
+        assert data[side]["judge_per_attempt"] == 2.0
+    assert data["a_matched_activation_avg"] == 1.0
+    assert data["b_matched_activation_avg"] == 0.0
+    assert data["aggregate_activation_delta"] == -1.0
+    assert data["regressions"] == ["alpha"]
+    assert data["activation_regressions"] == ["alpha"]
+    assert data["unmeasured"] == []
+    assert data["has_regression"] is True
+    assert data["aggregate_delta"] == -1.0

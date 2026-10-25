@@ -320,6 +320,45 @@ def test_no_activation_regression_when_the_description_improves():
     assert comp.has_activation_regression is False
 
 
+def _act_run_of(*tasks):
+    run = _act_run([True])
+    run.task_results = list(tasks)
+    return run
+
+
+def test_compare_averages_activation_over_tasks_measured_on_both_sides():
+    a = _act_run_of(
+        _act_task("one", ["mine"], [True, True]),
+        _act_task("two", ["mine"], [True, False]),
+        # No verdicts on B's side: out of both averages.
+        _act_task("three", ["mine"], [True, True]),
+    )
+    b = _act_run_of(
+        _act_task("one", ["mine"], [True, False]),
+        _act_task("two", ["mine"], [False, False]),
+        _act_task("three", None, [None, None]),
+    )
+
+    comp = diff_runs(a, b)
+
+    assert comp.a_matched_activation_avg == 0.75
+    assert comp.b_matched_activation_avg == 0.25
+    assert comp.aggregate_activation_delta == -0.5
+    assert comp.activation_regressions == ["one", "two"]
+
+
+def test_compare_has_no_activation_average_when_nothing_was_asserted_on_both():
+    comp = diff_runs(
+        _act_run_of(_act_task("one", None, [None])),
+        _act_run_of(_act_task("one", None, [None])),
+    )
+
+    assert comp.a_matched_activation_avg is None
+    assert comp.b_matched_activation_avg is None
+    assert comp.aggregate_activation_delta is None
+    assert comp.activation_regressions == []
+
+
 def test_execution_headline_is_skipped_when_nothing_was_measured():
     # An all-trigger-probe spec. "0.0%" with an empty bar would read as total
     # failure of a run in which nothing failed.
