@@ -939,28 +939,42 @@ def test_preflight_rejects_a_modern_server_that_does_not_list_its_tools(
         )
 
 
-@pytest.mark.parametrize(
-    "tools",
-    [
-        {"resultType": "complete", "tools": []},
-        {"tools": [], "ttlMs": 0, "cacheScope": "public"},
-        {"resultType": "complete", "tools": [], "ttlMs": 1.5, "cacheScope": "public"},
-        {"resultType": "complete", "tools": [], "ttlMs": 0, "cacheScope": "shared"},
-        {"resultType": "complete", "tools": [], "ttlMs": 2**60, "cacheScope": "public"},
-    ],
-)
+# Each one made Claude Code 2.1.306 drop the server's tools.
+_DROPPED_TOOL_LISTS = [
+    {"resultType": "partial"},
+    {"ttlMs": 1.5},
+    {"ttlMs": -1},
+    {"ttlMs": 2**60},
+    {"cacheScope": "shared"},
+]
+
+
+@pytest.mark.parametrize("fields", _DROPPED_TOOL_LISTS)
 def test_preflight_rejects_a_modern_tool_list_claude_code_would_drop(
-    tmp_path, tools
+    tmp_path, fields
 ) -> None:
+    tools = {**_MODERN_TOOLS["result"], **fields}
     with pytest.raises(
         HarnessConfigurationError,
-        match=r"^MCP server 'modern' listed tools without a valid resultType, "
+        match=r"^MCP server 'modern' listed tools with an invalid resultType, "
         r"ttlMs or cacheScope$",
     ):
         preflight_stdio_servers(
             _modern_server(tmp_path, _DISCOVERED_TOOLS, tools_reply={"result": tools}),
             speaks_modern=True,
         )
+
+
+@pytest.mark.parametrize("missing", ["resultType", "ttlMs", "cacheScope"])
+def test_preflight_accepts_a_modern_tool_list_that_leaves_a_field_out(
+    tmp_path, missing
+) -> None:
+    """Claude Code 2.1.306 still lists and calls the tools then."""
+    tools = {k: v for k, v in _MODERN_TOOLS["result"].items() if k != missing}
+    preflight_stdio_servers(
+        _modern_server(tmp_path, _DISCOVERED_TOOLS, tools_reply={"result": tools}),
+        speaks_modern=True,
+    )
 
 
 def test_preflight_accepts_a_whole_ttl_written_as_a_float(tmp_path) -> None:
@@ -1684,10 +1698,12 @@ def test_preflight_checks_a_dual_era_server_in_2026_07_28_when_the_agent_speaks_
     there is the one that has to be valid."""
     with pytest.raises(
         HarnessConfigurationError,
-        match=r"^MCP server 'dual' listed tools without a valid resultType",
+        match=r"^MCP server 'dual' listed tools with an invalid resultType",
     ):
         preflight_stdio_servers(
-            _dual_era_server(tmp_path, {"result": {"tools": []}}),
+            _dual_era_server(
+                tmp_path, {"result": {**_MODERN_TOOLS["result"], "ttlMs": 1.5}}
+            ),
             speaks_modern=True,
         )
 

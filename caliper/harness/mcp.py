@@ -543,18 +543,18 @@ def _discovered(
     if "tools" not in result["capabilities"]:
         return
     tools = _list_tools(process, tools_id, name, deadline, timeout, _MODERN_META)
-    # 2026-07-28 requires these fields, and Claude Code drops the server's tools
-    # when one is missing.
-    ttl = tools.get("ttlMs")
+    # Claude Code accepts a tool list that leaves these out, but drops the
+    # server's tools when one holds a value 2026-07-28 does not allow.
+    ttl = tools.get("ttlMs", 0)
     if (
-        tools.get("resultType") != "complete"
+        tools.get("resultType", "complete") != "complete"
         or type(ttl) not in (int, float)
         or not 0 <= ttl <= _MAX_SAFE_INTEGER
         or ttl != int(ttl)
-        or tools.get("cacheScope") not in ("public", "private")
+        or tools.get("cacheScope", "public") not in ("public", "private")
     ):
         raise HarnessConfigurationError(
-            f"MCP server '{name}' listed tools without a valid resultType, ttlMs "
+            f"MCP server '{name}' listed tools with an invalid resultType, ttlMs "
             "or cacheScope"
         )
 

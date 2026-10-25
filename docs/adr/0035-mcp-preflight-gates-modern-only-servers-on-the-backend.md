@@ -20,6 +20,7 @@ it shares a version, so it stops the run too, as does a discovery result
 that doesn't list 2026-07-28. A modern `tools/list` must carry the
 `resultType`, whole-number `ttlMs` and `cacheScope` the revision requires, and
 no `error` key beside its result: Claude Code drops a server's tools otherwise.
+*(Amended: a field left out passes; only a disallowed value fails — see below.)*
 
 The flag is per backend, not per installed version. Caliper assumes a current
 `claude-code` (2.1.292 or later, where 2026-07-28 is the stdio default) rather
@@ -28,9 +29,9 @@ than probing the CLI version on every run.
 ## Amendment: preflight opens a server the way the backend's agent does
 
 Checking the older exchange let a broken server through. A dual-era server
-whose 2026-07-28 `tools/list` lacks `resultType`, `ttlMs` or `cacheScope`
-answered `initialize`, so it passed preflight, and then Claude Code dropped its
-tools: the attempt scored as a task failure instead of stopping the run.
+whose 2026-07-28 `tools/list` held a `ttlMs` of `1.5` answered `initialize`,
+so it passed preflight, and then Claude Code dropped its tools: the attempt
+scored as a task failure instead of stopping the run.
 
 On a backend with `speaks_modern_mcp`, preflight now follows the stdio
 transport's fallback, as Claude Code does. It sends `server/discover` first. A
@@ -43,3 +44,13 @@ from the abandoned probe may still be waiting on its output.
 The other backends still send `initialize` first, because their agents do.
 A legacy server on those backends still never sees `server/discover` unless
 it rejects `initialize`.
+
+## Amendment: a tool list may leave out what Claude Code does not need
+
+Claude Code 2.1.306 lists and calls a server's tools when its 2026-07-28
+`tools/list` leaves out `resultType`, `ttlMs` or `cacheScope`. Requiring them
+stopped runs that would have worked. Preflight now rejects only a value the
+revision does not allow: a `resultType` other than `complete`, a `ttlMs` that
+is not a whole number from 0 to 2^53 − 1, or a `cacheScope` other than `public`
+or `private`. Each of these made Claude Code drop the tools. So did `error:
+null` beside the result, which preflight still rejects.
