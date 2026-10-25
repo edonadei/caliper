@@ -2,6 +2,7 @@ import typer
 
 from caliper.commands.compare import compare_cmd
 from caliper.commands.list_cmd import list_cmd_fn
+from caliper.commands.login import login_cmd, logout_cmd
 from caliper.commands.report import report_cmd
 from caliper.commands.run import run_cmd
 from caliper.commands.validate import validate_cmd
@@ -20,6 +21,8 @@ app.command("compare", help="Diff two saved runs of the same eval (A vs B)")(
 )
 app.command("list", help="List evaluation specs and past runs")(list_cmd_fn)
 app.command("validate", help="Validate an evaluation spec file")(validate_cmd)
+app.command("login", help="Sign in to ChatGPT so codex runs use your plan")(login_cmd)
+app.command("logout", help="Sign out of ChatGPT")(logout_cmd)
 
 
 def main() -> None:
