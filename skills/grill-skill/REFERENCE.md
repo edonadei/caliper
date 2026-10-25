@@ -23,7 +23,8 @@ caliper report <spec> --run 2026-06-21T14-53-12Z --verbose
 The engine is chosen at run time, never in the spec: `--model` for the skill
 and `--judge-model` for the judge, each `backend`, `backend:model` or a bare
 model (`--model codex`, `--model codex:gpt-5-codex`). Backends are
-`claude-code` (default), `codex`, `pi`, and `hermes`. The judge defaults to the
+`claude-code` (default), `codex`, `pi`, and `hermes`; on a ChatGPT plan, run
+`caliper login chatgpt` once before `--model codex`. The judge defaults to the
 `--model` backend; pass the same `--judge-model` to runs you compare across
 engines.
 
