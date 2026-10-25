@@ -184,12 +184,14 @@ pi's agent dir, where pi discovers them.
 - Caliper never passes pi's `--skill` flag, because it *preloads* the skill.
   Discovery is pi's default behavior, which is why pi also has `--no-skills`.
 - It reuses your `~/.pi/agent` `auth.json`, `settings.json` and `models.json`,
-  so custom providers from `models.json` work in attempts. `!command` values in
-  `models.json` still run at request time, as they do when you run pi yourself,
-  but inside the attempt: `HOME` is the attempt's own empty home and only a few
-  variables (`PATH`, `LANG`, …) are passed through. So an `apiKey` of
-  `!cat ~/.config/x/token` or `$MY_TOKEN` resolves to nothing there. Use a
-  literal key or an absolute path in the command.
+  so custom providers from `models.json` work in attempts. Caliper resolves
+  `!command` and `$NAME` credentials in `models.json` (each `apiKey` and
+  `headers` value) on the host before the attempt starts. It follows pi's own
+  rules, so `!cat ~/.config/x/token` or `$MY_TOKEN` gets the value it has when
+  you run pi yourself, even though the attempt has its own empty `HOME` and
+  only a few variables. A command runs once per attempt. A value that doesn't
+  resolve on the host is left as written, and pi reports it.
+  See [ADR 0040](adr/0040-pi-credentials-resolve-on-the-host.md).
   The `:model` half of `--model pi:<model>` overrides pi's configured default.
 - pi's built-in default provider is `google`, so `--model pi` with no model
   relies on your pi config to resolve a provider you're authenticated for.
