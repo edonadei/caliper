@@ -54,6 +54,26 @@ command (`claude auth login`, `codex login` or `hermes model`) and reruns the
 eval once the login succeeds. pi logs in only from its own terminal UI, so it
 gets no offer.
 
+### Which account attempts use
+
+Attempts copy your login and config from the same place the CLI itself reads
+them, so attempts and the judge use the same account. Each `~/...` path on this
+page means the default location. If you set the CLI's own variable, Caliper
+reads from there instead:
+
+| Backend | Variable | Default |
+|---|---|---|
+| `claude-code` | `CLAUDE_CONFIG_DIR` | `~/.claude` (and `~/.claude.json`) |
+| `codex` | `CODEX_HOME` | `~/.codex` |
+| `pi` | `PI_CODING_AGENT_DIR` | `~/.pi/agent` |
+| `hermes` | `HERMES_HOME` | `~/.hermes` (`%LOCALAPPDATA%\hermes` on Windows) |
+
+If the variable is set to something that isn't a directory, the run stops before
+the first attempt (exit `2`). With `CLAUDE_CONFIG_DIR` set, `.claude.json` is
+read from inside that dir, and on macOS the login comes from the Keychain entry
+the CLI keeps for that dir. Each attempt still runs on its own isolated copy
+([ADR 0038](adr/0038-attempts-read-the-config-home-the-operators-cli-reads.md)).
+
 ### What gets recorded
 
 Each saved run's `RunMeta` records the engine that was actually used: the skill
@@ -73,7 +93,7 @@ stay traceable even though the spec doesn't pin an engine.
 - `judge_model` stays empty for an `assert:`-only run, where no LLM judge ran.
 - When `--judge-model` names no model, the judge uses its CLI's own default
   model, like the skill does. The `codex` judge reads your real
-  `~/.codex/config.toml`, so a `model =` pinned there applies to it, while an
+  `~/.codex/config.toml` (under `CODEX_HOME` when set), so a `model =` pinned there applies to it, while an
   attempt drops that pin.
 - A spec with `expect:` stops before its first attempt if the judge's CLI
   isn't installed, rather than recording a `judge_error` on every attempt.

@@ -63,6 +63,36 @@ SEED_INVENTORIES = [
     ),
 ]
 
+# Where each seed file comes from when the operator points the CLI at another
+# config home: the CLI's own variable, and each file's path inside that home.
+# claude-code keeps .claude.json beside ~/.claude by default, but inside
+# CLAUDE_CONFIG_DIR when it is set.
+CONFIG_HOME_SOURCES = [
+    (
+        ClaudeCodeHarness,
+        "CLAUDE_CONFIG_DIR",
+        {
+            ".claude.json": ".claude.json",
+            ".claude/.credentials.json": ".credentials.json",
+        },
+    ),
+    (CodexHarness, "CODEX_HOME", {".codex/auth.json": "auth.json"}),
+    (
+        HermesHarness,
+        "HERMES_HOME",
+        {".hermes/auth.json": "auth.json", ".hermes/.env": ".env"},
+    ),
+    (
+        PiHarness,
+        "PI_CODING_AGENT_DIR",
+        {
+            ".pi/agent/auth.json": "auth.json",
+            ".pi/agent/settings.json": "settings.json",
+            ".pi/agent/models.json": "models.json",
+        },
+    ),
+]
+
 # The three backends that spawn the binary ``cli_path`` finds. claude-code is
 # absent on purpose: it spawns a bare ``claude`` and leaves the lookup to the
 # attempt's PATH, so it resolves its binary there rather than through
@@ -129,7 +159,94 @@ def test_seeding_skips_files_the_user_does_not_have(
     backend()._seed_home(run_context(isolated_home=str(home)))
 
     assert not any((home / relative).exists() for relative in inventory)
-    assert list(home.rglob("*")) == []
+    assert [path for path in home.rglob("*") if path.is_file()] == []
+
+
+def test_every_backend_names_its_config_home_variable() -> None:
+    assert [backend for backend, _, _ in CONFIG_HOME_SOURCES] == ALL_BACKENDS
+
+
+@pytest.mark.parametrize(("backend", "variable", "sources"), CONFIG_HOME_SOURCES)
+def test_seeds_from_the_config_home_the_operator_points_the_cli_at(
+    backend, variable, sources, monkeypatch, tmp_path
+) -> None:
+    """The judge runs in the operator's env, so attempts must log in the same way (#112)."""
+    real = tmp_path / "real"
+    monkeypatch.setattr(Path, "home", lambda: real)
+    harness = backend()
+    home = tmp_path / "home"
+    ctx = run_context(isolated_home=str(home))
+    selected = tmp_path / "selected"
+    selected.mkdir()
+    monkeypatch.setenv(variable, str(selected))
+    for relative, inside in sources.items():
+        (selected / inside).write_text(f"selected {inside}")
+        # The default home holds another account, which must not be seeded.
+        monkeypatch.delenv(variable)
+        default = harness.user_path(home / relative, ctx)
+        monkeypatch.setenv(variable, str(selected))
+        default.parent.mkdir(parents=True, exist_ok=True)
+        default.write_text("default account")
+
+    harness._seed_home(ctx)
+
+    assert {relative: (home / relative).read_text() for relative in sources} == {
+        relative: f"selected {inside}" for relative, inside in sources.items()
+    }
+
+
+@pytest.mark.parametrize(("backend", "variable", "sources"), CONFIG_HOME_SOURCES)
+def test_a_config_home_that_is_not_a_directory_stops_the_run(
+    backend, variable, sources, monkeypatch, tmp_path
+) -> None:
+    """Seeding nothing would only surface later, as a login failure per attempt."""
+    monkeypatch.setenv(variable, str(tmp_path / "missing"))
+
+    with pytest.raises(HarnessConfigurationError) as raised:
+        backend()._ensure_ready(run_context(isolated_home=str(tmp_path / "home")))
+
+    assert variable in str(raised.value)
+    assert str(tmp_path / "missing") in str(raised.value)
+
+
+# The variable each attempt runs with: its own isolated config home, or unset
+# where the CLI's default layout under the isolated HOME is the attempt's.
+ATTEMPT_CONFIG_HOMES = [
+    (ClaudeCodeHarness, "CLAUDE_CONFIG_DIR", None),
+    (CodexHarness, "CODEX_HOME", ".codex"),
+    (HermesHarness, "HERMES_HOME", ".hermes"),
+    (PiHarness, "PI_CODING_AGENT_DIR", ".pi/agent"),
+]
+
+
+@pytest.mark.parametrize(("backend", "variable", "inside"), ATTEMPT_CONFIG_HOMES)
+def test_an_attempt_runs_on_its_own_config_home_never_the_operators(
+    backend, variable, inside, monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv(variable, str(tmp_path / "selected"))
+    if sys.platform == "win32" and backend is HermesHarness:
+        pytest.skip("the Windows hermes home is a junction under the root (ADR 0037)")
+    home = tmp_path / "home"
+
+    env = backend()._environment(run_context(isolated_home=str(home)))
+
+    assert env.get(variable) == (str(home / inside) if inside else None)
+
+
+@pytest.mark.parametrize(
+    ("backend", "variable", "inside"),
+    [entry for entry in ATTEMPT_CONFIG_HOMES if entry[2]],
+)
+def test_the_attempts_config_home_exists_even_with_nothing_to_seed(
+    backend, variable, inside, monkeypatch, tmp_path
+) -> None:
+    """codex refuses a CODEX_HOME that does not exist, rather than creating it."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "empty")
+    harness = backend()
+
+    ctx = _prepared(harness, tmp_path)
+
+    assert (Path(ctx.isolated_home) / inside).is_dir()
 
 
 # --- locating the CLI --------------------------------------------------------
