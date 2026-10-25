@@ -142,7 +142,9 @@ def resolve_skills(
     fetcher = fetcher or SkillFetcher()
     sandbox = SpecSandbox(declared=list(forbidden_files or []))
     refs: list[SkillRef] = []
-    seen: dict[str, Path] = {}
+    # Keyed by the lowercased name: the name is a directory, and macOS and
+    # Windows give `foo` and `FOO` one directory.
+    seen: dict[str, tuple[str, Path]] = {}
 
     for entry in entries:
         if isinstance(entry, GitSkillSource):
@@ -223,14 +225,19 @@ def resolve_skills(
                 f"It is over {_MAX_FILE_BYTES // (1024 * 1024)} MB or matched by "
                 "sandbox.forbidden_files."
             )
-        if name in seen:
+        if name.lower() in seen:
+            other, other_path = seen[name.lower()]
+            declared = (
+                f"both declare name: {name!r}"
+                if other == name
+                else f"declare names {other!r} and {name!r}, which differ only in case,"
+            )
             raise SkillResolutionError(
-                f"two skills both declare name: {name!r} "
-                f"({seen[name]} and {path}).\n"
+                f"two skills {declared} ({other_path} and {path}).\n"
                 "They would collide on one install path. Rename one."
             )
 
-        seen[name] = path
+        seen[name.lower()] = (name, path)
         refs.append(SkillRef(name=name, path=path, **provenance))
 
     return refs

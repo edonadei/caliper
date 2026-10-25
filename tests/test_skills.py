@@ -132,6 +132,16 @@ def test_duplicate_names_collide_on_one_install_path_and_are_rejected(tmp_path):
         resolve_skills(["./one/SKILL.md", "./two/SKILL.md"], tmp_path)
 
 
+def test_names_differing_only_in_case_are_rejected(tmp_path):
+    """``foo`` and ``FOO`` are one directory on macOS and Windows, so one skill
+    would silently replace the other; refused everywhere, so a spec that
+    validates on Linux runs the same neighbourhood on a Mac."""
+    write_skill(tmp_path / "one", "foo")
+    write_skill(tmp_path / "two", "FOO")
+    with pytest.raises(SkillResolutionError, match="'foo'.*'FOO'|'FOO'.*'foo'"):
+        resolve_skills(["./one/SKILL.md", "./two/SKILL.md"], tmp_path)
+
+
 @pytest.mark.parametrize("bad", ["../escape", "with/slash", ".", ""])
 def test_name_must_be_a_safe_directory_component(tmp_path, bad):
     (tmp_path / "s").mkdir()
