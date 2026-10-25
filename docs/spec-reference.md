@@ -247,10 +247,13 @@ mcp:
   wherever you run Caliper. Bare command names such as `python3` and bare
   arguments are passed through.
 - **Servers are checked before the agent starts.** After each task's `setup:`,
-  Caliper checks each declared stdio server in the attempt environment. It
-  sends an MCP initialization request, and if the server rejects it, a
-  2026-07-28 `server/discover` request. A server that speaks only 2026-07-28
-  passes only on a backend whose agent speaks it (see
+  Caliper checks each declared stdio server in the attempt environment,
+  opening it the way the backend's agent does. On a backend that speaks MCP
+  2026-07-28, it sends a `server/discover` request first and falls back to an
+  initialization request when the server doesn't answer it. On the others, it
+  sends an initialization request first, and a `server/discover` request only
+  if the server rejects it. A server that speaks only 2026-07-28 passes only on
+  a backend whose agent speaks it (see
   [MCP support by backend](backends.md#mcp-support-by-backend)). A missing,
   exiting, or unresponsive server stops the run with a configuration error
   rather than producing a task score. Servers removed by `--ablate` aren't
