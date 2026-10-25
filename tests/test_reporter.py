@@ -34,6 +34,18 @@ def test_make_progress_initializes_task_totals() -> None:
     assert progress.tasks[task_ids["Task two"]].total == 3
 
 
+def test_progress_shows_a_task_name_literally() -> None:
+    """A valid task name is text, never Rich markup: ``[/]`` used to crash a run."""
+    names = ["[/]", "[bold]loud[/bold]"]
+    progress, _ = make_progress(names, k=1)
+    buf = io.StringIO()
+
+    Console(file=buf, width=120).print(progress.make_tasks_table(progress.tasks))
+
+    assert "[/]" in buf.getvalue()
+    assert "[bold]loud[/bold]" in buf.getvalue()
+
+
 def test_update_progress_marks_early_stopped_task_finished() -> None:
     progress, task_ids = make_progress(["Task one"], k=3)
 
