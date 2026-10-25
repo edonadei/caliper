@@ -10,6 +10,7 @@ from functools import partial
 from pathlib import Path
 
 from caliper.backends import mcp_tool_name
+from caliper.chatgpt import LOGIN_COMMAND, RESOURCE, chatgpt_account
 from caliper.harness.base import (
     AgentReport,
     CliHarness,
@@ -35,6 +36,27 @@ CODEX_APP_CLI = Path("/Applications/Codex.app/Contents/Resources/codex")
 # so neither an isolated attempt nor the judge sees them (docs/adr/0026); an
 # attempt loading user customizations leaves them on (docs/adr/0028).
 NO_ACCOUNT_CONNECTORS = ("-c", "features.apps=false", "-c", "features.plugins=false")
+
+# Signed in with ``caliper login chatgpt``, codex runs on the user's plan
+# through a provider that reads a short-lived access token from the env, and
+# never touches an auth.json it could refresh or use up
+# (docs/adr/0039-caliper-owns-the-chatgpt-plan-login.md). A -c override beats
+# any provider the user's config.toml selects.
+PLAN_TOKEN_ENV = "CALIPER_CHATGPT_ACCESS_TOKEN"
+_PLAN = "model_providers.caliper_chatgpt_plan"
+CHATGPT_PLAN_PROVIDER = (
+    *("-c", 'model_provider="caliper_chatgpt_plan"'),
+    *("-c", f'{_PLAN}.name="ChatGPT plan"'),
+    *("-c", f'{_PLAN}.base_url="{RESOURCE}"'),
+    *("-c", f'{_PLAN}.env_key="{PLAN_TOKEN_ENV}"'),
+    *("-c", f'{_PLAN}.wire_api="responses"'),
+    *("-c", f"{_PLAN}.requires_openai_auth=false"),
+    *("-c", f"{_PLAN}.supports_websockets=false"),
+)
+# How long past its timeout an attempt's token must last, and a judge call's
+# token at all: a judge call is bounded at 60 seconds (``EvalJudge``).
+PLAN_TOKEN_SLACK = 60
+PROMPT_TOKEN_LASTING = 120
 
 # The server name codex's hosted connectors surface under
 # (``mcp__codex_apps__<tool>``), recorded as one server: caliper can't list the
@@ -81,9 +103,65 @@ CODEX_CONFIG = CliConfig(
 )
 
 
+_CODEX_LOGIN_SIGNALS = (
+    ConfigSignal(
+        (
+            *AUTH_MARKERS,
+            "401 unauthorized",
+            "api key",
+            "chatgpt account",
+            "sign in again",
+        ),
+        "Codex CLI cannot run with the current subscription/authentication "
+        "configuration.\n\n"
+        "Caliper uses `codex exec` for `--model codex` and does not fall "
+        "back to the OpenAI API. The Codex CLI returned:\n"
+        "  {text}\n\n"
+        "Run `{login}` and verify `codex exec` works in your normal "
+        "shell, then retry the eval. For API billing, configure the "
+        "Codex CLI with an API key rather than selecting a separate "
+        "backend.",
+        login=True,
+    ),
+)
+
+# A plan login's refusals (developers.openai.com/siwc/token-sharing-open-source
+# /errors-and-recovery): what the plan does not allow, checked first because
+# its codes say "subscription", then a token it did not accept, which signing in
+# again settles. Its usage limit is a spending cap, read by the base
+# (``refusal._CAP_SIGNALS``).
+_PLAN_LOGIN_SIGNALS = (
+    ConfigSignal(
+        (
+            "subscription_sharing_user_not_eligible",
+            "subscription_sharing_unsupported_capability",
+            "subscription_sharing_route_not_supported",
+            "chatpass_v2_scope_not_authorized",
+            "chatpass_v2_invalid_authorization_context",
+        ),
+        "Your ChatGPT plan refused this codex run. The Codex CLI returned:\n"
+        "  {text}\n\n"
+        "Some codex features are not available on a plan login. Run `caliper "
+        "logout chatgpt` to use your Codex CLI login instead.",
+    ),
+    ConfigSignal(
+        (*AUTH_MARKERS, "401 unauthorized", "subscription_sharing_invalid_user"),
+        "Codex could not run on your ChatGPT plan with caliper's login. The "
+        "Codex CLI returned:\n"
+        "  {text}\n\n"
+        "Run `{login}`, then retry the eval.",
+        login=True,
+    ),
+)
+
+
 class CodexHarness(CliHarness):
     def __init__(self, model: str | None = None) -> None:
         self._model = model
+        # Settled once for the run, so a sign-in or sign-out mid-run cannot
+        # split an attempt between two logins.
+        account = chatgpt_account()
+        self._plan_login = account if account.signed_in else None
 
     supports_mcp = True
     supports_history = True
@@ -114,6 +192,8 @@ class CodexHarness(CliHarness):
         return Path(ctx.isolated_home) / ".codex" / "skills"
 
     def seed_files(self, ctx: RunContext) -> list[tuple[Path, Path]]:
+        if self._plan_login is not None:
+            return []
         real = self.user_config_home()
         codex_home = Path(ctx.isolated_home) / ".codex"
         # config.toml is deliberately absent: it is rewritten rather than copied
@@ -175,6 +255,7 @@ class CodexHarness(CliHarness):
             "--color",
             "never",
             *self._connector_overrides(ctx),
+            *self._provider_overrides(),
             "-",
         ]
         if ctx.model:
@@ -200,11 +281,21 @@ class CodexHarness(CliHarness):
             return ("-c", "features.apps=false")
         return ()
 
+    def _provider_overrides(self) -> tuple[str, ...]:
+        return CHATGPT_PLAN_PROVIDER if self._plan_login is not None else ()
+
     def _environment(self, ctx: RunContext) -> dict[str, str]:
         # Named outright rather than left to HOME: codex resolves its home
         # through CODEX_HOME before HOME (#112).
         codex_home = Path(ctx.isolated_home) / self.config_home
-        return self._isolated_env(ctx, extra={"CODEX_HOME": str(codex_home)})
+        extra = {"CODEX_HOME": str(codex_home)}
+        login = self._plan_login
+        if login is not None:
+            # Fetched last, so the attempt starts with the most time left on it;
+            # a refresh it needs happens here, in caliper's process.
+            lasting = ctx.timeout + PLAN_TOKEN_SLACK
+            extra[PLAN_TOKEN_ENV] = login.access_token(lasting=lasting)
+        return self._isolated_env(ctx, extra=extra)
 
     def _read(self, proc: ProcessResult, ctx: RunContext) -> AgentReport:
         """One walk of ``codex exec --json``'s events.
@@ -361,6 +452,7 @@ class CodexHarness(CliHarness):
             "--output-last-message",
             str(output_path),
             *NO_ACCOUNT_CONNECTORS,
+            *self._provider_overrides(),
             "-",
         ]
         if model:
@@ -371,6 +463,13 @@ class CodexHarness(CliHarness):
             read=lambda proc: self._read_last_message(proc, output_path, prompt),
             cleanup=lambda: output_path.unlink(missing_ok=True),
         )
+
+    def _prompt_environment(self) -> dict[str, str]:
+        env = super()._prompt_environment()
+        login = self._plan_login
+        if login is not None:
+            env[PLAN_TOKEN_ENV] = login.access_token(lasting=PROMPT_TOKEN_LASTING)
+        return env
 
     def _prompt_cli_text(self, proc: ProcessResult, report: AgentReport) -> str:
         # Only the error line the reader picked out: `codex exec` echoes the
@@ -398,29 +497,15 @@ class CodexHarness(CliHarness):
             return AgentReport()
         return AgentReport(transcript=[ConversationTurn("assistant", raw)])
 
-    config_signals = (
-        ConfigSignal(
-            (
-                *AUTH_MARKERS,
-                "401 unauthorized",
-                "api key",
-                "chatgpt account",
-                "sign in again",
-            ),
-            "Codex CLI cannot run with the current subscription/authentication "
-            "configuration.\n\n"
-            "Caliper uses `codex exec` for `--model codex` and does not fall "
-            "back to the OpenAI API. The Codex CLI returned:\n"
-            "  {text}\n\n"
-            "Run `{login}` and verify `codex exec` works in your normal "
-            "shell, then retry the eval. For API billing, configure the "
-            "Codex CLI with an API key rather than selecting a separate "
-            "backend.",
-            login=True,
-        ),
-    )
+    @property
+    def config_signals(self) -> tuple[ConfigSignal, ...]:
+        if self._plan_login is not None:
+            return _PLAN_LOGIN_SIGNALS
+        return _CODEX_LOGIN_SIGNALS
 
     def login_command(self) -> list[str]:
+        if self._plan_login is not None:
+            return list(LOGIN_COMMAND)
         return [self.cli_path() or "codex", "login"]
 
     def _diagnose(

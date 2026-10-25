@@ -126,6 +126,19 @@ def test_a_failed_assertion_keeps_the_traceback_tail(tmp_path) -> None:
     assert step.output.endswith("AssertionError: the real reason")
 
 
+@pytest.mark.parametrize("level", ["1", "2"])
+def test_an_assertion_still_fails_under_the_callers_python_optimize(
+    tmp_path, monkeypatch, level
+) -> None:
+    """``PYTHONOPTIMIZE`` strips ``assert``, which would turn every check into a pass."""
+    monkeypatch.setenv("PYTHONOPTIMIZE", level)
+    with AttemptWorkdir(tmp_path) as workdir:
+        step = workdir.run_python("check", "assert False, 'must fail'\n")
+
+    assert not step.ok
+    assert step.output.endswith("AssertionError: must fail")
+
+
 def test_a_step_past_its_limit_is_killed_and_says_so(tmp_path, monkeypatch) -> None:
     monkeypatch.setitem(_STEP_TIMEOUTS, "assert", 1)
     started = time.monotonic()

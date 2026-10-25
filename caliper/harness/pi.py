@@ -134,7 +134,8 @@ class PiHarness(CliHarness):
         # No --skill: that flag preloads, and pi's own --no-skills exists
         # precisely because discovery is its default. The neighbourhood is
         # installed under the agent dir and pi finds it (docs/adr/0013).
-        cmd.append(ctx.prompt)
+        # `--` ends option parsing, so a prompt like `--version` is the task.
+        cmd += ["--", ctx.prompt]
         # stdin is left as None so the template closes it (DEVNULL): in --print
         # mode pi otherwise blocks reading stdin (e.g. for a trust confirmation)
         # and hangs until timeout.
@@ -237,7 +238,7 @@ class PiHarness(CliHarness):
         cmd = [pi, "--print", "--mode", "json", "--no-session", "--approve"]
         if model:
             cmd += ["--model", model]
-        cmd.append(prompt)
+        cmd += ["--", prompt]
         # stdin None → the template closes it (DEVNULL): in --print mode pi
         # otherwise blocks reading stdin and hangs until timeout.
         return PromptCall(cmd)

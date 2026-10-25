@@ -125,7 +125,9 @@ someone else's repo into yours. One entry is one skill, never a whole repo:
 repo root is itself a skill. A pack like `mattpocock/skills` keeps its skills in
 subfolders, so each one needs a `path:`. Entries that share a repo and commit
 share one clone, so naming five skills from a pack costs five entries and one
-fetch.
+fetch. `path:` is relative to the repo root and uses forward slashes, the way
+git writes paths, on every OS. A `..`, a leading `/`, a backslash or a drive
+letter such as `C:` is refused.
 
 `repo:` takes anything git can clone. A bare `owner/name` expands to
 `https://github.com/owner/name`. A URL, an `scp`-style `git@host:owner/name`, or
@@ -393,8 +395,8 @@ The shell is the only tool a planted turn can call.
 
 ### LLM autorater (`expect:`)
 
-The judge engine reads the full attempt transcript and decides whether the
-`expect` condition was met. Every backend captures tool-call traces, and the
+The judge engine reads the task's `prompt:` and the full attempt transcript,
+and decides whether the `expect` condition was met. Every backend captures tool-call traces, and the
 judge sees them, so it can verify things like "the agent used tool X" without
 relying on the final text alone.
 
@@ -407,9 +409,10 @@ spec with `expect:` is refused before the first attempt rather than recording a
 
 The judge either gives a direct verdict or writes a Python assertion script that
 runs in the attempt workdir. An answer that fits neither shape, such as
-`"passed": "false"` or an unknown `mode`, is no verdict: the autorater is
-dropped, as if it had errored. A saved run keeps what you need to debug a verdict:
-the `expect` text, the prompt template version, and any script the judge wrote.
+`"passed": "false"`, an unknown `mode`, or a script whose code is blank, is no
+verdict: the autorater is dropped, as if it had errored. A saved run keeps what
+you need to debug a verdict: the `expect` text, the prompt template version, and
+any script the judge wrote.
 See [Judge input fields](results.md#judge-input-fields).
 
 ### Deterministic assertions (`assert:`)
@@ -435,6 +438,10 @@ tasks:
 ```
 
 When both `expect` and `assert` are present, both must pass.
+
+An `assert:` script, like a script the judge writes, runs under the Python
+running Caliper, with your environment minus `PYTHONOPTIMIZE`. That variable
+strips `assert` statements, so leaving it set would pass every check unrun.
 
 ## Attempt workdir
 
@@ -479,7 +486,7 @@ skills:
   - ../calendar-scheduler/SKILL.md    # a neighbour it might steal work from
 
 tasks:
-  # Autorater: the LLM judge reads the transcript and decides
+  # Autorater: the LLM judge reads the request and the transcript and decides
   - name: Flags emails that need a reply
     setup: >-
       mkdir -p inbox

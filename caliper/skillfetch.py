@@ -148,6 +148,13 @@ class SkillFetcher:
             self._clone(src, sha, checkout)
 
         skill_md = checkout / src.path
+        # The schema refuses a path that leaves the repo; this checks where the
+        # join landed on this OS. Lexically: a symlink out of the clone gets its
+        # own refusal in `resolve_skills` (docs/adr/0027).
+        if not Path(os.path.abspath(skill_md)).is_relative_to(checkout.absolute()):
+            raise SkillFetchError(
+                f"{self._label(src)}: path '{src.path}' must stay inside the repo."
+            )
         if not skill_md.is_file():
             raise SkillFetchError(
                 f"{self._label(src)} does not contain '{src.path}' at {sha[:7]}.\n\n"

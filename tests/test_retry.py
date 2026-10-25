@@ -205,6 +205,20 @@ def test_merge_leaves_usage_none_when_no_invocation_reported_any() -> None:
     assert merged.usage is None
 
 
+def test_merge_keeps_what_every_conversing_invocation_did() -> None:
+    """A retry reuses the attempt's workdir, so earlier work is still in it.
+
+    Its record has to say how that work got there, or the cheat check, the
+    activation read and the judge grade state they never see the cause of.
+    """
+    talked = _result(**{**THROTTLED, "output": "wrote done.txt", "salvaged": False})
+    merged = merge([_result(**THROTTLED), talked, _result(output="the answer")])
+
+    # The salvaged one is the CLI talking, not the agent: it adds no turns.
+    assert [t.content for t in merged.transcript] == ["wrote done.txt", "the answer"]
+    assert merged.final_output == "the answer"
+
+
 class ThrottleThenPassHarness(HarnessBackend):
     """Throttles the first invocation of every attempt, then answers."""
 
@@ -275,6 +289,44 @@ def test_a_retried_attempt_is_one_attempt_in_the_results(tmp_path, monkeypatch) 
     assert [a.retries for a in attempts] == [1, 1, 1]
     # The denominator the score divides by is attempts, not spawns.
     assert results.task_results[0].score == 1.0
+
+
+def test_a_forbidden_read_before_a_throttle_is_still_a_cheat(
+    tmp_path, monkeypatch
+) -> None:
+    """The QA case: read the answer key, write the file, get a 429, retry idle."""
+    monkeypatch.setattr("caliper.retry.RetryPolicy", lambda: NO_WAIT)
+    spec_path = _spec_file(tmp_path)
+    peeked = AttemptResult(
+        transcript=[
+            ConversationTurn(
+                role="tool_use",
+                content="",
+                tool_name="Read",
+                tool_input={"file_path": str(spec_path)},
+            ),
+            ConversationTurn(role="assistant", content="wrote done.txt"),
+        ],
+        final_output="wrote done.txt",
+        exit_code=1,
+        duration_seconds=1.0,
+        refusal=CliRefusal(RefusalKind.THROTTLE, "429"),
+    )
+
+    results = run(
+        spec=_spec(),
+        spec_path=spec_path,
+        harness=ScriptedHarness(in_turn(peeked, _result(output="nothing to do"))),
+        judge=ScriptedJudge(),
+        k=1,
+        workers=1,
+        timeout=5,
+    )
+
+    [attempt] = results.task_results[0].attempts
+    assert attempt.retries == 1
+    assert attempt.outcome is Outcome.CHEAT
+    assert attempt.cheat_evidence == [str(spec_path)]
 
 
 def test_a_spending_cap_aborts_the_run_and_saves_what_ran(
