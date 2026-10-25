@@ -67,6 +67,8 @@ class PiHarness(CliHarness):
 
     cli_name = "pi"
     cli_path_env_var = "PI_CLI_PATH"
+    config_home_env = "PI_CODING_AGENT_DIR"
+    config_home = ".pi/agent"
     cli_unavailable_message = (
         "pi CLI is not available for the `pi` backend.\n\n"
         "Install the pi coding agent (`npm install -g "
@@ -89,7 +91,7 @@ class PiHarness(CliHarness):
         # a model that resolves by hand must resolve in the attempt too (#178).
         # Its `!command` and `$NAME` credentials run in the isolated env, so
         # home-relative or env-based ones don't resolve (docs/backends.md → pi).
-        real = Path.home() / ".pi" / "agent"
+        real = self.user_config_home()
         agent_dir = self._agent_dir(ctx)
         return [
             (real / name, agent_dir / name)

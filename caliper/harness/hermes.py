@@ -125,6 +125,8 @@ class HermesHarness(CliHarness):
         "to run on hermes."
     )
     cli_config = HERMES_CONFIG
+    config_home_env = "HERMES_HOME"
+    config_home = ".hermes"
     user_settings_file = "config.yaml"
     cli_name = "hermes"
     cli_path_env_var = "HERMES_CLI_PATH"
@@ -164,18 +166,13 @@ class HermesHarness(CliHarness):
         # the user's real hermes home). Seeding only auth/config — not SOUL.md or
         # MEMORY.md — is what neutralizes the agent; --ignore-rules on the
         # command completes the strip.
-        real_home = user_hermes_home()
+        real_home = self.user_config_home()
         hermes_home = self._hermes_home(ctx)
         return [(real_home / name, hermes_home / name) for name in _SEED_FILES]
 
-    def user_path(self, isolated: Path, ctx: RunContext) -> Path:
-        # The attempt's .hermes stands for the user's hermes home, which is not
-        # under the real home on Windows.
-        try:
-            inside = isolated.relative_to(self._hermes_home(ctx))
-        except ValueError:
-            return super().user_path(isolated, ctx)
-        return user_hermes_home() / inside
+    def _default_config_home(self) -> Path:
+        # Not under the real home on Windows.
+        return user_hermes_home()
 
     @staticmethod
     def _hermes_home(ctx: RunContext) -> Path:
@@ -346,7 +343,7 @@ class HermesHarness(CliHarness):
         # A bare prompt is a single call: `hermes -z` prints only the final
         # response text. --ignore-rules keeps persona/memory out of the answer;
         # unlike an attempt run there is no isolated HERMES_HOME — the call
-        # deliberately reuses the developer's real ~/.hermes.
+        # deliberately reuses the operator's own hermes home.
         cmd = [hermes, "-z", prompt, "--ignore-rules"]
         if model:
             cmd[2:2] = ["--model", model]

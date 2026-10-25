@@ -729,7 +729,15 @@ class CliHarness(HarnessBackend):
     cli_config: CliConfig | None = None
 
     def _seed_home(self, ctx: RunContext) -> None:
-        """Copy each declared seed file that exists, creating parents as needed."""
+        """Copy each declared seed file that exists, creating parents as needed.
+
+        The attempt's config home is created even when there is nothing to
+        seed: codex refuses a ``CODEX_HOME`` that does not exist.
+        """
+        if self.config_home is not None:
+            (Path(ctx.isolated_home) / self.config_home).mkdir(
+                parents=True, exist_ok=True
+            )
         for src, dst in self.seed_files(ctx):
             if src.exists():
                 dst.parent.mkdir(parents=True, exist_ok=True)
@@ -772,12 +780,43 @@ class CliHarness(HarnessBackend):
     user_rules: tuple[str, ...] = ()
     user_settings_file: str | None = None
 
+    # The variable this backend's CLI reads its config home from, and that
+    # home's default relative to the user's home. Attempts take the user's
+    # config from wherever the CLI itself would, as the judge does, since it
+    # runs in the operator's environment (docs/adr/0038).
+    config_home_env: str | None = None
+    config_home: str | None = None
+
+    def user_config_home(self) -> Path | None:
+        """The config home the operator's CLI reads: the variable, else the default."""
+        return self.selected_config_home() or self._default_config_home()
+
+    def selected_config_home(self) -> Path | None:
+        """The config home the operator set :attr:`config_home_env` to, if any."""
+        if self.config_home_env is None:
+            return None
+        selected = os.environ.get(self.config_home_env, "").strip()
+        return Path(selected).expanduser() if selected else None
+
+    def _default_config_home(self) -> Path | None:
+        """Where the CLI keeps its config home when the variable is unset."""
+        return Path.home() / self.config_home if self.config_home else None
+
     def user_path(self, isolated: Path, ctx: RunContext) -> Path:
         """The user's own copy of a path inside the attempt's isolated home.
 
-        Default: the same path under the real home. Overridden where the CLI
-        keeps its home elsewhere on some platform (hermes on Windows).
+        Inside the attempt's config home, the same path under the user's
+        (:meth:`user_config_home`); anywhere else, under the real home.
         """
+        if self.config_home is not None:
+            try:
+                inside = isolated.relative_to(
+                    Path(ctx.isolated_home) / self.config_home
+                )
+            except ValueError:
+                pass
+            else:
+                return self.user_config_home() / inside
         return Path.home() / isolated.relative_to(ctx.isolated_home)
 
     def stage_plugins(self, ctx: RunContext) -> tuple[list[str], dict[str, str]]:
@@ -1091,8 +1130,19 @@ class CliHarness(HarnessBackend):
 
         Performed here for every backend that declares a
         :attr:`cli_unavailable_message`: the probe is the same for all of them,
-        only the message differs (docs/adr/0020).
+        only the message differs (docs/adr/0020). A config home the operator
+        selected must exist too: seeding from a missing one would only show up
+        later, as each attempt failing to log in (docs/adr/0038).
         """
+        selected = self.selected_config_home()
+        if selected is not None and not selected.is_dir():
+            raise HarnessConfigurationError(
+                f"{self.config_home_env} is set to {selected}, which is not a "
+                f"directory.\n\ncaliper reads {self.name}'s login and config "
+                f"from there, as {self.name} itself does. Point "
+                f"{self.config_home_env} at your {self.name} config home, or "
+                "unset it to use the default, then rerun caliper."
+            )
         if self.cli_unavailable_message is None:
             return
         cli = self.cli_path()

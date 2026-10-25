@@ -89,6 +89,8 @@ class CodexHarness(CliHarness):
     supports_mcp = True
     supports_history = True
     cli_config = CODEX_CONFIG
+    config_home_env = "CODEX_HOME"
+    config_home = ".codex"
     user_rules = ("AGENTS.md", "AGENTS.override.md")
     user_settings_file = "config.toml"
     cli_name = "codex"
@@ -113,7 +115,7 @@ class CodexHarness(CliHarness):
         return Path(ctx.isolated_home) / ".codex" / "skills"
 
     def seed_files(self, ctx: RunContext) -> list[tuple[Path, Path]]:
-        real = Path.home() / ".codex"
+        real = self.user_config_home()
         codex_home = Path(ctx.isolated_home) / ".codex"
         # config.toml is deliberately absent: it is rewritten rather than copied
         # (``cli_config``), so seeding it verbatim would leak the user's ambient
@@ -121,7 +123,7 @@ class CodexHarness(CliHarness):
         return [(real / "auth.json", codex_home / "auth.json")]
 
     def _prepare(self, ctx: RunContext) -> None:
-        real = Path.home() / ".codex"
+        real = self.user_config_home()
         codex_home = Path(ctx.isolated_home) / ".codex"
         # Installed plugins, and the MCP servers they bring, live in this
         # directory rather than in config.toml; a copy keeps the user's own
@@ -245,7 +247,10 @@ class CodexHarness(CliHarness):
         return ()
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
-        return self._isolated_env(ctx)
+        # Named outright rather than left to HOME: codex resolves its home
+        # through CODEX_HOME before HOME (#112).
+        codex_home = Path(ctx.isolated_home) / self.config_home
+        return self._isolated_env(ctx, extra={"CODEX_HOME": str(codex_home)})
 
     def _read(self, proc: ProcessResult, ctx: RunContext) -> AgentReport:
         """One walk of ``codex exec --json``'s events.

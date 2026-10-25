@@ -376,6 +376,35 @@ def test_staging_copies_the_user_layer_into_the_attempt_home(
     assert staged.loaded(report) == sorted(["mcp:mine", *expected])
 
 
+@pytest.mark.parametrize(
+    ("backend", "variable", "folder", "rules"),
+    [
+        (ClaudeCodeHarness, "CLAUDE_CONFIG_DIR", ".claude", "CLAUDE.md"),
+        (CodexHarness, "CODEX_HOME", ".codex", "AGENTS.md"),
+        (HermesHarness, "HERMES_HOME", ".hermes", None),
+    ],
+)
+def test_staging_reads_the_config_home_the_operator_selected(
+    monkeypatch, tmp_path, backend, variable, folder, rules
+):
+    """The user layer is the selected config home's, as the CLI would load it."""
+    selected = tmp_path / "selected"
+    _personal_skill(selected, "")
+    if rules:
+        (selected / rules).write_text("Personal instructions")
+    monkeypatch.setenv(variable, str(selected))
+    monkeypatch.setenv("HOME", str(tmp_path / "real"))
+    iso = tmp_path / "iso"
+    ctx = run_context(isolated_home=str(iso), user_customizations=True)
+
+    staged = user_layer.stage(backend(), ctx)
+
+    assert staged.skill_names == ["personal"]
+    assert (iso / folder / "skills/personal/SKILL.md").is_file()
+    if rules:
+        assert (iso / folder / rules).read_text() == "Personal instructions"
+
+
 def test_an_isolated_attempt_stages_and_records_nothing(monkeypatch, tmp_path):
     home = tmp_path / "real"
     _personal_skill(home, ".claude")

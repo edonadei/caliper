@@ -264,20 +264,22 @@ def patch_cli_calls(
     )
 
 
-def _cli_path_env_vars() -> set[str]:
+def _cli_override_env_vars() -> set[str]:
+    """Each backend's CLI-path and config-home variables, as the host may set them."""
     names = set()
     for entry in BACKENDS.values():
         module, _, cls = entry.harness.partition(":")
-        names.add(getattr(importlib.import_module(module), cls).cli_path_env_var)
+        harness = getattr(importlib.import_module(module), cls)
+        names.update((harness.cli_path_env_var, harness.config_home_env))
     return names - {None}
 
 
-_CLI_PATH_ENV_VARS = _cli_path_env_vars()
+_CLI_OVERRIDE_ENV_VARS = _cli_override_env_vars()
 
 
 @pytest.fixture(autouse=True)
 def _clear_host_cli_overrides(monkeypatch):
-    for name in _CLI_PATH_ENV_VARS:
+    for name in _CLI_OVERRIDE_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
 
 
