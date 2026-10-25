@@ -131,11 +131,21 @@ class AttemptWorkdir:
             f.write(code)
             script = f.name
         try:
-            return self._run(phase, [sys.executable, script], shell=False)
+            # A check is its `assert` statements, which the caller's
+            # PYTHONOPTIMIZE would strip, passing every check unrun.
+            return self._run(
+                phase, [sys.executable, script], shell=False, unset=("PYTHONOPTIMIZE",)
+            )
         finally:
             Path(script).unlink(missing_ok=True)
 
-    def _run(self, phase: StepPhase, args: str | list[str], shell: bool) -> StepResult:
+    def _run(
+        self,
+        phase: StepPhase,
+        args: str | list[str],
+        shell: bool,
+        unset: tuple[str, ...] = (),
+    ) -> StepResult:
         limit = _STEP_TIMEOUTS[phase]
         # Tagged like an agent CLI, so a kill reaches descendants that left
         # its process group or outlived it.
@@ -149,6 +159,8 @@ class AttemptWorkdir:
             SPEC_DIR_ENV: self.spec_dir,
             cancel.PROCESS_TAG: process_tag,
         }
+        for name in unset:
+            env.pop(name, None)
         # Drain while the step runs so verbose output cannot fill a pipe. Stop
         # when *that process* exits: background children may keep its pipe
         # open or write forever, and must not delay the next attempt or retain

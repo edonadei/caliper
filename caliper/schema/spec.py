@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from pydantic import (
     BaseModel,
@@ -336,6 +336,21 @@ class GitSkillSource(BaseModel):
     @field_validator("path")
     @classmethod
     def check_path(cls, value: str) -> str:
+        # A path inside the repo, in git's own syntax: relative and
+        # `/`-separated. Windows also splits on a backslash and honours a
+        # drive, so either could leave the checkout there; both are refused
+        # wherever the spec is validated.
+        windows = PureWindowsPath(value)
+        if (
+            "\\" in value
+            or windows.drive
+            or windows.root
+            or ".." in PurePosixPath(value).parts
+        ):
+            raise ValueError(
+                f"path '{value}' must stay inside the repo: a relative path "
+                "written with forward slashes"
+            )
         # Same rule `resolve_skills` enforces for a path source: identity is the
         # frontmatter name of a SKILL.md, and there is nothing to install
         # without one.
@@ -345,9 +360,6 @@ class GitSkillSource(BaseModel):
                 "skill at <skills_root>/<name>/SKILL.md, so an entry names one "
                 "skill file, not a directory"
             )
-        parts = PurePosixPath(value).parts
-        if value.startswith("/") or ".." in parts:
-            raise ValueError(f"path '{value}' must stay inside the repo")
         return value
 
 
