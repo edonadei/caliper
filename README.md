@@ -280,7 +280,7 @@ different setup, so otherwise part of the difference is the setups.
 |---|---|
 | **Spec** | A `.eval.yaml` file that describes the skills and tasks to run |
 | **Backend** | The CLI agent that runs the skill (`claude-code`, `codex`, `pi`, `hermes`) |
-| **Judge** | What decides pass/fail: an LLM reading the transcript (`expect:`), Python assertions (`assert:`), or both |
+| **Judge** | What decides pass/fail: an LLM reading the request and the transcript (`expect:`), Python assertions (`assert:`), or both |
 | **Success rate** | The primary score: run k times, measure how often a single run works |
 | **Neighbourhood** | The set of skills a spec declares (`skills:`). All installed, none preloaded, and all assertable. This is the competition your `description` has to win |
 | **Activation** | The agent *choosing* to load a skill. Asserted with `activates:` and scored on its own scoreboard, separate from the success rate |

@@ -25,7 +25,7 @@ from caliper.harness.base import (
 )
 from caliper.judge import EvalJudge
 from caliper.judge.base import JudgeResult
-from caliper.judge.eval_judge import JUDGE_PROMPT_VERSION
+from caliper.judge.eval_judge import JUDGE_PROMPT_VERSION, render_judge_prompt
 from caliper.reporter import print_results
 from caliper.runner import run
 from caliper.schema.results import Outcome
@@ -546,32 +546,41 @@ def test_runmeta_records_no_judge_model_when_no_autorater_ran(tmp_path) -> None:
 
 
 class _VerdictPrompt:
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
     def run_prompt(self, prompt, *, model=None, cwd, timeout=60) -> PromptResult:
+        self.prompts.append(prompt)
         return PromptResult(
             text='{"mode": "verdict", "passed": true, "reasoning": "ok"}'
         )
 
 
 def test_run_records_what_rebuilds_the_judge_input(tmp_path) -> None:
-    """A saved run carries the expectation and template version the judge used."""
+    """A saved run carries everything the judge read, so its prompt rebuilds exactly."""
     spec_path = tmp_path / "prov.eval.yaml"
     spec_path.write_text("tasks: []\n")
     spec = EvalSpec(
-        tasks=[TaskSpec(id="t1", name="t", prompt="p", expect="says hello")]
+        tasks=[TaskSpec(id="t1", name="t", prompt="Greet me.", expect="says hello")]
     )
+    judge = _VerdictPrompt()
 
     results = run(
         spec=spec,
         spec_path=spec_path,
         harness=ScriptedHarness(agent_result()),
-        judge=EvalJudge(backend="claude-code", harness=_VerdictPrompt()),
+        judge=EvalJudge(backend="claude-code", harness=judge),
         k=1,
         workers=1,
         timeout=30,
     )
 
+    saved = results.task_results[0]
     assert results.run.judge_prompt_version == JUDGE_PROMPT_VERSION
-    assert results.task_results[0].expect == "says hello"
+    assert (saved.expect, saved.prompt) == ("says hello", "Greet me.")
+    assert judge.prompts == [
+        render_judge_prompt(saved.expect, saved.prompt, saved.attempts[0].transcript)
+    ]
 
 
 class _VersionedVerdictPrompt(ScriptedHarness):
