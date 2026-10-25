@@ -11,6 +11,7 @@ from caliper.schema.results import (
     AggregateScore,
     AttemptRecord,
     Outcome,
+    PooledCount,
     RunMeta,
     RunResults,
     SkillSnapshot,
@@ -178,6 +179,45 @@ def test_fully_unusable_side_is_unmeasured_never_a_regression() -> None:
     # An unmeasured side is excluded from the comparable aggregate.
     assert comp.a_matched_avg == 0.0
     assert comp.b_matched_avg == 0.0
+
+
+def test_the_regressed_tasks_are_named() -> None:
+    a = _run([_task("alpha", [P, P, P, P, P]), _task("beta", [P, P, P, P, F])])
+    b = _run([_task("alpha", [P, P, P, P, P]), _task("beta", [P, F, F, F, F])])
+
+    assert diff_runs(a, b).regressions == ["beta"]
+
+
+def test_the_unmeasured_tasks_are_named_and_probes_are_not() -> None:
+    probe = [Outcome.NOT_CHECKED] * 5
+    a = _run(
+        [
+            _task("alpha", [P, P, P, P, F]),
+            _task("beta", [P, P, P, P, P]),
+            _task("probe", probe),
+        ]
+    )
+    b = _run(
+        [
+            _task("alpha", [INF, INF, INF, INF, INF]),
+            _task("beta", [P, P, P, P, P]),
+            _task("probe", probe),
+        ]
+    )
+
+    # A probe was never asked an execution question, so it is not missing one.
+    assert diff_runs(a, b).unmeasured == ["alpha"]
+
+
+def test_each_side_pools_the_tasks_measured_on_both_sides() -> None:
+    a = _run([_task("alpha", [P, P, F, INF, P]), _task("beta", [P, P, P, P, P])])
+    b = _run([_task("alpha", [P, F, F, F, F]), _task("beta", [INF] * 5)])
+
+    comp = diff_runs(a, b)
+
+    # beta is unmeasured on B, so it is out of both averages and both pools.
+    assert comp.a_pooled == PooledCount(successes=3, usable=4, tasks=1)
+    assert comp.b_pooled == PooledCount(successes=1, usable=5, tasks=1)
 
 
 # --------------------------------------------------------------------------
