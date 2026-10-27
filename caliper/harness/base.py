@@ -700,11 +700,7 @@ class CliHarness(HarnessBackend):
 
         Seed files, then the ``cli_config`` rewrite, then :meth:`_prepare`, then
         the user layer, then the skill neighbourhood. That order is part of the
-        contract (docs/adr/0020): a backend that rewrites its config must see
-        the verbatim copy already in place, claude-code's Keychain credentials
-        must replace a seeded ``.credentials.json`` rather than be overwritten
-        by it, and the user layer's skills must be in place before the spec's
-        own win over them.
+        contract; see docs/adr/0020 for why.
         """
         self._seed_home(ctx)
         if self.cli_config is not None:
@@ -785,9 +781,7 @@ class CliHarness(HarnessBackend):
     config_home_env: str | None = None
     config_home: str
     # Whether the attempt runs with :attr:`config_home_env` pointed at its own
-    # config home. claude-code's CLI reads ``.claude.json`` and its Keychain
-    # entry differently when the variable is set, so its attempts stay on the
-    # default layout under the isolated home instead (docs/adr/0038).
+    # config home; claude-code opts out (docs/adr/0038).
     exports_config_home: bool = True
 
     def attempt_config_home(self, ctx: RunContext) -> Path:

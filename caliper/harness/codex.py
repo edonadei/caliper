@@ -166,6 +166,8 @@ class CodexHarness(CliHarness):
     supports_mcp = True
     supports_history = True
     cli_config = CODEX_CONFIG
+    # Named outright rather than left to HOME: codex resolves its home through
+    # CODEX_HOME before HOME (#112).
     config_home_env = "CODEX_HOME"
     config_home = ".codex"
     user_rules = ("AGENTS.md", "AGENTS.override.md")

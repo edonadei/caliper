@@ -82,7 +82,7 @@ class ClaudeCodeHarness(CliHarness):
     config_home_env = "CLAUDE_CONFIG_DIR"
     config_home = ".claude"
     # Attempts are left on the default layout under the isolated HOME rather
-    # than pointed at a config dir: setting it moves .claude.json inside and
+    # than pointed at a config home: setting it moves .claude.json inside and
     # renames the Keychain entry the CLI reads (docs/adr/0038).
     exports_config_home = False
 
@@ -171,8 +171,8 @@ class ClaudeCodeHarness(CliHarness):
 
     def _staged_plugin_skill_paths(self, ctx: RunContext) -> dict[str, str]:
         """Each staged plugin skill's command name, to the path its reads match."""
-        claude_dir = self.attempt_config_home(ctx)
-        registry = claude_dir / "plugins/installed_plugins.json"
+        config_home = self.attempt_config_home(ctx)
+        registry = config_home / "plugins/installed_plugins.json"
         if not registry.exists():
             return {}
         paths = {}
@@ -226,8 +226,8 @@ class ClaudeCodeHarness(CliHarness):
                             # Recorded as a suffix under ~/.claude so the
                             # detector matches absolute and relative reads alike.
                             paths[command_name] = (
-                                skill.relative_to(claude_dir).as_posix()
-                                if skill.is_relative_to(claude_dir)
+                                skill.relative_to(config_home).as_posix()
+                                if skill.is_relative_to(config_home)
                                 else str(skill)
                             )
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:

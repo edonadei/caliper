@@ -94,10 +94,8 @@ class PiHarness(CliHarness):
         # a model that resolves by hand must resolve in the attempt too (#178).
         # Its `!command` and `$NAME` credentials are resolved on the host in
         # `_prepare`, once the copy is in place (docs/adr/0040).
-        agent_dir = self.attempt_config_home(ctx)
-        return [
-            agent_dir / name for name in ("auth.json", "settings.json", "models.json")
-        ]
+        home = self.attempt_config_home(ctx)
+        return [home / name for name in ("auth.json", "settings.json", "models.json")]
 
     def _command(
         self, ctx: RunContext
