@@ -216,7 +216,7 @@ def _plant(tmp_path, harness, fmt, history, skill_refs=()):
         skill_refs=list(skill_refs),
     )
     (tmp_path / "work").mkdir(parents=True, exist_ok=True)
-    planted = fmt.plant(ctx, harness.skills_root(ctx))
+    planted = fmt.plant(ctx, harness.attempt_config_home(ctx), harness.skills_root(ctx))
     lines = [json.loads(line) for line in planted.path.read_text().splitlines()]
     return planted, lines
 

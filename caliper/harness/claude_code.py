@@ -79,33 +79,32 @@ class ClaudeCodeHarness(CliHarness):
     # `claude setup-token` is the documented way to authenticate a headless run,
     # and the stripped HOME is exactly the case it exists for.
     env_passthrough = CliHarness.env_passthrough + ("CLAUDE_CODE_OAUTH_TOKEN",)
-    # Attempts are left on the default layout under the isolated HOME rather
-    # than pointed at a config dir: setting it moves .claude.json inside and
-    # renames the Keychain entry the CLI reads (docs/adr/0038).
     config_home_env = "CLAUDE_CONFIG_DIR"
     config_home = ".claude"
+    # Attempts are left on the default layout under the isolated HOME rather
+    # than pointed at a config home: setting it moves .claude.json inside and
+    # renames the Keychain entry the CLI reads (docs/adr/0038).
+    exports_config_home = False
 
     @property
     def name(self) -> str:
         return "claude-code"
 
-    def skills_root(self, ctx: RunContext) -> Path:
-        return Path(ctx.isolated_home) / ".claude" / "skills"
-
-    @staticmethod
-    def _credentials_file(ctx: RunContext) -> Path:
+    def _credentials_file(self, ctx: RunContext) -> Path:
         """Where the CLI looks for file-based credentials in the isolated home."""
-        return Path(ctx.isolated_home) / ".claude" / ".credentials.json"
+        return self.attempt_config_home(ctx) / ".credentials.json"
 
-    def seed_files(self, ctx: RunContext) -> list[tuple[Path, Path]]:
+    def seed_files(self, ctx: RunContext) -> list[Path]:
         # Auth files from the operator's config home, so the CLI finds its credentials.
         # Without them the isolated HOME makes claude fall back to
         # ANTHROPIC_API_KEY (which may be absent or unfunded).
-        home = Path(ctx.isolated_home)
-        isolated = [home / ".claude.json", self._credentials_file(ctx)]
+        isolated = [
+            Path(ctx.isolated_home) / ".claude.json",
+            self._credentials_file(ctx),
+        ]
         if ctx.user_customizations:
-            isolated.append(home / ".claude/settings.json")
-        return [(self.user_path(path, ctx), path) for path in isolated]
+            isolated.append(self.attempt_config_home(ctx) / "settings.json")
+        return isolated
 
     def user_path(self, isolated: Path, ctx: RunContext) -> Path:
         # .claude.json sits beside ~/.claude by default, inside the config dir
@@ -126,7 +125,7 @@ class ClaudeCodeHarness(CliHarness):
         """Copy each enabled user-scope plugin into a private installation."""
         names: list[str] = []
         real = self.user_config_home()
-        target = Path(ctx.isolated_home) / ".claude"
+        target = self.attempt_config_home(ctx)
         registry = real / "plugins/installed_plugins.json"
         if not registry.is_file():
             return names
@@ -172,8 +171,8 @@ class ClaudeCodeHarness(CliHarness):
 
     def _staged_plugin_skill_paths(self, ctx: RunContext) -> dict[str, str]:
         """Each staged plugin skill's command name, to the path its reads match."""
-        claude_dir = Path(ctx.isolated_home) / ".claude"
-        registry = claude_dir / "plugins/installed_plugins.json"
+        config_home = self.attempt_config_home(ctx)
+        registry = config_home / "plugins/installed_plugins.json"
         if not registry.exists():
             return {}
         paths = {}
@@ -227,8 +226,8 @@ class ClaudeCodeHarness(CliHarness):
                             # Recorded as a suffix under ~/.claude so the
                             # detector matches absolute and relative reads alike.
                             paths[command_name] = (
-                                skill.relative_to(claude_dir).as_posix()
-                                if skill.is_relative_to(claude_dir)
+                                skill.relative_to(config_home).as_posix()
+                                if skill.is_relative_to(config_home)
                                 else str(skill)
                             )
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
@@ -238,8 +237,6 @@ class ClaudeCodeHarness(CliHarness):
         return paths
 
     def _prepare(self, ctx: RunContext) -> None:
-        (Path(ctx.isolated_home) / ".claude").mkdir(parents=True, exist_ok=True)
-
         # On macOS the CLI reads its OAuth credentials from the Keychain first,
         # so a Keychain entry replaces the seeded .credentials.json, which may
         # be a stale leftover (#180). Without an entry the seeded file stays.
@@ -303,7 +300,9 @@ class ClaudeCodeHarness(CliHarness):
         # The prompt becomes the next user turn after the planted ones. The
         # stream does not replay them, so they never reach the transcript.
         if ctx.history:
-            cmd += ["--resume", CLAUDE_SESSION.plant(ctx, self.skills_root(ctx)).id]
+            home = self.attempt_config_home(ctx)
+            planted = CLAUDE_SESSION.plant(ctx, home, self.skills_root(ctx))
+            cmd += ["--resume", planted.id]
 
         # Last, behind `--`, so a prompt like `--version` is the task rather
         # than an option claude acts on.

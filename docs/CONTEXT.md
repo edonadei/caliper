@@ -626,6 +626,27 @@ separate from the agent's isolated home, so a relative path means the same file
 to every step. It is not the spec's own directory.
 _Avoid_: sandbox (that is what the agent may not touch), spec dir.
 
+## Isolated home
+
+The fresh home directory one attempt's agent runs under. It starts with only
+what caliper puts there (the attempt's [[config home]], the installed
+[[skill neighbourhood]], any [[user customizations]] that load), and is never
+shared between attempts or with the operator. It is separate from the [[attempt
+workdir]]: the home is where the agent's CLI keeps its own state, the workdir is
+where the task happens.
+_Avoid_: sandbox (that is what the agent may not touch), temp home.
+
+## Config home
+
+The directory a backend's CLI keeps its login and configuration in. There are
+two per attempt. The **operator's** config home is the one their own CLI reads:
+wherever they pointed the CLI's own variable, else its default. Caliper copies
+from it and never writes to it. The **attempt's** config home is the copy, at
+the same place inside the [[isolated home]], and is what the agent actually
+reads. The judge, which runs in the operator's environment, reads the
+operator's.
+_Avoid_: config dir, agent dir, profile (hermes' word for something narrower).
+
 ## Step
 
 The spec author's code that runs in the [[attempt workdir]]: `setup:`,

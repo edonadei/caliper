@@ -101,12 +101,26 @@ DISCOVERING_BACKENDS = [CodexHarness, HermesHarness, PiHarness]
 
 
 def _prepared(harness: CliHarness, tmp_path: Path):
-    """Run the home-preparation half of the template and return the context."""
+    """Stage the attempt's isolated home and return the context."""
     ctx = run_context(isolated_home=str(tmp_path / "home"))
     Path(ctx.isolated_home).mkdir(parents=True, exist_ok=True)
-    harness._seed_home(ctx)
-    harness._prepare(ctx)
+    harness.stage_home(ctx)
     return ctx
+
+
+def _staged_files(harness: CliHarness, ctx) -> dict[str, str]:
+    """Every file staging left in the home, but the ``cli_config`` it rewrites."""
+    home = Path(ctx.isolated_home)
+    rewritten = (
+        harness.attempt_config_home(ctx) / harness.cli_config.path
+        if harness.cli_config is not None
+        else None
+    )
+    return {
+        path.relative_to(home).as_posix(): path.read_text()
+        for path in home.rglob("*")
+        if path.is_file() and path != rewritten
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -139,13 +153,9 @@ def test_seeds_declared_files_verbatim(
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text(contents)
 
-    harness._seed_home(ctx)
+    harness.stage_home(ctx)
 
-    assert {
-        path.relative_to(home).as_posix(): path.read_text()
-        for path in home.rglob("*")
-        if path.is_file()
-    } == inventory
+    assert _staged_files(harness, ctx) == inventory
 
 
 @pytest.mark.parametrize(("backend", "inventory"), SEED_INVENTORIES)
@@ -154,12 +164,14 @@ def test_seeding_skips_files_the_user_does_not_have(
 ) -> None:
     """Missing real config files leave the isolated inventory empty."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "empty")
+    harness = backend()
     home = tmp_path / "home"
+    ctx = run_context(isolated_home=str(home))
 
-    backend()._seed_home(run_context(isolated_home=str(home)))
+    harness.stage_home(ctx)
 
     assert not any((home / relative).exists() for relative in inventory)
-    assert [path for path in home.rglob("*") if path.is_file()] == []
+    assert _staged_files(harness, ctx) == {}
 
 
 def test_every_backend_names_its_config_home_variable() -> None:
@@ -188,7 +200,7 @@ def test_seeds_from_the_config_home_the_operator_points_the_cli_at(
         default.parent.mkdir(parents=True, exist_ok=True)
         default.write_text("default account")
 
-    harness._seed_home(ctx)
+    harness.stage_home(ctx)
 
     assert {relative: (home / relative).read_text() for relative in sources} == {
         relative: f"selected {inside}" for relative, inside in sources.items()
@@ -233,12 +245,31 @@ def test_an_attempt_runs_on_its_own_config_home_never_the_operators(
     assert env.get(variable) == (str(home / inside) if inside else None)
 
 
-@pytest.mark.parametrize(
-    ("backend", "variable", "inside"),
-    [entry for entry in ATTEMPT_CONFIG_HOMES if entry[2]],
-)
+# Where each attempt's config home sits inside its isolated home: the same
+# place the operator's sits inside theirs (docs/CONTEXT.md → Config home).
+CONFIG_HOMES = [
+    (ClaudeCodeHarness, ".claude"),
+    (CodexHarness, ".codex"),
+    (HermesHarness, ".hermes"),
+    (PiHarness, ".pi/agent"),
+]
+
+
+@pytest.mark.parametrize(("backend", "inside"), CONFIG_HOMES)
+def test_the_attempts_config_home_holds_its_skills_root(
+    backend, inside, tmp_path
+) -> None:
+    harness = backend()
+    home = tmp_path / "home"
+    ctx = run_context(isolated_home=str(home))
+
+    assert harness.attempt_config_home(ctx) == home / inside
+    assert harness.skills_root(ctx) == home / inside / "skills"
+
+
+@pytest.mark.parametrize(("backend", "inside"), CONFIG_HOMES)
 def test_the_attempts_config_home_exists_even_with_nothing_to_seed(
-    backend, variable, inside, monkeypatch, tmp_path
+    backend, inside, monkeypatch, tmp_path
 ) -> None:
     """codex refuses a CODEX_HOME that does not exist, rather than creating it."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "empty")
@@ -398,18 +429,6 @@ def test_locale_and_scratch_space_are_forwarded(backend, monkeypatch, tmp_path) 
     assert env["LANG"] == "en_GB.UTF-8"
     assert env["TMPDIR"] == "/scratch"
     assert "AWS_SECRET_ACCESS_KEY" not in env
-
-
-@pytest.mark.parametrize("backend", ALL_BACKENDS)
-def test_skills_root_lives_inside_the_isolated_home(
-    backend, monkeypatch, tmp_path
-) -> None:
-    """Install-and-discover stages the neighbourhood where only this attempt sees it."""
-    monkeypatch.setattr(Path, "home", lambda: tmp_path / "real")
-    harness = backend()
-    ctx = _prepared(harness, tmp_path)
-
-    assert harness.skills_root(ctx).is_relative_to(Path(ctx.isolated_home))
 
 
 # --- reading the stream ------------------------------------------------------
@@ -835,11 +854,10 @@ class _ReadyHarness(CliHarness):
     cli_path_env_var = "STUB_CLI_PATH"
     cli_unavailable_message = "stub-cli is missing. Install it, then rerun caliper."
 
-    def _seed_home(self, ctx):
-        raise _PastReadiness
+    config_home = ".stub"
 
-    def skills_root(self, ctx):  # pragma: no cover - unused here
-        raise NotImplementedError
+    def stage_home(self, ctx):
+        raise _PastReadiness
 
     def _command(self, ctx):  # pragma: no cover - unused here
         raise NotImplementedError

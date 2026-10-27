@@ -90,9 +90,9 @@ class StagedUserLayer:
 def stage(harness: CliHarness, ctx: RunContext) -> StagedUserLayer:
     """Copy the user layer into the attempt's home, if this attempt loads it.
 
-    Runs after ``_prepare``: a backend's skills root can depend on state it
-    sets up (hermes' ``HERMES_HOME``, pi's agent dir). Files are recorded before
-    the agent runs, so it cannot mutate what the record says it was given.
+    One step of :meth:`~caliper.harness.base.CliHarness.stage_home`, after
+    ``_prepare``. Files are recorded before the agent runs, so it cannot mutate
+    what the record says it was given.
     """
     # The run seam already turns the choice off on a backend without MCP
     # (environment.choose_user_customizations); checked once more here so no
@@ -115,7 +115,7 @@ def stage(harness: CliHarness, ctx: RunContext) -> StagedUserLayer:
 
 def _copy_rules(harness: CliHarness, ctx: RunContext) -> list[str]:
     """Copy the user's rules files; record the settings file the home already has."""
-    target = harness.skills_root(ctx).parent
+    target = harness.attempt_config_home(ctx)
     source = harness.user_path(target, ctx)
     names = []
     for name in harness.user_rules:

@@ -85,7 +85,7 @@ def _codex_entry(server: ResolvedMcpServer) -> dict:
 # model over the invocation (docs/adr/0012). Isolated, provider tables survive
 # intact, endpoints and auth options included (docs/backends.md, docs/adr/0028).
 CODEX_CONFIG = CliConfig(
-    path=".codex/config.toml",
+    path="config.toml",
     codec=TOML,
     connection_keys=frozenset(
         {
@@ -166,6 +166,8 @@ class CodexHarness(CliHarness):
     supports_mcp = True
     supports_history = True
     cli_config = CODEX_CONFIG
+    # Named outright rather than left to HOME: codex resolves its home through
+    # CODEX_HOME before HOME (#112).
     config_home_env = "CODEX_HOME"
     config_home = ".codex"
     user_rules = ("AGENTS.md", "AGENTS.override.md")
@@ -188,22 +190,17 @@ class CodexHarness(CliHarness):
     def cli_candidates(self) -> tuple[Path, ...]:
         return (CODEX_APP_CLI,)
 
-    def skills_root(self, ctx: RunContext) -> Path:
-        return Path(ctx.isolated_home) / ".codex" / "skills"
-
-    def seed_files(self, ctx: RunContext) -> list[tuple[Path, Path]]:
+    def seed_files(self, ctx: RunContext) -> list[Path]:
         if self._plan_login is not None:
             return []
-        real = self.user_config_home()
-        codex_home = Path(ctx.isolated_home) / ".codex"
         # config.toml is deliberately absent: it is rewritten rather than copied
         # (``cli_config``), so seeding it verbatim would leak the user's ambient
         # model pin and MCP servers into the attempt.
-        return [(real / "auth.json", codex_home / "auth.json")]
+        return [self.attempt_config_home(ctx) / "auth.json"]
 
     def _prepare(self, ctx: RunContext) -> None:
         real = self.user_config_home()
-        codex_home = Path(ctx.isolated_home) / ".codex"
+        codex_home = self.attempt_config_home(ctx)
         # Installed plugins, and the MCP servers they bring, live in this
         # directory rather than in config.toml; a copy keeps the user's own
         # untouched (docs/adr/0028).
@@ -264,7 +261,9 @@ class CodexHarness(CliHarness):
         # exec flags stay ahead of the subcommand, and the JSON stream does not
         # replay the planted turns, so they never reach the transcript.
         if ctx.history:
-            cmd[-1:-1] = ["resume", CODEX_ROLLOUT.plant(ctx, self.skills_root(ctx)).id]
+            home = self.attempt_config_home(ctx)
+            planted = CODEX_ROLLOUT.plant(ctx, home, self.skills_root(ctx))
+            cmd[-1:-1] = ["resume", planted.id]
         return cmd, full_prompt, None
 
     @staticmethod
@@ -285,10 +284,7 @@ class CodexHarness(CliHarness):
         return CHATGPT_PLAN_PROVIDER if self._plan_login is not None else ()
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
-        # Named outright rather than left to HOME: codex resolves its home
-        # through CODEX_HOME before HOME (#112).
-        codex_home = Path(ctx.isolated_home) / self.config_home
-        extra = {"CODEX_HOME": str(codex_home)}
+        extra = {}
         login = self._plan_login
         if login is not None:
             # Fetched last, so the attempt starts with the most time left on it;
@@ -329,7 +325,9 @@ class CodexHarness(CliHarness):
 
         if latest_usage is not None:
             report.read_usage = partial(_usage, latest_usage)
-        report.read_mcp_servers = partial(_configured_servers, ctx)
+        report.read_mcp_servers = partial(
+            _configured_servers, self.attempt_config_home(ctx)
+        )
         return report
 
     def _item_turns(self, item: dict) -> list[ConversationTurn]:
@@ -692,18 +690,19 @@ def _stream_error(event: dict) -> str | None:
     return None
 
 
-def _configured_servers(ctx: RunContext) -> set[str] | None:
+def _configured_servers(codex_home: Path) -> set[str] | None:
     """The servers in the ``config.toml`` the attempt ran with, plus hosted apps.
 
-    The hosted apps surface as one server, ``codex_apps``, and only for a
-    ChatGPT login whose config leaves ``apps`` on. Such a login's plugins
-    bring tools caliper can't list, so with plugins on the set is unknown.
+    ``codex_home`` is the attempt's config home. The hosted apps surface as one
+    server, ``codex_apps``, and only for a ChatGPT login whose config leaves
+    ``apps`` on. Such a login's plugins bring tools caliper can't list, so with
+    plugins on the set is unknown.
     """
-    config = CODEX_CONFIG.read(ctx)
-    names = CODEX_CONFIG.servers(ctx)
+    config = CODEX_CONFIG.read(codex_home)
+    names = CODEX_CONFIG.servers(codex_home)
     features = config.get("features")
     features = features if isinstance(features, dict) else {}
-    if _chatgpt_login(Path(ctx.isolated_home) / ".codex" / "auth.json"):
+    if _chatgpt_login(codex_home / "auth.json"):
         if features.get("plugins") is not False:
             return None
         if features.get("apps") is not False:

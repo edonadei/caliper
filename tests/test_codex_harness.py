@@ -308,8 +308,7 @@ def test_codex_config_copy_strips_top_level_model(monkeypatch, tmp_path) -> None
         mcp_servers=None,
     )
     harness = CodexHarness()
-    harness._seed_home(ctx)
-    harness.cli_config.write(ctx, backend=harness.name)
+    harness.stage_home(ctx)
 
     copied = (isolated_home / ".codex" / "config.toml").read_text()
     assert 'model = "gpt-5.5"' not in copied
@@ -797,7 +796,6 @@ def test_codex_user_customizations_still_ablates_a_server_the_user_also_has(
     home = _fake_codex_home(tmp_path, _AMBIENT_CONFIG)
     iso = tmp_path / "iso"
     iso.mkdir()
-    monkeypatch.setenv("HOME", str(home))
     CODEX_CONFIG.write(
         run_context(
             isolated_home=str(iso),
@@ -805,7 +803,9 @@ def test_codex_user_customizations_still_ablates_a_server_the_user_also_has(
             spec_mcp_names=frozenset({"personal"}),
             user_customizations=True,
         ),
+        iso / ".codex",
         backend="codex",
+        real=home / ".codex" / "config.toml",
     )
     config = tomllib.loads((iso / ".codex" / "config.toml").read_text())
     assert "mcp_servers" not in config

@@ -33,6 +33,7 @@ from caliper.workdir import StepCancelled
 
 if TYPE_CHECKING:
     from caliper.harness.cli_config import CliConfig
+    from caliper.harness.user_layer import StagedUserLayer
 
 _POST_KILL_DRAIN_TIMEOUT = 1
 
@@ -519,18 +520,7 @@ class CliHarness(HarnessBackend):
         ctx = replace(ctx, model=ctx.model or self._model)
 
         self._ensure_ready(ctx)
-        self._seed_home(ctx)
-        if self.cli_config is not None:
-            attempt_copy = Path(ctx.isolated_home) / self.cli_config.path
-            self.cli_config.write(
-                ctx, backend=self.name, real=self.user_path(attempt_copy, ctx)
-            )
-        self._prepare(ctx)
-        # Imported here: the user layer reads this module's types.
-        from caliper.harness import user_layer
-
-        staged = user_layer.stage(self, ctx)
-        self._install_skills(ctx)
+        staged = self.stage_home(ctx)
         cmd, stdin, cleanup = self._command(ctx)
         env = self._environment(ctx)
 
@@ -705,10 +695,37 @@ class CliHarness(HarnessBackend):
             if call.cleanup is not None:
                 call.cleanup()
 
+    def stage_home(self, ctx: RunContext) -> StagedUserLayer:
+        """Stage the attempt's isolated home; return the user layer it loaded.
+
+        Seed files, then the ``cli_config`` rewrite, then :meth:`_prepare`, then
+        the user layer, then the skill neighbourhood. That order is part of the
+        contract; see docs/adr/0020 for why.
+        """
+        self._seed_home(ctx)
+        if self.cli_config is not None:
+            home = self.attempt_config_home(ctx)
+            self.cli_config.write(
+                ctx,
+                home,
+                backend=self.name,
+                real=self.user_path(home / self.cli_config.path, ctx),
+            )
+        self._prepare(ctx)
+        # Imported here: the user layer reads this module's types.
+        from caliper.harness import user_layer
+
+        staged = user_layer.stage(self, ctx)
+        self._install_skills(ctx)
+        return staged
+
     # --- hooks a backend implements ---------------------------------------
 
-    def seed_files(self, ctx: RunContext) -> list[tuple[Path, Path]]:
-        """The ``(real, isolated)`` config files to copy verbatim into the home.
+    def seed_files(self, ctx: RunContext) -> list[Path]:
+        """The files to copy verbatim into the isolated home, where they land.
+
+        Each is copied from the user's own copy (:meth:`user_path`), so a
+        backend names only the attempt's side.
 
         Declared as *data* rather than copied by hand, because the policy is the
         same for every CLI agent (copy verbatim, skip what isn't there) while the
@@ -733,11 +750,9 @@ class CliHarness(HarnessBackend):
         The attempt's config home is created even when there is nothing to
         seed: codex refuses a ``CODEX_HOME`` that does not exist.
         """
-        if self.config_home is not None:
-            (Path(ctx.isolated_home) / self.config_home).mkdir(
-                parents=True, exist_ok=True
-            )
-        for src, dst in self.seed_files(ctx):
+        self.attempt_config_home(ctx).mkdir(parents=True, exist_ok=True)
+        for dst in self.seed_files(ctx):
+            src = self.user_path(dst, ctx)
             if src.exists():
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dst)
@@ -746,22 +761,15 @@ class CliHarness(HarnessBackend):
         """Seed the isolated home with anything ``seed_files`` cannot express.
 
         Runs after :meth:`_seed_home` and the ``cli_config`` rewrite, so a
-        backend sees its config already in place, and so claude-code's
-        Keychain credentials replace a seeded ``.credentials.json`` rather than
-        being overwritten by it. That order is part of the contract
-        (docs/adr/0020).
+        backend sees its config already in place (see :meth:`stage_home`).
         """
 
-    @abstractmethod
     def skills_root(self, ctx: RunContext) -> Path:
-        """Where this agent discovers skills, inside the attempt's isolated home.
-
-        The one backend-specific fact install-and-discover needs. Called after
-        ``_prepare``, so it may read state that hook set up.
-        """
+        """Where this agent discovers skills: inside the attempt's config home."""
+        return self.attempt_config_home(ctx) / "skills"
 
     # Where this backend keeps the user layer it loads beside the spec's own,
-    # relative to the skills root's parent; staged by
+    # relative to the config home; staged by
     # :mod:`caliper.harness.user_layer` (docs/adr/0028).
     user_rules: tuple[str, ...] = ()
     user_settings_file: str | None = None
@@ -771,9 +779,19 @@ class CliHarness(HarnessBackend):
     # config from wherever the CLI itself would, as the judge does, since it
     # runs in the operator's environment (docs/adr/0038).
     config_home_env: str | None = None
-    config_home: str | None = None
+    config_home: str
+    # Whether the attempt runs with :attr:`config_home_env` pointed at its own
+    # config home; claude-code opts out (docs/adr/0038).
+    exports_config_home: bool = True
 
-    def user_config_home(self) -> Path | None:
+    def attempt_config_home(self, ctx: RunContext) -> Path:
+        """The attempt's config home: the same place inside the isolated home.
+
+        See docs/CONTEXT.md → Config home.
+        """
+        return Path(ctx.isolated_home) / self.config_home
+
+    def user_config_home(self) -> Path:
         """The config home the operator's CLI reads: the variable, else the default."""
         return self.selected_config_home() or self._default_config_home()
 
@@ -784,9 +802,9 @@ class CliHarness(HarnessBackend):
         selected = os.environ.get(self.config_home_env, "").strip()
         return Path(selected).expanduser() if selected else None
 
-    def _default_config_home(self) -> Path | None:
+    def _default_config_home(self) -> Path:
         """Where the CLI keeps its config home when the variable is unset."""
-        return Path.home() / self.config_home if self.config_home else None
+        return Path.home() / self.config_home
 
     def user_path(self, isolated: Path, ctx: RunContext) -> Path:
         """The user's own copy of a path inside the attempt's isolated home.
@@ -794,16 +812,11 @@ class CliHarness(HarnessBackend):
         Inside the attempt's config home, the same path under the user's
         (:meth:`user_config_home`); anywhere else, under the real home.
         """
-        if self.config_home is not None:
-            try:
-                inside = isolated.relative_to(
-                    Path(ctx.isolated_home) / self.config_home
-                )
-            except ValueError:
-                pass
-            else:
-                return self.user_config_home() / inside
-        return Path.home() / isolated.relative_to(ctx.isolated_home)
+        try:
+            inside = isolated.relative_to(self.attempt_config_home(ctx))
+        except ValueError:
+            return Path.home() / isolated.relative_to(ctx.isolated_home)
+        return self.user_config_home() / inside
 
     def stage_plugins(self, ctx: RunContext) -> tuple[list[str], dict[str, str]]:
         """Stage the user's plugins; return their ``plugin:`` files and skills.
@@ -1168,11 +1181,11 @@ class CliHarness(HarnessBackend):
             for part in os.environ.get("PATH", "").split(os.pathsep)
             if part and part not in set(prefixes)
         ]
-        env = {
-            "HOME": ctx.isolated_home,
-            "PATH": os.pathsep.join(prefixes + rest),
-            **(extra or {}),
-        }
+        env = {"HOME": ctx.isolated_home, "PATH": os.pathsep.join(prefixes + rest)}
+        # Pointed at the attempt's own, never the operator's (docs/adr/0038).
+        if self.config_home_env is not None and self.exports_config_home:
+            env[self.config_home_env] = str(self.attempt_config_home(ctx))
+        env.update(extra or {})
         # Windows cryptographic initialization needs SystemRoot even when the
         # agent's HOME is isolated; without it Node aborts before running (#112).
         if sys.platform == "win32":

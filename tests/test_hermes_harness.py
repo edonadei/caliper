@@ -303,7 +303,6 @@ def test_hermes_user_customizations_still_ablates_a_server_the_user_also_has(
 ) -> None:
     home = _fake_home_with_user_mcp(tmp_path)
     iso = tmp_path / "iso"
-    monkeypatch.setenv("HOME", str(home))
     HERMES_CONFIG.write(
         run_context(
             isolated_home=str(iso),
@@ -311,7 +310,9 @@ def test_hermes_user_customizations_still_ablates_a_server_the_user_also_has(
             spec_mcp_names=frozenset({"personal"}),
             user_customizations=True,
         ),
+        iso / ".hermes",
         backend="hermes",
+        real=home / ".hermes" / "config.yaml",
     )
     config = yaml.safe_load((iso / ".hermes" / "config.yaml").read_text())
     assert "mcp_servers" not in config

@@ -805,8 +805,7 @@ def test_claude_harness_credentials_source(
     monkeypatch.setattr(harness, "_capture_output", lambda cmd, timeout: keychain)
     ctx = run_context(isolated_home=str(tmp_path / "iso"))
 
-    harness._seed_home(ctx)
-    harness._prepare(ctx)
+    harness.stage_home(ctx)
 
     creds = harness._credentials_file(ctx)
     assert (creds.read_text() if creds.exists() else None) == expected
@@ -832,7 +831,7 @@ def test_claude_harness_reads_the_keychain_entry_of_the_selected_config_dir(
         harness, "_capture_output", lambda cmd, timeout: asked.append(cmd)
     )
 
-    harness._prepare(run_context(isolated_home=str(tmp_path / "iso")))
+    harness.stage_home(run_context(isolated_home=str(tmp_path / "iso")))
 
     assert asked == [["security", "find-generic-password", "-s", service, "-w"]]
 

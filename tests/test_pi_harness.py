@@ -446,7 +446,7 @@ def test_pi_seeds_models_json_so_custom_providers_resolve(
 
     harness = PiHarness()
     ctx = run_context(isolated_home=str(tmp_path / "home"))
-    harness._seed_home(ctx)
+    harness.stage_home(ctx)
 
     seeded = tmp_path / "home" / ".pi" / "agent" / "models.json"
     assert seeded.read_text() == '{"providers": {"mock": {}}}'

@@ -738,13 +738,11 @@ def test_preflight_does_not_inherit_host_only_variables(tmp_path, monkeypatch) -
 
 class _AttemptPreflightHarness(CliHarness):
     supports_mcp = True
+    config_home = ".attempt-preflight"
 
     @property
     def name(self) -> str:
         return "attempt-preflight"
-
-    def skills_root(self, ctx: RunContext) -> Path:
-        return Path(ctx.isolated_home) / "skills"
 
     def _command(self, ctx: RunContext):
         return (
