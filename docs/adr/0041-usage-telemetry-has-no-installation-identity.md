@@ -1,6 +1,6 @@
 # Usage telemetry has no installation identity
 
-Caliper measures opted-in command invocations without a persistent installation
+Caliper measures participating command invocations without a persistent installation
 ID. All events use one shared PostHog distinct ID, disable person profiles and
 GeoIP, and carry only an explicit set of categorical usage fields. This gives
 up unique-user counts, retention and per-installation funnels so commands cannot

@@ -1,32 +1,43 @@
 # Usage telemetry
 
-Caliper's optional usage telemetry helps maintainers understand which commands
+Caliper's anonymous usage telemetry helps maintainers understand which commands
 and backends people use, and which commands fail. It is separate from the
 evaluation scores, token usage and timings in saved results. It does not upload
 results files or change the results schema.
 
 ## Consent and controls
 
-Collection is off by default. No consent prompt appears during commands or in
-automation. Opt in explicitly:
+Collection is on by default, after a one-time notice
+([ADR 0042](adr/0042-usage-telemetry-is-opt-out-after-a-notice.md)). The first
+product command with no saved preference prints a notice to stderr. The notice
+says what is sent and how to opt out. Then Caliper saves `{"enabled": true}`.
+**That first command sends nothing.** Events start with the next command, so you
+can opt out before anything is sent:
 
 ```bash
-caliper telemetry enable
+caliper telemetry disable   # opt out (also before your first command)
 caliper telemetry status
-caliper telemetry disable
+caliper telemetry enable    # opt back in
 ```
 
 The preference is stored atomically in `telemetry.json` in Caliper's per-user
 config directory, beside its ChatGPT login. It contains only `{"enabled": true}`
 or `{"enabled": false}`. The directory is `$XDG_CONFIG_HOME/caliper`, falling
-back to `~/.config/caliper`, or `%APPDATA%\caliper` on Windows. A missing,
-unreadable or malformed preference disables collection.
+back to `~/.config/caliper`, or `%APPDATA%\caliper` on Windows. An unreadable or
+malformed preference disables collection and is never replaced by the default.
+If the preference can't be saved, the notice repeats and nothing is sent.
 
-Any nonempty `CALIPER_TELEMETRY_DISABLED` overrides a saved opt-in. For example:
+Any nonempty `CALIPER_TELEMETRY_DISABLED`, or `DO_NOT_TRACK` set to anything but
+`0`, `false` or `no`, turns collection off whatever is saved. It also suppresses
+the notice. For example:
 
 ```bash
 CALIPER_TELEMETRY_DISABLED=1 caliper run my-skill.eval.yaml
 ```
+
+In CI (`CI` set to anything but `0`, `false` or `no`), Caliper never defaults in.
+With no saved preference, CI shows no notice and sends nothing. CI is collected
+only after an explicit `caliper telemetry enable` in that config directory.
 
 Consent commands never send an event. Help, shell completion, unknown commands
 and argument-parsing errors also send nothing. Product commands send at most
@@ -89,7 +100,7 @@ third party ever sees a network address.
 
 These metrics describe participating command invocations. They cannot measure
 unique users, returning users, installations, retention or total adoption.
-Opt-in and best-effort delivery also mean command counts are incomplete.
+Opt-outs, CI exclusion and best-effort delivery also mean command counts are incomplete.
 
 ## Maintainer setup in PostHog
 
@@ -111,13 +122,13 @@ Before collecting production metrics:
    off for these events. Unique-user charts and funnels are not meaningful
    because the distinct ID is shared by everyone.
 
-To test delivery, opt in from a disposable config directory and validate a
+To test delivery, run `caliper telemetry enable` with a disposable config directory and validate a
 small spec. Check the event in PostHog's activity view and inspect its properties.
 Do not enable collection in an actual user's config as a side effect of testing.
 
 Forks can use `CALIPER_TELEMETRY_PROJECT_TOKEN` with their own public `phc_` token
 and `CALIPER_TELEMETRY_HOST` with `https://us.i.posthog.com` or
-`https://eu.i.posthog.com`. These settings never opt a user in. An empty or
+`https://eu.i.posthog.com`. These settings never override a user's opt-out. An empty or
 invalid token, or any other host, disables delivery. `telemetry status` reports
 an inactive destination without printing its token.
 

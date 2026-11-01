@@ -1,5 +1,7 @@
-"""Opt-in command counts. Only the fields constructed here leave the machine.
+"""Opt-out command counts. Only the fields constructed here leave the machine.
 
+Collection starts only after the first-run notice has been shown, and never in
+CI unless enabled explicitly (docs/adr/0042-usage-telemetry-is-opt-out-after-a-notice.md).
 No SDK, identity, retries or event queue. See docs/telemetry.md for the payload
 and the PostHog project settings required before enabling a release.
 """
@@ -23,8 +25,8 @@ import typer
 from typer.core import TyperCommand
 
 from caliper import config
-from caliper.backends import DEFAULT_BACKEND, VALID_BACKENDS
-from caliper.schema.spec import parse_target
+from caliper.backends import VALID_BACKENDS
+from caliper.commands.diagnosis import CannotRun, ExitCode
 
 # Public, ingestion-only token for the Caliper project.
 # Never put a personal API key here or in CALIPER_TELEMETRY_PROJECT_TOKEN.
@@ -40,13 +42,38 @@ Outcome = Literal[
 ]
 
 
-def enabled() -> bool:
-    """Malformed, missing or unreadable consent always means no collection."""
+NOTICE = (
+    "Caliper collects anonymous usage metrics: the command, Caliper version, "
+    "OS family, backend, outcome and a duration bucket. No prompts, outputs, "
+    "paths, skill or model names, arguments or IDs are sent. Nothing was sent "
+    "for this command.\n"
+    "Opt out with `caliper telemetry disable` or CALIPER_TELEMETRY_DISABLED=1. "
+    "Details: https://github.com/edonadei/caliper/blob/main/docs/telemetry.md"
+)
+
+
+def preference() -> bool | None:
+    """The saved choice, or None before one exists (the notice is still due).
+
+    A malformed or unreadable preference means no collection: it is never
+    replaced by the default.
+    """
     try:
-        consent = json.loads((config.config_home() / "telemetry.json").read_text())
-        return isinstance(consent, dict) and consent.get("enabled") is True
-    except (OSError, ValueError, RuntimeError):
+        text = (config.config_home() / "telemetry.json").read_text()
+    except FileNotFoundError:
+        return None
+    except (OSError, RuntimeError):
         return False
+    try:
+        consent = json.loads(text)
+    except ValueError:
+        return False
+    return isinstance(consent, dict) and consent.get("enabled") is True
+
+
+def enabled() -> bool:
+    """Whether a saved preference allows collection. No preference yet is not one."""
+    return preference() is True
 
 
 def set_enabled(value: bool) -> None:
@@ -63,8 +90,18 @@ def set_enabled(value: bool) -> None:
             temporary.unlink(missing_ok=True)
 
 
+def _set(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() not in {"", "0", "false", "no"}
+
+
 def forced_off() -> bool:
-    return bool(os.environ.get("CALIPER_TELEMETRY_DISABLED"))
+    """CALIPER_TELEMETRY_DISABLED or the cross-tool DO_NOT_TRACK convention."""
+    return bool(os.environ.get("CALIPER_TELEMETRY_DISABLED")) or _set("DO_NOT_TRACK")
+
+
+def in_ci() -> bool:
+    """Nobody reads a first-run notice in CI, so CI never defaults in."""
+    return _set("CI")
 
 
 def destination() -> tuple[str, str] | None:
@@ -151,33 +188,67 @@ def _post(host: str, body: bytes) -> None:
         pass
 
 
-def record(command: str, backend: str | None, outcome: Outcome, seconds: float) -> None:
+def _first_run_notice() -> None:
+    """Show the notice, then save the default. Nothing is sent on this run.
+
+    Printing first means a failed save repeats the notice rather than enrolling
+    someone who never saw it.
+    """
+    typer.echo(NOTICE, err=True)
+    set_enabled(True)
+
+
+def _backend(model: str | None) -> str | None:
+    """The backend ``caliper run`` selected, by the same rule it uses."""
+    from caliper.commands.engine import resolve_engine
+
+    try:
+        backend = resolve_engine(model, None).backend
+    except CannotRun:
+        return None
+    return backend if backend in VALID_BACKENDS else None
+
+
+def record(
+    command: str, outcome: Outcome, seconds: float, model: str | None = None
+) -> None:
     """Bound the caller's wait even if DNS resolution ignores socket timeouts."""
     try:
-        if forced_off() or not enabled() or command not in COMMANDS:
+        if command not in COMMANDS or forced_off():
+            return
+        saved = preference()
+        if saved is None and not in_ci():
+            _first_run_notice()
+        if saved is not True:
             return
         target = destination()
         if target is None:
             return
         host, token = target
-        safe_backend = backend if backend in VALID_BACKENDS else None
-        body = _payload(command, safe_backend, outcome, seconds, token)
+        backend = _backend(model) if command == "run" else None
+        body = _payload(command, backend, outcome, seconds, token)
         worker = threading.Thread(target=_post, args=(host, body), daemon=True)
         worker.start()
-        worker.join(DELIVERY_BUDGET_SECONDS)
-    except Exception:
-        # Optional config, metadata and thread failures cannot replace a CLI result.
+        if outcome != "interrupted":
+            # Someone who pressed Ctrl-C asked to leave; don't hold them up.
+            worker.join(DELIVERY_BUDGET_SECONDS)
+    except (Exception, KeyboardInterrupt):
+        # Optional config, metadata and thread failures cannot replace a CLI
+        # result, and neither can a second Ctrl-C during the bounded wait.
         pass
 
 
+_OUTCOMES: dict[int, Outcome] = {
+    ExitCode.OK: "success",
+    ExitCode.BAD_INPUT: "bad_input",
+    ExitCode.CANNOT_RUN: "cannot_run",
+    ExitCode.BAR_NOT_MET: "bar_not_met",
+    ExitCode.INTERRUPTED: "interrupted",
+}
+
+
 def _outcome(code: int) -> Outcome:
-    return {
-        0: "success",
-        1: "bad_input",
-        2: "cannot_run",
-        3: "bar_not_met",
-        130: "interrupted",
-    }.get(code, "error")
+    return _OUTCOMES.get(code, "error")
 
 
 class TelemetryCommand(TyperCommand):
@@ -202,9 +273,9 @@ class TelemetryCommand(TyperCommand):
             outcome = "interrupted"
             raise
         finally:
-            backend = None
-            if self.name == "run":
-                backend = (
-                    parse_target(ctx.params.get("model") or "")[0] or DEFAULT_BACKEND
-                )
-            record(self.name, backend, outcome, time.monotonic() - started)
+            record(
+                self.name,
+                outcome,
+                time.monotonic() - started,
+                model=ctx.params.get("model"),
+            )

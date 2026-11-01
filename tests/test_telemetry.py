@@ -21,6 +21,13 @@ from caliper.main import app
 runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def _telemetry_environment(monkeypatch):
+    """Lift conftest's kill switch, and don't inherit CI from the test runner."""
+    for name in ("CALIPER_TELEMETRY_DISABLED", "DO_NOT_TRACK", "CI"):
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture
 def deliveries(monkeypatch):
     sent = []
@@ -32,14 +39,64 @@ def deliveries(monkeypatch):
     return sent
 
 
-def test_consent_controls_default_off_enable_and_disable(deliveries):
+def test_first_run_shows_notice_and_sends_nothing_then_collects(deliveries):
+    preference = config.config_home() / "telemetry.json"
     result = runner.invoke(app, ["telemetry", "status"])
     assert result.exit_code == 0
-    assert "Saved preference: disabled" in result.output
-    assert not (config.config_home() / "telemetry.json").exists()
-    runner.invoke(app, ["validate", "missing.eval.yaml"])
+    assert "Saved preference: none yet" in result.output
+    assert "one-time notice" in result.output
+    assert not preference.exists()
+
+    result = runner.invoke(app, ["validate", "missing.eval.yaml"])
+    assert result.exit_code == 1
+    assert telemetry.NOTICE in result.output
+    assert deliveries == []
+    assert json.loads(preference.read_text()) == {"enabled": True}
+
+    result = runner.invoke(app, ["validate", "missing.eval.yaml"])
+    assert result.exit_code == 1
+    assert telemetry.NOTICE not in result.output
+    assert len(deliveries) == 1
+
+
+def test_disable_before_first_command_never_shows_notice_or_sends(deliveries):
+    result = runner.invoke(app, ["telemetry", "disable"])
+    assert result.exit_code == 0
+    result = runner.invoke(app, ["validate", "missing.eval.yaml"])
+    assert telemetry.NOTICE not in result.output
     assert deliveries == []
 
+
+def test_failed_first_run_save_repeats_notice_and_never_sends(monkeypatch, deliveries):
+    def unavailable(*args):
+        raise PermissionError("private config path")
+
+    monkeypatch.setattr(telemetry.os, "replace", unavailable)
+    for _ in range(2):
+        result = runner.invoke(app, ["validate", "missing.eval.yaml"])
+        assert result.exit_code == 1
+        assert telemetry.NOTICE in result.output
+        assert "private config path" not in result.output
+    assert deliveries == []
+
+
+def test_ci_without_saved_preference_shows_nothing_and_sends_nothing(
+    monkeypatch, deliveries
+):
+    monkeypatch.setenv("CI", "true")
+    result = runner.invoke(app, ["validate", "missing.eval.yaml"])
+    assert telemetry.NOTICE not in result.output
+    assert not (config.config_home() / "telemetry.json").exists()
+    assert deliveries == []
+    status = runner.invoke(app, ["telemetry", "status"])
+    assert "disabled in CI" in status.output
+
+    telemetry.set_enabled(True)
+    runner.invoke(app, ["validate", "missing.eval.yaml"])
+    assert len(deliveries) == 1
+
+
+def test_enable_and_disable(deliveries):
     result = runner.invoke(app, ["telemetry", "enable"])
     assert result.exit_code == 0
     assert "Collection enabled. Destination: https://us.i.posthog.com" in result.output
@@ -59,14 +116,37 @@ def test_consent_controls_default_off_enable_and_disable(deliveries):
     }
 
 
-def test_environment_kill_switch_overrides_saved_consent(monkeypatch, deliveries):
+@pytest.mark.parametrize(
+    ("name", "value"), [("CALIPER_TELEMETRY_DISABLED", "1"), ("DO_NOT_TRACK", "1")]
+)
+def test_environment_kill_switch_overrides_saved_consent(
+    monkeypatch, name, value, deliveries
+):
     telemetry.set_enabled(True)
-    monkeypatch.setenv("CALIPER_TELEMETRY_DISABLED", "1")
+    monkeypatch.setenv(name, value)
     runner.invoke(app, ["validate", "missing.eval.yaml"])
     status = runner.invoke(app, ["telemetry", "status"])
     assert "Saved preference: enabled" in status.output
-    assert "Collection disabled by CALIPER_TELEMETRY_DISABLED" in status.output
+    assert "Collection disabled by CALIPER_TELEMETRY_DISABLED or DO_NOT_TRACK" in (
+        status.output
+    )
     assert deliveries == []
+
+
+@pytest.mark.parametrize("name", ["CALIPER_TELEMETRY_DISABLED", "DO_NOT_TRACK"])
+def test_kill_switch_suppresses_first_run_notice(monkeypatch, name, deliveries):
+    monkeypatch.setenv(name, "1")
+    result = runner.invoke(app, ["validate", "missing.eval.yaml"])
+    assert telemetry.NOTICE not in result.output
+    assert not (config.config_home() / "telemetry.json").exists()
+    assert deliveries == []
+
+
+def test_do_not_track_zero_is_not_an_opt_out(monkeypatch, deliveries):
+    telemetry.set_enabled(True)
+    monkeypatch.setenv("DO_NOT_TRACK", "0")
+    runner.invoke(app, ["validate", "missing.eval.yaml"])
+    assert len(deliveries) == 1
 
 
 @pytest.mark.parametrize(
@@ -86,6 +166,16 @@ def test_invalid_or_disabled_consent_sends_nothing(contents, deliveries):
     (home / "telemetry.json").write_text(contents)
     result = runner.invoke(app, ["validate", "missing.eval.yaml"])
     assert result.exit_code == 1
+    assert deliveries == []
+
+
+def test_unreadable_preference_is_never_replaced_by_the_default(deliveries):
+    preference = config.config_home() / "telemetry.json"
+    preference.mkdir()
+    result = runner.invoke(app, ["validate", "missing.eval.yaml"])
+    assert result.exit_code == 1
+    assert telemetry.NOTICE not in result.output
+    assert preference.is_dir()
     assert deliveries == []
 
 
@@ -293,6 +383,39 @@ def test_thread_start_failure_does_not_replace_cli_result(monkeypatch, deliverie
     assert "File not found" in result.output
     assert "cannot start new thread" not in result.output
     assert deliveries == []
+
+
+def test_second_ctrl_c_during_delivery_wait_keeps_the_exit_code(
+    monkeypatch, deliveries
+):
+    class Interrupted(threading.Thread):
+        def join(self, timeout=None):
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(telemetry.threading, "Thread", Interrupted)
+    telemetry.set_enabled(True)
+    result = runner.invoke(app, ["validate", "missing.eval.yaml"])
+    assert result.exit_code == 1
+    assert "File not found" in result.output
+
+
+def test_interrupted_command_does_not_wait_for_delivery(monkeypatch, deliveries):
+    release = threading.Event()
+    monkeypatch.setattr(telemetry, "_post", lambda host, body: release.wait(5))
+    sample = typer.Typer()
+
+    @sample.command("list", cls=telemetry.TelemetryCommand)
+    def command():
+        raise typer.Exit(130)
+
+    telemetry.set_enabled(True)
+    started = time.monotonic()
+    try:
+        result = runner.invoke(sample, [])
+        assert result.exit_code == 130
+        assert time.monotonic() - started < telemetry.DELIVERY_BUDGET_SECONDS
+    finally:
+        release.set()
 
 
 def test_failed_consent_save_preserves_previous_preference(monkeypatch, deliveries):
