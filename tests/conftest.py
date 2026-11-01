@@ -303,6 +303,13 @@ def _isolate_caliper_config(monkeypatch, tmp_path_factory):
     """
     config = tmp_path_factory.mktemp("caliper-config")
     monkeypatch.setattr("caliper.chatgpt.config_home", lambda: config)
+    monkeypatch.setattr("caliper.config.config_home", lambda: config)
+    for name in (
+        "CALIPER_TELEMETRY_DISABLED",
+        "CALIPER_TELEMETRY_PROJECT_TOKEN",
+        "CALIPER_TELEMETRY_HOST",
+    ):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture(autouse=True)

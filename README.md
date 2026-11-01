@@ -395,6 +395,26 @@ run Caliper, inside the git repository. See
 | `--verbose` | off | Show every task with its `expect`, and per attempt the judge reasoning and any judge script |
 | `--output PATH` | none | Also save results JSON to a specific path |
 
+### Optional usage metrics
+
+Caliper sends no usage metrics by default. To share anonymous command counts
+with the maintainers through PostHog:
+
+```bash
+caliper telemetry enable
+caliper telemetry status
+caliper telemetry disable
+```
+
+Only the command name, Caliper version, OS family, selected backend, command
+outcome and a duration bucket are sent. No installation ID, prompts, outputs,
+paths, skill names, model names, raw arguments or error text are included.
+Set `CALIPER_TELEMETRY_DISABLED=1` to override a saved opt-in, including in CI.
+Telemetry failures never change command output or exit codes.
+
+The exact payload, delivery limits, privacy boundaries and dashboard setup are
+in [Usage telemetry](docs/telemetry.md).
+
 ### Exit codes
 
 | Code | Meaning |
