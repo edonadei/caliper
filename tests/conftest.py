@@ -303,6 +303,16 @@ def _isolate_caliper_config(monkeypatch, tmp_path_factory):
     """
     config = tmp_path_factory.mktemp("caliper-config")
     monkeypatch.setattr("caliper.chatgpt.config_home", lambda: config)
+    monkeypatch.setattr("caliper.config.config_home", lambda: config)
+    for name in (
+        "CALIPER_TELEMETRY_PROJECT_TOKEN",
+        "CALIPER_TELEMETRY_HOST",
+        "DO_NOT_TRACK",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    # Telemetry is opt-out: without this, every CLI test would print the
+    # first-run notice and then post real events. tests/test_telemetry.py lifts it.
+    monkeypatch.setenv("CALIPER_TELEMETRY_DISABLED", "1")
 
 
 @pytest.fixture(autouse=True)

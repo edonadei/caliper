@@ -200,6 +200,7 @@ at your own skill by editing a few commented lines.
 | 📐 **[Spec reference](docs/spec-reference.md)** | Every `.eval.yaml` field and the judging rules |
 | 🔌 **[Backends](docs/backends.md)** | Setup per agent, `--model` syntax, MCP support |
 | 📊 **[Results](docs/results.md)** | Scoring, `caliper compare`, the results JSON schema |
+| 📈 **[Usage telemetry](docs/telemetry.md)** | What anonymous usage metrics send, and how to opt out |
 | 📖 **[Glossary](docs/CONTEXT.md)** | Spec, neighbourhood, activation, ablation… |
 | 🧭 **[Design decisions](docs/adr/)** | Architecture Decision Records |
 
@@ -375,6 +376,7 @@ The full format, with every field, is in
 | `caliper compare <A> <B>` | Diff two saved runs of the same eval, task by task. Each side is a spec name (that spec's **latest** run) or a results-JSON path; they must be two distinct runs |
 | `caliper login chatgpt` | Sign Caliper in to ChatGPT, so `codex` attempts and the judge run on your plan without touching `~/.codex/auth.json` ([details](docs/backends.md#running-on-your-chatgpt-plan)) |
 | `caliper logout chatgpt` | Revoke that login and go back to the Codex CLI's own |
+| `caliper telemetry disable\|enable\|status` | Opt out of, back in to, or inspect anonymous usage metrics ([details](docs/telemetry.md)) |
 
 Results are saved under the nearest `.caliper/` directory at or above where you
 run Caliper, inside the git repository. See
@@ -394,6 +396,26 @@ run Caliper, inside the git repository. See
 | `--user-customizations` / `--no-user-customizations` | the spec's `user_customizations`, else on | Load your user skills, plugins, rules, settings and connectors into attempts, or isolate. See [Portable scores](#portable-scores) |
 | `--verbose` | off | Show every task with its `expect`, and per attempt the judge reasoning and any judge script |
 | `--output PATH` | none | Also save results JSON to a specific path |
+
+### Usage metrics
+
+Caliper sends anonymous command counts to the maintainers through PostHog. They
+are on by default. The first command prints a one-time notice and sends
+nothing, so you can opt out before anything leaves your machine:
+
+```bash
+caliper telemetry disable
+```
+
+Only the command name, Caliper version, OS family, selected backend, command
+outcome and a duration bucket are sent. No installation ID, prompts, outputs,
+paths, skill names, model names, raw arguments or error text are included.
+`CALIPER_TELEMETRY_DISABLED=1` or `DO_NOT_TRACK=1` turns collection off
+regardless of the saved preference. CI is never collected unless you run
+`caliper telemetry enable` there. Telemetry failures never change command output or exit codes.
+
+The exact payload, delivery limits, privacy boundaries and dashboard setup are
+in [Usage telemetry](docs/telemetry.md).
 
 ### Exit codes
 

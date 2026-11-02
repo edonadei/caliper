@@ -28,6 +28,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
+from caliper.config import config_home
 from caliper.harness.base import HarnessConfigurationError, LoginRequired
 
 AUTH_ORIGIN = "https://auth.openai.com"
@@ -51,14 +52,6 @@ ACCESS_TOKEN_LIFETIME = 3600
 
 class ChatGPTLoginError(RuntimeError):
     """Signing in, or out, did not complete."""
-
-
-def config_home() -> Path:
-    """Where caliper keeps its own config: the platform's per-user config dir."""
-    if sys.platform == "win32" and os.environ.get("APPDATA"):
-        return Path(os.environ["APPDATA"]) / "caliper"
-    base = os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config"
-    return Path(base) / "caliper"
 
 
 def chatgpt_account() -> ChatGPTAccount:
