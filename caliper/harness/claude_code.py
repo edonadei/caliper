@@ -7,6 +7,8 @@ import os
 import re
 import shutil
 import sys
+import threading
+import time
 import unicodedata
 import uuid
 from collections.abc import Callable
@@ -29,6 +31,12 @@ from caliper.harness.refusal import ConfigSignal
 from caliper.schema.results import TokenUsage
 from caliper.schema.spec import PlantedShellCall
 from caliper.skills import frontmatter_name
+
+# How close to expiry the CLI refreshes an OAuth access token.
+_REFRESH_WINDOW_MS = 5 * 60 * 1000
+# Held while one attempt refreshes the operator's login on the host, so the
+# others wait and copy the result instead of refreshing it themselves.
+_host_refresh = threading.Lock()
 
 
 def preferred_nvm_node_bin() -> str | None:
@@ -64,6 +72,7 @@ _NOT_LOGGED_IN = (
 class ClaudeCodeHarness(CliHarness):
     def __init__(self, model: str | None = None) -> None:
         self._model = model
+        self._host_refresh_tried = False
 
     supports_mcp = True
     supports_history = True
@@ -240,8 +249,23 @@ class ClaudeCodeHarness(CliHarness):
         # On macOS the CLI reads its OAuth credentials from the Keychain first,
         # so a Keychain entry replaces the seeded .credentials.json, which may
         # be a stale leftover (#180). Without an entry the seeded file stays.
+        creds = self._credentials_file(ctx)
         if sys.platform == "darwin":
-            self._seed_credentials_from_keychain(self._credentials_file(ctx))
+            self._seed_credentials_from_keychain(creds)
+
+        # An attempt never refreshes the login: its copy goes nowhere, and two
+        # refreshes with one refresh token revoke the operator's login (#324).
+        # A login about to expire is refreshed once, on the host, first.
+        # One try per run: a login the host can't refresh either is left for
+        # the attempt to report.
+        if _expiring(creds) and not self._host_refresh_tried:
+            with _host_refresh:
+                self._reseed_credentials(creds, ctx)
+                if _expiring(creds) and not self._host_refresh_tried:
+                    self._host_refresh_tried = True
+                    self.run_prompt("Reply OK", model=ctx.model, cwd=ctx.workdir)
+                    self._reseed_credentials(creds, ctx)
+        _withhold_refresh_token(creds)
 
         if ctx.user_customizations and ctx.spec_mcp_names:
             self._drop_shadowed_user_servers(ctx)
@@ -545,7 +569,7 @@ class ClaudeCodeHarness(CliHarness):
         compact = re.sub(r"\s+", " ", text).strip()
         return compact[:500]
 
-    def _seed_credentials_from_keychain(self, dst: Path) -> None:
+    def _seed_credentials_from_keychain(self, dst: Path) -> bool:
         out = self._capture_output(
             ["security", "find-generic-password", "-s", self._keychain_service(), "-w"],
             timeout=5,
@@ -554,6 +578,15 @@ class ClaudeCodeHarness(CliHarness):
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_text(out)
             dst.chmod(0o600)
+        return bool(out)
+
+    def _reseed_credentials(self, dst: Path, ctx: RunContext) -> None:
+        """Copy the operator's current login again, from wherever it is kept."""
+        if sys.platform == "darwin" and self._seed_credentials_from_keychain(dst):
+            return
+        src = self.user_path(dst, ctx)
+        if src.exists():
+            shutil.copy2(src, dst)
 
     def _keychain_service(self) -> str:
         """The Keychain entry the operator's CLI keeps its OAuth login under.
@@ -799,3 +832,31 @@ def _envelope_model(stdout: str) -> str | None:
     if isinstance(model_usage, dict) and model_usage:
         return next(iter(model_usage))
     return None
+
+
+def _oauth(path: Path) -> dict | None:
+    """The ``claudeAiOauth`` block of a credentials file, if it has one."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    oauth = data.get("claudeAiOauth") if isinstance(data, dict) else None
+    return oauth if isinstance(oauth, dict) else None
+
+
+def _expiring(path: Path) -> bool:
+    """Whether the login's access token is within the CLI's refresh window."""
+    expires = (_oauth(path) or {}).get("expiresAt")
+    if not isinstance(expires, (int, float)):
+        return False
+    return expires - time.time() * 1000 < _REFRESH_WINDOW_MS
+
+
+def _withhold_refresh_token(path: Path) -> None:
+    """Leave an attempt's copy of the login unable to refresh itself."""
+    oauth = _oauth(path)
+    if oauth is None or "refreshToken" not in oauth:
+        return
+    data = json.loads(path.read_text(encoding="utf-8"))
+    del data["claudeAiOauth"]["refreshToken"]
+    path.write_text(json.dumps(data))
