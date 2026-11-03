@@ -39,8 +39,8 @@ skills:                          # installed at the agent's skills root, never
     path: skills/engineering/tdd/SKILL.md  # one skill per entry; omit only if the repo root is a skill
 
 sandbox:
-  forbidden_files:               # extra patterns only: the spec itself and any
-    - "./answers/.*"             #   .caliper/ directory are forbidden already
+  forbidden_files:               # reads to flag as cheating (not blocked); the spec
+    - "./answers/.*"             #   itself and any .caliper/ directory are added already
 
 tasks:
   - name: Happy path — <what success looks like>

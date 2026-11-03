@@ -275,6 +275,21 @@ compare with someone else's run, or publish the score. Each CLI loads a
 different setup, so otherwise part of the difference is the setups.
 `caliper compare` warns when two runs loaded differently.
 
+### An attempt is not a security boundary
+
+An attempt's fresh home keeps the **measurement** clean. It doesn't contain the
+skill under test:
+
+- The agent runs as you, with your filesystem, credentials and network, and with
+  permission prompts off (`claude-code` runs with `--dangerously-skip-permissions`,
+  `codex` with `--dangerously-bypass-approvals-and-sandbox`).
+- `sandbox.forbidden_files` detects reads after the fact, from the transcript,
+  and scores them `cheat`. It doesn't block them.
+
+Evaluating a skill means running it, with the same trust as installing it. Run
+an untrusted skill in a disposable VM or container. See
+[ADR 0027](docs/adr/0027-an-attempt-is-not-a-security-boundary.md).
+
 ## Core concepts
 
 | Term | What it is |
@@ -286,7 +301,7 @@ different setup, so otherwise part of the difference is the setups.
 | **Neighbourhood** | The set of skills a spec declares (`skills:`). All installed, none preloaded, and all assertable. This is the competition your `description` has to win |
 | **Activation** | The agent *choosing* to load a skill. Asserted with `activates:` and scored on its own scoreboard, separate from the success rate |
 | **Ablation** | Re-running the same tasks with a declared skill or `mcp:` server *removed* (`--ablate`), to prove it's doing the work |
-| **Attempt** | One isolated run of a single task (fresh temporary home, no session history) |
+| **Attempt** | One run of a single task in a fresh temporary home, with no session history. Not a security boundary ([below](#an-attempt-is-not-a-security-boundary)) |
 
 The full glossary is in [docs/CONTEXT.md](docs/CONTEXT.md).
 
@@ -353,7 +368,8 @@ The quick start covers the basics. A spec can also:
   next turn. A user turn of `/name` enters that declared skill, as if typed.
   `setup:` and the history must agree, since the agent trusts a planted output
   over the disk. Every backend but hermes
-- extend `PATH` or **forbid files** the agent must not read (`sandbox:`)
+- extend `PATH` or **flag reads** of files the agent must not see, such as an
+  answer key (`sandbox:`). A flagged read scores `cheat`; it isn't blocked
 - assert **silence** (`activates: []`) or a **delegation chain**
   (`activates: [mine, helper]`)
 

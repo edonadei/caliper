@@ -43,8 +43,8 @@ skills:                     # the neighbourhood: every entry installed, none pre
     path: skills/engineering/tdd/SKILL.md  # one skill per entry; omit only if the repo root is a skill
 
 sandbox:
-  forbidden_files:          # extra regexes only: the spec itself and any
-    - "./answers/.*"        #   .caliper/ results are forbidden already
+  forbidden_files:          # reads to flag as cheating (not blocked); the spec
+    - "./answers/.*"        #   itself and any .caliper/ results are added already
   extra_path: ["./bin"]     # optional; relative to the spec, prefixed to PATH
 
 user_customizations: false  # optional; isolate from the user's own skills and setup

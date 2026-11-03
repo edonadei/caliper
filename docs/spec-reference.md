@@ -23,8 +23,8 @@ skills:                         # installed where the agent looks for skills,
 sandbox:
   extra_path:
     - ./bin                     # prepended to PATH inside each attempt
-  forbidden_files:            # extra patterns; the spec itself and any
-    - "./answers/.*"          #   .caliper/ directory are always forbidden
+  forbidden_files:            # reads to flag as cheating (not blocked); the spec
+    - "./answers/.*"          #   itself and any .caliper/ directory are always added
 
 mcp:                            # optional: MCP servers the agent may use
   weather:                      # server name → a mcp__weather__<tool> call in the transcript
@@ -80,6 +80,22 @@ spec, and a `history:` file that is missing or holds a malformed turn.
 > including the two traps a find-and-replace misses (stale `skill.path` inside
 > `prompt:`/`expect:`/`assert:` strings, and prompts that name the skill they're
 > testing).
+
+## `sandbox:`
+
+`sandbox:` adjusts what an attempt's agent is given:
+
+- `extra_path` prepends directories, relative to the spec, to `PATH`.
+- `forbidden_files` lists regexes for files the agent must not see, such as an
+  answer key. A skill file that matches isn't installed. Caliper also adds the
+  spec itself and any saved results directory, and an attempt whose transcript
+  shows a read of a matching path scores `cheat`.
+
+`sandbox:` measures; it doesn't contain. Nothing stops the read: it's detected
+after the fact. The agent runs as you, with your filesystem, credentials and
+network, and with permission prompts off, so a skill can tell it to read or
+change any path you can. Run an untrusted skill in a disposable VM or container.
+See [ADR 0027](adr/0027-an-attempt-is-not-a-security-boundary.md).
 
 ## `skills:`, the neighbourhood
 
