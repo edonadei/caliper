@@ -334,6 +334,10 @@ than rendered.
   `git_repo`/`git_sha`, so a saved run says how each member of the neighbourhood
   was obtained and, for a git source, the exact commit. Older JSON without the
   field still loads and reads as `"path"`.
+- A git source's `SkillSnapshot.git_path` is where its `SKILL.md` sat in the
+  repo, relative to the root, whether the spec named it by `path:` or `skill:`.
+  `compare` reports a change of `git_path` as drift. It's `null` for a path
+  source and on runs saved before it was recorded.
 - Each `SkillSnapshot.files` entry is one file the install copied, keyed by its
   path in the skill directory: every installed file, not only the ones
   `SKILL.md` names. `hash` is over the file's bytes, and `content` is `null` for

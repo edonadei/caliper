@@ -460,7 +460,8 @@ skill's role: peers stay peers ([[ablation]]).
   time, and the spec makes no claim about what that is.
 - A **git source** is a mapping — `repo:` (anything git can clone; a bare
   `owner/name` expands to a GitHub URL), an optional `ref:` (default branch when
-  omitted), an optional `path:` (repo-root `SKILL.md` when omitted) — which
+  omitted), and either `path:` (repo-root `SKILL.md` when omitted) or `skill:`,
+  the frontmatter name to find the `SKILL.md` by — which
   caliper clones into a content-addressed cache and resolves to a concrete
   commit at fetch. One entry is one skill.
 

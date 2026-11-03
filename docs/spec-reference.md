@@ -14,6 +14,7 @@ skills:                         # installed where the agent looks for skills,
   - repo: mattpocock/skills          # a git source: Caliper clones it
     ref: 49dd158d1076134a641b33efb035946536778336  # optional; omit to track the default branch
     path: skills/engineering/tdd/SKILL.md  # one skill per entry; omit only if the repo root is a skill
+                                # or `skill: tdd`, its frontmatter name: (not both)
                                 # omit `skills:` entirely for a bare agent
 
 # Note: there is no `backend`/`model` or `judge:` block. The engine is picked
@@ -129,6 +130,24 @@ fetch. `path:` is relative to the repo root and uses forward slashes, the way
 git writes paths, on every OS. A `..`, a leading `/`, a backslash or a drive
 letter such as `C:` is refused.
 
+Instead of `path:`, an entry can name its skill with `skill:`, the way the
+skills ecosystem does (`npx skills add mattpocock/skills@tdd`):
+
+```yaml
+skills:
+  - repo: mattpocock/skills
+    skill: tdd                  # finds skills/engineering/tdd/SKILL.md
+```
+
+`skill:` matches a `SKILL.md`'s frontmatter `name:`, not its directory name. Caliper
+searches the whole clone, and a shallower match shadows a deeper one, so a copy
+vendored under `.claude/skills/` doesn't compete with the pack's own. Two
+matches at the same depth refuse the run and list both, so you can pick one with
+`path:`. No match refuses too, with the closest names it found. An entry takes
+`path:` or `skill:`, never both. Because the name is written in the spec,
+`caliper validate` can check `activates:` against it even when the repo isn't
+cached.
+
 `repo:` takes anything git can clone. A bare `owner/name` expands to
 `https://github.com/owner/name`. A URL, an `scp`-style `git@host:owner/name`, or
 a filesystem path is passed through untouched. To point at a *local* repo by
@@ -175,6 +194,8 @@ commit. A link to a shared file elsewhere in the repo is fine.
 A **git source** that moved gets a warning: the spec said where its bytes came
 from, so the delta you're reading is confounded. A **path source** that moved is
 shown without alarm, since that's usually the edit the run exists to measure.
+A git source whose `SKILL.md` moved to another path in the repo, which a
+`skill:` entry follows, counts as moved even with the same bytes.
 
 ```
  ⚠ tdd changed between runs — git source, a1b2c3d → e4f5g6h; pin `ref:` to hold it fixed

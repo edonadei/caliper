@@ -342,6 +342,10 @@ The quick start covers the basics. A spec can also:
       path: skills/internal-comms/SKILL.md             # also writes messages, so it competes for "Reply to Dana"
   ```
 
+  Instead of `path:`, `skill: internal-comms` finds the skill by its
+  frontmatter name, the way `npx skills add anthropics/skills@internal-comms`
+  names it.
+
 - give the agent **MCP servers**, local or remote (`mcp:`)
 - **pin whether your own customizations load**: `user_customizations: false`
   for a portable score from anyone, or `true` for a skill that needs your own

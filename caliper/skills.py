@@ -83,6 +83,9 @@ class SkillRef:
     source_kind: str = "path"
     git_repo: str | None = None
     git_sha: str | None = None
+    # Where the SKILL.md sat in the repo, so a skill named by `skill:` that moved
+    # within it shows as drift.
+    git_path: str | None = None
 
     @property
     def directory(self) -> Path:
@@ -154,7 +157,9 @@ def resolve_skills(
                 raise SkillResolutionError(str(exc)) from exc
             if fetched is None:
                 continue
-            path, raw = fetched.path, f"{entry.repo}:{entry.path}"
+            path = fetched.path
+            git_path = path.relative_to(fetched.checkout).as_posix()
+            raw = f"{entry.repo}:{git_path}"
             escaping = _links_escaping(path, fetched.checkout)
             if escaping:
                 listed = "\n".join(f"  {link}" for link in escaping)
@@ -170,6 +175,7 @@ def resolve_skills(
                 "source_kind": "git",
                 "git_repo": fetched.repo,
                 "git_sha": fetched.sha,
+                "git_path": git_path,
             }
         else:
             raw = entry
@@ -401,6 +407,7 @@ def validate_activates(
     *,
     spec_label: str = "spec",
     closed: bool = True,
+    uncached: list[str] | None = None,
 ) -> None:
     """Refuse an ``activates:`` naming a skill the spec never declared.
 
@@ -415,10 +422,13 @@ def validate_activates(
     member, so ``refs`` is a subset of the neighbourhood rather than all of it,
     and an unrecognised name means "not visible from here" rather than "not
     declared". A run never passes this — it has fetched everything or refused.
+
+    ``uncached`` names git sources an offline ``validate`` could not see but
+    whose ``skill:`` declares the name anyway, so they still count as declared.
     """
     if not closed:
         return
-    declared = {ref.name for ref in refs}
+    declared = {ref.name for ref in refs} | set(uncached or [])
     for task in tasks:
         unknown = [name for name in (task.activates or []) if name not in declared]
         if not unknown:

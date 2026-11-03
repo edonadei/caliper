@@ -41,6 +41,7 @@ skills:                     # the neighbourhood: every entry installed, none pre
   - repo: mattpocock/skills          # git source, cloned by caliper
     ref: 49dd158d1076134a641b33efb035946536778336  # optional: branch, tag or commit (short is fine); omit to track the default branch
     path: skills/engineering/tdd/SKILL.md  # one skill per entry; omit only if the repo root is a skill
+                                    # or `skill: tdd`, its frontmatter name: (not both)
 
 sandbox:
   forbidden_files:          # extra regexes only: the spec itself and any

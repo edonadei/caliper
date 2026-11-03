@@ -52,7 +52,12 @@ def _drift(a: RunResults, b: RunResults) -> list[SkillDriftRecord]:
         # nothing. Equal, and no claim either way — which is the right answer.
         if not a_snap.files and not b_snap.files:
             continue
-        if a_snap.content_digest == b_snap.content_digest:
+        # A git source that moved within its repo is drift even with the same
+        # bytes: `skill:` found it by name, so the spec never said where.
+        moved = None not in (a_snap.git_path, b_snap.git_path) and (
+            a_snap.git_path != b_snap.git_path
+        )
+        if a_snap.content_digest == b_snap.content_digest and not moved:
             continue
         # Graded git if *either* side was fetched: vendoring a fetched skill (or
         # the reverse) still moved a member that had been claimed.

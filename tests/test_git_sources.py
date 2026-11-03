@@ -107,6 +107,22 @@ def test_ref_and_path_are_optional():
     assert entry.path == "SKILL.md"
 
 
+def test_a_git_source_can_name_its_skill_instead_of_its_path():
+    entry = _spec([{"repo": "owner/name", "skill": "tdd"}]).skills[0]
+    assert (entry.skill, entry.path) == ("tdd", None)
+
+
+def test_skill_and_path_are_mutually_exclusive():
+    with pytest.raises(ValidationError, match="not both"):
+        _spec([{"repo": "owner/name", "skill": "tdd", "path": "SKILL.md"}])
+
+
+@pytest.mark.parametrize("name", ["", "..", "my skill", "a/b"])
+def test_skill_must_be_a_usable_skill_name(name: str):
+    with pytest.raises(ValidationError, match="usable skill name"):
+        _spec([{"repo": "owner/name", "skill": name}])
+
+
 def test_path_must_point_at_a_skill_md():
     with pytest.raises(ValidationError, match="SKILL.md"):
         _spec([{"repo": "owner/name", "path": "skills/tdd"}])
@@ -715,3 +731,120 @@ def test_offline_resolution_skips_an_uncached_git_source(tmp_path: Path, origin:
 
     assert [r.name for r in refs] == ["mine"]
     assert fetcher.unresolved
+
+
+# ── naming a skill instead of its path (`skill:`) ────────────────────────────
+
+
+@pytest.fixture
+def pack(tmp_path: Path) -> Path:
+    """A skill pack whose directories don't match their skills' names."""
+    repo = tmp_path / "pack"
+    repo.mkdir()
+    _git("init", "-b", "main", cwd=repo)
+    _git("config", "user.email", "t@example.com", cwd=repo)
+    _git("config", "user.name", "Test", cwd=repo)
+    _write_skill(repo / "skills" / "react-best-practices", "vercel-react")
+    _write_skill(repo / "skills" / "engineering" / "tdd", "tdd")
+    # A deeper copy, vendored the way an agent directory holds one.
+    _write_skill(repo / ".claude" / "skills" / "vendored" / "tdd", "tdd")
+    _git("add", "-A", cwd=repo)
+    _git("commit", "-m", "first", cwd=repo)
+    return repo
+
+
+def test_skill_finds_the_skill_md_by_frontmatter_name(tmp_path: Path, pack: Path):
+    fetcher = SkillFetcher(cache_dir=tmp_path / "cache")
+
+    refs = resolve_skills(
+        [GitSkillSource(repo=str(pack), skill="vercel-react")],
+        tmp_path,
+        fetcher=fetcher,
+    )
+
+    assert [r.name for r in refs] == ["vercel-react"]
+    assert refs[0].git_path == "skills/react-best-practices/SKILL.md"
+
+
+def test_a_shallower_match_shadows_a_deeper_one(tmp_path: Path, pack: Path):
+    fetcher = SkillFetcher(cache_dir=tmp_path / "cache")
+
+    fetched = fetcher.materialize(GitSkillSource(repo=str(pack), skill="tdd"))
+
+    assert fetched.path.relative_to(fetched.checkout).as_posix() == (
+        "skills/engineering/tdd/SKILL.md"
+    )
+
+
+def test_two_matches_at_one_depth_refuse(tmp_path: Path, pack: Path):
+    _write_skill(pack / "skills" / "testing" / "tdd", "tdd")
+    _git("add", "-A", cwd=pack)
+    _git("commit", "-m", "a second tdd", cwd=pack)
+    fetcher = SkillFetcher(cache_dir=tmp_path / "cache")
+
+    with pytest.raises(SkillFetchError, match="2 skills named 'tdd'") as exc:
+        fetcher.materialize(GitSkillSource(repo=str(pack), skill="tdd"))
+    assert "skills/engineering/tdd/SKILL.md" in str(exc.value)
+    assert "skills/testing/tdd/SKILL.md" in str(exc.value)
+    assert "`path:`" in str(exc.value)
+
+
+def test_no_match_refuses_with_a_did_you_mean(tmp_path: Path, pack: Path):
+    fetcher = SkillFetcher(cache_dir=tmp_path / "cache")
+
+    with pytest.raises(SkillFetchError, match="no skill named 'td'.*'tdd'"):
+        fetcher.materialize(GitSkillSource(repo=str(pack), skill="td"))
+
+
+def test_no_match_lists_the_names_it_found(tmp_path: Path, pack: Path):
+    fetcher = SkillFetcher(cache_dir=tmp_path / "cache")
+
+    with pytest.raises(SkillFetchError, match="It has: tdd, vercel-react"):
+        fetcher.materialize(GitSkillSource(repo=str(pack), skill="zzzzzz"))
+
+
+def test_a_git_source_named_by_path_records_its_path(tmp_path: Path, origin: Path):
+    fetcher = SkillFetcher(cache_dir=tmp_path / "cache")
+
+    refs = resolve_skills(
+        [GitSkillSource(repo=str(origin), path="skills/pr-review/SKILL.md")],
+        tmp_path,
+        fetcher=fetcher,
+    )
+
+    assert refs[0].git_path == "skills/pr-review/SKILL.md"
+
+
+def _validate_offline(tmp_path: Path, pack: Path, activates: str, monkeypatch):
+    monkeypatch.setenv("CALIPER_CACHE_DIR", str(tmp_path / "cache"))
+    spec = tmp_path / "demo.eval.yaml"
+    spec.write_text(
+        f"skills:\n"
+        f"  - repo: {pack}\n"
+        f"    skill: tdd\n"
+        f"tasks:\n"
+        f"  - name: t\n"
+        f"    prompt: p\n"
+        f"    activates: [{activates}]\n"
+    )
+    return CliRunner().invoke(app, ["validate", str(spec)])
+
+
+def test_offline_validate_checks_activates_against_a_skill_name(
+    tmp_path: Path, pack: Path, monkeypatch
+):
+    """`skill:` writes the name in the spec, so a cold cache can still check it."""
+    result = _validate_offline(tmp_path, pack, "tdd", monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert "not cached" in result.output
+    assert "names not checked" not in result.output
+
+
+def test_offline_validate_refuses_an_activates_no_skill_name_declares(
+    tmp_path: Path, pack: Path, monkeypatch
+):
+    result = _validate_offline(tmp_path, pack, "tdd-typo", monkeypatch)
+
+    assert result.exit_code == 1
+    assert "tdd-typo" in result.output

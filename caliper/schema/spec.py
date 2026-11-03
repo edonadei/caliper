@@ -313,6 +313,8 @@ class McpServer(BaseModel):
 # Server names become the ``mcp__<name>__<tool>`` handle in the transcript, so
 # they must be restricted to characters that keep that handle well-formed.
 _MCP_NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
+# What `resolve_skills` accepts as a frontmatter name, which is a directory.
+_SKILL_NAME_RE = re.compile(r"[A-Za-z0-9._-]+")
 
 
 # One member of the neighbourhood fetched from git rather than read off the
@@ -329,9 +331,35 @@ class GitSkillSource(BaseModel):
     # Optional by design: an omitted ref means the default branch, and drift is
     # *reported* rather than prevented. See docs/adr/0017.
     ref: str | None = None
-    path: str = "SKILL.md"
+    # Where the skill's SKILL.md sits in the repo, or ``skill:``, the frontmatter
+    # name to find it by, the way the skills ecosystem names one. Never both;
+    # neither means a SKILL.md at the repo root. See docs/adr/0043.
+    path: str | None = None
+    skill: str | None = None
 
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def default_path(self) -> GitSkillSource:
+        if self.skill is not None and self.path is not None:
+            raise ValueError(
+                "a git source names its skill by `path:` or by `skill:`, not both"
+            )
+        if self.skill is None and self.path is None:
+            self.path = "SKILL.md"
+        return self
+
+    @field_validator("skill")
+    @classmethod
+    def check_skill(cls, value: str) -> str:
+        # The rule `resolve_skills` applies to a frontmatter name, so a name no
+        # skill could carry is refused before anything is fetched.
+        if not _SKILL_NAME_RE.fullmatch(value) or value in (".", ".."):
+            raise ValueError(
+                f"skill {value!r} is not a usable skill name: a frontmatter "
+                "name: holds only letters, digits, dot, dash or underscore"
+            )
+        return value
 
     @field_validator("path")
     @classmethod

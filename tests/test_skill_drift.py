@@ -30,12 +30,14 @@ def _snapshot(
     *,
     source_kind: str = "path",
     git_sha: str | None = None,
+    git_path: str | None = None,
 ) -> SkillSnapshot:
     return SkillSnapshot(
         name=name,
         path=f"/x/{name}/SKILL.md",
         source_kind=source_kind,
         git_sha=git_sha,
+        git_path=git_path,
         files={"SKILL.md": FileSnapshot(content=body, hash=f"sha256:{body}")},
     )
 
@@ -144,6 +146,29 @@ def test_a_member_that_changed_source_kind_is_graded_as_git():
     assert comp.skill_drift[0].source_kind == "git"
     assert [d.name for d in comp.skill_drift] == ["tdd"]
     assert any("tdd" in w and "git source" in w for w in comp.warnings)
+
+
+def test_a_git_source_that_moved_within_its_repo_is_drift():
+    """`skill:` finds a skill by name, so the same bytes elsewhere still moved."""
+    a = _run(
+        [_snapshot("tdd", "v1", source_kind="git", git_path="skills/tdd/SKILL.md")]
+    )
+    b = _run(
+        [_snapshot("tdd", "v1", source_kind="git", git_path="eng/tdd/SKILL.md")],
+        offset=1,
+    )
+
+    assert [d.name for d in diff_runs(a, b).skill_drift] == ["tdd"]
+
+
+def test_a_run_saved_before_git_path_was_recorded_is_not_a_move():
+    a = _run([_snapshot("tdd", "v1", source_kind="git")])
+    b = _run(
+        [_snapshot("tdd", "v1", source_kind="git", git_path="skills/tdd/SKILL.md")],
+        offset=1,
+    )
+
+    assert diff_runs(a, b).skill_drift == []
 
 
 def test_legacy_runs_without_snapshot_files_do_not_report_drift():

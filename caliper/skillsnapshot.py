@@ -58,6 +58,7 @@ def snapshot_skill(
         source_kind=ref.source_kind,
         git_repo=git_repo,
         git_sha=git_sha,
+        git_path=ref.git_path,
         files=files,
     )
 

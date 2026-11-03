@@ -15,6 +15,7 @@ incentive to pin, in place of a rule requiring it (docs/adr/0017).
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import os
 import re
@@ -116,7 +117,7 @@ class SkillFetcher:
     warnings: list[str] = field(default_factory=list)
     # Sources skipped because we are offline and they are not cached. Only ever
     # populated in offline mode — a run refuses instead.
-    unresolved: list[str] = field(default_factory=list)
+    unresolved: list[GitSkillSource] = field(default_factory=list)
     root: Path = field(init=False)
 
     def __post_init__(self) -> None:
@@ -140,13 +141,27 @@ class SkillFetcher:
         """
         sha, stale = self._resolve(src)
         if sha is None:
-            self.unresolved.append(self._label(src))
+            self.unresolved.append(src)
             return None
 
         checkout = self._checkout_dir(src.repo, sha)
         if not (checkout / ".git").exists():
             self._clone(src, sha, checkout)
 
+        if src.skill is not None:
+            skill_md = self._find_by_name(src, checkout, sha)
+        else:
+            skill_md = self._at_path(src, checkout, sha)
+
+        if stale:
+            self._warn(
+                f"{self._label(src)}: cannot reach the remote to resolve "
+                f"'{src.ref or 'the default branch'}' — using cached {sha[:7]}"
+            )
+        return FetchedSkill(path=skill_md, sha=sha, repo=src.repo, checkout=checkout)
+
+    def _at_path(self, src: GitSkillSource, checkout: Path, sha: str) -> Path:
+        assert src.path is not None
         skill_md = checkout / src.path
         # The schema refuses a path that leaves the repo; this checks where the
         # join landed on this OS. Lexically: a symlink out of the clone gets its
@@ -162,13 +177,59 @@ class SkillFetcher:
                 "defaults to a SKILL.md at the repo root. Check the path, or "
                 "the ref if the skill moved."
             )
+        return skill_md
 
-        if stale:
-            self._warn(
-                f"{self._label(src)}: cannot reach the remote to resolve "
-                f"'{src.ref or 'the default branch'}' — using cached {sha[:7]}"
+    def _find_by_name(self, src: GitSkillSource, checkout: Path, sha: str) -> Path:
+        """The SKILL.md in the checkout whose frontmatter ``name:`` is ``skill:``.
+
+        The whole tree is searched and a shallower match shadows a deeper one,
+        so a copy vendored under an agent directory never competes with the
+        pack's own. Two matches at one depth, or none, refuse: a silent pick
+        would measure against competition the spec didn't ask for. See
+        docs/adr/0043.
+        """
+        # Imported here: `caliper.skills` imports this module for the fetcher.
+        from caliper.skills import frontmatter_name
+
+        found: dict[str, list[Path]] = {}
+        for dirpath, dirnames, filenames in os.walk(checkout):
+            dirnames[:] = sorted(d for d in dirnames if d != ".git")
+            if "SKILL.md" not in filenames:
+                continue
+            skill_md = Path(dirpath) / "SKILL.md"
+            try:
+                name = frontmatter_name(skill_md.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError):
+                continue
+            if name:
+                found.setdefault(name, []).append(skill_md)
+
+        label = f"{self._label(src)} at {sha[:7]}"
+        matches = found.get(src.skill or "")
+        if not matches:
+            close = difflib.get_close_matches(src.skill or "", found, n=3)
+            hint = (
+                f"Did you mean {', '.join(repr(n) for n in close)}?"
+                if close
+                else "It has: " + (", ".join(sorted(found)) or "no named skills")
             )
-        return FetchedSkill(path=skill_md, sha=sha, repo=src.repo, checkout=checkout)
+            raise SkillFetchError(
+                f"{label} has no skill named '{src.skill}'. {hint}\n\n"
+                "`skill:` matches a SKILL.md's frontmatter name:, not its "
+                "directory. Check the name, or name the file with `path:`."
+            )
+        depth = min(len(m.relative_to(checkout).parts) for m in matches)
+        shallowest = [m for m in matches if len(m.relative_to(checkout).parts) == depth]
+        if len(shallowest) > 1:
+            listed = "\n".join(
+                f"  {m.relative_to(checkout).as_posix()}" for m in shallowest
+            )
+            raise SkillFetchError(
+                f"{label} has {len(shallowest)} skills named '{src.skill}' at "
+                f"the same depth:\n{listed}\n\n"
+                "Name the one you mean with `path:` instead of `skill:`."
+            )
+        return shallowest[0]
 
     # ── resolution ───────────────────────────────────────────────────────────
 

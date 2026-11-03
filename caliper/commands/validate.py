@@ -59,11 +59,14 @@ def validate_cmd(
             fetcher=fetcher,
             forbidden_files=spec.sandbox.forbidden_files,
         )
-        # An uncached git source leaves the neighbourhood *unknown*, not empty,
-        # so the closed-set check has to stand down: refusing an `activates:`
-        # naming a skill we simply could not see would fail a correct spec for a
-        # connectivity reason.
-        validate_activates(spec.tasks, refs, closed=not fetcher.unresolved)
+        # An uncached git source named by `path:` leaves the neighbourhood
+        # *unknown*, not empty, so the closed-set check has to stand down:
+        # refusing an `activates:` naming a skill we simply could not see would
+        # fail a correct spec for a connectivity reason. One named by `skill:`
+        # declares its name without being fetched.
+        by_name = [src.skill for src in fetcher.unresolved if src.skill is not None]
+        unknown = len(by_name) < len(fetcher.unresolved)
+        validate_activates(spec.tasks, refs, closed=not unknown, uncached=by_name)
     except SkillResolutionError as exc:
         fail(BadInput(str(exc), title="Validation failed"))
 
@@ -88,7 +91,7 @@ def validate_cmd(
         "\n  [yellow]note[/yellow]     [dim]activates: names not checked — a "
         "git source is uncached, so the\n           neighbourhood is not fully "
         "known here. `caliper run` checks them.[/dim]"
-        if fetcher.unresolved and asserting
+        if unknown and asserting
         else ""
     )
 

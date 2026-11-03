@@ -129,6 +129,9 @@ class SkillSnapshot(BaseModel):
     source_kind: str = "path"
     git_repo: str | None = None
     git_sha: str | None = None
+    # A git source's SKILL.md, relative to the repo root. None for a path source
+    # and on runs saved before it was recorded.
+    git_path: str | None = None
     files: dict[str, FileSnapshot] = Field(default_factory=dict)
 
     @property
