@@ -420,6 +420,90 @@ def test_pi_cap_or_throttle_that_mentions_auth_is_not_a_login_failure(
     assert result.refusal.kind in (RefusalKind.SPENDING_CAP, RefusalKind.THROTTLE)
 
 
+# Recorded from pi 1.4.0: `pi --print --mode json --no-session --approve
+# --model caliper-bogus-model-xyz -- "Reply OK"` exits 1 with empty stdout and
+# this on stderr (issue #77).
+_UNKNOWN_MODEL_STDERR = (
+    'Error: Model "caliper-bogus-model-xyz" not found. Use --list-models to '
+    "see available models.\n"
+)
+
+
+def _exit_with_stderr(monkeypatch, returncode: int, stderr: str) -> None:
+    def fake_run(cmd, **kwargs):
+        if cmd[1:] == ["--version"]:
+            return _version(cmd)
+        return subprocess.CompletedProcess(cmd, returncode, stdout="", stderr=stderr)
+
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda _n, **_: "pi")
+    patch_cli_calls(monkeypatch, fake_run)
+
+
+def test_pi_unknown_model_stops_the_run(monkeypatch, tmp_path) -> None:
+    _exit_with_stderr(monkeypatch, 1, _UNKNOWN_MODEL_STDERR)
+
+    with pytest.raises(HarnessConfigurationError) as exc:
+        PiHarness(model="caliper-bogus-model-xyz").run(
+            run_context(
+                prompt="Hello",
+                model="caliper-bogus-model-xyz",
+                timeout=12,
+                isolated_home=str(tmp_path),
+            )
+        )
+
+    # Logging in again cannot make pi know a model.
+    assert type(exc.value) is HarnessConfigurationError
+    message = str(exc.value)
+    assert message.startswith("pi cannot run the requested model")
+    assert 'Model "caliper-bogus-model-xyz" not found' in message
+    assert "`pi --list-models`" in message
+    assert "`--model pi:<model>`" in message
+
+
+def test_pi_judge_on_an_unknown_model_names_the_judge_flag(
+    monkeypatch, tmp_path
+) -> None:
+    _exit_with_stderr(monkeypatch, 1, _UNKNOWN_MODEL_STDERR)
+
+    with pytest.raises(HarnessConfigurationError) as exc:
+        PiHarness(model="caliper-bogus-model-xyz").run_prompt(
+            "anything", cwd=str(tmp_path)
+        )
+
+    message = str(exc.value)
+    assert message.startswith("The pi judge cannot run.")
+    assert "`--judge-model pi:<model>`" in message
+    assert "`--model " not in message
+
+
+def test_pi_custom_model_id_without_a_key_is_a_credential_failure(
+    monkeypatch, tmp_path
+) -> None:
+    # Recorded from pi 1.4.0 with `--model openai/caliper-bogus-model-xyz` and no
+    # OpenAI key: pi only warns about the model id, then fails on the key.
+    _exit_with_stderr(
+        monkeypatch,
+        1,
+        'Warning: Model "caliper-bogus-model-xyz" not found for provider "openai". '
+        "Using custom model id.\n"
+        "No API key found for openai.\n\n"
+        "Use /login to log into a provider via OAuth or API key.\n",
+    )
+
+    with pytest.raises(HarnessConfigurationError) as exc:
+        PiHarness(model="openai/caliper-bogus-model-xyz").run(
+            run_context(
+                prompt="Hello",
+                model="openai/caliper-bogus-model-xyz",
+                timeout=12,
+                isolated_home=str(tmp_path),
+            )
+        )
+
+    assert "requested model" not in str(exc.value)
+
+
 def test_pi_answer_mentioning_auth_on_a_zero_exit_is_not_a_misconfiguration(
     monkeypatch, tmp_path
 ) -> None:
