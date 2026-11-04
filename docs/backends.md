@@ -108,6 +108,14 @@ existing Claude Code auth, with no extra configuration. On macOS the Keychain
 entry wins over `~/.claude/.credentials.json`, as it does for the CLI itself, so
 a stale file left next to a valid Keychain login doesn't break attempts.
 
+Each attempt gets a copy of that login **without its refresh token**, so an
+attempt can never refresh it. A refresh inside an attempt would be lost with
+the attempt's home, and two at once with the same refresh token revoke your
+login (#324). Instead, when the login is within five minutes of expiring, Caliper
+refreshes it once on your machine, with one short `claude -p` call, before the
+attempt starts. Concurrent attempts and runs are then safe. If an attempt
+outlives its access token, it fails as not logged in rather than refreshing.
+
 An expired OAuth session or invalid API key stops the run as a configuration
 error. Run `claude auth login` and retry the eval. Caliper reads these
 failures from the CLI's error output, not from an agent discussing authentication.
