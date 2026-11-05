@@ -271,7 +271,34 @@ class PiHarness(CliHarness):
         lowered = cli_text.lower()
         if "provider" in lowered and "api key" in lowered:
             return _PROVIDER_DIAGNOSIS.replace("{text}", cli_text)
-        return None
+        return self._diagnose_unknown_model(proc, cli_text)
+
+    def _diagnose_unknown_model(self, proc: ProcessResult, cli_text: str) -> str | None:
+        """Catch a bare model id pi does not know, so the run stops on it (#77).
+
+        pi 1.4 exits 1 before reaching any provider. A ``provider/model`` id it
+        does not know is only a warning: pi tries it as a custom id, and the
+        provider's own answer decides.
+        """
+        if proc.returncode == 0:
+            return None
+        said = next(
+            (
+                line.strip()
+                for line in cli_text.splitlines()
+                if line.startswith("Error: Model ") and "not found" in line
+            ),
+            None,
+        )
+        if said is None:
+            return None
+        return (
+            "pi cannot run the requested model.\n\n"
+            "Caliper ran {cli}, which returned:\n"
+            f"  {said}\n\n"
+            "Run `pi --list-models` for the models pi can run, pass one as "
+            "`--model pi:<model>`, then retry the eval."
+        )
 
 
 def _resolve_credentials(models_json: Path) -> None:
