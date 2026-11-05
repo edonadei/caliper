@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,14 @@ from caliper.harness.base import (
 from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
+
+
+@pytest.fixture(autouse=True)
+def _no_host_login(monkeypatch, tmp_path):
+    """Keep the operator's own login, and its expiry, out of every test."""
+    monkeypatch.setattr(
+        ClaudeCodeHarness, "user_config_home", lambda self: tmp_path / "no-login"
+    )
 
 
 def _ok_stream(cmd: list[str]) -> subprocess.CompletedProcess:
@@ -799,7 +808,9 @@ def test_claude_harness_credentials_source(
     (real / ".claude").mkdir(parents=True)
     if seeded is not None:
         (real / ".claude" / ".credentials.json").write_text(seeded)
-    monkeypatch.setattr(Path, "home", lambda: real)
+    monkeypatch.setattr(
+        ClaudeCodeHarness, "user_config_home", lambda self: real / ".claude"
+    )
     monkeypatch.setattr("caliper.harness.claude_code.sys.platform", platform)
     harness = ClaudeCodeHarness()
     monkeypatch.setattr(harness, "_capture_output", lambda cmd, timeout: keychain)
@@ -809,6 +820,93 @@ def test_claude_harness_credentials_source(
 
     creds = harness._credentials_file(ctx)
     assert (creds.read_text() if creds.exists() else None) == expected
+
+
+def _login(minutes_left: float, refresh: str = "rt-1") -> str:
+    expires = int((time.time() + minutes_left * 60) * 1000)
+    return json.dumps(
+        {
+            "claudeAiOauth": {
+                "accessToken": f"at-{refresh}",
+                "refreshToken": refresh,
+                "expiresAt": expires,
+            }
+        }
+    )
+
+
+def _staged_login(monkeypatch, tmp_path, keychain: list[str], attempts: int = 1):
+    """Stage ``attempts`` homes against a Keychain that serves ``keychain`` in turn."""
+    monkeypatch.setattr("caliper.harness.claude_code.sys.platform", "darwin")
+    harness = ClaudeCodeHarness()
+    served = iter(keychain)
+    current = [next(served)]
+    monkeypatch.setattr(harness, "_capture_output", lambda cmd, timeout: current[0])
+    refreshes = []
+
+    def refresh(prompt, **kwargs):
+        refreshes.append(prompt)
+        current[0] = next(served, current[0])
+
+    monkeypatch.setattr(harness, "run_prompt", refresh)
+    homes = []
+    for i in range(attempts):
+        ctx = run_context(isolated_home=str(tmp_path / f"iso{i}"))
+        harness.stage_home(ctx)
+        homes.append(json.loads(harness._credentials_file(ctx).read_text()))
+    return homes, refreshes
+
+
+def test_an_attempt_gets_the_login_without_its_refresh_token(monkeypatch, tmp_path):
+    """Its refreshes would go nowhere, and two at once revoke the login (#324)."""
+    [home], refreshes = _staged_login(monkeypatch, tmp_path, [_login(60)])
+
+    assert "refreshToken" not in home["claudeAiOauth"]
+    assert home["claudeAiOauth"]["accessToken"] == "at-rt-1"
+    assert refreshes == []
+
+
+def test_a_login_about_to_expire_is_refreshed_once_on_the_host(monkeypatch, tmp_path):
+    homes, refreshes = _staged_login(
+        monkeypatch, tmp_path, [_login(2), _login(480, "rt-2")], attempts=3
+    )
+
+    assert len(refreshes) == 1
+    assert [h["claudeAiOauth"]["accessToken"] for h in homes] == ["at-rt-2"] * 3
+    assert all("refreshToken" not in h["claudeAiOauth"] for h in homes)
+
+
+def test_a_login_the_host_cannot_refresh_is_tried_once(monkeypatch, tmp_path):
+    """A lapsed login is the attempt's to report, not a host call per attempt."""
+    homes, refreshes = _staged_login(monkeypatch, tmp_path, [_login(-60)], attempts=3)
+
+    assert len(refreshes) == 1
+    assert all("refreshToken" not in h["claudeAiOauth"] for h in homes)
+
+
+def test_a_file_login_is_copied_again_after_the_host_refresh(monkeypatch, tmp_path):
+    monkeypatch.setattr("caliper.harness.claude_code.sys.platform", "linux")
+    config = tmp_path / "real" / ".claude"
+    config.mkdir(parents=True)
+    (config / ".credentials.json").write_text(_login(-60))
+    monkeypatch.setattr(ClaudeCodeHarness, "user_config_home", lambda self: config)
+    harness = ClaudeCodeHarness()
+    monkeypatch.setattr(
+        harness,
+        "run_prompt",
+        lambda prompt, **kw: (config / ".credentials.json").write_text(
+            _login(480, "rt-2")
+        ),
+    )
+    ctx = run_context(isolated_home=str(tmp_path / "iso"))
+
+    harness.stage_home(ctx)
+
+    home = json.loads(harness._credentials_file(ctx).read_text())["claudeAiOauth"]
+    assert home["accessToken"] == "at-rt-2"
+    assert "refreshToken" not in home
+    # The operator's own file keeps its refresh token.
+    assert "refreshToken" in (config / ".credentials.json").read_text()
 
 
 @pytest.mark.parametrize(
