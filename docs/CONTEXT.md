@@ -653,7 +653,8 @@ The spec author's code that runs in the [[attempt workdir]]: `setup:`,
 `assert:`, the autorater's script check, and `cleanup:`. Distinct from the agent
 under test and from the autorater's model call. Every step runs under the same
 rules: a time limit per phase, stopped by a Ctrl-C, and the tail of its output
-kept as evidence.
+kept as evidence. The autorater's script is the one step the author didn't
+write, so it runs without the operator's environment or the spec's directory.
 _Avoid_: hook (only `setup:` and `cleanup:` are hooks), script.
 
 ## Trigger probe

@@ -33,6 +33,11 @@ SPEC_DIR_ENV = "CALIPER_SPEC_DIR"
 
 StepPhase = Literal["setup", "assert", "check", "cleanup"]
 
+# What a script the judge wrote inherits from the host: enough to start Python
+# and run a tool from PATH, none of the operator's tokens or keys. SYSTEMROOT is
+# what Windows needs for Python's random and socket modules to work.
+_CHECK_ENV_PASSTHROUGH = ("PATH", "SYSTEMROOT", "LANG", "LC_ALL", "LC_CTYPE")
+
 # How long a step may run before it is killed, by phase. A hook may clone or
 # install; an assertion only checks what the agent left. Fixed rather than
 # configurable until a spec needs otherwise (docs/adr/0029).
@@ -120,22 +125,35 @@ class AttemptWorkdir:
         return self._run(phase, cmd, shell=True)
 
     def run_python(self, phase: StepPhase, code: str) -> StepResult:
-        """Run Python source in the workdir with this interpreter.
+        """Run Python source in the workdir.
 
         The source is staged in the attempt's temp dir, beside the workdir
         rather than in it, so the step sees only what the agent left.
+
+        A ``check`` is code the judge wrote, shaped by the transcript, so it
+        runs with less than an author's ``assert:``: see
+        docs/adr/0043-a-judge-script-runs-without-the-operators-environment.md.
         """
+        root = self._require_root()
         with tempfile.NamedTemporaryFile(
-            suffix=".py", mode="w", dir=self._require_root(), delete=False
+            suffix=".py", mode="w", dir=root, delete=False
         ) as f:
             f.write(code)
             script = f.name
         try:
+            if phase == "check":
+                with tempfile.TemporaryDirectory(dir=root) as scratch:
+                    return self._run(
+                        phase,
+                        [_base_python(), "-I", script],
+                        shell=False,
+                        env=_check_env(scratch),
+                    )
             # A check is its `assert` statements, which the caller's
             # PYTHONOPTIMIZE would strip, passing every check unrun.
-            return self._run(
-                phase, [sys.executable, script], shell=False, unset=("PYTHONOPTIMIZE",)
-            )
+            env = {**os.environ, SPEC_DIR_ENV: self.spec_dir}
+            env.pop("PYTHONOPTIMIZE", None)
+            return self._run(phase, [sys.executable, script], shell=False, env=env)
         finally:
             Path(script).unlink(missing_ok=True)
 
@@ -144,23 +162,18 @@ class AttemptWorkdir:
         phase: StepPhase,
         args: str | list[str],
         shell: bool,
-        unset: tuple[str, ...] = (),
+        env: dict[str, str] | None = None,
     ) -> StepResult:
         limit = _STEP_TIMEOUTS[phase]
         # Tagged like an agent CLI, so a kill reaches descendants that left
         # its process group or outlived it.
         process_tag = uuid.uuid4().hex
-        # Deliberately the caller's own environment rather than the agent's
+        # By default the caller's own environment rather than the agent's
         # isolated one: steps are the spec author's code, not the agent under
         # test, and have always run with the developer's ``HOME`` and ``PATH``.
-        env = {
-            **os.environ,
-            WORKDIR_ENV: self.path,
-            SPEC_DIR_ENV: self.spec_dir,
-            cancel.PROCESS_TAG: process_tag,
-        }
-        for name in unset:
-            env.pop(name, None)
+        if env is None:
+            env = {**os.environ, SPEC_DIR_ENV: self.spec_dir}
+        env = {**env, WORKDIR_ENV: self.path, cancel.PROCESS_TAG: process_tag}
         # Drain while the step runs so verbose output cannot fill a pipe. Stop
         # when *that process* exits: background children may keep its pipe
         # open or write forever, and must not delay the next attempt or retain
@@ -210,6 +223,29 @@ class AttemptWorkdir:
             output = f"{output}\n{marker}" if output else marker
             return StepResult(exit_code=exit_code, output=output, timed_out_after=limit)
         return StepResult(exit_code=exit_code, output=output)
+
+
+def _base_python() -> str:
+    """The interpreter Caliper's own one was made from, outside any venv.
+
+    A judge script is promised the standard library only, so it gets none of
+    the packages installed beside Caliper.
+    """
+    base = getattr(sys, "_base_executable", None)
+    return base if base and os.path.exists(base) else sys.executable
+
+
+def _check_env(scratch: str) -> dict[str, str]:
+    """A judge script's environment: no host secrets, a throwaway home.
+
+    No ``CALIPER_SPEC_DIR`` either: the spec's directory can hold the answer key.
+    """
+    env = {
+        name: os.environ[name] for name in _CHECK_ENV_PASSTHROUGH if name in os.environ
+    }
+    for name in ("HOME", "USERPROFILE", "TMPDIR", "TEMP", "TMP"):
+        env[name] = scratch
+    return env
 
 
 def _drain_posix(process: subprocess.Popen, fd: int, keep, deadline: float) -> bool:

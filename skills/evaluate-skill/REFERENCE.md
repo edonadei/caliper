@@ -112,7 +112,9 @@ checks before its first attempt):
   the agent, `assert:`, the judge and `cleanup:` all run in. It is not the
   spec's directory and not a git repo: build what the task needs in `setup:`
   (`cp -R "$CALIPER_SPEC_DIR/fixture/." .`, `git init`). Hooks and assertions
-  get `CALIPER_WORKDIR` and `CALIPER_SPEC_DIR`. `assert: ./check.py` resolves
+  get `CALIPER_WORKDIR` and `CALIPER_SPEC_DIR`; a script the judge writes gets
+  only `CALIPER_WORKDIR`, the standard library and none of your environment.
+  `assert: ./check.py` resolves
   against the spec's directory. Fixed `/tmp` paths collide across attempts
   running in parallel.
 - **Hooks and asserts are time-limited.** A failed `setup:`, or one still

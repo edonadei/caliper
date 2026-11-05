@@ -408,7 +408,12 @@ spec with `expect:` is refused before the first attempt rather than recording a
 `judge_error` on every one.
 
 The judge either gives a direct verdict or writes a Python assertion script that
-runs in the attempt workdir. An answer that fits neither shape, such as
+runs in the attempt workdir. The transcript shapes that script, so it runs with
+less than your own `assert:`: the standard library only (an isolated
+interpreter outside Caliper's venv), a throwaway `HOME` and temp dir, and none
+of your environment beyond `PATH` and locale. It gets `CALIPER_WORKDIR` but not
+`CALIPER_SPEC_DIR`, which can hold the answer key. It still runs on your
+machine, with your filesystem and network. An answer that fits neither shape, such as
 `"passed": "false"`, an unknown `mode`, or a script whose code is blank, is no
 verdict: the autorater is dropped, as if it had errored. A saved run keeps what
 you need to debug a verdict: the `expect` text, the prompt template version, and
@@ -439,8 +444,8 @@ tasks:
 
 When both `expect` and `assert` are present, both must pass.
 
-An `assert:` script, like a script the judge writes, runs under the Python
-running Caliper, with your environment minus `PYTHONOPTIMIZE`. That variable
+An `assert:` script runs under the Python running Caliper, with your
+environment minus `PYTHONOPTIMIZE`. That variable
 strips `assert` statements, so leaving it set would pass every check unrun.
 
 ## Attempt workdir
@@ -450,8 +455,8 @@ judge and `cleanup:` all run in it, so a relative path means the same file to
 each of them. It's deleted once the attempt is recorded.
 
 It's not your spec's directory and not a git repository: a task that needs files
-or a repo builds them in `setup:`. Hooks and assertions see two environment
-variables:
+or a repo builds them in `setup:`. Hooks and `assert:` scripts see two
+environment variables (a script the judge writes sees only `CALIPER_WORKDIR`):
 
 | Variable | Value |
 |---|---|

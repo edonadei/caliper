@@ -104,7 +104,9 @@ validation.
   one fresh, empty directory per attempt, so relative paths mean the same file
   to each. It is not the spec's directory and not a git repo: build what the task
   needs in `setup:` (`cp -R "$CALIPER_SPEC_DIR/fixture/." .`, `git init`).
-  Fixed `/tmp` paths collide across attempts running in parallel. A failed
+  Fixed `/tmp` paths collide across attempts running in parallel. A script the
+  judge writes runs there too, but without `CALIPER_SPEC_DIR` or your
+  environment. A failed
   `setup:`, or one running past 600 seconds, records an unusable `infra_error`.
   An `assert:` is killed after 30 seconds and gives no verdict.
 - **`expect:` is a pass/fail criterion.** Say what evidence the judge should

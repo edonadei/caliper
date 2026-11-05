@@ -46,6 +46,42 @@ def test_steps_run_in_the_workdir_with_both_dirs_in_their_environment(
     assert step.ok, step.output
 
 
+def test_a_judge_script_gets_the_workdir_and_none_of_the_operators_environment(
+    tmp_path, monkeypatch
+) -> None:
+    """Judge-written code is steered by the transcript: no secrets, no answer key."""
+    monkeypatch.setenv("CALIPER_TEST_SECRET", "hunter2")
+    script = (
+        "import os, pathlib\n"
+        "work = pathlib.Path(os.environ['CALIPER_WORKDIR']).resolve()\n"
+        "assert pathlib.Path.cwd().resolve() == work\n"
+        "assert 'CALIPER_SPEC_DIR' not in os.environ\n"
+        "assert 'CALIPER_TEST_SECRET' not in os.environ\n"
+        "home = pathlib.Path(os.environ['HOME'])\n"
+        f"assert home.resolve() != pathlib.Path({str(Path.home())!r}).resolve()\n"
+        "assert home.resolve().parent == work.parent\n"
+        "(home / 'scratch.txt').write_text('ok')\n"
+    )
+    with AttemptWorkdir(tmp_path) as workdir:
+        step = workdir.run_python("check", script)
+        assert step.ok, step.output
+        assert os.listdir(workdir.path) == []
+        assert sorted(os.listdir(workdir.home)) == ["work"]
+
+
+@pytest.mark.skipif(sys.prefix == sys.base_prefix, reason="Caliper is not in a venv")
+def test_a_judge_script_runs_outside_caliper_s_venv(tmp_path) -> None:
+    """Promised the standard library only, it sees nothing installed beside Caliper."""
+    script = (
+        "import importlib.util\n"
+        "assert importlib.util.find_spec('json') is not None\n"
+        "assert importlib.util.find_spec('caliper') is None\n"
+    )
+    with AttemptWorkdir(tmp_path) as workdir:
+        step = workdir.run_python("check", script)
+    assert step.ok, step.output
+
+
 @pytest.mark.skipif(os.name == "nt", reason="POSIX background shell syntax")
 def test_hook_with_background_child_returns_after_its_shell_exits(tmp_path) -> None:
     pid_file = tmp_path / "background.pid"
