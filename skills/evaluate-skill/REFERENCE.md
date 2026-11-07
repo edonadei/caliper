@@ -199,7 +199,7 @@ itself, merged with what the spec declares:
 
 | Backend | Loads |
 |---|---|
-| `claude-code` | `~/.claude/skills`, `CLAUDE.md`, `settings.json`, enabled user-scope plugins, `~/.claude.json` MCP servers and claude.ai connectors |
+| `claude-code` | `~/.claude/skills`, `CLAUDE.md`, `settings.json`, enabled user-scope plugins, `~/.claude.json` MCP servers, claude.ai connectors, and skills and plugins synced from claude.ai |
 | `codex` | `~/.codex/skills`, `AGENTS.md` / `AGENTS.override.md`, plugins, settings, `~/.codex/config.toml` MCP servers and ChatGPT apps (its top-level model pin is stripped) |
 | `hermes` | `~/.hermes/skills`, settings, `~/.hermes/config.yaml` MCP servers (`%LOCALAPPDATA%\hermes` on Windows; still `--ignore-rules`, no persona or memory) |
 | `pi` | nothing |

@@ -341,6 +341,10 @@ def test_eval_judge_claude_code_invokes_claude_cli(
     assert "--output-format" in cmd
     # The judge must not see the account's claude.ai connectors (#129).
     assert "--strict-mcp-config" in cmd
+    assert json.loads(cmd[cmd.index("--settings") + 1]) == {
+        "syncClaudeAiSkills": False,
+        "syncClaudeAiPlugins": False,
+    }
     assert cmd[cmd.index("--model") + 1] == "claude-test"
     assert "The assistant says hello." in cmd[-1]
     # The harness polls communicate() while enforcing the 60s deadline.

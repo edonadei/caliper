@@ -23,6 +23,10 @@ So each backend turns them off at the invocation:
   the CLI's ambient config" half of
   [0025](0025-ablation-covers-mcp-servers.md#an-empty-declared-set-still-isolates):
   no block, `mcp: {}`, and an all-ablated block now all isolate to zero servers.
+  It also passes `--settings` with `syncClaudeAiSkills` and
+  `syncClaudeAiPlugins` set to false, since the CLI also syncs the skills and
+  plugins enabled on claude.ai into every session (`anthropic-skills:*`). That
+  setting overrides the user's for this one invocation, so nothing on disk changes.
 - `codex` passes `-c features.apps=false -c features.plugins=false`. A `-c`
   override wins over any `[features]` table in the seeded `config.toml`, so it
   needs no TOML merge. It is a second local exception to

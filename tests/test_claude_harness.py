@@ -384,6 +384,12 @@ def test_claude_harness_keeps_strict_mcp_when_every_server_is_ablated(
     )
 
     assert "--strict-mcp-config" in captured["cmd"]
+    # Nor the skills and plugins the CLI syncs from the claude.ai account.
+    settings = captured["cmd"][captured["cmd"].index("--settings") + 1]
+    assert json.loads(settings) == {
+        "syncClaudeAiSkills": False,
+        "syncClaudeAiPlugins": False,
+    }
     assert captured["config"] == {"mcpServers": {}}
     assert not captured["path"].exists()
 
@@ -446,6 +452,7 @@ def test_claude_harness_user_customizations_merge_with_the_spec_winning(
     # Merged rather than exclusive; the spec's `echo` comes via --mcp-config
     # and the user's is gone from the isolated copy, never from the real file.
     assert "--strict-mcp-config" not in captured["cmd"]
+    assert "--settings" not in captured["cmd"]
     assert captured["config"] == {"mcpServers": {"echo": {"command": "python3"}}}
     assert captured["seeded"]["mcpServers"] == {"personal": {"command": "mine"}}
     assert json.loads((real_home / ".claude.json").read_text()) == user_config

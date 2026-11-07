@@ -340,7 +340,7 @@ hosted OAuth connector a spec can't declare. `--no-user-customizations`, or
 
 | Backend | What is loaded |
 |---|---|
-| `claude-code` | The `mcpServers` in your `~/.claude.json`, plus claude.ai connectors, `~/.claude/skills`, `CLAUDE.md`, `settings.json` (including hooks, permissions and env), and enabled user-scope plugins from the installed registry |
+| `claude-code` | The `mcpServers` in your `~/.claude.json`, plus claude.ai connectors and the skills and plugins synced from claude.ai, `~/.claude/skills`, `CLAUDE.md`, `settings.json` (including hooks, permissions and env), and enabled user-scope plugins from the installed registry |
 | `codex` | The `[mcp_servers.*]` tables in your `~/.codex/config.toml`, your installed plugins (`~/.codex/plugins`, copied into the attempt), ChatGPT apps (`codex_apps`), `~/.codex/skills`, `AGENTS.md` / `AGENTS.override.md`, and `config.toml` settings (the top-level model pin is still stripped) |
 | `hermes` | `~/.hermes/skills` and `config.yaml` (`%LOCALAPPDATA%\hermes` on Windows), including `mcp_servers`; persona and memory remain excluded |
 | `pi` | Nothing: no MCP by design. The run records it as off, and warns only if a flag or the spec asked for it |
@@ -348,7 +348,7 @@ hosted OAuth connector a spec can't declare. `--no-user-customizations`, or
 - **The spec wins a name clash.** A declared skill or server replaces your own of the
   same name, including when the declared name is ablated, in the attempt's copy of the config. Your real config is never
   changed.
-- **The judge's connector isolation is unchanged**, whatever the setting.
+- **The judge's isolation from account connectors and synced skills is unchanged**, whatever the setting.
 - **The run says so**: a notice at the start (attempts can act on those accounts
   without asking), and the saved run records what was loaded, marking MCP as
   `mcp:(not listed)` when a source such as codex plugins can't be listed. See
