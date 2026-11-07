@@ -180,13 +180,15 @@ def test_claude_harness_prefers_even_major_nvm_node(monkeypatch, tmp_path) -> No
         (node_bin / "node").write_text("")
 
     monkeypatch.setattr("caliper.harness.claude_code.Path.home", lambda: tmp_path)
-    monkeypatch.setenv("PATH", f"/opt/homebrew/bin:{node_22_bin}:/usr/bin")
+    monkeypatch.setenv(
+        "PATH", os.pathsep.join(["/opt/homebrew/bin", str(node_22_bin), "/usr/bin"])
+    )
 
     env = ClaudeCodeHarness()._environment(
         run_context(isolated_home=str(tmp_path / "home"))
     )
 
-    assert env["PATH"].split(":")[0] == str(node_22_bin)
+    assert env["PATH"].split(os.pathsep)[0] == str(node_22_bin)
 
 
 def test_claude_harness_forwards_the_oauth_token_past_the_api_key_guard(
@@ -664,7 +666,7 @@ def _claude_on_attempt_path(monkeypatch, tmp_path) -> Path:
     """A `claude` only the attempt's PATH prefixes reach, so the test owns it."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    claude = bin_dir / "claude"
+    claude = bin_dir / ("claude.CMD" if os.name == "nt" else "claude")
     claude.write_text("#!/bin/sh\n")
     claude.chmod(0o755)
     monkeypatch.setenv("PATH", "/nonexistent")
@@ -1108,7 +1110,7 @@ def test_prompt_cli_missing_looks_up_claude_on_the_prompt_path(
 
 def test_claude_login_uses_the_claude_an_attempt_reaches(monkeypatch, tmp_path):
     # A Homebrew-only claude is on the attempt's PATH prefixes, not the caller's.
-    claude = tmp_path / "claude"
+    claude = tmp_path / ("claude.CMD" if os.name == "nt" else "claude")
     claude.write_text("#!/bin/sh\n")
     claude.chmod(0o755)
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
@@ -1121,7 +1123,7 @@ def test_claude_login_uses_the_claude_an_attempt_reaches(monkeypatch, tmp_path):
 
 def test_claude_cli_version_probes_the_claude_an_attempt_reaches(monkeypatch, tmp_path):
     """Not the caller's PATH: a Homebrew-only claude is on the attempt's prefixes."""
-    claude = tmp_path / "claude"
+    claude = tmp_path / ("claude.CMD" if os.name == "nt" else "claude")
     claude.write_text("#!/bin/sh\n")
     claude.chmod(0o755)
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
@@ -1154,7 +1156,7 @@ def test_claude_judge_cli_version_probes_the_claude_a_prompt_reaches(
     """A bare prompt gets nvm's Node ahead of PATH, but not the Homebrew prefixes."""
     import caliper.harness.claude_code as claude_code
 
-    claude = tmp_path / "claude"
+    claude = tmp_path / ("claude.CMD" if os.name == "nt" else "claude")
     claude.write_text("#!/bin/sh\n")
     claude.chmod(0o755)
     monkeypatch.setenv("PATH", "/usr/bin:/bin")

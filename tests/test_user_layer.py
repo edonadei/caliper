@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,12 @@ from caliper.harness.hermes import HermesHarness
 from caliper.harness.pi import PiHarness
 from caliper.harness.user_layer import UNLISTED_MCP
 from caliper.skills import SkillRef
+
+
+@pytest.fixture(autouse=True)
+def _posix_layout(monkeypatch):
+    """These tests exercise the ``.hermes`` layout; Windows has ``test_hermes_windows.py``."""
+    monkeypatch.setattr(sys, "platform", "linux")
 
 
 @pytest.mark.parametrize(

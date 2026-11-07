@@ -140,9 +140,9 @@ def test_a_title_makes_it_a_panel(capsys) -> None:
     assert render(BadInput("body", title="Validation failed")) == 1
     lines = capsys.readouterr().out.splitlines()
     assert "Validation failed" in lines[0]
-    assert lines[0].startswith("╭")
+    assert lines[0].startswith(("╭", "┌"))
     assert lines[1].startswith("│ body")
-    assert lines[-1].startswith("╰")
+    assert lines[-1].startswith(("╰", "└"))
 
 
 def test_no_title_renders_as_one_line(capsys) -> None:

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import shlex
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -31,6 +33,13 @@ from caliper.runner import run
 from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, TaskSpec
 from caliper.workdir import _STEP_TIMEOUTS
+
+
+def _py(code: str) -> str:
+    argv = [sys.executable, "-c", code]
+    if os.name == "nt":
+        return subprocess.list2cmdline(argv)
+    return " ".join(shlex.quote(arg) for arg in argv)
 
 
 def _fails_first_and_third(ctx: RunContext) -> AttemptResult:
@@ -73,8 +82,10 @@ def test_failed_setup_cannot_pass_from_stale_artifact_and_still_cleans_up(
         name="Stale artifact",
         prompt="Do it",
         assert_script="from pathlib import Path\nassert Path('artifact.txt').exists()",
-        setup="echo setup broke >&2; exit 7",
-        cleanup=f"touch {cleaned}",
+        setup=_py(
+            "import sys; sys.stderr.write('setup broke\\n'); raise SystemExit(7)"
+        ),
+        cleanup=_py(f"import pathlib; pathlib.Path({str(cleaned)!r}).touch()"),
     )
     harness = ScriptedHarness()
     judge = EvalJudge()
@@ -106,7 +117,7 @@ def test_failed_setup_with_markup_output_still_reports(capfd, tmp_path) -> None:
         name="Malformed output",
         prompt="Do it",
         assert_script="assert True",
-        setup="echo '[/broken]' >&2; exit 7",
+        setup=_py("import sys; sys.stderr.write('[/broken]\\n'); raise SystemExit(7)"),
     )
     results = run(
         EvalSpec(tasks=[task]),
@@ -177,8 +188,12 @@ def test_failed_cleanup_keeps_agent_outcome_and_reports_both_hook_failures(
         name="Cleanup failure",
         prompt="Do it",
         assert_script="assert True",
-        setup="echo setup broke >&2; exit 7",
-        cleanup="echo cleanup broke >&2; exit 9",
+        setup=_py(
+            "import sys; sys.stderr.write('setup broke\\n'); raise SystemExit(7)"
+        ),
+        cleanup=_py(
+            "import sys; sys.stderr.write('cleanup broke\\n'); raise SystemExit(9)"
+        ),
     )
     results = run(
         EvalSpec(tasks=[task]),
@@ -227,7 +242,10 @@ def test_cleanup_runs_after_failed_timed_out_or_cancelled_agent(
         name="Stopped",
         prompt="Do it",
         assert_script="assert True",
-        cleanup=f"touch {cleaned}; echo cleanup broke >&2; exit 9",
+        cleanup=_py(
+            f"import pathlib, sys; pathlib.Path({str(cleaned)!r}).touch(); "
+            "sys.stderr.write('cleanup broke\\n'); raise SystemExit(9)"
+        ),
     )
     results = run(
         EvalSpec(tasks=[task]),
@@ -793,14 +811,14 @@ def test_agent_setup_and_assert_share_one_attempt_workdir(
         id="task-001",
         name="Writes a file relative to its cwd",
         prompt="Create out.txt",
-        setup="touch SETUP_MARKER",
-        cleanup="touch CLEANUP_MARKER",
+        setup=_py("import pathlib; pathlib.Path('SETUP_MARKER').touch()"),
+        cleanup=_py("import pathlib; pathlib.Path('CLEANUP_MARKER').touch()"),
         assert_script=(
             "import os\n"
             "from pathlib import Path\n"
             "assert Path('out.txt').read_text() == 'banana'\n"
             "assert Path('SETUP_MARKER').exists()\n"
-            "assert Path.cwd() == Path(os.environ['CALIPER_WORKDIR']).resolve()\n"
+            "assert Path.cwd().resolve() == Path(os.environ['CALIPER_WORKDIR']).resolve()\n"
             "spec_dir = Path(os.environ['CALIPER_SPEC_DIR'])\n"
             "assert (spec_dir / 'fixture.txt').read_text() == 'from the spec dir'\n"
         ),
@@ -834,7 +852,12 @@ def test_hooks_see_the_workdir_and_spec_dir_env(tmp_path) -> None:
         name="Hook env",
         prompt="Do it",
         assert_script="assert True",
-        setup=f'echo "$PWD|$CALIPER_WORKDIR|$CALIPER_SPEC_DIR" > {seen}',
+        setup=_py(
+            "import os, pathlib; "
+            f"pathlib.Path({str(seen)!r}).write_text("
+            "chr(124).join([os.getcwd(), os.environ['CALIPER_WORKDIR'], os.environ['CALIPER_SPEC_DIR']])"
+            ")"
+        ),
     )
     harness = WorkdirHarness()
 
@@ -865,7 +888,10 @@ def test_spec_dir_env_is_absolute_for_a_relative_spec_path(
         id="task-001",
         name="Copies a fixture",
         prompt="Do it",
-        setup='cp "$CALIPER_SPEC_DIR/input.txt" .',
+        setup=_py(
+            "import os, pathlib, shutil; "
+            "shutil.copy2(pathlib.Path(os.environ['CALIPER_SPEC_DIR']) / 'input.txt', 'input.txt')"
+        ),
         assert_script=(
             "import os\n"
             "from pathlib import Path\n"

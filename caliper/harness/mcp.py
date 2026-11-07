@@ -24,6 +24,7 @@ import json
 import os
 import queue
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -162,8 +163,11 @@ def _spawned(
         if env is None and sys.platform == "win32" and "SystemRoot" in os.environ:
             process_env["SystemRoot"] = os.environ["SystemRoot"]  # noqa: SIM112
         process_env.update(server.env)
+        command = (
+            shutil.which(server.command, path=process_env.get("PATH")) or server.command
+        )
         process = subprocess.Popen(
-            [server.command, *server.args],
+            [command, *server.args],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,

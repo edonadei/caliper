@@ -23,6 +23,7 @@ without knowing which of the two calls it is answering.
 from __future__ import annotations
 
 import importlib
+import os
 import subprocess
 import threading
 from collections.abc import Callable
@@ -281,6 +282,27 @@ _CLI_OVERRIDE_ENV_VARS = _cli_override_env_vars()
 def _clear_host_cli_overrides(monkeypatch):
     for name in _CLI_OVERRIDE_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_home(monkeypatch, tmp_path_factory):
+    """No test reaches the developer's real home directory on any OS.
+
+    On Windows ``Path.home()`` reads ``USERPROFILE`` when it is set, ignoring
+    ``HOME``. Syncing ``USERPROFILE`` whenever a test sets ``HOME`` keeps
+    ``monkeypatch.setenv("HOME", ...)`` portable across POSIX and Windows.
+    """
+    home = str(tmp_path_factory.mktemp("home"))
+    monkeypatch.setenv("HOME", home)
+    monkeypatch.setenv("USERPROFILE", home)
+    real_setenv = monkeypatch.setenv
+
+    def setenv(name: str, value: str, prepend: str | None = None) -> None:
+        real_setenv(name, value, prepend=prepend)
+        if os.name == "nt" and name == "HOME":
+            real_setenv("USERPROFILE", value)
+
+    monkeypatch.setenv = setenv
 
 
 @pytest.fixture(autouse=True)
