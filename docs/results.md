@@ -467,3 +467,29 @@ recorded. Only the version is saved, never the binary's path.
   installed, in snapshot order. They are what the compare header's `skills` row
   shows. A comparison serialized before the fields existed reads them as `[]`.
 
+## Exit codes in detail
+
+The table of codes is in the [README](../README.md#exit-codes).
+
+`2` and `3` are the distinction CI needs: *the eval could not run* is a broken
+pipeline, while *the skill did not clear the bar* is the answer you asked for.
+
+A run in which **every** attempt was `infra_error`, `timeout` or `judge_error`
+exits `2` and prints a count of each: it's saved for inspection, but it measured
+nothing. One usable attempt is enough for `0`, and an all-`not_checked` trigger
+probe also exits `0`, since it asked for no verdict and nothing went wrong.
+
+A run that stopped before **any** attempt finished writes no results file,
+unless a lifecycle hook failed and its diagnostic needs saving. Exits `2` and
+`130` can therefore leave nothing on disk.
+
+A run that stops because the agent's or the judge's CLI is not logged in exits
+`2` with a `Not logged in` error naming the backend's login command. In an
+interactive terminal, `caliper run` first offers to run that command, and reruns
+the eval if the login succeeds. Elsewhere (CI, an agent), nothing waits for
+input.
+
+`caliper compare` deliberately never fails on a regression. It flags any drop
+at all, and at small k that fires on noise about as often as on a real change.
+Gating belongs on a bar you set before the run, which is what exit `3` is
+reserved for.
