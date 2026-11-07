@@ -283,7 +283,9 @@ def test_validate_shows_an_explicit_user_customizations_setting(
     tmp_path, prefix, shown
 ) -> None:
     result = CliRunner().invoke(
-        app, ["validate", str(_write(tmp_path, prefix + _TASK))]
+        app,
+        ["validate", str(_write(tmp_path, prefix + _TASK))],
+        env={"COLUMNS": "100"},
     )
     assert result.exit_code == 0, result.output
     if shown:

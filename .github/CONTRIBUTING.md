@@ -171,10 +171,7 @@ The comment at the top of each file shows how to run it.
 | `lint` | `ruff format --check .` and `ruff check .` on Python 3.12 |
 | `test` | the full suite on Linux, Python 3.10, 3.11, 3.12, and 3.13 |
 | `platform-test (macos-latest)` | the full suite on Python 3.12 |
-| `platform-test (windows-latest)` | the shared CLI harness tests, the Node startup check, and the MCP preflight tests on Python 3.12 |
-
-The rest of the Windows suite still has known fixture failures (#112, #120), so
-it isn't a CI gate yet.
+| `platform-test (windows-latest)` | the full suite on Python 3.12 |
 
 `lint` is a **required status check** on `main`. If branch protection is ever
 reset, add it back with:

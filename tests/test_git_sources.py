@@ -8,7 +8,6 @@ and docs/CONTEXT.md → Skill source, Skill drift.
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -19,7 +18,7 @@ from typer.testing import CliRunner
 from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.main import app
 from caliper.schema.spec import EvalSpec, GitSkillSource
-from caliper.skillfetch import SkillFetcher, SkillFetchError
+from caliper.skillfetch import SkillFetcher, SkillFetchError, _rmtree
 from caliper.skills import SkillResolutionError, resolve_skills
 
 SKILL_BODY = """---
@@ -426,7 +425,7 @@ def test_concurrent_cold_fetches_of_one_commit_all_succeed(
         return SkillFetcher(cache_dir=cache).materialize(src)
 
     for _ in range(3):
-        shutil.rmtree(cache, ignore_errors=True)
+        _rmtree(cache)
         with ThreadPoolExecutor(6) as pool:
             fetched = list(pool.map(fetch, range(6)))
         assert {f.sha for f in fetched} == {_head(origin)}
@@ -466,8 +465,17 @@ def test_a_missing_skill_md_inside_the_repo_refuses(tmp_path: Path, origin: Path
         )
 
 
+def _symlink(link: Path, target: Path, **kwargs) -> None:
+    try:
+        link.symlink_to(target, **kwargs)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("symlinks need privileges on Windows")
+        raise
+
+
 def _commit_link(origin: Path, link: str, target: Path) -> None:
-    (origin / "skills" / "pr-review" / link).symlink_to(target)
+    _symlink(origin / "skills" / "pr-review" / link, target)
     _git("add", "-A", cwd=origin)
     _git("commit", "-m", "link", cwd=origin)
 
@@ -491,7 +499,7 @@ def test_a_skill_directory_linked_outside_the_repo_refuses(
 ):
     host = tmp_path / "host-skill"
     _write_skill(host, "review")
-    (origin / "skills" / "review").symlink_to(host, target_is_directory=True)
+    _symlink(origin / "skills" / "review", host, target_is_directory=True)
     _git("add", "-A", cwd=origin)
     _git("commit", "-m", "link dir", cwd=origin)
     fetcher = SkillFetcher(cache_dir=tmp_path / "cache")
