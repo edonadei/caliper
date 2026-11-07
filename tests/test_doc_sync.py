@@ -36,7 +36,7 @@ def _mentions_flag(text: str, flag: str) -> bool:
 
 
 def _readme_run_flags_table() -> str:
-    readme = (ROOT / "README.md").read_text()
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
     section = readme.split("### `caliper run` flags", 1)[1]
     return section.split("\n#", 1)[0]
 
@@ -58,7 +58,9 @@ def test_readme_run_flags_table_has_no_stale_flags() -> None:
 
 
 def test_evaluate_skill_reference_mentions_every_run_flag() -> None:
-    reference = (ROOT / "skills/evaluate-skill/REFERENCE.md").read_text()
+    reference = (ROOT / "skills/evaluate-skill/REFERENCE.md").read_text(
+        encoding="utf-8"
+    )
     missing = [
         flag
         for flag, spellings in _run_flags().items()
@@ -81,7 +83,7 @@ def _spec_models(model: type[BaseModel], seen: list[type[BaseModel]]) -> None:
 
 
 def test_spec_reference_documents_every_spec_key() -> None:
-    reference = (ROOT / "docs/spec-reference.md").read_text()
+    reference = (ROOT / "docs/spec-reference.md").read_text(encoding="utf-8")
     models: list[type[BaseModel]] = []
     _spec_models(EvalSpec, models)
     missing = [

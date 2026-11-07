@@ -12,6 +12,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from caliper.schema.results import SkillSnapshot
 from caliper.skills import SkillRef, install_skills
 from caliper.skillsnapshot import snapshot_skill
@@ -95,6 +97,15 @@ def _mine(tmp_path: Path) -> Path:
     return directory
 
 
+def _symlink(link: Path, target: Path, **kwargs) -> None:
+    try:
+        link.symlink_to(target, **kwargs)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("symlinks need privileges on Windows")
+        raise
+
+
 def test_every_installed_file_is_captured_whether_or_not_skill_md_names_it(
     tmp_path: Path,
 ):
@@ -106,7 +117,7 @@ def test_every_installed_file_is_captured_whether_or_not_skill_md_names_it(
     directory = _mine(tmp_path)
     (directory / "REFERENCE.md").write_text("Run `scripts/run.sh`.\n")
     (directory / "scripts").mkdir()
-    (directory / "scripts" / "run.sh").write_text("echo hi\n")
+    (directory / "scripts" / "run.sh").write_text("echo hi\n", newline="\n")
     (directory / "fixtures").mkdir()
     (directory / "fixtures" / "data.json").write_text('{"a": 1}\n')
     (directory / "references").mkdir()
@@ -160,8 +171,8 @@ def test_cheat_surfaces_and_forbidden_files_are_not_captured(tmp_path: Path):
     (directory / ".caliper" / "run.json").write_text("{}\n")
     (directory / "answers").mkdir()
     (directory / "answers" / "key.md").write_text("the answer is 42\n")
-    (directory / "hint.md").symlink_to(Path("answers/key.md"))
-    (directory / "config.md").symlink_to(Path(".git/HEAD"))
+    _symlink(directory / "hint.md", Path("answers/key.md"))
+    _symlink(directory / "config.md", Path(".git/HEAD"))
 
     snap = snapshot_skill(
         SkillRef(name="mine", path=directory / "SKILL.md"), ["answers/"]
@@ -180,7 +191,7 @@ def test_a_file_below_a_directory_symlink_is_not_captured(tmp_path: Path):
     shared.mkdir()
     (shared / "style.md").write_text("# Shared style v1\n")
     directory = _mine(tmp_path)
-    (directory / "references").symlink_to(Path("../shared"), target_is_directory=True)
+    _symlink(directory / "references", Path("../shared"), target_is_directory=True)
     ref = SkillRef(name="mine", path=directory / "SKILL.md")
 
     snap = snapshot_skill(ref)
@@ -222,14 +233,14 @@ def test_a_file_symlink_is_captured_under_its_link_name_with_its_targets_bytes(
     """
     shared = tmp_path / "shared"
     shared.mkdir()
-    (shared / "guide.md").write_text("# Shared guide v1\n")
+    (shared / "guide.md").write_text("# Shared guide v1\n", newline="\n")
     directory = _mine(tmp_path)
-    (directory / "guide.md").symlink_to(Path("../shared/guide.md"))
-    (directory / "alias.md").symlink_to(Path("SKILL.md"))
+    _symlink(directory / "guide.md", Path("../shared/guide.md"))
+    _symlink(directory / "alias.md", Path("SKILL.md"))
     ref = SkillRef(name="mine", path=directory / "SKILL.md")
 
     before = snapshot_skill(ref)
-    (shared / "guide.md").write_text("# Shared guide v2\n")
+    (shared / "guide.md").write_text("# Shared guide v2\n", newline="\n")
     after = snapshot_skill(ref)
 
     assert set(before.files) == {"SKILL.md", "alias.md", "guide.md"}
@@ -246,7 +257,7 @@ def test_a_skill_reached_through_a_linked_directory_captures_the_same_files(
     (real / "references").mkdir()
     (real / "references" / "guide.md").write_text("# Guide\n")
     linked = tmp_path / "linked"
-    linked.symlink_to(tmp_path / "real", target_is_directory=True)
+    _symlink(linked, tmp_path / "real", target_is_directory=True)
 
     through_link = snapshot_skill(
         SkillRef(name="mine", path=linked / "mine" / "SKILL.md")
@@ -290,9 +301,9 @@ def test_the_snapshot_holds_exactly_the_files_the_install_wrote(tmp_path: Path):
     (directory / ".caliper" / "run.json").write_text("{}\n")
     (directory / "answers").mkdir()
     (directory / "answers" / "key.md").write_text("the answer is 42\n")
-    (directory / "hint.md").symlink_to(Path("answers/key.md"))
-    (directory / "guide.md").symlink_to(Path("../shared/guide.md"))
-    (directory / "references").symlink_to(Path("../shared"), target_is_directory=True)
+    _symlink(directory / "hint.md", Path("answers/key.md"))
+    _symlink(directory / "guide.md", Path("../shared/guide.md"))
+    _symlink(directory / "references", Path("../shared"), target_is_directory=True)
     ref = SkillRef(name="mine", path=directory / "SKILL.md")
     root = tmp_path / "root"
 

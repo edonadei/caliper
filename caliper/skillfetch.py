@@ -15,10 +15,12 @@ incentive to pin, in place of a rule requiring it (docs/adr/0017).
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 from collections.abc import Callable
@@ -49,6 +51,22 @@ _GIT_TIMEOUT = 120
 
 def _is_relative(repo: str) -> bool:
     return repo in (".", "..") or repo.startswith(_RELATIVE_PREFIXES)
+
+
+def _is_checkout(path: Path) -> bool:
+    """Whether ``path`` holds a complete git checkout (not a half-deleted `.git`)."""
+    return (path / ".git" / "HEAD").is_file()
+
+
+def _rmtree(path: Path) -> None:
+    """Remove ``path``, clearing read-only bits on `.git` packfiles on Windows."""
+
+    def _clear_readonly(func, target, _exc) -> None:
+        with contextlib.suppress(OSError):
+            os.chmod(target, stat.S_IWRITE)
+            func(target)
+
+    shutil.rmtree(path, onerror=_clear_readonly)
 
 
 class SkillFetchError(ValueError):
@@ -144,7 +162,7 @@ class SkillFetcher:
             return None
 
         checkout = self._checkout_dir(src.repo, sha)
-        if not (checkout / ".git").exists():
+        if not _is_checkout(checkout):
             self._clone(src, sha, checkout)
 
         skill_md = checkout / src.path
@@ -236,7 +254,7 @@ class SkillFetcher:
             return None
         if len(src.ref) == 40:
             exact = self._checkout_dir(src.repo, src.ref)
-            return src.ref if (exact / ".git").exists() else None
+            return src.ref if _is_checkout(exact) else None
         remembered = self._remembered(src)
         if remembered is not None and remembered.startswith(src.ref):
             return remembered
@@ -254,7 +272,7 @@ class SkillFetcher:
         repo_dir = self._repo_dir(src.repo)
         if repo_dir.is_dir():
             for child in sorted(repo_dir.iterdir()):
-                if child.name.startswith(src.ref) and (child / ".git").exists():
+                if child.name.startswith(src.ref) and _is_checkout(child):
                     return child.name
         return None
 
@@ -330,7 +348,7 @@ class SkillFetcher:
                     "unique. Pin the full 40-character commit instead."
                 ) from exc
         finally:
-            shutil.rmtree(scratch, ignore_errors=True)
+            _rmtree(scratch)
 
     def _remote_supports_filter(self, repo: Path) -> bool:
         """Whether ``origin`` honours ``--filter``, asked before fetching.
@@ -373,21 +391,23 @@ class SkillFetcher:
         """
         remote = self._remote(src.repo)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        staging = Path(tempfile.mkdtemp(prefix=f".{dest.name}-", dir=dest.parent))
+        staging = Path(tempfile.mkdtemp(prefix=f".{dest.name[:12]}-", dir=dest.parent))
         try:
             self._git("init", "-q", cwd=staging)
             self._git("remote", "add", "origin", remote, cwd=staging)
             self._git("fetch", "-q", "--depth", "1", "origin", sha, cwd=staging)
             self._git("checkout", "-q", "FETCH_HEAD", cwd=staging)
+            if dest.exists() and not _is_checkout(dest):
+                _rmtree(dest)
             try:
                 staging.rename(dest)
             except OSError:
                 # Another process published this commit first: its checkout is
                 # the same bytes.
-                if not (dest / ".git").exists():
+                if not _is_checkout(dest):
                     raise
         finally:
-            shutil.rmtree(staging, ignore_errors=True)
+            _rmtree(staging)
 
     # ── the ref → commit memo ────────────────────────────────────────────────
     #
@@ -403,18 +423,22 @@ class SkillFetcher:
         entries = self._read_memo(memo)
         entries[src.ref or "HEAD"] = sha
         memo.parent.mkdir(parents=True, exist_ok=True)
-        memo.write_text("".join(f"{k}\t{v}\n" for k, v in sorted(entries.items())))
+        with contextlib.suppress(OSError):
+            memo.write_text(
+                "".join(f"{k}\t{v}\n" for k, v in sorted(entries.items())),
+                encoding="utf-8",
+            )
 
     def _remembered(self, src: GitSkillSource) -> str | None:
         sha = self._read_memo(self._memo_path(src.repo)).get(src.ref or "HEAD")
-        if sha and (self._checkout_dir(src.repo, sha) / ".git").exists():
+        if sha and _is_checkout(self._checkout_dir(src.repo, sha)):
             return sha
         return None
 
     @staticmethod
     def _read_memo(memo: Path) -> dict[str, str]:
         try:
-            text = memo.read_text()
+            text = memo.read_text(encoding="utf-8")
         except OSError:
             return {}
         out: dict[str, str] = {}
@@ -473,7 +497,7 @@ class SkillFetcher:
     ) -> str:
         try:
             proc = subprocess.run(
-                ["git", *args],
+                ["git", "-c", "core.longpaths=true", *args],
                 cwd=str(cwd) if cwd else None,
                 env={**os.environ, **env} if env else None,
                 capture_output=True,

@@ -213,13 +213,22 @@ def test_install_honours_sandbox_forbidden_files(tmp_path):
     assert not (root / "guarded" / "answers.txt").exists()
 
 
+def _symlink(link: Path, target: Path, **kwargs) -> None:
+    try:
+        link.symlink_to(target, **kwargs)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("symlinks need privileges on Windows")
+        raise
+
+
 def test_install_follows_a_file_symlink_to_a_shared_file(tmp_path):
     # Sharing one guide between skills by symlink is supported: the agent
     # would follow the link in a real install (docs/adr/0027).
     write_skill(tmp_path / "src", "linked")
     (tmp_path / "shared").mkdir()
     (tmp_path / "shared" / "guide.md").write_text("shared guide")
-    (tmp_path / "src" / "guide.md").symlink_to(Path("../shared/guide.md"))
+    _symlink(tmp_path / "src" / "guide.md", Path("../shared/guide.md"))
     refs = resolve_skills(["./src/SKILL.md"], tmp_path)
     root = tmp_path / "root"
 
@@ -234,7 +243,7 @@ def test_install_does_not_let_a_symlink_reach_a_forbidden_file(tmp_path):
     write_skill(tmp_path / "src", "guarded")
     (tmp_path / "src" / "answers").mkdir()
     (tmp_path / "src" / "answers" / "key.md").write_text("the answer is 42")
-    (tmp_path / "src" / "hint.md").symlink_to(Path("answers/key.md"))
+    _symlink(tmp_path / "src" / "hint.md", Path("answers/key.md"))
     refs = resolve_skills(["./src/SKILL.md"], tmp_path)
     root = tmp_path / "root"
 
@@ -247,7 +256,7 @@ def test_install_matches_forbidden_files_against_an_outside_target(tmp_path):
     write_skill(tmp_path / "src", "guarded")
     (tmp_path / "answers").mkdir()
     (tmp_path / "answers" / "key.md").write_text("the answer is 42")
-    (tmp_path / "src" / "hint.md").symlink_to(tmp_path / "answers" / "key.md")
+    _symlink(tmp_path / "src" / "hint.md", tmp_path / "answers" / "key.md")
     refs = resolve_skills(["./src/SKILL.md"], tmp_path)
     root = tmp_path / "root"
 
@@ -261,7 +270,7 @@ def test_install_does_not_let_a_symlink_reach_an_excluded_file(tmp_path, target)
     write_skill(tmp_path / "src", "guarded")
     (tmp_path / "src" / ".git").mkdir()
     (tmp_path / "src" / target).write_text("excluded")
-    (tmp_path / "src" / "alias.md").symlink_to(Path(target))
+    _symlink(tmp_path / "src" / "alias.md", Path(target))
     refs = resolve_skills(["./src/SKILL.md"], tmp_path)
     root = tmp_path / "root"
 

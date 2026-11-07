@@ -887,8 +887,8 @@ def test_only_the_foreground_job_is_asked(monkeypatch, terminal_group, asks) -> 
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.setattr("sys.stdin", _Tty())
     monkeypatch.setattr("sys.stdout", _Tty())
-    monkeypatch.setattr("os.getpgrp", lambda: 4242)
-    monkeypatch.setattr("os.tcgetpgrp", lambda _fd: terminal_group)
+    monkeypatch.setattr("os.getpgrp", lambda: 4242, raising=False)
+    monkeypatch.setattr("os.tcgetpgrp", lambda _fd: terminal_group, raising=False)
 
     assert run_module._interactive() is asks
 

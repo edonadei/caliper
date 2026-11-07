@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import stat
 import sys
 
@@ -60,8 +61,9 @@ def test_isolated_keeps_only_connection_keys_and_declared_servers(
     assert written[connection] == "kept"
     assert ambient not in written
     assert config.servers(attempt) == {"echo"}
-    mode = (attempt / config.path).stat().st_mode
-    assert stat.S_IMODE(mode) == 0o600
+    if os.name == "posix":
+        mode = (attempt / config.path).stat().st_mode
+        assert stat.S_IMODE(mode) == 0o600
 
 
 @pytest.mark.parametrize(("config", "backend", "connection", "ambient"), CONFIGS)

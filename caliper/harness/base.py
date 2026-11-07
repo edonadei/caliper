@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
     from caliper.harness.user_layer import StagedUserLayer
 
 _POST_KILL_DRAIN_TIMEOUT = 1
+_REAL_POPEN = subprocess.Popen
 
 _Fact = TypeVar("_Fact")
 
@@ -296,6 +298,107 @@ def _timeout_output(partial: bytes | str | None, drained: bytes | str | None) ->
     if isinstance(output, bytes):
         output = output.decode("utf-8", errors="replace")
     return output.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+def _cancel_synchronous_io(reader: threading.Thread) -> None:
+    """Interrupt a Windows thread blocked in a synchronous ``ReadFile``."""
+    if reader.native_id is None:
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenThread.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.OpenThread.restype = wintypes.HANDLE
+    kernel32.CancelSynchronousIo.argtypes = (wintypes.HANDLE,)
+    kernel32.CancelSynchronousIo.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    thread_handle = kernel32.OpenThread(0x0001, False, reader.native_id)
+    if thread_handle:
+        try:
+            kernel32.CancelSynchronousIo(thread_handle)
+        finally:
+            kernel32.CloseHandle(thread_handle)
+
+
+def _communicate_windows(proc: subprocess.Popen, deadline: float) -> ProcessResult:
+    """Drain ``proc`` on Windows without ``Popen.communicate``'s uninterruptible read.
+
+    ``Popen.communicate`` reads each pipe with a single blocking ``fh.read()``,
+    which buffers nothing until EOF and leaves its worker thread stuck in
+    ``ReadFile`` when a detached child outlives the agent. Reading in chunks
+    keeps partial output as it arrives and lets ``CancelSynchronousIo`` release
+    a stuck reader before closing the pipe.
+    """
+    stopped = threading.Event()
+    buffers = (bytearray(), bytearray())
+    readers: list[tuple[threading.Thread, IO[str]]] = []
+
+    for stream, buf, label in zip(
+        (proc.stdout, proc.stderr), buffers, ("stdout", "stderr"), strict=True
+    ):
+        if stream is None:
+            continue
+        fd = stream.fileno()
+
+        def _drain(fd: int = fd, buf: bytearray = buf) -> None:
+            while not stopped.is_set():
+                try:
+                    chunk = os.read(fd, 8192)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                buf.extend(chunk)
+
+        reader = threading.Thread(
+            target=_drain, name=f"caliper-agent-{label}", daemon=True
+        )
+        reader.start()
+        readers.append((reader, stream))
+
+    def _join_all(wait_until: float) -> bool:
+        try:
+            proc.wait(timeout=max(0.0, wait_until - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            return False
+        for reader, _ in readers:
+            reader.join(timeout=max(0.0, wait_until - time.monotonic()))
+            if reader.is_alive():
+                return False
+        return True
+
+    while True:
+        slice_end = time.monotonic() + max(0.001, min(0.1, deadline - time.monotonic()))
+        if _join_all(slice_end):
+            return ProcessResult(
+                stdout=_timeout_output(None, bytes(buffers[0])),
+                stderr=_timeout_output(None, bytes(buffers[1])),
+                returncode=proc.returncode,
+                timed_out=False,
+                cancelled=cancel.was_killed(proc),
+            )
+        interrupted = cancel.requested()
+        if not interrupted and time.monotonic() < deadline:
+            continue
+        cancel.kill(proc)
+        if not _join_all(time.monotonic() + _POST_KILL_DRAIN_TIMEOUT):
+            stopped.set()
+            for reader, stream in readers:
+                if reader.is_alive():
+                    _cancel_synchronous_io(reader)
+                stream.close()
+            for reader, _ in readers:
+                reader.join(timeout=1)
+        if interrupted:
+            return ProcessResult("", "interrupted", -9, False, cancelled=True)
+        return ProcessResult(
+            _timeout_output(None, bytes(buffers[0])),
+            _timeout_output(None, bytes(buffers[1])),
+            124,
+            True,
+        )
 
 
 def _stage_prompt(text: str, cwd: str) -> IO[bytes]:
@@ -1236,6 +1339,8 @@ class CliHarness(HarnessBackend):
                 cancel.track(proc, process_tag=process_tag),
             ):
                 deadline = time.monotonic() + timeout
+                if os.name == "nt" and isinstance(proc, _REAL_POPEN):
+                    return _communicate_windows(proc, deadline)
                 while True:
                     try:
                         stdout, stderr = proc.communicate(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 
@@ -348,7 +349,8 @@ def test_hermes_secret_config_is_locked_down(monkeypatch, tmp_path) -> None:
         },
     )
     # The config now holds a resolved secret, so it must not be world-readable.
-    assert (seeded.stat().st_mode & 0o077) == 0
+    if os.name == "posix":
+        assert (seeded.stat().st_mode & 0o077) == 0
 
 
 def test_hermes_diagnoses_model_selection_error(monkeypatch, tmp_path) -> None:

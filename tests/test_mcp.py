@@ -706,6 +706,10 @@ def test_preflight_uses_sandbox_extra_path_for_command(tmp_path) -> None:
     command.chmod(0o755)
 
     marker = _record_server(command)
+    if os.name == "nt":
+        (tmp_path / "mcp-server.cmd").write_text(
+            f'@"{sys.executable}" "{command}" %*\n'
+        )
     preflight_stdio_servers(
         {"echo": McpServer(command="mcp-server")}, extra_path=[str(tmp_path)]
     )
