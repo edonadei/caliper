@@ -132,6 +132,39 @@ validation.
   spec for a portable score (see "Whose setup is measured" in
   [SKILL.md](SKILL.md)).
 
+## Mining past sessions
+
+Each backend keeps the user's past sessions on disk:
+
+| Backend | Sessions |
+|---|---|
+| `claude-code` | `${CLAUDE_CONFIG_DIR:-~/.claude}/projects/<project>/<session>.jsonl` |
+| `codex` | `${CODEX_HOME:-~/.codex}/sessions/YYYY/MM/DD/*.jsonl` |
+| `pi` | `${PI_CODING_AGENT_DIR:-~/.pi/agent}/sessions/*.jsonl` |
+| `hermes` | SQLite; `hermes sessions export --newer-than 30d -` prints JSONL |
+
+Search the last 30 days, newest first, by the skill's `name` and the words of
+its `description`, and sort each hit into the question it answers:
+
+- **Fired**: a call to the skill (claude-code logs
+  `"name":"Skill","input":{"skill":"<name>"}`) or a read of its `SKILL.md`.
+  The user turn that led there is a happy-path prompt.
+- **Missed**: a request the `description` covers where the skill never
+  loaded. A trigger probe, `activates: [<skill>]`.
+- **Corrected**: the next user turn pushes back on, undoes or redoes the
+  agent's work. An edge case or adversarial task; the correction says what
+  `expect:` must demand.
+- **Neighbour's**: a request that belongs to another skill. A neighbour probe.
+
+Stop at five candidates or the end of the window. Show the shortlist, each
+candidate tagged with its question, and let the user keep or drop each one.
+
+The spec gets committed, so rewrite every prompt before it goes in: keep the
+request's shape and difficulty, swap names, paths, repos, hosts, secrets and
+customer data for neutral stand-ins, and rebuild in `setup:` the files the
+request relied on. A hit deep in a conversation keeps its earlier turns as the
+task's `history:` file, rewritten the same way.
+
 ## Reading a run
 
 Failed tasks are shown automatically with their output and `assert_evidence`.
