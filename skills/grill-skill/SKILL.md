@@ -36,6 +36,8 @@ Interview one question at a time and wait for each answer. Build every task from
 
 ### New eval
 
+First offer to mine the user's past sessions for real cases ([REFERENCE.md → Mining past sessions](REFERENCE.md#mining-past-sessions)). They are the user's private history, so read them only after a yes. Bring back a shortlist of at most five candidates, each tagged with the question below it would answer, and let the user keep or drop each one. A kept candidate opens its question as a proposed answer for the user to confirm or correct. With a no, or no hits, interview from scratch.
+
 Elicit, one question at a time:
 
 1. **Happy path**: the most common successful use. What did the agent do, and what would confirm it worked?
@@ -51,7 +53,7 @@ Write the spec beside `SKILL.md`, named `<dir-name>.eval.yaml`, with `skills: [.
 
 ### Gap-fill
 
-Read the existing spec and report its tasks, grouped by the question each answers. Name any question with no task: execution tasks without `activates:`, no trigger probe, no deterministic `assert:`. **Ask what behaviors are missing or under-tested before proposing or writing anything**, even if the user only asked you to inspect it. Sharpen each gap into a task, show it, and confirm before writing it in.
+Read the existing spec and report its tasks, grouped by the question each answers. Name any question with no task: execution tasks without `activates:`, no trigger probe, no deterministic `assert:`. **Ask what behaviors are missing or under-tested before proposing or writing anything**, even if the user only asked you to inspect it. Past sessions can answer that too: offer to mine them, as in New eval. Sharpen each gap into a task, show it, and confirm before writing it in.
 
 ## Whose setup is measured
 
