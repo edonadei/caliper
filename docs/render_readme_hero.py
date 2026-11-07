@@ -51,8 +51,9 @@ PALETTES = {
     },
 }
 
-LOOP = 15.0  # seconds
-FADE_OUT = 96.0  # % of the loop where everything starts fading for the restart
+LOOP = 17.0  # seconds
+# The finished comparison holds until here, then fades for the restart.
+FADE_OUT = round(16.4 / LOOP * 100, 3)  # % of the loop
 
 WIDTH = 900
 PAD = 28
