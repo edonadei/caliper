@@ -31,62 +31,34 @@ After the next model update? When another skill competes for the same prompt?
 <br>
 
 <p align="center">
-  <img src="docs/assets/compare-ablation.svg" alt="caliper compare at k=5, without inbox-triage vs with inbox-triage. The header shows inbox-triage as the only skill that differs. Flags emails that need a reply stays at 100%; Drafts replies, never sends them goes 60% to 100% (+40 pp); Skips no-reply senders 80% to 100% (+20 pp); Resists a prompt injection 80% to 100% (+20 pp). Success 80% (16/20) to 100% (20/20), +20 pp; tokens 612K to 431K (-30%); wall 4m 22s to 3m 8s (-28%)" width="760">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/hero-dark.svg">
+    <img src="docs/assets/hero-light.svg" alt="caliper run of inbox-triage at k=5 without the skill, then with it, then caliper compare. Without the skill: Flags emails that need a reply 100%, Drafts replies, never sends them 60%, Skips no-reply senders 80%, Resists a prompt injection 80%, success 80% (16/20). With the skill every task is 100%, success 100% (20/20), +20 pp; tokens 612K to 431K (-30%); wall 4m 22s to 3m 8s (-28%)" width="820">
+  </picture>
 </p>
 
 <p align="center"><sub>Same tasks, with and without the skill. The bare agent already passes 80%; the skill takes it to 100% with 30% fewer tokens and 28% less wall time.</sub></p>
 
-## Why Caliper
+## What it measures
 
-<table>
-<tr>
-<td width="33%" valign="top">
+Every attempt installs your skill where the agent looks for it, never pasted
+into the prompt, in a fresh home with an empty working directory. Then Caliper
+answers the questions a single try can't:
 
-**Real installs**<br>
-Your skill is installed where the agent looks, never pasted into the prompt.
-
-</td>
-<td width="33%" valign="top">
-
-**Activation scoreboard**<br>
-Did the agent <i>pick</i> your skill? Scored apart from whether it worked.
-
-</td>
-<td width="33%" valign="top">
-
-**Neighbourhoods**<br>
-Declare competing skills and assert which one should win each prompt.
-
-</td>
-</tr>
-<tr>
-<td width="33%" valign="top">
-
-**Ablation**<br>
-<code>--ablate</code> re-runs without the skill. Same score? It isn't earning its context.
-
-</td>
-<td width="33%" valign="top">
-
-**Honest numbers**<br>
-Single-run success rate first. <code>pass@k</code> flatters flaky skills.
-
-</td>
-<td width="33%" valign="top">
-
-**Four agents**<br>
-Claude Code, Codex, Pi, Hermes. One spec, pick the engine at run time.
-
-</td>
-</tr>
-</table>
+| You want to know | How Caliper answers |
+| --- | --- |
+| Does it work every time, not just once? | Runs each task k times and leads with the single-run **success rate**. `pass@k` flatters flaky skills, so it comes second. |
+| Does the agent even pick it? | **Activation** is scored apart from success: `activates:` asserts which skills the agent chose to load. |
+| Does it lose prompts to a neighbour? | Declare competing skills as the spec's **neighbourhood**, and assert which one should win each prompt. |
+| Is it earning its context? | `--ablate` re-runs without the skill. Same score? The skill isn't doing the work. |
+| Does it hold on another agent? | One spec runs on Claude Code, Codex, Pi or Hermes. You pick the engine at run time. |
 
 ## Quick start
 
 <table>
 <tr>
-<th width="50%">🤖 In your agent</th>
-<th width="50%">⌨️ In your terminal</th>
+<th width="50%">In your agent</th>
+<th width="50%">In your terminal</th>
 </tr>
 <tr>
 <td valign="top">
@@ -193,17 +165,6 @@ failure (false success, tool misuse, runaway loops, prompt regressions, stale
 context treated as current), passes as-is against a bundled skill, and points
 at your own skill by editing a few commented lines.
 
-## Documentation
-
-| | |
-| --- | --- |
-| 📐 **[Spec reference](docs/spec-reference.md)** | Every `.eval.yaml` field and the judging rules |
-| 🔌 **[Backends](docs/backends.md)** | Setup per agent, `--model` syntax, MCP support |
-| 📊 **[Results](docs/results.md)** | Scoring, `caliper compare`, the results JSON schema |
-| 📈 **[Usage telemetry](docs/telemetry.md)** | What anonymous usage metrics send, and how to opt out |
-| 📖 **[Glossary](docs/CONTEXT.md)** | Spec, neighbourhood, activation, ablation… |
-| 🧭 **[Design decisions](docs/adr/)** | Architecture Decision Records |
-
 ## Recommended workflow
 
 1. Create a spec for one behavior you care about.
@@ -275,20 +236,24 @@ compare with someone else's run, or publish the score. Each CLI loads a
 different setup, so otherwise part of the difference is the setups.
 `caliper compare` warns when two runs loaded differently.
 
-## Core concepts
+## Scoring
 
-| Term | What it is |
-|---|---|
-| **Spec** | A `.eval.yaml` file that describes the skills and tasks to run |
-| **Backend** | The CLI agent that runs the skill (`claude-code`, `codex`, `pi`, `hermes`) |
-| **Judge** | What decides pass/fail: an LLM reading the request and the transcript (`expect:`), Python assertions (`assert:`), or both |
-| **Success rate** | The primary score: run k times, measure how often a single run works |
-| **Neighbourhood** | The set of skills a spec declares (`skills:`). All installed, none preloaded, and all assertable. This is the competition your `description` has to win |
-| **Activation** | The agent *choosing* to load a skill. Asserted with `activates:` and scored on its own scoreboard, separate from the success rate |
-| **Ablation** | Re-running the same tasks with a declared skill or `mcp:` server *removed* (`--ablate`), to prove it's doing the work |
-| **Attempt** | One isolated run of a single task (fresh temporary home, no session history) |
+The primary score is the **raw success rate**: how often a single run works,
+over the attempts that got a fair shot. Rate limits, timeouts, and judge errors
+are reported as *unusable* and left out, so infrastructure noise never counts as
+a skill failure.
 
-The full glossary is in [docs/CONTEXT.md](docs/CONTEXT.md).
+| The question you're asking | Metric | For a `1/3` skill (k=3) |
+| --- | --- | --- |
+| How reliable is a **single** run? *(default)* | **success rate** | `33%` |
+| If I **retry** up to k times and keep any win, do I get one? | `pass@k` | `70%` |
+| Will it work on **every** run, no exceptions? | `pass^k` | `4%` |
+
+`pass@k` and `pass^k` appear under `--verbose`. Each run also records tokens and
+wall-clock time per attempt, so you can see what a skill costs as well as whether
+it works. Dollar cost isn't tracked, because it's inconsistent across backends.
+Attempt outcomes, `caliper compare` in depth, and the results JSON schema are in
+**[docs/results.md](docs/results.md)**.
 
 ## Choosing an engine
 
@@ -397,6 +362,22 @@ run Caliper, inside the git repository. See
 | `--verbose` | off | Show every task with its `expect`, and per attempt the judge reasoning and any judge script |
 | `--output PATH` | none | Also save results JSON to a specific path |
 
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Ran, and nothing asked for a verdict said no |
+| `1` | Bad input: spec not found, invalid spec, unresolvable skills, two references naming one run |
+| `2` | Could not run cleanly: backend misconfiguration, an unavailable model, a failed setup/cleanup hook, or every attempt `infra_error`/`timeout`/`judge_error` |
+| `3` | Reserved: ran cleanly, but a declared bar was not met |
+| `130` | Interrupted with Ctrl-C; the partial run was saved |
+
+`2` and `3` are the distinction CI needs: *the eval could not run* is a broken
+pipeline, while *the skill did not clear the bar* is the answer you asked for.
+When each code fires, and why `caliper compare` never fails on a regression, is
+in [Exit codes in detail](docs/results.md#exit-codes-in-detail). For specific
+errors, see [Troubleshooting](docs/troubleshooting.md).
+
 ### Usage metrics
 
 Caliper sends anonymous command counts to the maintainers through PostHog. They
@@ -412,118 +393,9 @@ outcome and a duration bucket are sent. No installation ID, prompts, outputs,
 paths, skill names, model names, raw arguments or error text are included.
 `CALIPER_TELEMETRY_DISABLED=1` or `DO_NOT_TRACK=1` turns collection off
 regardless of the saved preference. CI is never collected unless you run
-`caliper telemetry enable` there. Telemetry failures never change command output or exit codes.
-
-The exact payload, delivery limits, privacy boundaries and dashboard setup are
-in [Usage telemetry](docs/telemetry.md).
-
-### Exit codes
-
-| Code | Meaning |
-|---|---|
-| `0` | Ran, and nothing asked for a verdict said no |
-| `1` | Bad input: spec not found, invalid spec, unresolvable skills, two references naming one run |
-| `2` | Could not run cleanly: backend misconfiguration, an unavailable model, a failed setup/cleanup hook, or every attempt `infra_error`/`timeout`/`judge_error` |
-| `3` | Reserved: ran cleanly, but a declared bar was not met |
-| `130` | Interrupted with Ctrl-C; the partial run was saved |
-
-`2` and `3` are the distinction CI needs: *the eval could not run* is a broken
-pipeline, while *the skill did not clear the bar* is the answer you asked for.
-
-A run in which **every** attempt was `infra_error`, `timeout` or `judge_error`
-exits `2` and prints a count of each: it's saved for inspection, but it measured
-nothing. One usable attempt is enough for `0`, and an all-`not_checked` trigger
-probe also exits `0`, since it asked for no verdict and nothing went wrong.
-
-A run that stopped before **any** attempt finished writes no results file,
-unless a lifecycle hook failed and its diagnostic needs saving. Exits `2` and
-`130` can therefore leave nothing on disk.
-
-A run that stops because the agent's or the judge's CLI is not logged in exits
-`2` with a `Not logged in` error naming the backend's login command. In an
-interactive terminal, `caliper run` first offers to run that command, and reruns
-the eval if the login succeeds. Elsewhere (CI, an agent), nothing waits for
-input.
-
-`caliper compare` deliberately never fails on a regression. It flags any drop
-at all, and at small k that fires on noise about as often as on a real change.
-Gating belongs on a bar you set before the run, which is what exit `3` is
-reserved for.
-
-## Scoring
-
-The primary score is the **raw success rate**: how often a single run works,
-over the attempts that got a fair shot. Rate limits, timeouts, and judge errors
-are reported as *unusable* and left out, so infrastructure noise never counts as
-a skill failure.
-
-| The question you're asking | Metric | For a `1/3` skill (k=3) |
-| --- | --- | --- |
-| How reliable is a **single** run? *(default)* | **success rate** | `33%` |
-| If I **retry** up to k times and keep any win, do I get one? | `pass@k` | `70%` |
-| Will it work on **every** run, no exceptions? | `pass^k` | `4%` |
-
-`pass@k` and `pass^k` appear under `--verbose`. Each run also records tokens and
-wall-clock time per attempt, so you can see what a skill costs as well as whether
-it works. Dollar cost isn't tracked, because it's inconsistent across backends.
-
-Attempt outcomes, retries, Ctrl-C behavior, `caliper compare` in depth, and the
-results JSON schema are in **[docs/results.md](docs/results.md)**.
-
-## Troubleshooting
-
-**`codex judge failed: model ... is not supported`**
-The model isn't available to your Codex account. Use a model that
-`codex exec --model <name>` accepts.
-
-**`hermes could not run the requested model`**
-The provider rejected the model in `--model hermes:<provider>/<model>`. Hermes
-exits successfully in this case, so Caliper reads the rejection from its output
-and stops the run rather than grading an empty answer. Check the model ID with
-`hermes -z 'Reply OK' --model <model>`.
-
-**`The <backend> judge cannot run` / `The <backend> judge was rate limited`**
-The judge CLI reached the provider and the call was refused. Caliper reads the
-refusal the same way it reads an attempt's, and suggests passing
-`--judge-model <backend[:model]>` to pick an available judge. Example:
-`caliper run my-skill.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001`.
-
-- An unavailable judge model would fail every attempt the same way, so it stops
-  the run at the first attempt that reaches the judge (exit `2`) instead of
-  recording `judge_error` on each one. An unavailable `claude-code` skill model
-  (`--model claude-code:<model>`) stops the run the same way.
-- A failed judge login (a lapsed session or a rejected key) stops the run the
-  same way, and names the judge CLI's login command when the CLI says why.
-- A spending cap stops the run, as it does for an attempt.
-- A rate limit is retried like an attempt's. One that outlasts the retries is a
-  per-attempt `judge_error`.
-- An unknown backend name in `--model` or `--judge-model` is refused before any
-  attempt runs.
-
-**`--judge-model ... but the ... CLI isn't installed`**
-A spec with `expect:` needs the judge's CLI, so the run stops before any attempt
-(exit `2`) instead of recording `judge_error` on each one:
-
-```console
-$ caliper run hello.eval.yaml --model codex --judge-model hermes
-┌──────────────────────────────── No judge ─────────────────────────────────┐
-│ --judge-model hermes asks hermes to grade the `expect:` checks, but the   │
-│ hermes CLI isn't installed.                                               │
-│                                                                           │
-│ Install and sign in to the hermes CLI, or remove --judge-model and codex  │
-│ (your --model) will grade too.                                            │
-└───────────────────────────────────────────────────────────────────────────┘
-```
-
-Install that CLI, or remove `--judge-model` so the `--model` backend grades
-too.
-
-**A task passes only because of `assert:`**
-When a task has only `assert:`, no LLM judge runs. Add `expect:` if you also want
-an LLM to evaluate the transcript.
-
-**Hermes fails with no model selected**
-Run `hermes model` to pick a default model and provider you have credits for.
+`caliper telemetry enable` there. Telemetry failures never change command output
+or exit codes. The exact payload and privacy boundaries are in
+[Usage telemetry](docs/telemetry.md).
 
 ## Agent skills
 
@@ -559,6 +431,18 @@ failure traced to the `description`, the body, or the task.
 Skip the path if you're already in the skill's directory. If an `.eval.yaml`
 already exists next to your skill, `grill-skill` interviews you about gaps
 instead of starting from scratch.
+
+## Documentation
+
+| | |
+| --- | --- |
+| **[Spec reference](docs/spec-reference.md)** | Every `.eval.yaml` field and the judging rules |
+| **[Backends](docs/backends.md)** | Setup per agent, `--model` syntax, MCP support |
+| **[Results](docs/results.md)** | Scoring, `caliper compare`, exit codes, the results JSON schema |
+| **[Troubleshooting](docs/troubleshooting.md)** | Judge, model and login errors, and what to do about them |
+| **[Usage telemetry](docs/telemetry.md)** | What anonymous usage metrics send, and how to opt out |
+| **[Glossary](docs/CONTEXT.md)** | Spec, neighbourhood, activation, ablation, attempt… |
+| **[Design decisions](docs/adr/)** | Architecture Decision Records |
 
 ## Contributing
 
