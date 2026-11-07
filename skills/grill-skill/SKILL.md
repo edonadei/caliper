@@ -36,7 +36,7 @@ Interview one question at a time and wait for each answer. Build every task from
 
 ### New eval
 
-First offer to mine the user's past sessions for real cases ([REFERENCE.md → Mining past sessions](REFERENCE.md#mining-past-sessions)). They are the user's private history, so read them only after a yes. Bring back a shortlist of at most five candidates, each tagged with the question below it would answer, and let the user keep or drop each one. A kept candidate opens its question as a proposed answer for the user to confirm or correct. With a no, or no hits, interview from scratch.
+First offer to mine the user's past sessions for real cases ([REFERENCE.md → Mining past sessions](REFERENCE.md#mining-past-sessions)). They are the user's private history, so read them only after a yes. Each candidate the user keeps opens its question below as a proposed answer to confirm or correct. With a no, or no hits, interview from scratch.
 
 Elicit, one question at a time:
 

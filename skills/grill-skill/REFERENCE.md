@@ -143,8 +143,8 @@ Each backend keeps the user's past sessions on disk:
 | `pi` | `${PI_CODING_AGENT_DIR:-~/.pi/agent}/sessions/*.jsonl` |
 | `hermes` | SQLite; `hermes sessions export --newer-than 30d -` prints JSONL |
 
-Search the newest first, by the skill's `name` and the words of its
-`description`, and sort each hit into the question it answers:
+Search the last 30 days, newest first, by the skill's `name` and the words of
+its `description`, and sort each hit into the question it answers:
 
 - **Fired**: a call to the skill (claude-code logs
   `"name":"Skill","input":{"skill":"<name>"}`) or a read of its `SKILL.md`.
@@ -155,6 +155,9 @@ Search the newest first, by the skill's `name` and the words of its
   agent's work. An edge case or adversarial task; the correction says what
   `expect:` must demand.
 - **Neighbour's**: a request that belongs to another skill. A neighbour probe.
+
+Stop at five candidates or the end of the window. Show the shortlist, each
+candidate tagged with its question, and let the user keep or drop each one.
 
 The spec gets committed, so rewrite every prompt before it goes in: keep the
 request's shape and difficulty, swap names, paths, repos, hosts, secrets and
