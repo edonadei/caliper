@@ -37,6 +37,12 @@ _REFRESH_WINDOW_MS = 5 * 60 * 1000
 # Held while one attempt refreshes the operator's login on the host, so the
 # others wait and copy the result instead of refreshing it themselves.
 _host_refresh = threading.Lock()
+# Turns off the skills and plugins the CLI syncs from the claude.ai account,
+# which arrive through the login like its connectors do (docs/adr/0026).
+_NO_ACCOUNT_SYNC = [
+    "--settings",
+    '{"syncClaudeAiSkills":false,"syncClaudeAiPlugins":false}',
+]
 
 
 def preferred_nvm_node_bin() -> str | None:
@@ -317,6 +323,7 @@ class ClaudeCodeHarness(CliHarness):
         # with the user's own and the account's connectors (docs/adr/0028).
         if not ctx.user_customizations:
             cmd.append("--strict-mcp-config")
+            cmd += _NO_ACCOUNT_SYNC
 
         if ctx.model:
             cmd += ["--model", ctx.model]
@@ -488,8 +495,10 @@ class ClaudeCodeHarness(CliHarness):
         # Claude used — the answer lives in `.result`, the model in `.modelUsage`.
         # --strict-mcp-config with no --mcp-config: the judge sees no MCP
         # servers, so the account's claude.ai connectors neither reach it nor
-        # get mistaken for the attempt's tools (docs/adr/0026).
+        # get mistaken for the attempt's tools (docs/adr/0026). The account's
+        # synced skills and plugins stay out for the same reason.
         cmd = ["claude", "-p", "--output-format", "json", "--strict-mcp-config"]
+        cmd += _NO_ACCOUNT_SYNC
         if model:
             cmd += ["--model", model]
         cmd += ["--", prompt]
