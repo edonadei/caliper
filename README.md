@@ -55,40 +55,34 @@ answers the questions a single try can't:
 
 ## Quick start
 
-<table>
-<tr>
-<th width="50%">In your agent</th>
-<th width="50%">In your terminal</th>
-</tr>
-<tr>
-<td valign="top">
+**Let your agent build the eval.** Install the Caliper skills, then point
+`grill-skill` at your skill. It interviews you, writes the spec, and runs it
+with and without your skill.
 
 ```bash
 npx skills@latest add edonadei/caliper
+```
 
-# then, in your agent:
+```text
 /grill-skill ./inbox-triage/SKILL.md
 ```
 
-<sub><code>grill-skill</code> interviews you, writes the spec, and runs it with and without your skill.</sub>
-
-</td>
-<td valign="top">
+**Or run it yourself.** With a spec in hand ([write one](#write-a-spec)), run
+the tasks without your skill, then with it, and diff the two runs:
 
 ```bash
 pipx install caliper-eval
-SPEC=inbox-triage/inbox-triage.eval.yaml
 
-caliper run $SPEC --ablate inbox-triage
-caliper run $SPEC
-caliper compare \
-  .caliper/results/inbox-triage/RUN_ID.json \
-  inbox-triage
+# Baseline: the same tasks with your skill removed
+caliper run inbox-triage/inbox-triage.eval.yaml --ablate inbox-triage
+
+# With your skill installed
+caliper run inbox-triage/inbox-triage.eval.yaml
+
+# The baseline is no longer the latest run, so pin it by ID (caliper list shows it)
+caliper list inbox-triage
+caliper compare .caliper/results/inbox-triage/BASELINE_ID.json inbox-triage
 ```
-
-</td>
-</tr>
-</table>
 
 ### Write a spec
 
