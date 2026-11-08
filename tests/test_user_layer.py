@@ -513,3 +513,27 @@ def test_built_in_skills_are_what_is_neither_declared_nor_the_users(
     exposed = AgentReport(exposed_skills=["subject", "personal", "debug"])
     assert staged.builtin(exposed) == ["debug"]
     assert staged.builtin(AgentReport()) is None
+
+
+@pytest.mark.parametrize("loads", [True, False])
+def test_synced_account_skills_are_the_users_never_built_in(
+    monkeypatch, tmp_path, loads
+):
+    """Skills Claude Code syncs from claude.ai come from the account, not the CLI."""
+    home = tmp_path / "real"
+    _personal_skill(home, ".claude")
+    monkeypatch.setenv("HOME", str(home))
+    ctx = run_context(isolated_home=str(tmp_path / "iso"), user_customizations=loads)
+    staged = user_layer.stage(ClaudeCodeHarness(), ctx)
+
+    report = AgentReport(
+        exposed_skills=["personal", "anthropic-skills:pdf", "debug"],
+        read_mcp_servers=lambda: [],
+    )
+    assert "anthropic-skills:pdf" not in (staged.builtin(report) or [])
+    if loads:
+        assert "skill:anthropic-skills:pdf" in staged.loaded(report)
+        assert "anthropic-skills:pdf" in staged.user_skill_names(report)
+    else:
+        assert staged.loaded(report) is None
+        assert staged.user_skill_names(report) == []

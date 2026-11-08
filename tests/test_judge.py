@@ -24,6 +24,7 @@ from caliper.harness.base import (
     ProcessResult,
     PromptResult,
 )
+from caliper.harness.claude_code import NO_ACCOUNT_CONTENT
 from caliper.harness.codex import CodexHarness, _extract_codex_error
 from caliper.harness.hermes import HermesHarness
 from caliper.harness.pi import PiHarness
@@ -339,12 +340,10 @@ def test_eval_judge_claude_code_invokes_claude_cli(
     cmd, kwargs = calls[0]
     assert cmd[:2] == ["claude", "-p"]
     assert "--output-format" in cmd
-    # The judge must not see the account's claude.ai connectors (#129).
-    assert "--strict-mcp-config" in cmd
-    assert json.loads(cmd[cmd.index("--settings") + 1]) == {
-        "syncClaudeAiSkills": False,
-        "syncClaudeAiPlugins": False,
-    }
+    # The judge must not see the account's claude.ai connectors (#129), nor its
+    # synced skills and plugins: the isolated attempt's own switches.
+    start = cmd.index(NO_ACCOUNT_CONTENT[0])
+    assert tuple(cmd[start : start + len(NO_ACCOUNT_CONTENT)]) == NO_ACCOUNT_CONTENT
     assert cmd[cmd.index("--model") + 1] == "claude-test"
     assert "The assistant says hello." in cmd[-1]
     # The harness polls communicate() while enforcing the 60s deadline.

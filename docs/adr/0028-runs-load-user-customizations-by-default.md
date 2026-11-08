@@ -8,10 +8,10 @@ spec can't express OAuth
 reproducing your own setup meant re-declaring every personal server.
 
 So an attempt now loads the **user customizations** its CLI would load by
-itself: the servers in the user's own CLI config and the account's hosted
-connectors. The judge's connector controls remain unchanged: a judge that sees
-connectors mistakes them for
-the attempt's tools (0026).
+itself: the servers in the user's own CLI config, the account's hosted
+connectors, and the skills and plugins Claude Code syncs from claude.ai. The
+judge's isolation from account content remains unchanged: a judge that sees
+connectors or synced skills mistakes them for the attempt's tools (0026).
 
 ## Loading them is the default
 
@@ -38,7 +38,7 @@ never prompts, so `caliper run` stays usable non-interactively.
 
 "User customizations" names everything a harness loads from the user's own
 layer, which Claude Code calls *user scope*: MCP servers, connectors, user
-skills, plugins, rules and settings. The #177 extension follows the decisions
+skills, plugins, rules and settings, and the skills synced from the account. The #177 extension follows the decisions
 below. "Customizations", not "extensions", because rules and settings change
 behaviour rather than add capabilities. The working name `inherit-mcp` was
 dropped as an implementation word naming only part of the layer.
