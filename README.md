@@ -209,7 +209,8 @@ By default the attempt still loads your **user customizations**, so the score
 reflects the agent you actually use:
 
 - **What loads:** your CLI's MCP servers, account connectors, user skills,
-  plugins, rules and settings.
+  plugins, rules and settings, plus the skills and plugins Claude Code syncs
+  from claude.ai.
 - **Name clashes:** declared skills and servers win, even when ablated.
 - **Activation:** user skills compete with declared ones and count in
   activation checks.
@@ -358,7 +359,7 @@ run Caliper, inside the git repository. See
 | `--fail-fast INT` | `0` | Stop a task after N consecutive `infra_error`/`timeout` attempts (`0` disables; counts attempts, not invocations) |
 | `--model TARGET` | `claude-code` | Model being evaluated: `backend`, `model`, or `backend:model` ([syntax](docs/backends.md#selecting-an-engine)) |
 | `--judge-model TARGET` | the `--model` backend | Judge engine, same syntax |
-| `--user-customizations` / `--no-user-customizations` | the spec's `user_customizations`, else on | Load your user skills, plugins, rules, settings and connectors into attempts, or isolate. See [Portable scores](#portable-scores) |
+| `--user-customizations` / `--no-user-customizations` | the spec's `user_customizations`, else on | Load your user skills, plugins, rules, settings, connectors and synced claude.ai skills into attempts, or isolate. See [Portable scores](#portable-scores) |
 | `--verbose` | off | Show every task with its `expect`, and per attempt the judge reasoning and any judge script |
 | `--output PATH` | none | Also save results JSON to a specific path |
 

@@ -127,8 +127,8 @@ validation.
   start stops the run as a configuration error. `pi` has no MCP support;
   `claude-code`, `codex` and `hermes` do.
 - **User customizations.** By default a run also loads the user's own skills,
-  rules, settings, plugins, MCP servers and connectors, so a task may rely on a
-  connector the user has. Put `user_customizations: false` at the top of the
+  rules, settings, plugins, MCP servers, connectors and (on `claude-code`) the
+  skills synced from claude.ai, so a task may rely on a connector the user has. Put `user_customizations: false` at the top of the
   spec for a portable score (see "Whose setup is measured" in
   [SKILL.md](SKILL.md)).
 

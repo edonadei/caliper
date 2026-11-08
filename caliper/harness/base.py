@@ -681,7 +681,7 @@ class CliHarness(HarnessBackend):
             refusal=refusal,
             loaded_user_customizations=staged.loaded(report),
             user_skill_paths=staged.plugin_skill_paths,
-            user_skill_names=staged.skill_names,
+            user_skill_names=staged.user_skill_names(report),
             builtin_skill_names=staged.builtin(report),
         )
 
@@ -876,6 +876,9 @@ class CliHarness(HarnessBackend):
     # :mod:`caliper.harness.user_layer` (docs/adr/0028).
     user_rules: tuple[str, ...] = ()
     user_settings_file: str | None = None
+    # The namespace of skills the CLI syncs from the user's account into every
+    # session, which the exposed list names but no staged file does.
+    synced_skill_prefix: str | None = None
 
     # The variable this backend's CLI reads its config home from, and that
     # home's default relative to the user's home. Attempts take the user's
