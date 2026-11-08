@@ -21,7 +21,12 @@ from caliper.harness.base import (
     RunContext,
     stream_events,
 )
-from caliper.harness.history import PlantedSkill, Session, SessionFormat
+from caliper.harness.history import (
+    PlantedSession,
+    PlantedSkill,
+    Session,
+    SessionFormat,
+)
 from caliper.harness.refusal import AUTH_MARKERS, ConfigSignal
 from caliper.schema.results import TokenUsage
 from caliper.schema.spec import PlantedShellCall
@@ -66,8 +71,6 @@ class PiHarness(CliHarness):
         "caliper, run them on the claude-code backend (--model claude-code)."
     )
 
-    supports_history = True
-
     cli_name = "pi"
     cli_path_env_var = "PI_CLI_PATH"
     config_home_env = "PI_CODING_AGENT_DIR"
@@ -97,16 +100,18 @@ class PiHarness(CliHarness):
         home = self.attempt_config_home(ctx)
         return [home / name for name in ("auth.json", "settings.json", "models.json")]
 
+    @property
+    def session_format(self) -> SessionFormat:
+        return PI_SESSION
+
     def _command(
-        self, ctx: RunContext
+        self, ctx: RunContext, planted: PlantedSession | None
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
         pi = self.cli_path() or "pi"
         # The prompt becomes the next user turn after the planted ones. The JSON
         # stream does not replay them, so they never reach the transcript.
         session = ["--no-session"]
-        if ctx.history:
-            home = self.attempt_config_home(ctx)
-            planted = PI_SESSION.plant(ctx, home, self.skills_root(ctx))
+        if planted is not None:
             session = ["--session", str(planted.path)]
         cmd = [
             pi,

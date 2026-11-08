@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 
 from conftest import patch_cli_calls, run_context
 
 from caliper.harness.base import RunContext
 from caliper.harness.claude_code import ClaudeCodeHarness
+from caliper.schema.spec import McpServer
 
 
 def _agent_says(text: str):
@@ -41,9 +43,9 @@ class _Recording(ClaudeCodeHarness):
         super().__init__(**kwargs)
         self.seen: list[RunContext] = []
 
-    def _command(self, ctx: RunContext):
+    def _command(self, ctx: RunContext, planted):
         self.seen.append(ctx)
-        return super()._command(ctx)
+        return super()._command(ctx, planted)
 
 
 def _run(harness: ClaudeCodeHarness, tmp_path, **overrides):
@@ -144,3 +146,28 @@ def test_the_context_owns_its_lists(tmp_path) -> None:
 
     assert neighbourhood == []
     assert forbidden == ["answer.md"]
+
+
+def test_the_mcp_preflight_is_not_counted_as_the_agents_wall_time(
+    monkeypatch, tmp_path
+) -> None:
+    """An attempt's duration is the agent's own run (docs/CONTEXT.md → Wall-clock time).
+
+    The last MCP check happens in the attempt's environment just before the
+    agent starts, but checking a server is not the agent working, so a slow
+    server start must not read as a slow agent.
+    """
+    patch_cli_calls(monkeypatch, _agent_says("done"))
+    monkeypatch.setattr(
+        "caliper.harness.mcp.preflight_stdio_servers",
+        lambda *a, **kw: time.sleep(0.5),
+    )
+
+    result = ClaudeCodeHarness().run(
+        run_context(
+            isolated_home=str(tmp_path / "home"),
+            mcp_servers={"echo": McpServer(command="python3", args=["s.py"])},
+        )
+    )
+
+    assert result.duration_seconds < 0.5

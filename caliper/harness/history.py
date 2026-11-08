@@ -8,8 +8,9 @@ attempt's workdir. This module does that work. A backend declares only what
 differs, as a :class:`SessionFormat`: where the file goes, its header, how each
 kind of turn is spelled, and how a message is wrapped as a line.
 
-:meth:`SessionFormat.plant` returns the session's id and path; where that goes
-in the resume argv stays with the backend's ``_command``.
+A backend declares its format as ``CliHarness.session_format``. The base plants
+the session once the skills are installed and hands the :class:`PlantedSession`
+to the backend's ``_command``, which decides where it goes in the resume argv.
 """
 
 from __future__ import annotations

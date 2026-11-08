@@ -7,14 +7,13 @@ import shutil
 import sys
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
 
 from caliper.harness.base import (
     AgentReport,
-    AttemptResult,
     CliHarness,
     ConversationTurn,
     HarnessConfigurationError,
@@ -25,6 +24,7 @@ from caliper.harness.base import (
     stream_events,
 )
 from caliper.harness.cli_config import YAML, CliConfig
+from caliper.harness.history import PlantedSession
 from caliper.harness.refusal import AUTH_MARKERS, ConfigSignal
 from caliper.schema.results import TokenUsage
 
@@ -151,10 +151,11 @@ class HermesHarness(CliHarness):
     def name(self) -> str:
         return "hermes"
 
-    def run(self, ctx: RunContext) -> AttemptResult:
+    @contextlib.contextmanager
+    def _attempt_scope(self, ctx: RunContext) -> Iterator[None]:
         attempt_home = self._attach_windows_home(ctx)
         try:
-            return super().run(ctx)
+            yield
         finally:
             # After the read, not in _command's cleanup: a timed-out attempt's
             # recovery export and the MCP inventory both read this home.
@@ -237,7 +238,7 @@ class HermesHarness(CliHarness):
         }
 
     def _command(
-        self, ctx: RunContext
+        self, ctx: RunContext, planted: PlantedSession | None
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
         # One shell invocation: run oneshot (its final text and any error go to
         # stderr, where _diagnose reads them), then export the single persisted
