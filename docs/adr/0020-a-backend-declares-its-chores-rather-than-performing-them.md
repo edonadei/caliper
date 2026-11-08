@@ -163,4 +163,18 @@ call it too. It is not on `HarnessBackend`: the run seam stays `run(ctx)`
 ([0023](0023-the-run-seam-takes-one-context.md)). hermes' Windows junction
 ([0037](0037-hermes-attempt-home-lives-under-the-hermes-root-on-windows.md))
 stays in hermes' `run`, around the whole attempt, because it can only be
-released after the read.
+released after the read. (Amended below: it moved to `_attempt_scope`.)
+
+**Amended: the base plants the history and owns the attempt's span.**
+claude-code, codex and pi still called their `SessionFormat`'s `plant` by hand
+inside `_command`. That only worked because `_command` happens to run after the
+skill neighbourhood is installed, which a planted `/name` reads. A backend now
+declares `session_format`, and its `supports_history` follows from it. The base
+plants the session after `stage_home` and passes it to
+`_command(ctx, planted)`, which only spells the resume. hermes' Windows junction
+moved out of its `run` override into `_attempt_scope(ctx)`. That is a context
+manager the base enters after readiness and exits after the result is
+assembled, so the backend no longer needs to know the order of `run`'s phases.
+The MCP preflight in the attempt's environment also moved ahead of the
+attempt's clock. Checking a server is not the agent working, and
+[wall-clock time](../CONTEXT.md) is measured around `_execute`.

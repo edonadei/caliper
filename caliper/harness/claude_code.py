@@ -25,7 +25,12 @@ from caliper.harness.base import (
     RunContext,
     stream_events,
 )
-from caliper.harness.history import PlantedSkill, Session, SessionFormat
+from caliper.harness.history import (
+    PlantedSession,
+    PlantedSkill,
+    Session,
+    SessionFormat,
+)
 from caliper.harness.mcp import merge_user_servers, resolve_servers
 from caliper.harness.refusal import ConfigSignal
 from caliper.schema.results import TokenUsage
@@ -86,7 +91,6 @@ class ClaudeCodeHarness(CliHarness):
         self._host_refresh_tried = False
 
     supports_mcp = True
-    supports_history = True
     # Claude Code 2.1.292 made MCP 2026-07-28 its default for stdio servers.
     speaks_modern_mcp = True
     user_rules = ("CLAUDE.md",)
@@ -304,8 +308,12 @@ class ClaudeCodeHarness(CliHarness):
             config["mcpServers"] = kept
             path.write_text(json.dumps(config, indent=2))
 
+    @property
+    def session_format(self) -> SessionFormat:
+        return CLAUDE_SESSION
+
     def _command(
-        self, ctx: RunContext
+        self, ctx: RunContext, planted: PlantedSession | None
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
         # The skill neighbourhood is installed at .claude/skills/<name>/ by the
         # template method and left for the agent to discover (docs/adr/0013);
@@ -336,9 +344,7 @@ class ClaudeCodeHarness(CliHarness):
 
         # The prompt becomes the next user turn after the planted ones. The
         # stream does not replay them, so they never reach the transcript.
-        if ctx.history:
-            home = self.attempt_config_home(ctx)
-            planted = CLAUDE_SESSION.plant(ctx, home, self.skills_root(ctx))
+        if planted is not None:
             cmd += ["--resume", planted.id]
 
         # Last, behind `--`, so a prompt like `--version` is the task rather
