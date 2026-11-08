@@ -25,3 +25,12 @@ tasks:
       Google Drive, Google Calendar, GitHub, or Vercel. Built-in tools (shell,
       web search, file editing, and the like) don't count, nor does a service
       mentioned only as reachable through a CLI or named in documentation.
+  # Same leak, other source: Claude Code syncs the skills enabled on claude.ai
+  # into every session under anthropic-skills:*, outside any file caliper rewrites.
+  - name: Sees no synced account skills
+    prompt: >
+      List the exact name of every skill available to you whose name starts with
+      "anthropic-skills:", one per line, or say there are none. Don't load any.
+    expect: >
+      The response names no skill starting with "anthropic-skills:" and says
+      there are none.

@@ -439,7 +439,9 @@ recorded. Only the version is saved, never the binary's path.
   field existed), and
   `RunMeta.loaded_user_customizations` the names the backend could identify,
   with kind prefixes: `mcp:gmail`, `skill:personal`, `plugin:review@market`,
-  `rules:CLAUDE.md`, `settings:config.toml`. Declared names are excluded.
+  `rules:CLAUDE.md`, `settings:config.toml`. A skill Claude Code synced from
+  claude.ai is a `skill:` entry under its own name (`skill:anthropic-skills:pdf`),
+  never a built-in skill. Declared names are excluded.
   When the backend cannot list its MCP servers (for example Codex's hosted
   plugins), the other names are still recorded beside an `mcp:(not listed)`
   marker, so a partial inventory is not presented as complete. `None` means
