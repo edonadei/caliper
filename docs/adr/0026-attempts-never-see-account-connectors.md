@@ -25,8 +25,9 @@ So each backend turns them off at the invocation:
   no block, `mcp: {}`, and an all-ablated block now all isolate to zero servers.
   It also passes `--settings` with `syncClaudeAiSkills` and
   `syncClaudeAiPlugins` set to false, since the CLI also syncs the skills and
-  plugins enabled on claude.ai into every session (`anthropic-skills:*`). That
-  setting overrides the user's for this one invocation, so nothing on disk changes.
+  plugins enabled on claude.ai into every session (`anthropic-skills:*`). The
+  flag applies to that invocation only, so no settings file is written, and on
+  the judge, which reads the user's real settings, it outranks them.
 - `codex` passes `-c features.apps=false -c features.plugins=false`. A `-c`
   override wins over any `[features]` table in the seeded `config.toml`, so it
   needs no TOML merge. It is a second local exception to
@@ -44,4 +45,6 @@ attempt's tools.
 - The smoke evals carry probe tasks that ask the agent to name its connectors, so
   a CLI update that adds a new source of them fails there. That is also the only
   guard on codex's feature names: codex ignores a `-c features.<name>` it doesn't
-  know, so a renamed feature would bring the leak back silently.
+  know, so a renamed feature would bring the leak back silently. Claude Code's
+  `syncClaudeAi*` keys have the same exposure, so `claude-code-smoke` also asks
+  the agent to name its synced skills.

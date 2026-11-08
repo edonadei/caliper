@@ -42,12 +42,17 @@ _REFRESH_WINDOW_MS = 5 * 60 * 1000
 # Held while one attempt refreshes the operator's login on the host, so the
 # others wait and copy the result instead of refreshing it themselves.
 _host_refresh = threading.Lock()
-# Turns off the skills and plugins the CLI syncs from the claude.ai account,
-# which arrive through the login like its connectors do (docs/adr/0026).
-_NO_ACCOUNT_SYNC = [
+# The login carries the account's claude.ai connectors and the skills and
+# plugins it syncs from claude.ai, none of which live in a file caliper
+# rewrites. --strict-mcp-config drops the connectors, and the --settings
+# override turns off the sync for this invocation only, so neither an isolated
+# attempt nor the judge sees them (docs/adr/0026); an attempt loading user
+# customizations leaves them on (docs/adr/0028).
+NO_ACCOUNT_CONTENT = (
+    "--strict-mcp-config",
     "--settings",
     '{"syncClaudeAiSkills":false,"syncClaudeAiPlugins":false}',
-]
+)
 
 
 def preferred_nvm_node_bin() -> str | None:
@@ -90,6 +95,8 @@ class ClaudeCodeHarness(CliHarness):
     speaks_modern_mcp = True
     user_rules = ("CLAUDE.md",)
     user_settings_file = "settings.json"
+    # Skills synced from claude.ai answer only to this namespace.
+    synced_skill_prefix = "anthropic-skills:"
     # Attempts spawn a bare `claude`; see `spawned_cli` for where it resolves.
     cli_name = "claude"
     # The CLI classifies a real skill only at .claude/skills/<name>/SKILL.md and
@@ -322,16 +329,15 @@ class ClaudeCodeHarness(CliHarness):
         ]
 
         mcp_config = self._materialize_mcp_config(ctx)
-        # --strict-mcp-config so the attempt sees ONLY the declared servers —
-        # never the account's claude.ai connectors, which the seeded login
-        # brings along otherwise (docs/adr/0026). The config file (which may hold
-        # resolved secrets) lives in the 0700 run tempdir, never argv.
+        # The config file (which may hold resolved secrets) lives in the 0700
+        # run tempdir, never argv.
         cmd += ["--mcp-config", str(mcp_config)]
-        # Loading user customizations drops it, so the declared servers merge
-        # with the user's own and the account's connectors (docs/adr/0028).
+        # Isolated, the attempt sees ONLY the declared servers and none of the
+        # account's content. Loading user customizations drops the switches, so
+        # the declared servers merge with the user's own and the account's
+        # (docs/adr/0028).
         if not ctx.user_customizations:
-            cmd.append("--strict-mcp-config")
-            cmd += _NO_ACCOUNT_SYNC
+            cmd += NO_ACCOUNT_CONTENT
 
         if ctx.model:
             cmd += ["--model", ctx.model]
@@ -499,12 +505,10 @@ class ClaudeCodeHarness(CliHarness):
     def _prompt_command(self, prompt: str, model: str | None) -> PromptCall:
         # JSON output (over plain text) so we can read the *concrete* model
         # Claude used — the answer lives in `.result`, the model in `.modelUsage`.
-        # --strict-mcp-config with no --mcp-config: the judge sees no MCP
-        # servers, so the account's claude.ai connectors neither reach it nor
-        # get mistaken for the attempt's tools (docs/adr/0026). The account's
-        # synced skills and plugins stay out for the same reason.
-        cmd = ["claude", "-p", "--output-format", "json", "--strict-mcp-config"]
-        cmd += _NO_ACCOUNT_SYNC
+        # With no --mcp-config the judge sees no MCP servers, so the account's
+        # content neither reaches it nor gets mistaken for the attempt's tools
+        # (docs/adr/0026).
+        cmd = ["claude", "-p", "--output-format", "json", *NO_ACCOUNT_CONTENT]
         if model:
             cmd += ["--model", model]
         cmd += ["--", prompt]

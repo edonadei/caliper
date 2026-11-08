@@ -66,8 +66,9 @@ _Avoid_: MCP config, tool server.
 ## User customizations
 
 What a backend's CLI loads from the user's own setup rather than from the
-[[eval spec]]: user skills, plugins, rules, settings, MCP servers and hosted
-connectors supported by that backend. A run loads them by default beside its
+[[eval spec]]: user skills, plugins, rules, settings, MCP servers, hosted
+connectors, and skills and plugins the CLI syncs from the user's account
+(Claude Code's `anthropic-skills:*`), as far as that backend supports them. A run loads them by default beside its
 declared skills and [[MCP server (declared)|declared servers]].
 What gets loaded depends on the machine, not the spec, and a user-only skill or server is
 never an [[ablation]] subject. The opposite is an *isolated* run, which sees

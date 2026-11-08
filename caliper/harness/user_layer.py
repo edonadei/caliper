@@ -49,11 +49,27 @@ class StagedUserLayer:
     # Namespaced plugin skills, by command name, to the path their reads match:
     # their file paths do not contain their names.
     plugin_skill_paths: dict[str, str] = field(default_factory=dict)
+    # The namespace of skills synced from the user's account (see
+    # ``CliHarness.synced_skill_prefix``); ``None`` when the backend has none.
+    synced_skill_prefix: str | None = None
 
     @property
     def skill_names(self) -> list[str]:
-        """Every skill the user layer brought, for activation to recognize."""
+        """Every skill the user layer staged."""
         return sorted(set(self.skills) | set(self.plugin_skill_paths))
+
+    def synced(self, report: AgentReport) -> set[str]:
+        """The exposed skills synced from the user's account, by name."""
+        prefix = self.synced_skill_prefix
+        if not prefix or report.exposed_skills is None:
+            return set()
+        return {name for name in report.exposed_skills if name.startswith(prefix)}
+
+    def user_skill_names(self, report: AgentReport) -> list[str]:
+        """Every skill the user layer brought, for activation to recognize."""
+        if not self.loads_user_layer:
+            return self.skill_names
+        return sorted(set(self.skill_names) | self.synced(report))
 
     def loaded(self, report: AgentReport) -> list[str] | None:
         """What ``AttemptResult.loaded_user_customizations`` records.
@@ -66,7 +82,10 @@ class StagedUserLayer:
         """
         if not self.loads_user_layer:
             return None
-        staged = {*self.files, *(f"skill:{name}" for name in self.skill_names)}
+        staged = {
+            *self.files,
+            *(f"skill:{name}" for name in self.user_skill_names(report)),
+        }
         servers = report.mcp_servers
         if servers is None:
             return sorted({UNLISTED_MCP, *staged})
@@ -77,13 +96,19 @@ class StagedUserLayer:
     def builtin(self, report: AgentReport) -> list[str] | None:
         """The exposed skills that are neither declared nor the user's own.
 
+        A skill synced from the user's account is the user's own, never
+        built-in, even in an isolated attempt the sync should have kept it out of.
+
         ``None`` when the CLI does not list what it exposed (docs/CONTEXT.md →
         Built-in skill).
         """
         if report.exposed_skills is None:
             return None
         return sorted(
-            set(report.exposed_skills) - self.spec_skill_names - set(self.skill_names)
+            set(report.exposed_skills)
+            - self.spec_skill_names
+            - set(self.skill_names)
+            - self.synced(report)
         )
 
 
@@ -98,7 +123,9 @@ def stage(harness: CliHarness, ctx: RunContext) -> StagedUserLayer:
     # (environment.choose_user_customizations); checked once more here so no
     # other context can stage a layer that backend has nothing to load into.
     isolated = StagedUserLayer(
-        spec_skill_names=ctx.spec_skill_names, spec_mcp_names=ctx.spec_mcp_names
+        spec_skill_names=ctx.spec_skill_names,
+        spec_mcp_names=ctx.spec_mcp_names,
+        synced_skill_prefix=harness.synced_skill_prefix,
     )
     if not (ctx.user_customizations and harness.supports_mcp):
         return isolated

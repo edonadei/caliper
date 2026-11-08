@@ -287,9 +287,10 @@ agent never sees its tool definitions.
   (below). `--ablate` only names declared servers, never loaded ones.
 - An isolated run (`--no-user-customizations`, or `user_customizations: false`) sees exactly the
   surviving declared servers, none when every one is ablated or there's no
-  `mcp:` block: `claude-code` runs with `--strict-mcp-config`, and `codex` with
-  its `apps` and `plugins` features off. The judge keeps its existing connector isolation,
-  so it can't mistake your connectors for the attempt's.
+  `mcp:` block: `claude-code` runs with `--strict-mcp-config` and its claude.ai
+  skill and plugin sync off, and `codex` with its `apps` and `plugins` features
+  off. The judge keeps the same isolation, so it can't mistake your connectors
+  or synced skills for the attempt's.
 
 ### User customizations (`user_customizations:`)
 
