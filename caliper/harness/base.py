@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shlex
@@ -34,6 +35,7 @@ from caliper.workdir import StepCancelled
 
 if TYPE_CHECKING:
     from caliper.harness.cli_config import CliConfig
+    from caliper.harness.history import PlantedSession, SessionFormat
     from caliper.harness.user_layer import StagedUserLayer
 
 _POST_KILL_DRAIN_TIMEOUT = 1
@@ -511,6 +513,7 @@ class HarnessBackend(ABC):
     # Whether this backend can resume an attempt from a task's planted
     # ``history:``. Default ``False``: the run seam refuses such a spec rather
     # than starting the agent at turn 1 on a different task (docs/adr/0036).
+    # A ``CliHarness`` derives it from its ``session_format``.
     supports_history: bool = False
 
     # Appended to that refusal by a backend whose lack of support is by design.
@@ -623,18 +626,30 @@ class CliHarness(HarnessBackend):
         ctx = replace(ctx, model=ctx.model or self._model)
 
         self._ensure_ready(ctx)
+        with self._attempt_scope(ctx):
+            return self._attempt(ctx)
+
+    def _attempt(self, ctx: RunContext) -> AttemptResult:
+        """One attempt, start to finish, inside :meth:`_attempt_scope`."""
         staged = self.stage_home(ctx)
-        cmd, stdin, cleanup = self._command(ctx)
+        # After the skill neighbourhood is installed: a planted ``/name``
+        # expands the installed SKILL.md (docs/adr/0036).
+        planted = None
+        if ctx.history and self.session_format is not None:
+            planted = self.session_format.plant(
+                ctx, self.attempt_config_home(ctx), self.skills_root(ctx)
+            )
+        cmd, stdin, cleanup = self._command(ctx, planted)
         env = self._environment(ctx)
 
-        start = time.monotonic()
         try:
             if ctx.mcp_servers:
                 from caliper.harness.mcp import preflight_stdio_servers
 
-                # Check again in the actual attempt environment immediately
-                # before the agent starts. A server can fail after the run's
-                # initial preflight or depend on the backend's isolated env.
+                # In the attempt's own environment, immediately before the
+                # agent starts: a server can depend on the backend's isolated
+                # env. Before the clock, since checking a server is not the
+                # agent working (docs/CONTEXT.md → Wall-clock time).
                 preflight_stdio_servers(
                     ctx.mcp_servers,
                     env=env,
@@ -642,6 +657,7 @@ class CliHarness(HarnessBackend):
                     timeout=ctx.timeout,
                     speaks_modern=self.speaks_modern_mcp,
                 )
+            start = time.monotonic()
             proc = self._execute(
                 cmd, env=env, cwd=ctx.workdir, timeout=ctx.timeout, stdin=stdin
             )
@@ -842,6 +858,29 @@ class CliHarness(HarnessBackend):
         """
         return []
 
+    @property
+    def session_format(self) -> SessionFormat | None:
+        """How this backend's CLI stores a session it can resume, if it can.
+
+        Declared rather than planted by hand (docs/adr/0020): the base plants a
+        task's history in this format and hands the session to :meth:`_command`,
+        which only spells the resume. Default: none, so no history. A property
+        so a backend can name a format its module defines below the class.
+        """
+        return None
+
+    @property
+    def supports_history(self) -> bool:
+        return self.session_format is not None
+
+    def _attempt_scope(self, ctx: RunContext) -> contextlib.AbstractContextManager:
+        """Whatever must exist for the whole attempt, from staging to the read.
+
+        Entered after readiness and exited after the result is assembled, so a
+        timed-out attempt's recovery still finds it. Default: nothing.
+        """
+        return contextlib.nullcontext()
+
     # The config file this backend rewrites rather than copies, because it holds
     # the CLI's MCP servers beside its login (:mod:`caliper.harness.cli_config`).
     # Written after ``_seed_home`` and before ``_prepare``. Default: none.
@@ -951,9 +990,12 @@ class CliHarness(HarnessBackend):
 
     @abstractmethod
     def _command(
-        self, ctx: RunContext
+        self, ctx: RunContext, planted: PlantedSession | None
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
         """Return ``(argv, stdin_payload, cleanup)`` for the agent invocation.
+
+        ``planted`` is the session planted from the task's history, for the argv
+        to resume; ``None`` when there is none (:attr:`session_format`).
 
         ``stdin_payload`` is fed to the process's stdin when not ``None``;
         ``cleanup`` runs after the process exits (e.g. to remove a staged file).

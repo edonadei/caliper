@@ -748,7 +748,7 @@ class _AttemptPreflightHarness(CliHarness):
     def name(self) -> str:
         return "attempt-preflight"
 
-    def _command(self, ctx: RunContext):
+    def _command(self, ctx: RunContext, planted):
         return (
             [sys.executable, "-c", "print('ok')"],
             None,

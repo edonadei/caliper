@@ -119,7 +119,7 @@ class SleepHarness(CliHarness):
     def name(self) -> str:
         return "sleep"
 
-    def _command(self, ctx):  # pragma: no cover - driven through _execute
+    def _command(self, ctx, planted):  # pragma: no cover - driven through _execute
         return ["sleep", "30"], None, None
 
     def _environment(self, ctx) -> dict[str, str]:  # pragma: no cover

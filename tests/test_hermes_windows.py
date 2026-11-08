@@ -76,7 +76,7 @@ def test_windows_without_localappdata_falls_back_under_the_profile(
 def test_shell_is_found_on_path_only_on_windows(platform, monkeypatch) -> None:
     # Windows' CreateProcess cannot resolve the POSIX path /bin/sh (WinError 2).
     monkeypatch.setattr(sys, "platform", platform)
-    argv, _, _ = HermesHarness()._command(run_context())
+    argv, _, _ = HermesHarness()._command(run_context(), None)
 
     assert argv[0] == ("sh" if platform == "win32" else "/bin/sh")
 

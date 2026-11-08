@@ -489,7 +489,7 @@ def test_timeout_keeps_the_agents_partial_transcript_and_activation(tmp_path) ->
         def _prepare(self, ctx):
             pass
 
-        def _command(self, ctx):
+        def _command(self, ctx, planted):
             script = (
                 "import json, time; "
                 "print(json.dumps({'type': 'item.completed', 'item': "
@@ -859,7 +859,7 @@ class _ReadyHarness(CliHarness):
     def stage_home(self, ctx):
         raise _PastReadiness
 
-    def _command(self, ctx):  # pragma: no cover - unused here
+    def _command(self, ctx, planted):  # pragma: no cover - unused here
         raise NotImplementedError
 
     def _environment(self, ctx):  # pragma: no cover - unused here

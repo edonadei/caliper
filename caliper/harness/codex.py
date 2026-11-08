@@ -22,7 +22,12 @@ from caliper.harness.base import (
     stream_events,
 )
 from caliper.harness.cli_config import TOML, CliConfig
-from caliper.harness.history import PlantedSkill, Session, SessionFormat
+from caliper.harness.history import (
+    PlantedSession,
+    PlantedSkill,
+    Session,
+    SessionFormat,
+)
 from caliper.harness.mcp import ResolvedMcpServer
 from caliper.harness.refusal import AUTH_MARKERS, ConfigSignal
 from caliper.schema.results import TokenUsage
@@ -164,7 +169,6 @@ class CodexHarness(CliHarness):
         self._plan_login = account if account.signed_in else None
 
     supports_mcp = True
-    supports_history = True
     cli_config = CODEX_CONFIG
     # Named outright rather than left to HOME: codex resolves its home through
     # CODEX_HOME before HOME (#112).
@@ -235,8 +239,12 @@ class CodexHarness(CliHarness):
                     link.unlink()
                     link.symlink_to(resolved)
 
+    @property
+    def session_format(self) -> SessionFormat:
+        return CODEX_ROLLOUT
+
     def _command(
-        self, ctx: RunContext
+        self, ctx: RunContext, planted: PlantedSession | None
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
         # The prompt goes to the agent unmodified. Codex has no force-load flag,
         # and caliper no longer invents one: the skill is installed at
@@ -260,9 +268,7 @@ class CodexHarness(CliHarness):
         # The prompt becomes the next user turn after the planted ones. The
         # exec flags stay ahead of the subcommand, and the JSON stream does not
         # replay the planted turns, so they never reach the transcript.
-        if ctx.history:
-            home = self.attempt_config_home(ctx)
-            planted = CODEX_ROLLOUT.plant(ctx, home, self.skills_root(ctx))
+        if planted is not None:
             cmd[-1:-1] = ["resume", planted.id]
         return cmd, full_prompt, None
 
