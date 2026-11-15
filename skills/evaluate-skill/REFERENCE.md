@@ -16,6 +16,7 @@ caliper run spec.eval.yaml --verbose              # expect, judge reasoning and 
 
 caliper list                                      # every spec with its latest score
 caliper list my-skill                             # one spec's runs, ablated ones marked
+caliper list my-skill --format json               # the same, with each run's path
 caliper report my-skill                           # latest run as a table
 caliper report my-skill --run 2026-05-12T14-23-01Z --verbose
 caliper report results.json --format json

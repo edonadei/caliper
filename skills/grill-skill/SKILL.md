@@ -72,7 +72,7 @@ Before anyone edits the skill, check that the tasks can tell it apart from the c
 - **The skill fired, and the control scores about as well as the full run**: the task doesn't need the skill, so iterating on the skill against it measures nothing. Sharpen the task with the user (a harder input, the specific rule the skill adds), then re-run both.
 - **Full run clearly ahead**: the task measures the skill. Keep it.
 
-Keep the control's results path (`caliper list <spec-name>` shows which run was ablated). The skill isn't installed in that run, so editing `SKILL.md` can't move its number: re-diff against it instead of re-running it. Re-run it only when the tasks or the declared skills change.
+Keep the control's results path: in `caliper list <spec-name> --format json`, it's the `path` of the run whose `ablated` names the skill. The skill isn't installed in that run, so editing `SKILL.md` can't move its number: re-diff against it instead of re-running it. Re-run it only when the tasks or the declared skills change.
 
 ## Phase 5 — Diagnose and iterate
 

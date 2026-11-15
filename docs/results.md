@@ -181,6 +181,27 @@ name (which resolves to its latest run) or a path to a results JSON. To pin a
 historical run, name its JSON path. `caliper list <spec>` shows each run's ID and
 what it ablated.
 
+For a script or an agent, `caliper list <spec> --format json` prints the same
+runs, oldest first, one object each:
+
+```json
+[
+  {
+    "run": "2026-11-15T17-02-11Z",
+    "path": "/home/me/project/.caliper/results/inbox-triage/2026-11-15T17-02-11Z.json",
+    "k": 3,
+    "tasks": 5,
+    "score": 0.8,
+    "ablated": ["inbox-triage"],
+    "interrupted": false
+  }
+]
+```
+
+`path` is absolute, and is what `compare` takes. `score` is the success rate as
+a fraction, and `null` when the run measured nothing. A file that can't be read
+keeps its row, with `null` in every field but `run` and `path`, plus an `error`.
+
 <!-- Terminal output of `caliper compare`, rendered to SVG so the box-drawing
      table stays aligned on every screen. Regenerate with:
        python docs/render_readme_samples.py -->

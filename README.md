@@ -336,7 +336,7 @@ The full format, with every field, is in
 |---|---|
 | `caliper run <spec>` | Run an evaluation spec |
 | `caliper validate <spec>` | Validate a spec file |
-| `caliper list [spec]` | List specs and saved runs. Per spec, each row shows its **Run** ID and what that run **ablated**, which is how you find the run to diff against |
+| `caliper list [spec]` | List specs and saved runs. Per spec, each row shows its **Run** ID and what that run **ablated**, which is how you find the run to diff against. `--format json` prints one spec's runs with each one's path |
 | `caliper report <spec-or-result>` | Re-render saved results |
 | `caliper compare <A> <B>` | Diff two saved runs of the same eval, task by task. Each side is a spec name (that spec's **latest** run) or a results-JSON path; they must be two distinct runs |
 | `caliper login chatgpt` | Sign Caliper in to ChatGPT, so `codex` attempts and the judge run on your plan without touching `~/.codex/auth.json` ([details](docs/backends.md#running-on-your-chatgpt-plan)) |
