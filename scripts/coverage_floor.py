@@ -1,8 +1,8 @@
 """Fail when any module in ``[tool.coverage.report] include`` is below the floor.
 
-``coverage report --fail-under`` checks the total, so one big module at 100%
-hides a small one at 80%. Run after ``pytest --cov`` and ``coverage json``:
-``python scripts/coverage_floor.py coverage.json``.
+Lines and branches are each held to it, per module: ``--fail-under`` checks one
+combined total, where a big module hides a small one and lines hide branches.
+Run after ``pytest --cov``: ``python scripts/coverage_floor.py coverage.json``.
 """
 
 from __future__ import annotations
@@ -23,11 +23,14 @@ def below_floor(report: dict, floor: float) -> list[str]:
     """One line per file under ``floor``, naming what the tests never reach."""
     lines = []
     for path, data in sorted(report["files"].items()):
-        pct = data["summary"]["percent_covered"]
-        if pct < floor:
-            branches = [f"{a}->{b}" for a, b in data.get("missing_branches", [])]
+        summary = data["summary"]
+        covered = summary["percent_statements_covered"]
+        branched = summary["percent_branches_covered"]
+        if covered < floor or branched < floor:
+            branches = [f"{a}->{b}" for a, b in data["missing_branches"]]
             lines.append(
-                f"{path}: {pct:.1f}% < {floor:g}%; "
+                f"{path}: lines {covered:.1f}%, branches {branched:.1f}% "
+                f"(floor {floor:g}%); "
                 f"missing lines {data['missing_lines']}, branches {branches}"
             )
     return lines

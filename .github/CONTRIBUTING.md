@@ -183,7 +183,8 @@ faked at the subprocess boundary (`tests/conftest.py`).
 
 The pure domain modules (`caliper/schema/`, `compare.py`, `activation.py`,
 `attempt.py`, `sandbox.py`, `retry.py`) do no I/O, so a unit test can reach
-every branch. Each one must keep 95% branch coverage on its own. The list and
+every branch. Each one must keep 95% of its lines and 95% of its branches
+covered, on its own. The list and
 the floor are in `[tool.coverage.report]` in `pyproject.toml`, and
 `tests/test_architecture.py` keeps the list in step with the module tiers.
 
