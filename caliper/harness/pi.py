@@ -437,12 +437,20 @@ def _run_credential_command(command: str) -> str | None:
         return None
 
 
-def _command_output(cmd: str | list[str], **how: object) -> str | None:
+def _command_output(
+    cmd: str | list[str],
+    *,
+    input: str | None = None,
+    stdin: int | None = None,
+    shell: bool = False,
+) -> str | None:
     """Trimmed stdout of ``cmd`` when it exits 0 and prints something, else ``None``."""
     try:
         proc = subprocess.run(
             cmd,
-            **how,
+            input=input,
+            stdin=stdin,
+            shell=shell,
             capture_output=True,
             text=True,
             encoding="utf-8",

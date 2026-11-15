@@ -137,6 +137,33 @@ outside your change by hand, even to clean them up, because it makes the diff
 bigger and harder to review. If `ruff format` wants to reflow something, let it.
 If it doesn't, leave the code alone.
 
+## Type checking
+
+Caliper uses [**ty**](https://github.com/astral-sh/ty) as its static type checker
+([ADR 0048](../docs/adr/0048-ty-is-the-static-type-checker.md)). Ty type-checks
+`caliper/`, `docs/`, and `skills/` against the `requires-python = ">=3.10"` floor.
+
+### Pinned version
+
+Ty is pinned to **`ty==0.0.104`** so local runs and CI always agree. The pin
+lives in three places that must stay in lockstep:
+
+- `pyproject.toml`: the `dev` optional dependencies (`ty==0.0.104`)
+- `.github/CONTRIBUTING.md`: this file
+- `AGENTS.md`: the `Formatting` section
+
+CI runs `ty check` in the `lint` job of `.github/workflows/lint.yml`. Ty is
+intentionally not included in `.pre-commit-config.yaml`: pre-commit isolated
+environments lack third-party dependencies, and `language: system` hooks break
+GUI git clients that lack `.venv/bin` on `PATH`.
+
+### Commands
+
+```bash
+ty check                                    # type check within virtualenv
+uvx ty@0.0.104 --python .venv check         # run pinned version with uvx
+```
+
 ## Tests
 
 ```bash
@@ -171,7 +198,7 @@ The comment at the top of each file shows how to run it.
 
 | Job | What it runs |
 | --- | --- |
-| `lint` | `ruff format --check .` and `ruff check .` on Python 3.12 |
+| `lint` | `ruff format --check .`, `ruff check .`, and `ty check` on Python 3.12 |
 | `test` | the full suite on Linux, Python 3.10, 3.11, 3.12, and 3.13 |
 | `platform-test (macos-latest)` | the full suite on Python 3.12 |
 | `platform-test (windows-latest)` | the full suite on Python 3.12 |
@@ -205,6 +232,7 @@ Before opening a PR, run:
 pytest -q
 ruff format --check .
 ruff check .
+ty check
 caliper validate skills/evaluate-skill/evaluate-skill.eval.yaml
 ```
 

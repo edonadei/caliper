@@ -438,9 +438,13 @@ class OpenCodeHarness(CliHarness):
         state = part.get("state")
         state = state if isinstance(state, dict) else {}
         args = state.get("input")
-        output = state.get("output")
-        if not isinstance(output, str):
-            output = state.get("error") if isinstance(state.get("error"), str) else ""
+        output_val = state.get("output")
+        error_val = state.get("error")
+        output = (
+            output_val
+            if isinstance(output_val, str)
+            else (error_val if isinstance(error_val, str) else "")
+        )
         return [
             ConversationTurn(
                 role="tool_use",

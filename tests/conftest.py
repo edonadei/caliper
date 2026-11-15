@@ -105,7 +105,7 @@ class ScriptedHarness(HarnessBackend):
         self._effort = effort
         self.supports_mcp = supports_mcp
         self.mcp_unsupported_hint = mcp_unsupported_hint
-        self.supports_history = supports_history
+        self._supports_history = supports_history
         self._cli_version = cli_version
         self.contexts: list[RunContext] = []
         # Attempts run on worker threads (docs/adr/0018).
@@ -114,6 +114,10 @@ class ScriptedHarness(HarnessBackend):
     @property
     def name(self) -> str:
         return self._name
+
+    @property
+    def supports_history(self) -> bool:
+        return self._supports_history
 
     @property
     def calls(self) -> int:

@@ -95,7 +95,7 @@ class TokenUsage(BaseModel):
     cache_read_tokens: Count | None = None
     cache_creation_tokens: Count | None = None
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def total_tokens(self) -> int | None:
         """Sum of the four disjoint token fields, or ``None`` if none reported."""
@@ -361,13 +361,13 @@ class AttemptRecord(BaseModel):
     # trusting its timings. 0 on the overwhelming majority of attempts.
     retries: Count = 0
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def passed(self) -> bool:
         """Derived convenience: an attempt passed iff its outcome is ``pass``."""
         return self.outcome == Outcome.PASS
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def cheated(self) -> bool:
         return self.outcome == Outcome.CHEAT
@@ -573,13 +573,13 @@ class TaskResult(BaseModel):
         """The attempts' outcomes, counted; every count below reads it."""
         return OutcomeCounts([a.outcome for a in self.attempts])
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def successes(self) -> int:
         """Attempts that passed."""
         return self.counts.successes
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def unusable(self) -> int:
         """Attempts where an execution check *went wrong*.
@@ -590,7 +590,7 @@ class TaskResult(BaseModel):
         """
         return self.counts.unusable
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def usable(self) -> int:
         """Attempts that got a fair shot (the score denominator, docs/adr/0007).
@@ -601,20 +601,20 @@ class TaskResult(BaseModel):
         """
         return self.counts.usable
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def score(self) -> float | None:
         """The **raw success rate** over usable attempts — Caliper's primary
         metric. ``None`` when no attempt was fairly measured."""
         return self.counts.score
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def pass_at_k(self) -> float | None:
         """pass@k: P(at least one usable attempt passes) — the retry-friendly view."""
         return self.counts.pass_at_k
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def pass_hat_k(self) -> float | None:
         """pass^k: P(all usable attempts pass) — the strict consistency view."""
@@ -627,19 +627,19 @@ class TaskResult(BaseModel):
     # activation-usable *and* asserted on, which is what makes an unasserted
     # task render "skipped" rather than 0%.
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def activation_usable(self) -> int:
         return sum(1 for a in self.attempts if a.activation_scored)
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def activation_successes(self) -> int:
         return sum(
             1 for a in self.attempts if a.activation_scored and a.activation_passed
         )
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def activation_score(self) -> float | None:
         """Exact-set-match rate over activation-usable, asserted attempts.
@@ -722,7 +722,7 @@ class UsageTotals(BaseModel):
     retries: int = 0
     retried_attempts: int = 0
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def total_tokens(self) -> int:
         return (
@@ -732,18 +732,18 @@ class UsageTotals(BaseModel):
             + self.cache_creation_tokens
         )
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def prompt_tokens(self) -> int:
         """The "in" figure: non-cached input plus all cache tokens."""
         return self.input_tokens + self.cache_read_tokens + self.cache_creation_tokens
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def usable_attempts(self) -> int:
         return self.attempts - self.unusable_attempts
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def usable_wall_seconds(self) -> float:
         return self.wall_seconds - self.unusable_wall_seconds
@@ -751,21 +751,21 @@ class UsageTotals(BaseModel):
     # Per attempt over the usable ones, tokens and wall alike: an unusable
     # attempt's spend is reported on its own, not averaged in. ``None`` with no
     # usable attempt, rather than a total divided by a guessed 1.
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def tokens_per_attempt(self) -> int | None:
         if not self.tokens_reported or not self.usable_attempts:
             return None
         return (self.total_tokens - self.unusable_tokens) // self.usable_attempts
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def wall_per_attempt(self) -> float | None:
         if not self.usable_attempts:
             return None
         return self.usable_wall_seconds / self.usable_attempts
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def judge_per_attempt(self) -> float | None:
         """Over the attempts that reached a judge. ``None`` when none did: an
@@ -845,19 +845,19 @@ class SkillActivationStats(BaseModel):
     # Attempts where both were true.
     hits: Count
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def recall(self) -> float | None:
         """How often it fired when it was meant to. ``None`` if never expected."""
         return self.hits / self.expected if self.expected else None
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def precision(self) -> float | None:
         """How often it was meant to when it fired. ``None`` if it never fired."""
         return self.hits / self.fired if self.fired else None
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def opportunities(self) -> int:
         """Attempts that did *not* want this skill: its chances to over-fire.
@@ -867,13 +867,13 @@ class SkillActivationStats(BaseModel):
         """
         return max(self.total - self.expected, 0)
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def unwanted(self) -> int:
         """Attempts where it fired and was *not* expected: the hijacks."""
         return self.fired - self.hits
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def unwanted_rate(self) -> float | None:
         """How often it fired on attempts that did not want it. Lower is better.
@@ -1404,17 +1404,21 @@ class RunComparison(BaseModel):
 
     # The same average rule the run's own headline uses, so a delta is a
     # difference between two numbers built the same way.
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def a_matched_avg(self) -> float:
-        return mean_rate([tc.a_score for tc in self.comparable])
+        return mean_rate(
+            [tc.a_score for tc in self.comparable if tc.a_score is not None]
+        )
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def b_matched_avg(self) -> float:
-        return mean_rate([tc.b_score for tc in self.comparable])
+        return mean_rate(
+            [tc.b_score for tc in self.comparable if tc.b_score is not None]
+        )
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def aggregate_delta(self) -> float:
         return self.b_matched_avg - self.a_matched_avg
@@ -1435,31 +1439,39 @@ class RunComparison(BaseModel):
     # The activation scoreboard's headline, beside the execution one and never
     # folded in (docs/adr/0014). ``None`` when no task has verdicts on both
     # sides: on a skill-ablation pair one side has none at all.
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def a_matched_activation_avg(self) -> float | None:
         both = self.activation_comparable
-        return mean_rate([tc.a_activation for tc in both]) if both else None
+        return (
+            mean_rate([tc.a_activation for tc in both if tc.a_activation is not None])
+            if both
+            else None
+        )
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def b_matched_activation_avg(self) -> float | None:
         both = self.activation_comparable
-        return mean_rate([tc.b_activation for tc in both]) if both else None
+        return (
+            mean_rate([tc.b_activation for tc in both if tc.b_activation is not None])
+            if both
+            else None
+        )
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def aggregate_activation_delta(self) -> float | None:
         a, b = self.a_matched_activation_avg, self.b_matched_activation_avg
         return None if a is None or b is None else b - a
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def regressions(self) -> list[str]:
         """The matched tasks that regressed, by the any-below rule."""
         return [tc.task_name for tc in self.matched if tc.regression]
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def has_regression(self) -> bool:
         return bool(self.regressions)
@@ -1469,17 +1481,17 @@ class RunComparison(BaseModel):
     # one flag covering both would point at neither. A run can regress on
     # activation while execution is flat, and that is the signal a
     # `description` edit needs.
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def activation_regressions(self) -> list[str]:
         return [tc.task_name for tc in self.matched if tc.activation_regression]
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def has_activation_regression(self) -> bool:
         return bool(self.activation_regressions)
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def unmeasured(self) -> list[str]:
         """Matched tasks left out of the success average for want of a score on
@@ -1490,12 +1502,12 @@ class RunComparison(BaseModel):
             if (tc.a_score is None or tc.b_score is None) and not tc.probe
         ]
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def token_delta(self) -> int:
         return self.b_usage.total_tokens - self.a_usage.total_tokens
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def wall_delta(self) -> float:
         return self.b_usage.wall_seconds - self.a_usage.wall_seconds

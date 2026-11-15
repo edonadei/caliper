@@ -7,7 +7,7 @@ import shutil
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -153,7 +153,7 @@ class HermesHarness(CliHarness):
         return "hermes"
 
     @contextlib.contextmanager
-    def _attempt_scope(self, ctx: RunContext) -> Iterator[None]:
+    def _attempt_scope(self, ctx: RunContext) -> Generator[None, None, None]:
         attempt_home = self._attach_windows_home(ctx)
         try:
             yield

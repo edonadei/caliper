@@ -383,8 +383,10 @@ class CodexHarness(CliHarness):
         ``expect:``/``assert:`` on that name matches, plus a ``tool_result`` turn
         carrying any output/error/status the item reported.
         """
-        server = item.get("server")
-        tool = item.get("tool") or item.get("tool_name")
+        server_val = item.get("server")
+        tool_val = item.get("tool") or item.get("tool_name")
+        server = server_val if isinstance(server_val, str) else str(server_val or "")
+        tool = tool_val if isinstance(tool_val, str) else str(tool_val or "")
         qualified = mcp_tool_name(self.name, server, tool)
         args = item.get("arguments")
         turns = [

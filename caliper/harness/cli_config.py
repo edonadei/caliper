@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,9 +31,9 @@ from typing import TYPE_CHECKING
 import tomli_w
 import yaml
 
-try:
+if sys.version_info >= (3, 11):
     import tomllib
-except ModuleNotFoundError:  # Python 3.10, where tomllib is not yet stdlib
+else:
     import tomli as tomllib
 
 from caliper.harness.base import HarnessConfigurationError

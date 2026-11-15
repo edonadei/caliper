@@ -632,7 +632,9 @@ class ClaudeCodeHarness(CliHarness):
         Suffixed, as the CLI names it, with the first 8 hex digits of the
         config dir's sha256 when ``CLAUDE_CONFIG_DIR`` is set.
         """
-        config_dir = os.environ.get(self.config_home_env, "")
+        config_dir = (
+            os.environ.get(self.config_home_env, "") if self.config_home_env else ""
+        )
         if not config_dir:
             return "Claude Code-credentials"
         digest = hashlib.sha256(unicodedata.normalize("NFC", config_dir).encode())
@@ -752,7 +754,9 @@ class _ClaudeSession(SessionFormat):
     def assistant(
         self, text: str | None, calls: list[tuple[str, PlantedShellCall]]
     ) -> list[dict]:
-        blocks = [{"type": "text", "text": text}] if text else []
+        blocks: list[dict[str, object]] = (
+            [{"type": "text", "text": text}] if text else []
+        )
         blocks += [
             {
                 "type": "tool_use",

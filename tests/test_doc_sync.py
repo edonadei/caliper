@@ -37,6 +37,7 @@ _LOADER_KEYS = {"id"}
 
 _ADR_FILENAME = re.compile(r"^(\d{4})-[a-z0-9-]+\.md$")
 _RUFF_TEXT_PIN = re.compile(r"ruff(?:==|@)(\d+\.\d+\.\d+)")
+_TY_TEXT_PIN = re.compile(r"\bty(?:==|@)(\d+\.\d+\.\d+)")
 
 
 @functools.cache
@@ -352,6 +353,49 @@ def test_ruff_version_pin_in_lockstep() -> None:
 
     all_versions = {version for versions in pins.values() for version in versions}
     assert len(all_versions) == 1, f"keep ruff version pins in lockstep: {pins}"
+
+
+def test_ty_version_pin_in_lockstep() -> None:
+    pyproject = _pyproject()
+    dev_deps: list[str] = pyproject["project"]["optional-dependencies"]["dev"]
+    pyproject_pins = [
+        m.group(1)
+        for dep in dev_deps
+        if (m := re.fullmatch(r"ty==(\d+\.\d+\.\d+)", dep.strip()))
+    ]
+    assert len(pyproject_pins) == 1, (
+        f"expected exactly one ty==X.Y.Z pin in pyproject.toml dev deps: {dev_deps}"
+    )
+
+    ty_include = pyproject.get("tool", {}).get("ty", {}).get("src", {}).get("include")
+    assert ty_include == ["caliper", "docs", "skills"], (
+        f"expected [tool.ty.src].include = ['caliper', 'docs', 'skills'] in pyproject.toml, got {ty_include}"
+    )
+
+    lint_workflow_raw = (ROOT / ".github/workflows/lint.yml").read_text(
+        encoding="utf-8"
+    )
+    lint_workflow = yaml.safe_load(lint_workflow_raw)
+    lint_steps = lint_workflow.get("jobs", {}).get("lint", {}).get("steps", [])
+    ty_steps = [
+        step.get("run", "").strip()
+        for step in lint_steps
+        if "ty check" in step.get("run", "")
+    ]
+    assert ty_steps, (
+        f"expected a step running 'ty check' in .github/workflows/lint.yml lint job, found: {lint_steps}"
+    )
+
+    pins: dict[str, list[str]] = {
+        "pyproject.toml": pyproject_pins,
+    }
+    for rel_path in (".github/CONTRIBUTING.md", "AGENTS.md"):
+        found = sorted(set(_TY_TEXT_PIN.findall((ROOT / rel_path).read_text("utf-8"))))
+        assert found, f"no ty==X.Y.Z or ty@X.Y.Z pin found in {rel_path}"
+        pins[rel_path] = found
+
+    all_versions = {version for versions in pins.values() for version in versions}
+    assert len(all_versions) == 1, f"keep ty version pins in lockstep: {pins}"
 
 
 def test_python_versions_in_lockstep() -> None:

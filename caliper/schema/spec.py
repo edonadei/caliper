@@ -5,6 +5,7 @@ from collections.abc import Hashable
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import yaml
+import yaml.constructor
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -149,7 +150,8 @@ def _history_error(exc: ValidationError) -> str:
     else:
         message = error["msg"]
     where = ".".join(str(part) for part in field)
-    return f"turn {turn + 1}{f', {where}' if where else ''}: {message}"
+    turn_label = f"turn {turn + 1 if isinstance(turn, int) else turn}"
+    return f"{turn_label}{f', {where}' if where else ''}: {message}"
 
 
 class TaskSpec(BaseModel):

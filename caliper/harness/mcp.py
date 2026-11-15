@@ -31,6 +31,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -82,7 +83,9 @@ def resolve_declared_paths(
         name: (
             server.model_copy(
                 update={
-                    "command": anchored(server.command),
+                    "command": (
+                        anchored(server.command) if server.command is not None else None
+                    ),
                     "args": [anchored(arg) for arg in server.args],
                 }
             )
@@ -141,7 +144,7 @@ def _spawned(
     extra_path: list[str] | None,
     env: dict[str, str] | None,
     cwd: str | None,
-):
+) -> Generator[subprocess.Popen, None, None]:
     """Start ``server``, and stop it and every process it started afterwards."""
     if os.name == "nt":
         from caliper.harness import windows_job
@@ -163,6 +166,7 @@ def _spawned(
         if env is None and sys.platform == "win32" and "SystemRoot" in os.environ:
             process_env["SystemRoot"] = os.environ["SystemRoot"]  # noqa: SIM112
         process_env.update(server.env)
+        assert server.command is not None
         command = (
             shutil.which(server.command, path=process_env.get("PATH")) or server.command
         )
@@ -173,7 +177,7 @@ def _spawned(
             stderr=subprocess.DEVNULL,
             text=True,
             encoding="utf-8",
-            cwd=cwd or tmp_dir,
+            cwd=str(cwd or tmp_dir),
             env=process_env,
             start_new_session=os.name == "posix",
             creationflags=(
@@ -316,6 +320,7 @@ def _rejected(name: str) -> HarnessConfigurationError:
 
 
 def _send(process: subprocess.Popen, message: dict) -> None:
+    assert process.stdin is not None
     process.stdin.write(json.dumps(message) + "\n")
     process.stdin.flush()
 
@@ -347,7 +352,9 @@ def _bounded(work, deadline: float, timeout_message: str):
             continue
         if ok:
             return value
-        raise value
+        if isinstance(value, BaseException):
+            raise value
+        raise RuntimeError(str(value))
 
 
 def _exchange(
@@ -365,6 +372,7 @@ def _exchange(
 
     def work() -> dict:
         _send(process, request)
+        assert process.stdout is not None
         while True:
             line = process.stdout.readline()
             if not line:
@@ -653,6 +661,7 @@ def resolve_servers(
     resolved: dict[str, ResolvedMcpServer] = {}
     for name, server in (declared or {}).items():
         if server.is_remote:
+            assert server.url is not None
             resolved[name] = ResolvedMcpServer(
                 type=server.type,
                 is_remote=True,

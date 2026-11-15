@@ -22,7 +22,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -174,6 +174,8 @@ class ChatGPTAccount:
         No signature check: the token came straight from the token endpoint over
         TLS, which OIDC Core 3.1.3.7 accepts in its place.
         """
+        if not (isinstance(id_token, str) and "." in id_token):
+            raise ChatGPTLoginError("ChatGPT returned no usable ID token.")
         try:
             payload = id_token.split(".")[1]
             claims = json.loads(base64.urlsafe_b64decode(payload + "=" * 4))
@@ -214,7 +216,7 @@ class ChatGPTAccount:
             return record["access_token"]
 
     @contextmanager
-    def _locked(self) -> Iterator[None]:
+    def _locked(self) -> Generator[None, None, None]:
         """Hold the login against every other refresh, in any caliper process."""
         self._home.mkdir(parents=True, exist_ok=True)
         with _THREAD_LOCK, open(self._home / "chatgpt.lock", "a+b") as handle:
@@ -466,7 +468,7 @@ class _Callback:
         listener = self
 
         class Handler(BaseHTTPRequestHandler):
-            def log_message(self, *args) -> None:
+            def log_message(self, format: str, *args: object) -> None:
                 pass
 
             def do_GET(self) -> None:
