@@ -7,7 +7,6 @@ from caliper.harness.base import (
     ConversationTurn,
     HarnessBackend,
 )
-from caliper.harness.claude_code import ClaudeCodeHarness
 
 
 def get_harness(backend: str, model: str | None = None) -> HarnessBackend:
@@ -23,6 +22,5 @@ __all__ = [
     "ConversationTurn",
     "HarnessBackend",
     "CliHarness",
-    "ClaudeCodeHarness",
     "get_harness",
 ]
