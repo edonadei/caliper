@@ -682,7 +682,7 @@ backend that cannot report them leaves them `None`, exactly like
 **The four fields are disjoint** — `input_tokens` is *non-cached* prompt tokens
 only, cache lives solely in `cache_read_tokens`/`cache_creation_tokens` — so their
 sum never double-counts. This is a normalized contract, not each CLI's raw
-numbers, because backends disagree: claude, pi and hermes report `input` already
+numbers, because backends disagree: claude, pi, hermes and antigravity report `input` already
 *excluding* cache (pass through), but codex uses OpenAI semantics where
 `input_tokens` *includes* `cached_input_tokens`, so caliper **subtracts**
 (`input = raw.input_tokens − raw.cached_input_tokens`, `cache_read =
