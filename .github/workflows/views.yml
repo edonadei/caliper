@@ -7,8 +7,11 @@ on:
     paths:
       - caliper/reporter.py
       - caliper/compare.py
-      - docs/render_readme_samples.py
+      - caliper/schema/results.py
+      - docs/render_readme_*.py
       - docs/assets/**
+      # A Rich upgrade can move a view as well.
+      - pyproject.toml
       - scripts/view_summary.py
       - .github/workflows/views.yml
 
