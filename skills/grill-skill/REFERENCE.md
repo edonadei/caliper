@@ -16,6 +16,7 @@ caliper run path/to/spec.eval.yaml --no-user-customizations  # isolated: only th
 caliper compare .caliper/results/<spec>/<control-run>.json <spec>
 
 caliper list <spec>                                       # its runs, ablated ones marked
+caliper list <spec> --format json                         # the same, with each run's path
 caliper report <spec> --verbose                           # full output, passing tasks too
 caliper report <spec> --run 2026-06-21T14-53-12Z --verbose
 ```

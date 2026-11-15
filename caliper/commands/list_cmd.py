@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from caliper.commands.diagnosis import BadInput, fail
+from caliper.commands.report import OutputFormat
 from caliper.reporter import RULE_GLYPH, UNUSABLE_GLYPH
 from caliper.runstore import RunStore, UnreadableRun, UnusableResultsRoot
 from caliper.schema.results import RunResults
@@ -75,6 +76,10 @@ def list_cmd_fn(
     spec: Annotated[
         str | None, typer.Argument(help="Spec name to list runs for")
     ] = None,
+    fmt: Annotated[
+        OutputFormat,
+        typer.Option("--format", "-f", help="Output format (json needs a spec)"),
+    ] = OutputFormat.TABLE,
 ) -> None:
     # No `--dir`: the results root is discovered, the same way for every command
     # (docs/adr/0022-saved-runs-live-at-a-discovered-results-root.md). A flag
@@ -86,7 +91,15 @@ def list_cmd_fn(
     except UnusableResultsRoot as exc:
         fail(exc)
 
-    if spec:
+    if fmt is OutputFormat.JSON:
+        if not spec:
+            fail(
+                BadInput(
+                    "JSON lists one spec's runs: caliper list <spec> --format json"
+                )
+            )
+        _print_runs_json(store, store.spec_ref(spec))
+    elif spec:
         _list_runs(store, store.spec_ref(spec))
     else:
         _list_specs(store)
@@ -176,3 +189,32 @@ def _list_runs(store: RunStore, spec_name: str) -> None:
 
     console.print(table)
     _print_legend(interrupted=marked, unmeasured=unmeasured)
+
+
+def _run_json(path: Path) -> dict[str, object]:
+    """One run as `list --format json` prints it, every key present on every row.
+
+    ``score`` is null where the table prints a rule or "?": an unmeasured run,
+    or an unreadable file, which alone carries ``error``.
+    """
+    row: dict[str, object] = {"run": path.stem, "path": str(path)}
+    try:
+        results = RunStore.load(path)
+    except UnreadableRun as exc:
+        keys = ("k", "tasks", "score", "ablated", "interrupted")
+        return {**row, **dict.fromkeys(keys), "error": str(exc.cause)}
+    aggregate = results.aggregate
+    return {
+        **row,
+        "k": results.run.k,
+        "tasks": len(results.task_results),
+        "score": aggregate.avg_score if aggregate.measured else None,
+        "ablated": results.run.ablated,
+        "interrupted": results.run.interrupted,
+    }
+
+
+def _print_runs_json(store: RunStore, spec_name: str) -> None:
+    if not store.has_spec(spec_name):
+        fail(BadInput(store.no_results(spec_name)))
+    console.print_json(data=[_run_json(path) for path in store.runs(spec_name)])
