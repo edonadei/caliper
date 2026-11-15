@@ -181,7 +181,7 @@ def run_cmd(
             fail(exc)
 
     name = spec_name(spec_file)
-    print_banner(name, k, engine.backend, engine.model)
+    print_banner(name, k, engine.backend, engine.model, engine.effort)
 
     harness = engine.harness()
     judge = engine.judge()

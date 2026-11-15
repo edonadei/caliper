@@ -715,7 +715,7 @@ def test_the_judge_gets_the_turns_the_attempt_resumed_from(tmp_path) -> None:
     seen: list = []
 
     class Judge:
-        backend, model, prompt_version = "test", None, None
+        backend, model, effort, prompt_version = "test", None, None, None
 
         def cli_version(self):
             return None

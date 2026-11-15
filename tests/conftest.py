@@ -93,6 +93,7 @@ class ScriptedHarness(HarnessBackend):
         *,
         name: str = "scripted",
         model: str | None = None,
+        effort: str | None = None,
         supports_mcp: bool = False,
         mcp_unsupported_hint: str | None = None,
         supports_history: bool = False,
@@ -101,6 +102,7 @@ class ScriptedHarness(HarnessBackend):
         self.script = script if script is not None else agent_result()
         self._name = name
         self._model = model
+        self._effort = effort
         self.supports_mcp = supports_mcp
         self.mcp_unsupported_hint = mcp_unsupported_hint
         self.supports_history = supports_history
@@ -139,6 +141,7 @@ class ScriptedJudge:
 
     backend = "test"
     model = None
+    effort = None
     prompt_version = None
 
     def __init__(self, result: JudgeResult | None = None) -> None:

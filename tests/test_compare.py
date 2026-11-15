@@ -410,3 +410,53 @@ def test_compare_shows_an_unrecorded_cli_as_unknown(capsys, monkeypatch) -> None
         "codex-cli",
         "0.162.0",
     ]
+
+
+def test_judges_at_different_efforts_warn() -> None:
+    a = _judged("codex", "gpt-5-codex")
+    b = _judged("codex", "gpt-5-codex")
+    a.run.judge_effort, b.run.judge_effort = "low", "high"
+
+    comp = diff_runs(a, b)
+
+    assert comp.judge_mismatch
+    assert any(
+        "codex:gpt-5-codex@low" in w and "codex:gpt-5-codex@high" in w
+        for w in comp.warnings
+    )
+
+
+def test_engines_at_different_efforts_differ_in_the_grid(capsys, monkeypatch) -> None:
+    monkeypatch.setattr("caliper.reporter.console", Console(width=160))
+    a = _run([_task("alpha", [P, P])])
+    b = _run([_task("alpha", [P, P])])
+    a.run.model = b.run.model = "opus"
+    a.run.effort, b.run.effort = "low", "max"
+
+    print_comparison(diff_runs(a, b))
+
+    out = capsys.readouterr().out
+    engine = next(ln for ln in out.splitlines() if ln.strip().startswith("engine"))
+    assert "opus · low" in engine
+    assert "opus · max" in engine
+
+
+def test_one_level_named_on_one_side_and_configured_on_the_other_is_one_engine(
+    capsys, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "caliper.reporter.console",
+        Console(width=160, color_system="truecolor", force_terminal=True),
+    )
+    a = _run([_task("alpha", [P, P])])
+    b = _run([_task("alpha", [P, P])])
+    a.run.model = b.run.model = "opus"
+    a.run.effort = b.run.effort = "high"
+    a.run.effort_source, b.run.effort_source = "named", "config"
+
+    print_comparison(diff_runs(a, b))
+
+    out = capsys.readouterr().out
+    engine = next(ln for ln in out.splitlines() if "engine" in ln)
+    # The highlight is bold; the same engine on both sides is not.
+    assert "\x1b[1" not in engine

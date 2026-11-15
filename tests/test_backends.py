@@ -30,8 +30,8 @@ def test_every_registered_backend_builds_a_harness_of_that_name(name) -> None:
 )
 def test_an_alias_means_the_same_backend_on_every_surface(alias, expected) -> None:
     assert normalize_backend(alias) == expected
-    assert parse_target(alias) == (expected, None)
-    assert parse_target(f"{alias}:m") == (expected, "m")
+    assert parse_target(alias) == (expected, None, None)
+    assert parse_target(f"{alias}:m") == (expected, "m", None)
     assert get_harness(alias).name == expected
 
 

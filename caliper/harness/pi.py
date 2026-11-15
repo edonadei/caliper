@@ -55,8 +55,9 @@ class PiHarness(CliHarness):
     prompt.
     """
 
-    def __init__(self, model: str | None = None) -> None:
+    def __init__(self, model: str | None = None, effort: str | None = None) -> None:
         self._model = model
+        self._effort = effort
 
     # pi has no MCP support, and this is a deliberate stance of the tool (its
     # README: "No MCP. Build a CLI tool with a README, or an extension that adds
@@ -125,6 +126,8 @@ class PiHarness(CliHarness):
         ]
         if ctx.model:
             cmd += ["--model", ctx.model]
+        if self._effort:
+            cmd += ["--thinking", self._effort]
         # No --skill: that flag preloads, and pi's own --no-skills exists
         # precisely because discovery is its default. The neighbourhood is
         # installed under the agent dir and pi finds it (docs/adr/0013).
@@ -190,6 +193,9 @@ class PiHarness(CliHarness):
                     continue
                 if isinstance(message.get("usage"), dict):
                     usages.append(message["usage"])
+                level = message.get("thinkingLevel")
+                if isinstance(level, str) and level:
+                    report.resolved_effort = level
                 error = _stream_error(message)
                 if error is not None:
                     report.cli_errors.append(error)
@@ -233,6 +239,8 @@ class PiHarness(CliHarness):
         cmd = [pi, "--print", "--mode", "json", "--no-session", "--approve"]
         if model:
             cmd += ["--model", model]
+        if self._effort:
+            cmd += ["--thinking", self._effort]
         cmd += ["--", prompt]
         # stdin None → the template closes it (DEVNULL): in --print mode pi
         # otherwise blocks reading stdin and hangs until timeout.

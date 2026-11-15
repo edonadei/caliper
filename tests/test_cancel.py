@@ -280,6 +280,7 @@ class UnavailableModelJudge:
 
     backend = "claude-code"
     model = "claude-bogus"
+    effort = None
     prompt_version = None
 
     def evaluate(self, task, transcript, workdir, history=None) -> JudgeResult:

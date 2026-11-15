@@ -262,6 +262,7 @@ defaults to `claude-code`, and the judge to the same backend:
 caliper run my-skill.eval.yaml                          # claude-code runs and grades
 caliper run my-skill.eval.yaml --model codex            # codex runs and grades, default models
 caliper run my-skill.eval.yaml --model codex:gpt-5.6-sol
+caliper run my-skill.eval.yaml --model codex:gpt-5.6-sol@high   # at an effort level
 caliper run my-skill.eval.yaml --model pi --judge-model claude-code
 ```
 
@@ -355,7 +356,7 @@ run Caliper, inside the git repository. See
 | `--workers INT` | `4` | Attempts to run in parallel, across all tasks |
 | `--timeout INT` | `120` | Seconds per attempt |
 | `--fail-fast INT` | `0` | Stop a task after N consecutive `infra_error`/`timeout` attempts (`0` disables; counts attempts, not invocations) |
-| `--model TARGET` | `claude-code` | Model being evaluated: `backend`, `model`, or `backend:model` ([syntax](docs/backends.md#selecting-an-engine)) |
+| `--model TARGET` | `claude-code` | Model being evaluated: `backend`, `model`, or `backend:model`, optionally followed by `@effort` ([syntax](docs/backends.md#selecting-an-engine)) |
 | `--judge-model TARGET` | the `--model` backend | Judge engine, same syntax |
 | `--user-customizations` / `--no-user-customizations` | the spec's `user_customizations`, else on | Load your user skills, plugins, rules, settings, connectors and synced claude.ai skills into attempts, or isolate. See [Portable scores](#portable-scores) |
 | `--verbose` | off | Show every task with its `expect`, and per attempt the judge reasoning and any judge script |
@@ -367,7 +368,7 @@ run Caliper, inside the git repository. See
 |---|---|
 | `0` | Ran, and nothing asked for a verdict said no |
 | `1` | Bad input: spec not found, invalid spec, unresolvable skills, two references naming one run |
-| `2` | Could not run cleanly: backend misconfiguration, an unavailable model, a failed setup/cleanup hook, or every attempt `infra_error`/`timeout`/`judge_error` |
+| `2` | Could not run cleanly: backend misconfiguration, an unavailable model or effort level, a failed setup/cleanup hook, or every attempt `infra_error`/`timeout`/`judge_error` |
 | `3` | Reserved: ran cleanly, but a declared bar was not met |
 | `130` | Interrupted with Ctrl-C; the partial run was saved |
 

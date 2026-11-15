@@ -270,6 +270,7 @@ def test_cleanup_runs_after_failed_timed_out_or_cancelled_agent(
 class JudgeErrorThenPass:
     backend = "test"
     model = None
+    effort = None
     prompt_version = None
 
     def __init__(self) -> None:
@@ -426,6 +427,7 @@ class ModelReportingJudge:
         self._resolved = resolved_model
         self.backend = backend
         self.model = model
+        self.effort = None
         self.prompt_version = None
 
     def evaluate(self, task, transcript, workdir, history=None) -> JudgeResult:
@@ -979,3 +981,86 @@ def test_run_refuses_fewer_than_one_attempt(tmp_path, k) -> None:
             judge=ScriptedJudge(),
             k=k,
         )
+
+
+# --- the effort a run ran at (docs/adr/0045) ---------------------------------
+
+
+def _effort_run(tmp_path, harness, judge=None, k=1):
+    spec_path = tmp_path / "effort.eval.yaml"
+    spec_path.write_text("tasks: []\n")
+    warnings: list[str] = []
+    results = run(
+        spec=_one_task_spec(),
+        spec_path=spec_path,
+        harness=harness,
+        judge=judge or ScriptedJudge(),
+        k=k,
+        workers=1,
+        timeout=30,
+        on_warning=warnings.append,
+    )
+    return results.run, warnings
+
+
+def test_runmeta_records_the_effort_and_how_it_is_known(tmp_path) -> None:
+    harness = ScriptedHarness(agent_result(effort="high", effort_source="reported"))
+
+    meta, warnings = _effort_run(tmp_path, harness)
+
+    assert (meta.effort, meta.effort_source) == ("high", "reported")
+    assert warnings == []
+
+
+def test_runmeta_records_the_reported_effort_over_the_named_and_warns(
+    tmp_path,
+) -> None:
+    harness = ScriptedHarness(
+        agent_result(effort="medium", effort_source="reported"), effort="high"
+    )
+
+    meta, warnings = _effort_run(tmp_path, harness)
+
+    assert (meta.effort, meta.effort_source) == ("medium", "reported")
+    assert len(warnings) == 1
+    assert "'high'" in warnings[0]
+    assert "'medium'" in warnings[0]
+    assert "effort" in warnings[0]
+
+
+def test_runmeta_records_the_majority_effort_on_a_mixed_run(tmp_path) -> None:
+    harness = ScriptedHarness(
+        in_turn(
+            *(
+                agent_result(effort=e, effort_source="reported")
+                for e in ["low", "high", "high"]
+            )
+        )
+    )
+
+    meta, warnings = _effort_run(tmp_path, harness, k=3)
+
+    assert meta.effort == "high"
+    assert len(warnings) == 1
+    assert "'low'" in warnings[0]
+
+
+def test_runmeta_records_no_effort_for_the_clis_own_default(tmp_path) -> None:
+    meta, _ = _effort_run(tmp_path, ScriptedHarness(agent_result()))
+
+    assert (meta.effort, meta.effort_source) == (None, None)
+
+
+def test_runmeta_records_the_named_effort_when_no_attempt_says(tmp_path) -> None:
+    meta, _ = _effort_run(tmp_path, ScriptedHarness(agent_result(), effort="high"))
+
+    assert (meta.effort, meta.effort_source) == ("high", "named")
+
+
+def test_runmeta_records_the_judge_effort_as_named(tmp_path) -> None:
+    judge = ModelReportingJudge("claude-opus-4-8", backend="claude-code")
+    judge.effort = "low"
+
+    meta, _ = _effort_run(tmp_path, ScriptedHarness(agent_result()), judge)
+
+    assert meta.judge_effort == "low"

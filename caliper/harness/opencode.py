@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import secrets
+import sqlite3
 import string
 from collections.abc import Callable
 from datetime import datetime
@@ -219,8 +221,9 @@ class OpenCodeHarness(CliHarness):
     ``skill`` tool.
     """
 
-    def __init__(self, model: str | None = None) -> None:
+    def __init__(self, model: str | None = None, effort: str | None = None) -> None:
         self._model = model
+        self._effort = effort
 
     supports_mcp = True
     cli_config = OPENCODE_CONFIG
@@ -348,6 +351,8 @@ class OpenCodeHarness(CliHarness):
         cmd = [opencode, "run", "--format", "json", *_LOG_ERRORS, *_TITLE, "--auto"]
         if model:
             cmd += ["--model", model]
+        if self._effort:
+            cmd += ["--variant", self._effort]
         if planted is not None:
             # opencode resumes only a session in its database, so the planted
             # one is imported first. The prompt becomes the next user turn, and
@@ -388,6 +393,9 @@ class OpenCodeHarness(CliHarness):
         # A wellknown login can add remote servers that the local file cannot list.
         if not self._has_wellknown_auth(ctx):
             report.read_mcp_servers = lambda: servers
+        report.resolved_effort = _session_variant(
+            Path(ctx.isolated_home) / self.data_home / "opencode.db"
+        )
         return report
 
     def _read_stream(self, stdout: str, servers: set[str]) -> AgentReport:
@@ -453,6 +461,8 @@ class OpenCodeHarness(CliHarness):
         cmd = [opencode, "run", "--format", "json", *_LOG_ERRORS, *_TITLE]
         if model:
             cmd += ["--model", model]
+        if self._effort:
+            cmd += ["--variant", self._effort]
         return PromptCall(cmd, stdin=prompt)
 
     def _prompt_environment(self) -> dict[str, str]:
@@ -819,3 +829,28 @@ def _version_number(said: str | None) -> str:
     """The bare version in what ``opencode --version`` printed, else ``0.0.0``."""
     match = re.search(r"\d+\.\d+\.\d+\S*", said or "")
     return match[0] if match else "0.0.0"
+
+
+def _session_variant(database: Path) -> str | None:
+    """The variant of the last assistant message, from the attempt's database.
+
+    ``run --format json`` never names it; the stored message does.
+    """
+    if not database.is_file():
+        return None
+    try:
+        with contextlib.closing(sqlite3.connect(database)) as db:
+            rows = db.execute(
+                "SELECT data FROM message ORDER BY time_created DESC"
+            ).fetchall()
+    except sqlite3.Error:
+        return None
+    for (data,) in rows:
+        try:
+            info = json.loads(data)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(info, dict) and info.get("role") == "assistant":
+            variant = info.get("variant")
+            return variant if isinstance(variant, str) and variant else None
+    return None

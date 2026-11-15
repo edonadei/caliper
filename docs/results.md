@@ -369,6 +369,22 @@ and any script the judge wrote.
 
 All three are `null` on runs saved before they were recorded.
 
+### Engine fields
+
+- `RunMeta.backend` and `RunMeta.model` are the engine the attempts ran, and
+  `RunMeta.judge_backend` and `RunMeta.judge_model` the one that graded them
+  ([what gets recorded](backends.md#what-gets-recorded)).
+- `RunMeta.effort` is the effort level the attempts ran at, and
+  `RunMeta.effort_source` how Caliper knows it: `reported` (the CLI wrote it
+  down), `named` (`@<effort>` in `--model`), or `config` (your copied
+  claude-code `settings.json` pins `effortLevel`). Both are `null` when the CLI
+  ran at its own default, and on runs saved before effort was recorded.
+- `RunMeta.judge_effort` is the effort `--judge-model` named, or `null`.
+
+`caliper compare` shows the effort in the engine row, and a different effort
+counts as a different engine. Judges at different efforts get the
+different-judges warning.
+
 ### CLI version fields
 
 - `RunMeta.cli_version` is the first line of `--version` from the CLI the

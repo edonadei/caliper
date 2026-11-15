@@ -302,6 +302,7 @@ class EvalJudge(Judge):
         self,
         backend: str = DEFAULT_BACKEND,
         model: str | None = None,
+        effort: str | None = None,
         *,
         harness: PromptBackend | None = None,
     ) -> None:
@@ -311,6 +312,9 @@ class EvalJudge(Judge):
         # rather than one that never ran.
         self.backend = backend
         self.model = model
+        # Recorded as named: the judge's sessions run in the real CLI home,
+        # which caliper does not read back (docs/adr/0045).
+        self.effort = effort
         # The backend that answers the autorater's prompt, through the
         # ``run_prompt`` half of the backend seam. Built from ``backend`` on
         # first use, once per judge rather than per attempt; passed in by a
@@ -330,7 +334,7 @@ class EvalJudge(Judge):
         """The backend that answers the autorater, or ``None`` for an unknown one."""
         if self._harness is None:
             try:
-                self._harness = get_harness(self.backend, self.model)
+                self._harness = get_harness(self.backend, self.model, self.effort)
             except ValueError:
                 return None
         return self._harness

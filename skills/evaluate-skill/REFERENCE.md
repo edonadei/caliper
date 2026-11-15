@@ -157,7 +157,17 @@ caliper run spec.eval.yaml --model hermes:anthropic/claude-sonnet-4.6 --judge-mo
 caliper run spec.eval.yaml --model antigravity:gemini-3.8-flash-medium
 caliper run spec.eval.yaml --model opencode:openai/gpt-6.1-terra   # opencode models are provider/model
 caliper run spec.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001
+caliper run spec.eval.yaml --model codex:gpt-5-codex@high  # at an effort level
+caliper run spec.eval.yaml --model claude-code@low --judge-model claude-code:sonnet@low
 ```
+
+`@<effort>` names the effort level, in the words each CLI uses: `low` to `max`
+on `claude-code` and `antigravity`, `off` to `max` on `pi`, `none` to `ultra`
+on `hermes`; `codex` and `opencode` check their own. A level the backend
+doesn't take stops the run before the first attempt. pi's `<model>:<level>`
+shorthand is refused in favour of `@<level>`. The judge follows the `--model`
+backend, not its effort. With no `@`, the CLI runs at its own default, or at
+the level your config pins when user customizations are on.
 
 | Backend | Requires | `mcp:` support |
 |---|---|---|
@@ -199,8 +209,9 @@ default model. When `--judge-model` names no model, the judge likewise uses its
 CLI's own default. To compare engines, pass the same `--judge-model` to each
 run; otherwise each engine grades itself and `compare` warns.
 
-A run records the model the backend reported running, not the one requested,
-and warns on a mismatch. An unknown backend name is refused before any attempt;
+A run records the model and effort the backend reported running, not the ones
+requested, and warns on a mismatch. An unknown backend name or effort level is
+refused before any attempt;
 an unavailable judge model, a failed judge login, an unavailable `claude-code`
 skill model, an unknown `hermes:<model>`, `antigravity:<model>` or
 `opencode:<model>`, or an `antigravity` Gemini API key mode without
@@ -314,7 +325,8 @@ hook or MCP server, or every attempt unusable).
 the nearest `.caliper/` at or above the working directory, bounded by the git
 repo, so `caliper report <spec-name>` finds a run from anywhere in the project.
 Each run records every file each declared skill installed, the engine used
-for the skill and the judge and each one's CLI version, what was ablated, and per attempt the outcome, token
+for the skill and the judge (effort level included, in `effort`,
+`effort_source` and `judge_effort`) and each one's CLI version, what was ablated, and per attempt the outcome, token
 usage, wall time, judge time, and the transcript. It also keeps the judge's input
 for debugging a verdict: each task's `expect` and `prompt`, the judge prompt version, and any
 assertion script the judge wrote (`autorater_script`). `caliper report --verbose`

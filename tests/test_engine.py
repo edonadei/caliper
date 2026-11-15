@@ -51,6 +51,68 @@ def test_an_unknown_backend_names_the_flag_and_the_known_backends(
     )
 
 
+def test_each_engine_keeps_the_effort_it_names() -> None:
+    engine = resolve_engine("codex:gpt-5.6-sol@high", "claude-code:sonnet@low")
+
+    assert (engine.effort, engine.judge_effort) == ("high", "low")
+
+
+def test_the_judge_follows_the_backend_but_not_its_effort() -> None:
+    engine = resolve_engine("codex@high", None)
+
+    assert (engine.judge_backend, engine.judge_effort) == ("codex", None)
+
+
+@pytest.mark.parametrize(
+    ("model", "judge_model", "flag", "backend"),
+    [
+        ("claude-code@ultra", None, "--model", "claude-code"),
+        ("claude-code@turbo", None, "--model", "claude-code"),
+        (None, "pi:sonnet@ultra", "--judge-model", "pi"),
+    ],
+)
+def test_an_effort_the_backend_does_not_take_is_refused(
+    model, judge_model, flag, backend
+) -> None:
+    with pytest.raises(CannotRun) as raised:
+        resolve_engine(model, judge_model)
+
+    message = str(raised.value)
+    assert f"{backend} has no effort level" in message
+    assert f"(in {flag})" in message
+    assert f"Pass {flag} {backend}[:<model>]@<level>" in message
+
+
+def test_hermes_takes_its_own_top_level() -> None:
+    assert resolve_engine("hermes@ultra", None).effort == "ultra"
+
+
+@pytest.mark.parametrize("model", ["codex@turbo", "opencode@turbo"])
+def test_a_backend_that_validates_its_own_effort_gets_any_word(model) -> None:
+    assert resolve_engine(model, None).effort == "turbo"
+
+
+@pytest.mark.parametrize(
+    ("model", "judge_model", "flag"),
+    [
+        ("pi:sonnet:high", None, "--model"),
+        ("codex", "pi:anthropic/x:low", "--judge-model"),
+    ],
+)
+def test_pi_effort_as_a_model_suffix_is_refused_for_the_at_form(
+    model, judge_model, flag
+) -> None:
+    with pytest.raises(CannotRun) as raised:
+        resolve_engine(model, judge_model)
+
+    assert "@" in str(raised.value)
+    assert flag in str(raised.value)
+
+
+def test_a_pi_model_with_a_colon_that_is_no_level_is_kept() -> None:
+    assert resolve_engine("pi:openrouter/x:free", None).model == "openrouter/x:free"
+
+
 @pytest.fixture
 def no_pi(monkeypatch, tmp_path):
     """No pi CLI anywhere caliper looks: no override, nothing on PATH."""
@@ -131,3 +193,10 @@ def test_the_engine_builds_the_backends_it_names() -> None:
 
     assert (engine.harness().name, engine.harness().model) == ("codex", "gpt-5-codex")
     assert (engine.judge().backend, engine.judge().model) == ("pi", "m")
+
+
+def test_the_engine_builds_the_efforts_it_names() -> None:
+    engine = resolve_engine("codex@high", "pi:m@low")
+
+    assert engine.harness().effort == "high"
+    assert engine.judge().effort == "low"

@@ -86,8 +86,9 @@ _NOT_LOGGED_IN = (
 
 
 class ClaudeCodeHarness(CliHarness):
-    def __init__(self, model: str | None = None) -> None:
+    def __init__(self, model: str | None = None, effort: str | None = None) -> None:
         self._model = model
+        self._effort = effort
         self._host_refresh_tried = False
 
     supports_mcp = True
@@ -131,6 +132,20 @@ class ClaudeCodeHarness(CliHarness):
         if ctx.user_customizations:
             isolated.append(self.attempt_config_home(ctx) / "settings.json")
         return isolated
+
+    def configured_effort(self, ctx: RunContext) -> str | None:
+        # claude-code names no level in its stream, so the one it ran at with
+        # none named is the ``effortLevel`` its copied settings pin.
+        try:
+            settings = json.loads(
+                (self.attempt_config_home(ctx) / "settings.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+        except (OSError, ValueError):
+            return None
+        level = settings.get("effortLevel") if isinstance(settings, dict) else None
+        return level if isinstance(level, str) and level else None
 
     def user_path(self, isolated: Path, ctx: RunContext) -> Path:
         # .claude.json sits beside ~/.claude by default, inside the config dir
@@ -341,6 +356,8 @@ class ClaudeCodeHarness(CliHarness):
 
         if ctx.model:
             cmd += ["--model", ctx.model]
+        if self._effort:
+            cmd += ["--effort", self._effort]
 
         # The prompt becomes the next user turn after the planted ones. The
         # stream does not replay them, so they never reach the transcript.
@@ -511,6 +528,8 @@ class ClaudeCodeHarness(CliHarness):
         cmd = ["claude", "-p", "--output-format", "json", *NO_ACCOUNT_CONTENT]
         if model:
             cmd += ["--model", model]
+        if self._effort:
+            cmd += ["--effort", self._effort]
         cmd += ["--", prompt]
         return PromptCall(cmd)
 

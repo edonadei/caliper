@@ -13,7 +13,7 @@ in the README.
 The engine is not stored in the spec. `--model` picks the engine that runs the
 skill, `--judge-model` picks the one that grades it. `--model` defaults to
 `claude-code`, and `--judge-model` to the `--model` backend. Each flag accepts a `backend:model` pair, a bare backend name, or
-a bare model name:
+a bare model name, each optionally followed by `@<effort>`:
 
 ```bash
 # Backend and model together
@@ -30,6 +30,10 @@ caliper run my-skill.eval.yaml --model codex
 
 # Select the judge engine independently
 caliper run my-skill.eval.yaml --model codex --judge-model claude-code:claude-haiku-4-5-20251001
+
+# Name an effort level (backend default model, low effort)
+caliper run my-skill.eval.yaml --model claude-code@low
+caliper run my-skill.eval.yaml --model codex:gpt-5.6-sol@high --judge-model claude-code:sonnet@low
 ```
 
 Accepted backends: `claude-code`, `codex`, `pi`, `hermes`, `antigravity`,
@@ -43,6 +47,32 @@ pairing, such as a Codex skill with a Claude judge. To compare engines fairly,
 pass the same `--judge-model` to each run; otherwise each engine grades itself,
 and `caliper compare` warns that the judges differ
 ([ADR 0034](adr/0034-the-judge-follows-the-skill-backend-by-default.md)).
+
+### Effort level
+
+`@<effort>` sets the effort the CLI runs at, for the attempts or the judge.
+`opus@low` and `opus@max` are different engines, so a run records the effort as
+part of its engine ([ADR 0045](adr/0045-effort-is-part-of-the-engine-target.md)).
+Each backend takes the words its own CLI uses:
+
+| Backend | Passed as | Levels |
+|---|---|---|
+| `claude-code` | `--effort` | `low`, `medium`, `high`, `xhigh`, `max` |
+| `codex` | `-c model_reasoning_effort=` | whatever codex accepts (codex checks it) |
+| `pi` | `--thinking` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` |
+| `antigravity` | `--effort` | `low`, `medium`, `high`, `xhigh`, `max` |
+| `hermes` | `--reasoning` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` |
+| `opencode` | `--variant` | provider-specific (opencode checks it) |
+
+- A level the backend doesn't list stops the run before the first attempt
+  (exit `2`), naming the levels it takes.
+- `@` is split off only before an effort word, so a model id like
+  `claude-sonnet-4@20250514` keeps its `@`. After a bare backend name
+  (`codex@<word>`) any word is the effort.
+- With no `@<effort>`, the CLI runs at its own default, or at the level your
+  config pins when user customizations are on.
+- The judge follows the `--model` backend but not its effort: name one in
+  `--judge-model` to set it.
 
 There is no direct-API backend. To run against API-priced billing, configure one
 of these CLIs with an API key (for example `ANTHROPIC_API_KEY` or
@@ -97,6 +127,15 @@ stay traceable even though the spec doesn't pin an engine.
   `--judge-model claude-code:opus` records the id `opus` resolved to.
   Otherwise it's the model you named.
 - `judge_model` stays empty for an `assert:`-only run, where no LLM judge ran.
+- `effort` is the level the agent ran at, and `effort_source` says how Caliper
+  knows it: `reported` when the CLI wrote it down (codex, pi, opencode and
+  hermes do, even for a level your config set), `named` when it came from
+  `@<effort>` (claude-code and antigravity report none), or `config` when no
+  `@` was given and your copied claude-code `settings.json` pins `effortLevel`.
+  Both are empty when the CLI ran at its own default. A reported level that
+  differs from the named one wins and prints a warning, as a model does.
+- `judge_effort` is the level `--judge-model` named. The judge runs in your
+  real CLI home, so Caliper doesn't read back what it ran at.
 - When `--judge-model` names no model, the judge uses its CLI's own default
   model, like the skill does. The `codex` judge reads your real
   `~/.codex/config.toml` (under `CODEX_HOME` when set), so a `model =` pinned there applies to it, while an
@@ -205,6 +244,8 @@ pi's agent dir, where pi discovers them.
   resolve on the host is left as written, and pi reports it.
   See [ADR 0040](adr/0040-pi-credentials-resolve-on-the-host.md).
   The `:model` half of `--model pi:<model>` overrides pi's configured default.
+  pi's own `<model>:<level>` shorthand is refused: write `pi:<model>@<level>`,
+  so the run records the level.
 - pi's built-in default provider is `google`, so `--model pi` with no model
   relies on your pi config to resolve a provider you're authenticated for.
 - Set `PI_CLI_PATH` to force a specific binary.

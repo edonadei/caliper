@@ -171,3 +171,67 @@ def test_the_mcp_preflight_is_not_counted_as_the_agents_wall_time(
     )
 
     assert result.duration_seconds < 0.5
+
+
+# --- the effort an attempt ran at (docs/adr/0045) ----------------------------
+
+
+class _Reporting(ClaudeCodeHarness):
+    """claude-code reports no effort; this one says it ran at ``max``."""
+
+    def _read(self, proc, ctx):
+        report = super()._read(proc, ctx)
+        report.resolved_effort = "max"
+        return report
+
+
+def _ran_at(harness, tmp_path, **overrides) -> tuple[str | None, str | None]:
+    ctx = run_context(isolated_home=str(tmp_path / "home"), **overrides)
+    result = harness.run(ctx)
+    return result.effort, result.effort_source
+
+
+def test_a_reported_effort_beats_the_named_one(monkeypatch, tmp_path) -> None:
+    patch_cli_calls(monkeypatch, _agent_says("done"))
+
+    assert _ran_at(_Reporting(effort="low"), tmp_path) == ("max", "reported")
+
+
+def test_a_named_effort_stands_when_nothing_is_reported(monkeypatch, tmp_path) -> None:
+    patch_cli_calls(monkeypatch, _agent_says("done"))
+
+    assert _ran_at(ClaudeCodeHarness(effort="low"), tmp_path) == ("low", "named")
+
+
+def _user_settings(monkeypatch, tmp_path, settings: dict) -> None:
+    config = tmp_path / "real-claude"
+    config.mkdir()
+    (config / "settings.json").write_text(json.dumps(settings))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+
+
+def test_with_none_named_the_users_settings_name_it(monkeypatch, tmp_path) -> None:
+    patch_cli_calls(monkeypatch, _agent_says("done"))
+    _user_settings(monkeypatch, tmp_path, {"effortLevel": "xhigh"})
+
+    ran = _ran_at(ClaudeCodeHarness(), tmp_path, user_customizations=True)
+
+    assert ran == ("xhigh", "config")
+
+
+def test_an_isolated_attempt_never_reads_the_users_settings(
+    monkeypatch, tmp_path
+) -> None:
+    patch_cli_calls(monkeypatch, _agent_says("done"))
+    _user_settings(monkeypatch, tmp_path, {"effortLevel": "xhigh"})
+
+    assert _ran_at(ClaudeCodeHarness(), tmp_path) == (None, None)
+
+
+def test_a_named_effort_beats_the_users_settings(monkeypatch, tmp_path) -> None:
+    patch_cli_calls(monkeypatch, _agent_says("done"))
+    _user_settings(monkeypatch, tmp_path, {"effortLevel": "xhigh"})
+
+    ran = _ran_at(ClaudeCodeHarness(effort="low"), tmp_path, user_customizations=True)
+
+    assert ran == ("low", "named")

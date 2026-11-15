@@ -193,8 +193,12 @@ def _judge_warning(a: RunResults, b: RunResults) -> str | None:
     a_meta, b_meta = a.run, b.run
     if a_meta.judge_backend is None or b_meta.judge_backend is None:
         return None
-    a_judge = _judge_label(a_meta.judge_backend, a_meta.judge_model)
-    b_judge = _judge_label(b_meta.judge_backend, b_meta.judge_model)
+    a_judge = _judge_label(
+        a_meta.judge_backend, a_meta.judge_model, a_meta.judge_effort
+    )
+    b_judge = _judge_label(
+        b_meta.judge_backend, b_meta.judge_model, b_meta.judge_effort
+    )
     if a_judge == b_judge:
         return None
     return (
@@ -204,8 +208,10 @@ def _judge_warning(a: RunResults, b: RunResults) -> str | None:
     )
 
 
-def _judge_label(backend: str, model: str | None) -> str:
-    return f"{backend}:{model}" if model else f"{backend} (default model)"
+def _judge_label(backend: str, model: str | None, effort: str | None = None) -> str:
+    """The judge as ``--judge-model`` would spell it."""
+    at = f"@{effort}" if effort else ""
+    return f"{backend}:{model}{at}" if model else f"{backend}{at} (default model)"
 
 
 def _group_by_name(tasks: list[TaskResult]) -> dict[str, list[TaskResult]]:

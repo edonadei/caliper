@@ -33,4 +33,28 @@ from caliper.schema.spec import parse_target
     ],
 )
 def test_parse_target(value: str, expected: tuple[str | None, str | None]) -> None:
+    assert parse_target(value) == (*expected, None)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("codex:gpt-5.6-sol@high", ("codex", "gpt-5.6-sol", "high")),
+        ("claude-code@low", ("claude-code", None, "low")),
+        ("opus@max", (None, "opus", "max")),
+        (
+            "hermes:anthropic/claude-sonnet-4.6@ultra",
+            ("hermes", "anthropic/claude-sonnet-4.6", "ultra"),
+        ),
+        # A Vertex-style id keeps its @: a date is never an effort word.
+        ("claude-sonnet-4@20250514", (None, "claude-sonnet-4@20250514", None)),
+        (
+            "pi:vertex/claude-sonnet-4@20250514@high",
+            ("pi", "vertex/claude-sonnet-4@20250514", "high"),
+        ),
+        # A bare backend before the @ is never a model, so any word is its effort.
+        ("claude-code@turbo", ("claude-code", None, "turbo")),
+    ],
+)
+def test_an_effort_follows_the_last_at(value, expected) -> None:
     assert parse_target(value) == expected
