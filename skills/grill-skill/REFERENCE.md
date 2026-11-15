@@ -29,7 +29,10 @@ model (`--model codex`, `--model codex:gpt-5-codex`), with an optional
 on a ChatGPT plan, run
 `caliper login chatgpt` once before `--model codex`. The judge defaults to the
 `--model` backend; pass the same `--judge-model` to runs you compare across
-engines.
+engines. Other `caliper run` flags: `--workers` (parallel attempts, default
+`4`), `--timeout` (seconds per attempt, default `120`), `--fail-fast` (stop a
+task after N consecutive unusable attempts), `--verbose`, and `--output` (also
+save results JSON to a path).
 
 ## Spec skeleton
 

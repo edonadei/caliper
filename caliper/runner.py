@@ -173,7 +173,7 @@ def run(
         sandbox=sandbox,
         activation=detector,
         # Absolute, because every step of an attempt runs in its workdir: a
-        # relative spec dir would name a path under it (docs/adr/0026).
+        # relative spec dir would name a path under it (docs/adr/0046).
         spec_path=spec_path.resolve(),
         environment=environment,
         fail_fast_unusable=fail_fast_unusable,

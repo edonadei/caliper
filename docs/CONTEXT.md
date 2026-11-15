@@ -15,21 +15,21 @@ nothing about *which engine runs or grades* it. The
 the judge) is deliberately absent from the spec: it is chosen at invocation, not
 authored into the file. Consequence: a spec never ages when a model goes stale,
 and the same spec can be pointed at any agent without editing it (see
-[[cli-agent-backends-only]] for the sibling decision that shrank the backend set).
+[ADR 0003](adr/0003-cli-agent-backends-only.md) for the sibling decision that shrank the backend set).
 
 ## MCP server (declared)
 
-An MCP server the agent-under-test is given access to, declared in the [[eval
-spec]]'s top-level `mcp:` block (a mapping keyed by server name). It is a
+An MCP server the agent-under-test is given access to, declared in the
+[[eval spec]]'s top-level `mcp:` block (a mapping keyed by server name). It is a
 *capability granted to the agent-under-test for the eval* — part of the run
 environment, the sibling of `sandbox:` (which takes capabilities away where
 `mcp:` adds them) — not a property of the invocation, which is why it lives in
 the spec beside `sandbox:` and not in the [[engine as runtime axis]] (see
-[[0008-mcp-servers-are-a-spec-field]]). It is deliberately *not* nested under
+[ADR 0008](adr/0008-mcp-servers-are-a-spec-field.md)). It is deliberately *not* nested under
 `skill:`: it applies to the agent whether or not the eval uses a skill (a
 bare-agent run can still declare `mcp:`). A declared server's credentials are
 supplied by reference to a host environment variable, never written into the
-committed spec (see [[0009-mcp-secrets-interpolated-at-the-harness-boundary]]).
+committed spec (see [ADR 0009](adr/0009-mcp-secrets-interpolated-at-the-harness-boundary.md)).
 On `claude-code` both *local stdio* and *remote (HTTP/SSE)* servers are honored;
 the agent's call appears in the transcript as `mcp__<server>__<tool>`. `hermes`
 also honors `mcp:` (stdio, plus remote *header-auth*; remote *OAuth* is out of
@@ -61,8 +61,8 @@ names a call `<server>_<tool>`, which caliper records under the doubled form
 `mcp__<server>__<tool>`, matching the longest declared server name. `antigravity`
 honors `mcp:` (stdio, plus remote *header-auth*) the same way, recording its
 tool calls under the single-underscore form `mcp_<server>_<tool>` (see
-[[0043-antigravity-names-a-lazy-mcp-call-by-its-server-and-tool]]). `pi` will *never* honor `mcp:`
-natively — its agent has no MCP by design (see [[pi-mcp-unsupported-by-design]]),
+[ADR 0043](adr/0043-antigravity-names-a-lazy-mcp-call-by-its-server-and-tool.md)). `pi` will *never* honor `mcp:`
+natively — its agent has no MCP by design (see [ADR 0010](adr/0010-pi-mcp-unsupported-by-design.md)),
 so caliper refuses an `mcp:` spec on `pi` with guidance to wrap the server as a
 CLI tool the skill drives, or as a pi extension. `pi` is now the only backend
 that refuses `mcp:`, and its refusal is permanent by design — not the
@@ -79,7 +79,7 @@ declared skills and [[MCP server (declared)|declared servers]].
 What gets loaded depends on the machine, not the spec, and a user-only skill or server is
 never an [[ablation]] subject. The opposite is an *isolated* run, which sees
 only the declared skills and servers: what a portable score needs (see
-[[0028-runs-load-user-customizations-by-default]]).
+[ADR 0028](adr/0028-runs-load-user-customizations-by-default.md)).
 _Avoid_: inherited MCP, ambient MCP, account MCP, connectors (only part of it),
 default MCP ("default" is the engine), extensions (misses rules and settings).
 
@@ -108,7 +108,7 @@ An adapter that runs the skill-under-test once and returns an `AttemptResult`
 `HarnessBackend.run(...)`. Current backends: `claude-code`, `codex`, `hermes`,
 `pi`, `antigravity`, `opencode` — all CLI agents that can actually load and run a skill. Direct API access is *not* a
 backend: to run against API-priced billing you configure one of these CLI
-harnesses with an API key (see [[cli-agent-backends-only]]).
+harnesses with an API key (see [ADR 0003](adr/0003-cli-agent-backends-only.md)).
 
 ## Flat backend (executor)
 
@@ -133,7 +133,7 @@ environment: hermes' `mcp_servers` is set to *exactly* the spec's declared
 [[MCP server (declared)|servers]] — an empty set when the spec declares no
 `mcp:` — so an isolated attempt never loads the user's personal MCP servers
 from the seeded config (a run loads them by default:
-[[user customizations]]). Normalized, it is a [[flat backend]] like any
+[[user customizations]]). Normalized, it is a [[flat backend (executor)|flat backend]] like any
 other. The contrast is with `claude-code`/`codex`/`pi`, which are stateless by
 default and need no normalization.
 
@@ -160,7 +160,7 @@ declared `mcp:` server — for one run, holding the [[eval spec]] and the
 [[engine as runtime axis|engine]] fixed, so that the score difference measures
 what that subject contributed. `caliper run --ablate <name>` (repeatable) saves
 an ordinary run of the surviving environment; the delta is read afterwards with
-[[run comparison|`caliper compare`]]. Ablating every declared subject leaves the
+[[run comparison (`compare`)|`caliper compare`]]. Ablating every declared subject leaves the
 bare agent.
 
 **Which subject is the subject is a property of the invocation, not the spec** —
@@ -175,11 +175,11 @@ body nor its `description` can move the number. It is therefore run **once** and
 re-compared against every later iteration of the skill. A task the bare agent
 already passes is a finding about the *task*, not about the skill.
 
-See [[0025-ablation-covers-mcp-servers]] for what an ablated run records and how
+See [ADR 0025](adr/0025-ablation-covers-mcp-servers.md) for what an ablated run records and how
 a task's expectations follow it.
 
 Varying a skill's *text* across runs is not ablation — it is two runs and a
-[[run comparison]]. Each run's skill snapshots record the exact content + git SHA
+[[run comparison (`compare`)|run comparison]]. Each run's skill snapshots record the exact content + git SHA
 of *every* member of the neighbourhood it installed — plural, because a
 neighbour's `description` is part of what produced the score, so a run is not
 reproducible without it.
@@ -196,11 +196,11 @@ An [[interrupted run]] is a saved run like any other.
 A saved run belongs to a [[results root]], not to the folder its spec sits in.
 
 Its **run id** names it uniquely among that spec's runs and orders it against
-them (see [[0021-a-run-is-addressed-by-its-timestamp]]).
+them (see [ADR 0021](adr/0021-a-run-is-addressed-by-its-timestamp.md)).
 
 A **run reference** is how a caller names a saved run: either a direct path, or a
-spec name, which always means that spec's *latest* run. See [[run comparison
-(`compare`)]] for why an [[ablation]] pair has to name its control arm by path.
+spec name, which always means that spec's *latest* run. See
+[[run comparison (`compare`)]] for why an [[ablation]] pair has to name its control arm by path.
 
 ## Results root
 
@@ -216,7 +216,7 @@ caller chooses — there is no flag.
 _Avoid_: project root (a results root need not be the whole project's, and the
 name invites the assumption that caliper decides where a project begins).
 
-See [[0022-saved-runs-live-at-a-discovered-results-root]] for how one is found
+See [ADR 0022](adr/0022-saved-runs-live-at-a-discovered-results-root.md) for how one is found
 and why runs belong to a root rather than to a spec file.
 
 ## Run comparison (`compare`)
@@ -256,11 +256,11 @@ in only one run is **unmatched**.
 ## Success rate (the score)
 
 The **primary metric**: the raw per-attempt success rate, `successes / usable`
-(how often a *single* run works), computed over [[usable / unusable
-attempt|usable]] attempts only. It is `TaskResult.score` and the aggregate
+(how often a *single* run works), computed over
+[[usable / unusable attempt|usable]] attempts only. It is `TaskResult.score` and the aggregate
 `avg_score` — a task derives every one of its own numbers from its attempts, so
-no two of them can disagree — and it is what every table headline, the `Δ`, and [[regression in a
-comparison|regression]] are computed on. Chosen over pass@k because Caliper tests
+no two of them can disagree — and it is what every table headline, the `Δ`, and
+[[regression (in a comparison)|regression]] are computed on. Chosen over pass@k because Caliper tests
 *reliability*: pass@k (below) is a code-generation metric that rewards retries and
 flatters flaky skills (`1/3 → 70.4%`), which is the wrong question when a skill
 runs once in production.
@@ -281,14 +281,14 @@ they move with it (though they can disagree in sign across sides with different
 
 ## Regression (in a comparison)
 
-For a matched task, B is a *regression* when its [[success rate|score]] is
+For a matched task, B is a *regression* when its [[success rate (the score)|score]] is
 **below** A's by any amount (any-below rule). The signed delta is always shown;
 the regression flag fires strictly on `B < A`. This is deliberately coarser than
-the [[non-inferiority-bar]] (which tolerates a ≤5% margin) — a margin is a
+the [[non-inferiority bar]] (which tolerates a ≤5% margin) — a margin is a
 possible later refinement, not the initial rule.
 
-Regression is a **score-only** verdict. [[run usage totals|Token and wall-clock
-deltas]] are shown alongside it — coloured green when B is *cheaper* (fewer
+Regression is a **score-only** verdict.
+[[run usage totals|Token and wall-clock deltas]] are shown alongside it — coloured green when B is *cheaper* (fewer
 tokens / less time) and red when costlier — but they never feed `has_regression`:
 a token drop is a win, not a failure, and a token rise at an equal score is a
 trade-off to weigh, not a regression to flag. Only the score gets the bold
@@ -296,8 +296,8 @@ regression treatment.
 
 ## Non-inferiority bar
 
-The decision rule for accepting a shortened variant: at k≥5 its [[success
-rate|score]] must be within a small margin (≤5%) of the full skill's score **and**
+The decision rule for accepting a shortened variant: at k≥5 its
+[[success rate (the score)|score]] must be within a small margin (≤5%) of the full skill's score **and**
 still beat the score of the same tasks with that skill [[ablation|ablated]].
 Equalling or exceeding full-skill is a bonus, not required. We are proving *no
 worse*, not *better*.
@@ -349,8 +349,8 @@ _Avoid_: firing, invocation, triggering (when you mean the observation).
 
 The second scoreboard, scored per attempt as an **exact set match**: the
 observed [[activation]] set equals the set the task's `activates:` declared,
-or the attempt fails. It never merges with the [[success rate|execution
-score]] — two aggregates, two regression flags — because blending them would
+or the attempt fails. It never merges with the
+[[success rate (the score)|execution score]] — two aggregates, two regression flags — because blending them would
 make the headline a mix of "does the body work" and "does the description
 fire", and those have opposite fixes.
 
@@ -390,7 +390,7 @@ honest description of that skill. It is `None` when every attempt wanted the
 skill, since it then had no opportunity to over-fire — which is not the same as
 never taking one.
 
-The two scoreboards are **not peers in the report**. The [[success rate|score]]
+The two scoreboards are **not peers in the report**. The [[success rate (the score)|score]]
 is the headline, because it is already the joint measure of "would this work for
 a user"; activation is the *diagnostic* that says which half moved when the
 score drops. Rendering them as two equal bars invites averaging them, which is
@@ -423,8 +423,8 @@ a score from it.
 So there are three states, not two: *observed and admissible*, *observed but
 inadmissible*, and *not observed at all* — the last being an [[ablation|ablated]]
 neighbourhood, where no choice existed to observe.
-_Avoid_: unusable activation (an attempt that is [[usable / unusable
-attempt|unusable]] for the [[success rate|score]] may still be
+_Avoid_: unusable activation (an attempt that is
+[[usable / unusable attempt|unusable]] for the [[success rate (the score)|score]] may still be
 activation-admissible — a `judge_error` is).
 
 ## Built-in skill
@@ -474,22 +474,22 @@ skill's role: peers stay peers ([[ablation]]).
   caliper clones into a content-addressed cache and resolves to a concrete
   commit at fetch. One entry is one skill.
 
-The two shapes mirror the local-vs-remote discrimination [[MCP server
-(declared)|`mcp:`]] already uses. The asymmetry that matters downstream is that
+The two shapes mirror the local-vs-remote discrimination
+[[MCP server (declared)|`mcp:`]] already uses. The asymmetry that matters downstream is that
 a git source *makes a reproducibility claim* the spec can keep and a path source
 does not — which is what grades [[skill drift]], and the only respect in which
-the two differ (see [[0017-unpinned-git-sources-are-allowed-because-drift-is-reported]]).
+the two differ (see [ADR 0017](adr/0017-unpinned-git-sources-are-allowed-because-drift-is-reported.md)).
 _Avoid_: remote skill, skill dependency, pinned skill.
 
 ## Skill drift
 
 A member of the [[skill neighbourhood]] whose **content differs between two
 saved runs** of the same spec — caught by comparing the per-file hashes
-`SkillSnapshot` already records, and reported by [[run comparison|`compare`]]
+`SkillSnapshot` already records, and reported by [[run comparison (`compare`)|`compare`]]
 alongside its other warnings.
 
-It is reported for **every** member, at two volumes. A drifted [[skill
-source|git source]] *warns*: the spec said where those bytes come from and the
+It is reported for **every** member, at two volumes. A drifted
+[[skill source|git source]] *warns*: the spec said where those bytes come from and the
 promise did not hold, so the delta is confounded. A drifted **path source** is
 reported without alarm: nothing was promised about a working file, and warning
 would flag the author's own edit — the thing a run usually exists to measure —
@@ -498,17 +498,17 @@ as a mistake.
 Distinct from `compare`'s neighbourhood mismatch, which is a change in
 **membership** (which skills were installed); drift is a change in **text** at
 constant membership. Both confound a comparison; neither is a
-[[regression in a comparison|regression]], which stays a score-only verdict.
+[[regression (in a comparison)|regression]], which stays a score-only verdict.
 _Avoid_: skill change, version skew, stale skill.
 
 ## Install-and-discover
 
-Caliper's **only** loading discipline: every member of the [[skill
-neighbourhood]] is copied to the backend's native skills root
+Caliper's **only** loading discipline: every member of the
+[[skill neighbourhood]] is copied to the backend's native skills root
 (`<skills_root>/<name>/SKILL.md`, the name taken from frontmatter), and nothing
 is ever placed into the agent's context for it. The agent meets each skill the
 way a real user's agent does — as a name and a `description` it may or may not
-reach for. See [[install-and-discover-is-the-only-loading-discipline]].
+reach for. See [ADR 0013](adr/0013-install-and-discover-is-the-only-loading-discipline.md).
 
 The contrasting term is **preload**: put the skill's text in front of the agent
 before it has decided it wants it — pi's `--skill`, hermes' `--skills` (whose
@@ -535,7 +535,7 @@ a whole directory, so the agent can reach the referenced files during a run
 exactly as it would from a real install. (Every backend is a CLI agent that can
 reach them; the tool-less `claude-api`/`openai-api` backends, which could only
 paste `SKILL.md` text and so could not measure disclosure, were removed — see
-[[cli-agent-backends-only]].)
+[ADR 0003](adr/0003-cli-agent-backends-only.md).)
 
 A **lone** slash-command `.md` file (not named `SKILL.md`) has no directory, no
 frontmatter `name:` and no `description:` — nothing to install and nothing for
@@ -568,7 +568,7 @@ of six values, classified once at the seam where an attempt is assembled:
 `passed` is retained as a derived convenience, equal to `outcome == pass`.
 
 Outcomes answer *two* questions, not one. **Usable** asks "does this count
-toward the [[success rate|score]]?"; **execution noise** asks "should this be
+toward the [[success rate (the score)|score]]?"; **execution noise** asks "should this be
 *reported* as a problem?". They coincide for every value except `not_checked`,
 which is excluded from the denominator without being an error — so a correct
 trigger-probe spec never reads as broken.
@@ -586,7 +586,7 @@ run was saved. `3` is **reserved**: a clean run that did not clear a
 The distinction `2` and `3` draw is the one CI needs — *the eval could not run*
 is a broken pipeline, *the skill did not clear the bar* is the answer you asked
 for — so it is a contract, not an implementation detail, and a failure's code is
-decided in one place rather than at each command. A [[regression]] in `compare`
+decided in one place rather than at each command. A [[regression (in a comparison)|regression]] in `compare`
 is deliberately **not** an exit code: the any-below rule fires on noise about as
 often as on a real change at small k.
 
@@ -616,7 +616,7 @@ not merely counted.
 A sandbox is not a claim that the agent was *contained* — nothing stops the
 read; the run observes it and grades accordingly. No part of an attempt is a
 security boundary against the skill under test; see
-[[0027-an-attempt-is-not-a-security-boundary]].
+[ADR 0027](adr/0027-an-attempt-is-not-a-security-boundary.md).
 
 ## Run environment
 
@@ -641,8 +641,8 @@ _Avoid_: sandbox (that is what the agent may not touch), spec dir.
 The fresh home directory one attempt's agent runs under. It starts with only
 what caliper puts there (the attempt's [[config home]], the installed
 [[skill neighbourhood]], any [[user customizations]] that load), and is never
-shared between attempts or with the operator. It is separate from the [[attempt
-workdir]]: the home is where the agent's CLI keeps its own state, the workdir is
+shared between attempts or with the operator. It is separate from the
+[[attempt workdir]]: the home is where the agent's CLI keeps its own state, the workdir is
 where the task happens.
 _Avoid_: sandbox (that is what the agent may not touch), temp home.
 
@@ -734,10 +734,10 @@ of them.
 The per-run roll-up of [[attempt usage]], [[wall-clock time]] and [[judge time]],
 **derived** at
 render time by summing over the run's `AttemptRecord`s — never stored on the
-schema (mirrors how [[run comparison]] keeps usable/unusable counts derivable
+schema (mirrors how [[run comparison (`compare`)|run comparison]] keeps usable/unusable counts derivable
 rather than persisted). Every attempt counts toward the run total, because the
-tokens and time were really spent; but the slice belonging to [[usable / unusable
-attempt|unusable attempts]] is reported on its own line (the unusable note) so a
+tokens and time were really spent; but the slice belonging to
+[[usable / unusable attempt|unusable attempts]] is reported on its own line (the unusable note) so a
 timed-out attempt's wasted tokens/time are visible without distorting per-attempt
 economics. The per-attempt average is taken over usable attempts only, matching
 the score denominator.
@@ -752,8 +752,8 @@ attempt carrying a `retries` count.
 
 The question that sorts the failures is **would another invocation behave
 differently?** A throttle: yes, retry it. A **spending cap**: no, and it will
-still say no on every remaining attempt, so the run stops (an [[interrupted
-run]], with the cap as its cause). A bare crash: no, it reproduces, so it is
+still say no on every remaining attempt, so the run stops (an
+[[interrupted run]], with the cap as its cause). A bare crash: no, it reproduces, so it is
 recorded as-is rather than retried into looking flaky.
 
 A signal only counts when it is a [[CLI refusal]] rather than the agent's
@@ -810,7 +810,7 @@ showing up in the sample, not a fact about the skill.
 
 Distinct from a task truncated by `--fail-fast`, which also has fewer than k
 attempts but stopped *on purpose* and does not set the marker. The two are the
-only ways realized depth falls short of the requested [[success rate|k]].
+only ways realized depth falls short of the requested [[success rate (the score)|k]].
 
 The marker is what `compare` warns on and what `list` marks — always on the fact
 that a run stopped early, never on a depth threshold, which would be a worse

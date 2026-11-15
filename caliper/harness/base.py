@@ -144,7 +144,7 @@ class RunContext:
     # The agent's cwd — the attempt workdir that ``setup:``, ``cleanup:`` and
     # ``assert:`` also run in. Kept apart from ``isolated_home`` so the agent's
     # working tree is not its config dir. See
-    # docs/adr/0026-an-attempt-runs-in-one-fresh-workdir.md.
+    # docs/adr/0046-an-attempt-runs-in-one-fresh-workdir.md.
     workdir: str
     extra_path: list[str]
     # ``sandbox.forbidden_files`` — applied to the install so a skill's answer
