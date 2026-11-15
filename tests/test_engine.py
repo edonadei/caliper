@@ -45,7 +45,7 @@ def test_an_unknown_backend_names_the_flag_and_the_known_backends(
 
     message = str(raised.value)
     assert f"in {flag}" in message
-    assert "Known backends: claude-code, codex, hermes, pi." in message
+    assert "Known backends: antigravity, claude-code, codex, hermes, pi." in message
 
 
 @pytest.fixture

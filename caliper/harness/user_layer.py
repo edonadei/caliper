@@ -158,11 +158,23 @@ def _copy_rules(harness: CliHarness, ctx: RunContext) -> list[str]:
 
 def _install_skills(harness: CliHarness, ctx: RunContext) -> list[str]:
     """Install the user's own skills flat at the skills root; return their names."""
-    root = harness.skills_root(ctx)
-    source = harness.user_path(root, ctx)
     refs: list[SkillRef] = []
     # Follow user-installed directory symlinks, but install independent copies.
     visited: set[Path] = set()
+    for source in harness.user_skill_sources(ctx):
+        _collect_skills(harness, ctx, source, refs, visited)
+    install_skills(refs, harness.skills_root(ctx), ctx.forbidden_files)
+    return sorted(ref.name for ref in refs)
+
+
+def _collect_skills(
+    harness: CliHarness,
+    ctx: RunContext,
+    source: Path,
+    refs: list[SkillRef],
+    visited: set[Path],
+) -> None:
+    """Add the user skills under ``source`` that no earlier source named."""
     bundled = harness.bundled_skill_names(source)
     for directory, directories, files in os.walk(source, followlinks=True):
         resolved = Path(directory).resolve()
@@ -187,5 +199,3 @@ def _install_skills(harness: CliHarness, ctx: RunContext) -> list[str]:
         if any(ref.name == name for ref in refs):
             continue
         refs.append(SkillRef(name, path))
-    install_skills(refs, root, ctx.forbidden_files)
-    return sorted(ref.name for ref in refs)

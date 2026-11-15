@@ -54,7 +54,7 @@ The event name is `caliper_command_completed`. Its only usage properties are:
 | `command` | `run`, `report`, `compare`, `list`, `validate`, `login`, `logout` |
 | `caliper_version` | Numeric release version, optionally with an `a`, `b` or `rc` suffix; `unknown` for other versions |
 | `os_family` | `macos`, `windows`, `linux`, `other` |
-| `backend` | Selected run backend: `claude-code`, `codex`, `hermes`, `pi`; `null` for other commands or an unknown backend |
+| `backend` | Selected run backend: `claude-code`, `codex`, `hermes`, `pi`, `antigravity`; `null` for other commands or an unknown backend |
 | `outcome` | `success`, `bad_input`, `cannot_run`, `bar_not_met`, `interrupted`, `error` |
 | `duration_bucket` | `lt_1s`, `1s_10s`, `10s_60s`, `1m_10m`, `ge_10m` |
 

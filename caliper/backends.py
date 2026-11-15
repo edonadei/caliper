@@ -44,6 +44,11 @@ BACKENDS: dict[str, Backend] = {
             "pi",
             "caliper.harness.pi:PiHarness",
         ),
+        Backend(
+            "antigravity",
+            "caliper.harness.antigravity:AntigravityHarness",
+            mcp_tool_separator="_",
+        ),
     )
 }
 
@@ -56,7 +61,7 @@ VALID_BACKENDS: frozenset[str] = frozenset(BACKENDS)
 # docs/adr/0004-engine-is-a-runtime-axis-not-a-spec-field.md.
 DEFAULT_BACKEND: str = "claude-code"
 
-_ALIASES = {"claude": "claude-code", "claude_code": "claude-code"}
+_ALIASES = {"claude": "claude-code", "claude_code": "claude-code", "agy": "antigravity"}
 
 
 def normalize_backend(value: str) -> str:
