@@ -5,6 +5,7 @@ See AGENTS.md -> Updating docs after API changes, Formatting, and Decision docs.
 
 from __future__ import annotations
 
+import ast
 import fnmatch
 import functools
 import json
@@ -968,4 +969,64 @@ def test_contributing_ci_section_matches_workflow() -> None:
     assert not unknown, (
         ".github/CONTRIBUTING.md's branch-protection snippet requires status checks "
         f"that .github/workflows/lint.yml never reports: {unknown}"
+    )
+
+
+FEATURE_MAP = "docs/feature-map.md"
+_PROVING_TEST = re.compile(r"`(tests/\w+\.py)::(\w+(?:::\w+)?)`")
+
+
+def _feature_map_rows() -> list[list[str]]:
+    text = (ROOT / FEATURE_MAP).read_text(encoding="utf-8")
+    rows = [line for line in text.splitlines() if line.startswith("| ")]
+    cells = [[cell.strip() for cell in row.strip("|").split(" | ")] for row in rows]
+    return [row for row in cells if row[0] != "Feature" and row[0].strip("-: ")]
+
+
+@functools.cache
+def _collected_tests(rel_path: str) -> set[str]:
+    """What pytest collects from a test file: its test functions and test classes."""
+    tree = ast.parse((ROOT / rel_path).read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
+            names.add(node.name)
+        elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+            names.add(node.name)
+            names |= {
+                f"{node.name}::{f.name}"
+                for f in node.body
+                if isinstance(f, ast.FunctionDef) and f.name.startswith("test_")
+            }
+        elif isinstance(node, ast.Assign):
+            names |= {
+                t.id
+                for t in node.targets
+                if isinstance(t, ast.Name) and t.id.startswith("Test")
+            }
+    return names
+
+
+def test_feature_map_has_a_row_for_every_command_and_backend() -> None:
+    features = "\n".join(row[0] for row in _feature_map_rows())
+    mapped = set(re.findall(r"`caliper ([a-z][\w-]*)", features))
+    unmapped = sorted(set(get_command(app).commands) - mapped)
+    unmapped += [b for b in sorted(VALID_BACKENDS) if f"`{b}`" not in features]
+    assert unmapped == [], f"add a {FEATURE_MAP} row for: {unmapped}"
+
+
+def test_every_feature_map_row_names_a_test_that_exists() -> None:
+    rows = _feature_map_rows()
+    assert rows, f"{FEATURE_MAP} has no feature rows"
+    unproven = [row[0] for row in rows if not _PROVING_TEST.search(row[-1])]
+    assert unproven == [], f"name a proving test for these {FEATURE_MAP} rows"
+    missing = [
+        f"{path}::{name}"
+        for row in rows
+        for path, name in _PROVING_TEST.findall(row[-1])
+        if not (ROOT / path).is_file() or name not in _collected_tests(path)
+    ]
+    assert missing == [], (
+        f"{FEATURE_MAP} names tests that no longer exist; point each row at the "
+        f"test that now proves it: {missing}"
     )
