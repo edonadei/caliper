@@ -241,23 +241,17 @@ class HermesHarness(CliHarness):
     def _command(
         self, ctx: RunContext, planted: PlantedSession | None
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
-        # One shell invocation: run oneshot (its final text and any error go to
-        # stderr, where _diagnose reads them), then export the single persisted
-        # session as JSONL on stdout for _read — unfiltered, since v0.21
-        # tags it `oneshot` where v0.18 said `cli`, and the isolated home holds
-        # no other session. `exit $rc` propagates the
-        # oneshot's exit code so a failed run is classified as infra_error.
-        # No --skills: hermes' own help calls that flag "preload", and its system
-        # prompt already advertises installed skills as name + description for
-        # the model to choose from — exactly the condition activation needs.
-        # --yolo bypasses interactive approval prompts (the hermes analog of
-        # claude-code's --dangerously-skip-permissions and pi's --approve): the
-        # neutral-agent harness runs non-interactively with stdin closed, so an
-        # approval gate — e.g. before an MCP tool call — would hang until timeout.
-        # The model and effort travel through the environment, like the prompt,
-        # so no caller-supplied string is ever spliced into the script.
+        # No --skills: hermes' own help calls that flag "preload" (docs/adr/0013).
+        # --yolo is hermes' analog of claude-code's --dangerously-skip-permissions
+        # and pi's --approve: stdin is closed, so an approval gate (say, before
+        # an MCP tool call) would hang until timeout. The model and effort travel
+        # through the environment, so no caller string is spliced into the script.
         model = ' --model "$CALIPER_MODEL"' if ctx.model else ""
         model += ' --reasoning "$CALIPER_EFFORT"' if self._effort else ""
+        # oneshot's answer and errors go to stderr for _diagnose, then its one
+        # session is exported as JSONL on stdout for _read, unfiltered (v0.21
+        # tags it `oneshot`, v0.18 `cli`; the isolated home holds no other).
+        # `exit $rc` keeps oneshot's status, so a failed run is infra_error.
         script = (
             f'"$CALIPER_HERMES" -z "$CALIPER_PROMPT"{model} --yolo '
             "--ignore-rules 1>&2\n"

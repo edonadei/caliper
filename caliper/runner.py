@@ -187,17 +187,10 @@ def run(
         hook_failures=[],
     )
 
-    # One pool job per *attempt*, not per task. Attempts are independent — each
-    # gets its own isolated home and its own agent process — so scheduling them
-    # per task capped a run's concurrency at the task count: `--workers 8` on a
-    # 3-task spec ran three at a time, and a single-task spec ran its k attempts
-    # strictly back to back. See
+    # One pool job per *attempt*, so the task count never caps `--workers`.
+    # Only `--fail-fast`, which counts consecutive unusable attempts and so
+    # needs them in order, keeps a per-task chain. See
     # docs/adr/0018-the-attempt-is-the-unit-of-parallelism.md.
-    #
-    # `--fail-fast` is the one thing that couples a task's attempts (it counts
-    # *consecutive* unusable ones, which needs an order), so that mode keeps a
-    # per-task chain. Opting into fail-fast is opting into spending fewer
-    # attempts, not into spending them faster.
     collected: dict[str, list[AttemptRecord]] = {task.id: [] for task in spec.tasks}
     with ThreadPoolExecutor(max_workers=workers) as pool:
         if fail_fast_unusable > 0:

@@ -201,27 +201,17 @@ class RunMeta(BaseModel):
     effort_source: EffortSource | None = None
     # ``None`` = a legacy run; ``compare`` refuses to diff across this boundary.
     era: str | None = None
-    # Subjects declared by the spec but deliberately *not* part of this run
-    # (``--ablate``): a skill bare, an ``mcp:`` server qualified. Recorded
-    # explicitly rather than left to be inferred from a short ``skill_snapshots``
-    # list: an empty list is otherwise ambiguous between "ablated everything" and
-    # "declared no skills", and the era marker already sets the precedent that a
-    # semantic fact is not sniffed from a schema shape. A server has no snapshot
-    # of its own, so this marker is also the only record that it was removed. See
-    # docs/adr/0015-ablation-names-its-subject-at-the-invocation.md,
-    # docs/adr/0025-ablation-covers-mcp-servers.md
-    # and docs/CONTEXT.md → Ablation.
+    # Subjects declared by the spec but left out of this run (``--ablate``): a
+    # skill bare, an ``mcp:`` server qualified. Stored, not inferred from a short
+    # ``skill_snapshots``, which cannot tell "ablated everything" from "declared
+    # none" and never lists a server. See docs/adr/0015, docs/adr/0025 and
+    # docs/CONTEXT.md → Ablation.
     ablated: list[str] = Field(default_factory=list)
-    # The ``mcp:`` servers this run was actually configured with — after any
-    # ablation, so a server named in ``ablated`` is absent here. The server half
-    # of what ``skill_snapshots`` is for skills, and what lets ``compare``
-    # corroborate an ``mcp:`` marker instead of trusting it: the full side must
-    # have run with the removed server. ``None`` = not recorded (a run saved
-    # before this field existed), so an empty *list* means "recorded, no
-    # servers" and ``compare`` can still check a marker against it. Names only; a
-    # server's *configuration* drift is not tracked here, the way skill *text*
-    # drift is a separate concern. See
-    # docs/adr/0025-ablation-covers-mcp-servers.md.
+    # The ``mcp:`` servers this run was configured with, after any ablation: the
+    # server half of ``skill_snapshots``, which lets ``compare`` corroborate an
+    # ``mcp:`` marker. ``None`` = not recorded (saved before the field), so
+    # ``[]`` means "recorded, no servers". Names only; a server's configuration
+    # drift is not tracked. See docs/adr/0025-ablation-covers-mcp-servers.md.
     mcp_servers: list[str] | None = None
     # Whether the attempts loaded the user's customizations; ``False`` when
     # isolated, on a backend without MCP, and on runs saved before the field.

@@ -164,7 +164,7 @@ def _spawned(
             }
         )
         if env is None and sys.platform == "win32" and "SystemRoot" in os.environ:
-            process_env["SystemRoot"] = os.environ["SystemRoot"]  # noqa: SIM112
+            process_env["SystemRoot"] = os.environ["SystemRoot"]  # noqa: SIM112 - Windows spells it so
         process_env.update(server.env)
         assert server.command is not None
         command = (

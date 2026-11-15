@@ -258,18 +258,16 @@ _REMOTE_MCP_TYPES: frozenset[str] = frozenset({"http", "sse"})
 _VALID_MCP_TYPES: frozenset[str] = frozenset({"stdio"}) | _REMOTE_MCP_TYPES
 
 
-# A declared MCP server the agent-under-test may use. Two transports share one
-# model, discriminated by ``type`` (default ``stdio``):
-#
-#   - stdio (default): a local ``command`` (with ``args``) the harness spawns,
-#     plus an ``env`` map. This is the shape from #47.
-#   - remote (``type: http`` or ``sse``): a hosted endpoint at ``url`` with an
-#     optional ``headers`` map for auth.
-#
-# The two field sets are mutually exclusive (enforced below). Values in ``env``,
-# ``headers``, and a remote ``url`` may reference host env vars as ``${VAR}`` so
-# secrets never live in the committed spec — resolved by the backend at run time.
 class McpServer(BaseModel):
+    """A declared MCP server the agent-under-test may use.
+
+    ``type`` picks the transport: ``stdio`` (the default) spawns a local
+    ``command`` with ``args`` and ``env``; ``http`` or ``sse`` reaches a hosted
+    ``url`` with optional auth ``headers``. The field sets are exclusive. A
+    ``${VAR}`` secret resolves from the host at the harness boundary
+    (docs/adr/0009, docs/adr/0011).
+    """
+
     type: str = "stdio"
     # stdio transport
     command: str | None = None

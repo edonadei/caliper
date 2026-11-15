@@ -25,17 +25,17 @@ When any of the following change, update every location below that covers it bef
 `tests/test_doc_sync.py` locks CLI subcommands, `caliper run` flags, exit codes,
 registered backends, `.eval.yaml` keys, `Outcome` values, and `RunResults`
 schema fields across those files; keep the surrounding prose and judging rules
-aligned when behavior changes.
+aligned when behavior changes. Run
+`pytest tests/test_doc_sync.py tests/test_architecture.py` after any such change:
+doc sync, version pins, and module boundaries are checked there.
 
 ## Formatting
 
 `ruff` is the single formatting and linting authority for this repo, pinned to
 `ruff==0.15.20`. `ty` is the static type checker, pinned to `ty==0.0.104`. Run
-`ruff format .`, `ruff check .`, and `ty check` before finishing. Never
-hand-reformat lines outside the scope of your change — the formatter is the
-only style authority, and manual reflow inflates diffs. CI enforces
-`ruff format --check .`, `ruff check .`, and `ty check` on every PR. See
-`.github/CONTRIBUTING.md` for details.
+`ruff format .`, `ruff check .`, and `ty check` before finishing. Leave lines
+outside your change as they are: the formatter is the only style authority, and
+manual reflow inflates diffs.
 
 ## Decision docs
 
@@ -48,8 +48,14 @@ This repo keeps its domain model and design decisions **in version control**:
 - `docs/adr/` — Architecture Decision Records (`0001-*.md`, …), one short entry
   per hard-to-reverse, non-obvious, real-trade-off decision.
 
-Both are committed and ship with the repo. **Reference them freely** from code
-comments, docstrings, and docs — e.g. `see docs/CONTEXT.md → Regression` or
-`docs/adr/0001-attempt-outcome-taxonomy.md`. Because the files clone with the
-repo, these links resolve for everyone. Prefer a short comment that links the
-record over re-explaining the decision inline.
+Both ship with the repo, so **link them freely** from code comments,
+docstrings, and docs — e.g. `see docs/CONTEXT.md → Regression` or
+`docs/adr/0001-attempt-outcome-taxonomy.md`.
+
+## Comments
+
+A comment in `caliper/` says what the code cannot: why, a quirk and its
+reproducer test, or a link to the record holding the reasoning. Aim for three
+lines; five is the ceiling, for docstrings too. A `TODO` cites its issue (`# TODO(#123): ...`), and a `# noqa` names
+its rule and why it does not apply. `tests/test_comment_policy.py` checks the
+ceiling, the `TODO`s and the `noqa`s, allowing the longer blocks that predate it.
