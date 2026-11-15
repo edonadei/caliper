@@ -156,7 +156,7 @@ failed. Full results are saved as JSON under `.caliper/results/<spec>/`.
 
 Start from one of the **[examples](examples/)**. Each catches a common agent
 failure (false success, tool misuse, runaway loops, prompt regressions, stale
-context treated as current), passes as-is against a bundled skill, and points
+context treated as current), passes as-is against the skill it ships with, and points
 at your own skill by editing a few commented lines.
 
 ## Recommended workflow

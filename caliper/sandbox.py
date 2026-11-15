@@ -60,7 +60,7 @@ _PATH_KEYS = frozenset(
 #: ``.caliper`` alone, because a task may legitimately *write a caliper spec*
 #: whose text contains ``./.caliper/.*`` — grill-skill's own eval does, and a
 #: bare marker flagged those attempts as cheats when the pattern was declared by
-#: hand. The leading boundary keeps ``.caliper-mcp.json``, the MCP config the
+#: hand. The leading boundary keeps ``.caliper-mcp.json``, the MCP server file the
 #: harness writes into the agent's own home, out of it.
 SAVED_RESULTS = (
     rf"(?<![\w.-]){re.escape(CALIPER_DIR)}[/\\]{re.escape(RESULTS_DIR)}[/\\]"

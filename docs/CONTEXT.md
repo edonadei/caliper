@@ -436,7 +436,7 @@ tool; Claude Code itself calls it a bundled skill. Its [[activation]] is
 **shown, never scored**. It never fails an `activates:`, but the report lists
 it, because otherwise "my `description` didn't trigger" and "a built-in skill
 won the prompt" would look the same.
-_Avoid_: bundled or auto-bundled skill (in anything a user reads), system skill.
+_Avoid_: bundled skill, auto-bundled skill (both in anything a user reads), system skill.
 
 ## Skill neighbourhood
 

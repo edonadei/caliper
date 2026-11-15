@@ -34,7 +34,7 @@ from caliper.schema.spec import PlantedShellCall
 _PROVIDER_DIAGNOSIS = (
     "pi cannot run with the current provider/credential "
     "configuration.\n\n"
-    "Caliper copies your pi agent dir (`$PI_CODING_AGENT_DIR`, else `~/.pi/agent`) auth and settings verbatim "
+    "Caliper copies your pi config home (`$PI_CODING_AGENT_DIR`, else `~/.pi/agent`) auth and settings verbatim "
     "and passes a model to pi only when you select one. The pi CLI "
     "returned:\n"
     "  {text}\n\n"
@@ -88,7 +88,7 @@ class PiHarness(CliHarness):
         return "pi"
 
     def seed_files(self, ctx: RunContext) -> list[Path]:
-        # pi reads auth/settings from its config dir. The real config is copied
+        # pi reads auth/settings from its config home. The real config is copied
         # verbatim into a per-attempt directory (parallel-safe; never mutates
         # the user's real ~/.pi) that PI_CODING_AGENT_DIR then points pi at.
         # The config's default model/provider is preserved on purpose; the
@@ -130,7 +130,7 @@ class PiHarness(CliHarness):
             cmd += ["--thinking", self._effort]
         # No --skill: that flag preloads, and pi's own --no-skills exists
         # precisely because discovery is its default. The neighbourhood is
-        # installed under the agent dir and pi finds it (docs/adr/0013).
+        # installed under the config home and pi finds it (docs/adr/0013).
         # `--` ends option parsing, so a prompt like `--version` is the task.
         cmd += ["--", ctx.prompt]
         # stdin is left as None so the template closes it (DEVNULL): in --print
@@ -269,7 +269,7 @@ class PiHarness(CliHarness):
             "pi cannot run with the current authentication "
             "configuration.\n\n"
             "Caliper drives the local pi CLI and reuses the "
-            "credentials in its agent dir (`$PI_CODING_AGENT_DIR`, else `~/.pi/agent`). The pi CLI returned:\n"
+            "credentials in its config home (`$PI_CODING_AGENT_DIR`, else `~/.pi/agent`). The pi CLI returned:\n"
             "  {text}\n\n"
             "Authenticate pi (e.g. `pi` then `/login`, or set the provider "
             "API key), verify `pi --print 'Reply OK'` works in your normal "
@@ -481,8 +481,8 @@ class _PiSession(SessionFormat):
     """A pi session: the ``session`` header, then one message per line.
 
     Fields as a resume was seen to need them (0.87.1). Messages chain by
-    ``id``/``parentId``. The file goes under the agent dir's ``sessions/``:
-    pi moves a session file it finds in the agent dir's root, and appends the
+    ``id``/``parentId``. The file goes under the config home's ``sessions/``:
+    pi moves a session file it finds in the config home's root, and appends the
     resumed turns to this same file. A planted assistant turn names no real
     model: pi resumes on the attempt's own, whatever a turn records. A planted
     shell call is a ``bash`` tool call, answered by the ``toolResult`` with its

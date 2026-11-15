@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 import sys
+import tokenize
 import typing
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -311,6 +312,126 @@ def test_context_glossary_wiki_links_resolve() -> None:
         "every [[wiki]] link in docs/CONTEXT.md must match a `## ` heading "
         "(link to ADRs with `[ADR NNNN](adr/NNNN-slug.md)` instead): "
         f"{unresolved}"
+    )
+
+
+# `_Avoid_:` terms that also name something else the glossary keeps, so a
+# match is not a misuse. Every other term is banned wherever it is checked.
+_CONTEXT_DEPENDENT_AVOID_TERMS = {
+    "baseline": "hillclimb-skill's baseline runs are a different concept",
+    "codex login": "the Codex CLI's own login command",
+    "connectors": "hosted connectors are one kind of user customization",
+    "extensions": "pi extensions are real",
+    "firing": "avoided only for the observation, not the event",
+    "hook": "`setup:` and `cleanup:` are hooks",
+    "invocation": "avoided only for the observation, not the event",
+    "profile": "hermes' own word for something narrower",
+    "sandbox": "the glossary's own term, avoided only for its neighbours",
+    "script": "a step may run a script",
+    "setup": "the `setup:` step",
+    "spec dir": "the spec's own directory, which the workdir is not",
+    "triggering": "avoided only for the observation, not the event",
+}
+
+# Where an avoided term may stand: the glossary defines them, ADRs record the
+# vocabulary of their time, and a migration guide names the old terms.
+_AVOID_TERM_EXEMPT_DOCS = ("docs/CONTEXT.md", "docs/adr/*", "docs/MIGRATING-*.md")
+
+
+def _glossary_avoid_terms() -> dict[str, str]:
+    """Each `_Avoid_:` term in docs/CONTEXT.md, mapped to its entry's heading."""
+    context = (ROOT / "docs/CONTEXT.md").read_text(encoding="utf-8")
+    terms: dict[str, str] = {}
+    heading = ""
+    for block in re.split(r"\n\s*\n", context):
+        if found := re.findall(r"^## (.+)$", block, re.MULTILINE):
+            heading = found[-1]
+        avoid = re.search(r"^_Avoid_:(.*)", block, re.MULTILINE | re.DOTALL)
+        if avoid is None:
+            continue
+        # A parenthetical says when or why, and may hold commas of its own.
+        listed = re.sub(r"\([^)]*\)", "", avoid.group(1))
+        for term in listed.split(","):
+            if term := " ".join(term.split()).strip(" .`").lower():
+                terms[term] = heading
+    return terms
+
+
+def _python_prose(path: Path) -> list[tuple[int, str]]:
+    """The comments and string literals of a module, each with its first line.
+
+    Code is left out, so a match never spans two statements. A run of comment
+    lines is one piece, so a term wrapped across them still matches.
+    """
+    prose_tokens = {tokenize.STRING, getattr(tokenize, "FSTRING_MIDDLE", -1)}
+    pieces: list[tuple[int, str]] = []
+    last_comment_line = -1
+    with path.open("rb") as source:
+        for tok in tokenize.tokenize(source.readline):
+            line = tok.start[0]
+            if tok.type == tokenize.COMMENT:
+                text = tok.string.lstrip("#")
+                if pieces and last_comment_line == line - 1:
+                    pieces[-1] = (pieces[-1][0], pieces[-1][1] + "\n" + text)
+                else:
+                    pieces.append((line, text))
+                last_comment_line = line
+            elif tok.type in prose_tokens:
+                pieces.append((line, tok.string))
+    return pieces
+
+
+def _avoid_term_pattern(term: str) -> re.Pattern[str]:
+    words = (re.escape(word) for word in re.split(r"[\s-]+", term))
+    # Hyphens and line breaks count as spaces, so a wrapped or hyphenated
+    # spelling still matches, but an identifier like `config_dir` does not.
+    return re.compile(
+        r"(?<![\w-])" + r"[\s-]+".join(words) + r"(?![\w-])", re.IGNORECASE
+    )
+
+
+def test_context_dependent_avoid_terms_are_still_avoided() -> None:
+    stale = sorted(_CONTEXT_DEPENDENT_AVOID_TERMS.keys() - _glossary_avoid_terms())
+    assert stale == [], (
+        f"_CONTEXT_DEPENDENT_AVOID_TERMS lists terms docs/CONTEXT.md no longer "
+        f"avoids; delete them: {stale}"
+    )
+
+
+def test_glossary_avoid_terms_are_not_used() -> None:
+    terms = _glossary_avoid_terms()
+    assert terms, "found no `_Avoid_:` terms in docs/CONTEXT.md"
+    banned = {
+        term: _avoid_term_pattern(term)
+        for term in terms
+        if term not in _CONTEXT_DEPENDENT_AVOID_TERMS
+    }
+
+    pieces = [
+        (rel, 1, (ROOT / rel).read_text(encoding="utf-8"))
+        for rel in _repo_markdown_files()
+        if not any(
+            fnmatch.fnmatchcase(rel.as_posix(), p) for p in _AVOID_TERM_EXEMPT_DOCS
+        )
+    ]
+    for path in sorted((ROOT / "caliper").rglob("*.py")):
+        rel = path.relative_to(ROOT)
+        pieces += [(rel, line, text) for line, text in _python_prose(path)]
+
+    misuses: list[str] = []
+    for rel, first_line, text in pieces:
+        for term, pattern in banned.items():
+            for match in pattern.finditer(text):
+                line_no = first_line + text.count("\n", 0, match.start())
+                misuses.append(
+                    f"{rel.as_posix()}:{line_no}: {match.group(0)!r} "
+                    f"(docs/CONTEXT.md → {terms[term]})"
+                )
+
+    assert misuses == [], (
+        "these spell a term docs/CONTEXT.md says to avoid. Use the entry's own "
+        "term instead; if the word is right in this sense, add it to "
+        "_CONTEXT_DEPENDENT_AVOID_TERMS with the reason:\n" + "\n".join(misuses)
     )
 
 
