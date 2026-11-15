@@ -147,7 +147,7 @@ If it doesn't, leave the code alone.
 
 Caliper uses [**ty**](https://github.com/astral-sh/ty) as its static type checker
 ([ADR 0048](../docs/adr/0048-ty-is-the-static-type-checker.md)). Ty type-checks
-`caliper/`, `docs/`, and `skills/` against the `requires-python = ">=3.10"` floor.
+`caliper/`, `docs/`, `scripts/`, and `skills/` against the `requires-python = ">=3.10"` floor.
 
 ### Pinned version
 
@@ -179,6 +179,19 @@ pytest -q
 The suite needs no network, no agent CLIs, and no credentials. Every backend is
 faked at the subprocess boundary (`tests/conftest.py`).
 
+### Coverage floor
+
+The pure domain modules (`caliper/schema/`, `compare.py`, `activation.py`,
+`attempt.py`, `sandbox.py`, `retry.py`) do no I/O, so a unit test can reach
+every branch. Each one must keep 95% branch coverage on its own. The list and
+the floor are in `[tool.coverage.report]` in `pyproject.toml`, and
+`tests/test_architecture.py` keeps the list in step with the module tiers.
+
+```bash
+pytest -q --cov
+coverage json -q -o coverage.json && python scripts/coverage_floor.py coverage.json
+```
+
 When you change behavior, add a test or an eval fixture that shows the expected
 outcome. Keep backend-specific logic in its own module under `caliper/harness/`
 or `caliper/judge/`.
@@ -205,18 +218,25 @@ The comment at the top of each file shows how to run it.
 | Job | What it runs |
 | --- | --- |
 | `lint` | `ruff format --check .`, `ruff check .`, and `ty check` on Python 3.12 |
-| `test` | the full suite on Linux, Python 3.10, 3.11, 3.12, and 3.13 |
+| `test` | the full suite on Linux, Python 3.10, 3.11, 3.12, and 3.13, then the coverage floor |
 | `platform-test (macos-latest)` | the full suite on Python 3.12 |
 | `platform-test (windows-latest)` | the full suite on Python 3.12 |
 
-`lint` is a **required status check** on `main`. If branch protection is ever
-reset, add it back with:
+All seven jobs are **required status checks** on `main`. If branch protection
+is ever reset, add them back with:
 
 ```bash
 gh api -X PATCH repos/edonadei/caliper/branches/main/protection \
   --input - <<'JSON'
 {
-  "required_status_checks": { "strict": true, "contexts": ["lint"] },
+  "required_status_checks": {
+    "strict": true,
+    "contexts": [
+      "lint",
+      "test (3.10)", "test (3.11)", "test (3.12)", "test (3.13)",
+      "platform-test (macos-latest)", "platform-test (windows-latest)"
+    ]
+  },
   "enforce_admins": null,
   "required_pull_request_reviews": null,
   "restrictions": null
@@ -235,7 +255,7 @@ JSON
 Before opening a PR, run:
 
 ```bash
-pytest -q
+pytest -q --cov
 ruff format --check .
 ruff check .
 ty check

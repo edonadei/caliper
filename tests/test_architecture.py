@@ -835,3 +835,76 @@ def test_ruff_lint_selects_agent_guardrail_rules() -> None:
     assert "E501" not in selected, (
         "E501 must stay off: the formatter owns line length (see docs/adr/0002-ruff-as-sole-formatting-authority.md)."
     )
+
+
+def test_coverage_floor_covers_exactly_the_pure_domain_tiers() -> None:
+    # Tiers 2-4 do no I/O, so every branch is reachable from a unit test; the
+    # floor holds them to that (scripts/coverage_floor.py).
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    include = pyproject["tool"]["coverage"]["report"]["include"]
+    covered = {
+        name
+        for name, mod in _caliper_modules().items()
+        if any(fnmatch.fnmatch(mod.rel_path, pattern) for pattern in include)
+    }
+    domain = {
+        m for m in _caliper_modules() if _matches_prefix(m, SCHEMA_PACKAGE)
+    } | set(PURE_SCORING_AND_DIFFING + ATTEMPT_POLICIES)
+    assert covered == domain, (
+        "[tool.coverage.report] include in pyproject.toml must list the pure domain "
+        "tiers (schema, scoring and diffing, attempt policies) and nothing else. "
+        f"Missing: {sorted(domain - covered)}; not domain: {sorted(covered - domain)}."
+    )
+
+
+def test_cli_help_loads_no_backend_module() -> None:
+    # `caliper --help` is the first thing a user runs; a backend imported at
+    # module level would load on every command, whichever backend it uses.
+    probe = (
+        "import json, sys; sys.argv = ['caliper', '--help']; "
+        "from caliper.main import app\n"
+        "try: app()\n"
+        "except SystemExit: pass\n"
+        "from caliper.backends import BACKENDS; "
+        "mods = {b.harness.partition(':')[0] for b in BACKENDS.values()}; "
+        "sys.stderr.write(json.dumps(sorted(mods & set(sys.modules))))"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    loaded = json.loads(proc.stderr)
+    assert loaded == [], (
+        f"`caliper --help` loaded backend modules {loaded}. Import a backend only "
+        "inside the command that runs it, through caliper.harness.get_harness()."
+    )
+
+
+def test_cli_imports_in_under_two_seconds() -> None:
+    # A coarse ceiling, well above the ~0.2s it takes today, for a heavy library
+    # imported at module level; the backend test above is the exact check.
+    proc = subprocess.run(
+        [sys.executable, "-X", "importtime", "-c", "import caliper.main"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    # Rows read "import time: <self us> | <cumulative us> | <module>".
+    rows = [
+        (int(cumulative), module.strip())
+        for line in proc.stderr.splitlines()
+        if line.startswith("import time:")
+        for _, cumulative, module in [line.split("|")]
+        if cumulative.strip().isdigit()
+    ]
+    cumulative_us = next(us for us, module in rows if module == "caliper.main")
+    slowest = [f"{us:>9} {module}" for us, module in sorted(rows, reverse=True)[:10]]
+    assert cumulative_us < 2_000_000, (
+        f"Importing caliper.main took {cumulative_us / 1e6:.2f}s. Move the slow "
+        "import into the function that needs it. Slowest imports (cumulative µs):\n"
+        + "\n".join(slowest)
+    )

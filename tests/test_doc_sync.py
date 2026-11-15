@@ -559,8 +559,8 @@ def test_ty_version_pin_in_lockstep() -> None:
     )
 
     ty_include = pyproject.get("tool", {}).get("ty", {}).get("src", {}).get("include")
-    assert ty_include == ["caliper", "docs", "skills"], (
-        f"expected [tool.ty.src].include = ['caliper', 'docs', 'skills'] in pyproject.toml, got {ty_include}"
+    assert ty_include == ["caliper", "docs", "scripts", "skills"], (
+        f"expected [tool.ty.src].include = ['caliper', 'docs', 'scripts', 'skills'] in pyproject.toml, got {ty_include}"
     )
 
     lint_workflow_raw = (ROOT / ".github/workflows/lint.yml").read_text(

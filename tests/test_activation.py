@@ -39,6 +39,11 @@ def test_dedicated_tool_naming_an_undeclared_skill_is_ignored():
 # --- path shape (codex, pi) -----------------------------------------------
 
 
+def test_a_dedicated_tool_call_naming_no_skill_is_ignored():
+    detector = ActivationDetector(["unit-normalizer"], frozenset({"Skill"}))
+    assert detector.detect([tool("Skill", {"args": ""})]) == []
+
+
 def test_detects_an_absolute_path_read():
     detector = ActivationDetector(["unit-normalizer"], frozenset())
     turns = [
@@ -58,6 +63,43 @@ def test_detects_the_same_activation_written_as_a_relative_path():
         )
     ]
     assert detector.detect(turns) == ["unit-normalizer"]
+
+
+def test_detects_a_skill_path_inside_an_argv_list():
+    detector = ActivationDetector(["unit-normalizer"], frozenset())
+    turns = [
+        tool(
+            "shell",
+            {
+                "command": [
+                    "bash",
+                    "-lc",
+                    "cat .codex/skills/unit-normalizer/SKILL.md",
+                ],
+                "timeout_ms": 10000,
+            },
+        )
+    ]
+    assert detector.detect(turns) == ["unit-normalizer"]
+
+
+def test_a_path_nested_past_the_depth_limit_is_not_read():
+    nested: object = "skills/unit-normalizer/SKILL.md"
+    for _ in range(7):
+        nested = {"arg": nested}
+    detector = ActivationDetector(["unit-normalizer"], frozenset())
+    assert detector.detect([tool("shell", {"input": nested})]) == []
+
+
+def test_a_declared_skill_read_is_not_credited_to_a_plugin_skill():
+    detector = ActivationDetector(["alpha"], frozenset())
+    turns = [tool("read", {"path": "/h/.claude/skills/alpha/SKILL.md"})]
+    found = detector.detect(
+        turns,
+        additional_names=["plug:alpha"],
+        additional_paths={"plug:alpha": "plugins/plug/skills/alpha/SKILL.md"},
+    )
+    assert found == ["alpha"]
 
 
 def test_listing_the_skills_root_is_not_activation():

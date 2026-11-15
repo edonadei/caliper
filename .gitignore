@@ -12,3 +12,4 @@ venv/
 .env
 skills/*/evals/results/
 .hypothesis/
+.coverage
