@@ -25,7 +25,9 @@ When any of the following change, update every location below that covers it bef
 `tests/test_doc_sync.py` locks CLI subcommands, `caliper run` flags, exit codes,
 registered backends, `.eval.yaml` keys, `Outcome` values, and `RunResults`
 schema fields across those files; keep the surrounding prose and judging rules
-aligned when behavior changes.
+aligned when behavior changes. Run
+`pytest tests/test_doc_sync.py tests/test_architecture.py` after any such change:
+doc sync, version pins, and module boundaries are checked there.
 
 ## Formatting
 
@@ -52,7 +54,8 @@ docstrings, and docs — e.g. `see docs/CONTEXT.md → Regression` or
 
 ## Comments
 
-A comment is a short pointer: five lines at most, with the reasoning in the
-record it links. A `TODO` cites its issue (`# TODO(#123): ...`), and a `# noqa`
-names its rule and why it does not apply. `tests/test_comment_policy.py` checks
-all three, with a per-file allowance for the longer blocks that predate it.
+A comment in `caliper/` says what the code cannot: why, a quirk and its
+reproducer test, or a link to the record holding the reasoning. Aim for three
+lines; five is the ceiling, for docstrings too. A `TODO` cites its issue (`# TODO(#123): ...`), and a `# noqa` names
+its rule and why it does not apply. `tests/test_comment_policy.py` checks the
+ceiling, the `TODO`s and the `noqa`s, allowing the longer blocks that predate it.

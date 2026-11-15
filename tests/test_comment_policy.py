@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 import tokenize
 from pathlib import Path
+from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -15,97 +16,112 @@ ROOT = Path(__file__).resolve().parent.parent
 # ADR or docs/CONTEXT.md, and the comment should link it.
 MAX_COMMENT_BLOCK_LINES = 5
 
-# Files that already hold longer blocks, and how many. A file may not gain one;
-# when it loses one, lower its count here, so the ceiling only ever tightens.
-LONG_COMMENT_BLOCK_ALLOWANCE: dict[str, int] = {
-    "caliper/commands/list_cmd.py": 1,
-    "caliper/commands/run.py": 1,
-    "caliper/commands/validate.py": 1,
-    "caliper/environment.py": 1,
-    "caliper/harness/base.py": 4,
-    "caliper/harness/claude_code.py": 1,
-    "caliper/harness/hermes.py": 2,
-    "caliper/harness/pi.py": 1,
-    "caliper/harness/refusal.py": 1,
-    "caliper/judge/eval_judge.py": 1,
-    "caliper/runner.py": 3,
-    "caliper/sandbox.py": 1,
-    "caliper/schema/results.py": 11,
-    "caliper/schema/spec.py": 1,
-    "caliper/skills.py": 1,
+# Files that already hold longer blocks: each block's length, longest first.
+# A file may not gain a block or grow one. When one shrinks, lower its length
+# here (drop it at the ceiling), so the allowance only ever tightens.
+LONG_COMMENT_BLOCK_ALLOWANCE: dict[str, tuple[int, ...]] = {
+    "caliper/commands/list_cmd.py": (7,),
+    "caliper/commands/run.py": (6,),
+    "caliper/commands/validate.py": (7,),
+    "caliper/environment.py": (6,),
+    "caliper/harness/base.py": (8, 7, 7, 6),
+    "caliper/harness/claude_code.py": (6,),
+    "caliper/harness/hermes.py": (7, 6),
+    "caliper/harness/pi.py": (10,),
+    "caliper/harness/refusal.py": (7,),
+    "caliper/judge/eval_judge.py": (6,),
+    "caliper/runner.py": (6, 6, 6),
+    "caliper/sandbox.py": (15,),
+    "caliper/schema/results.py": (9, 8, 7, 7, 7, 6, 6, 6, 6, 6, 6),
+    "caliper/schema/spec.py": (7,),
+    "caliper/skills.py": (6,),
 }
 
-_MARKER = re.compile(r"\b(?:TODO|FIXME|XXX|HACK)\b")
-_ISSUE_REF = re.compile(r"#\d+")
-_NOQA = re.compile(r"#\s*noqa\b(.*)", re.IGNORECASE)
+# A marker not followed by its issue, as in `TODO(#123)`.
+_UNLINKED_MARKER = re.compile(r"\b(?:TODO|FIXME|XXX|HACK)\b(?!\(#\d+\))")
+# A noqa directive, line- or file-level, and whatever follows it.
+_NOQA = re.compile(r"#\s*(?:ruff:\s*)?noqa\b(.*)", re.IGNORECASE)
 _RULES_AND_REASON = re.compile(r":\s*[A-Z]+\d+(?:\s*,\s*[A-Z]+\d+)*\s+[-—–]\s*\S.*")
 
 
-def _comments(path: Path) -> list[tuple[int, str, bool]]:
-    """Each comment in a module: its line, its text, and whether it fills the line."""
-    found: list[tuple[int, str, bool]] = []
+class _Comment(NamedTuple):
+    line: int
+    text: str
+    # Nothing but indentation before it, so it can belong to a block.
+    full_line: bool
+
+
+def _comments(path: Path) -> list[_Comment]:
+    source_lines = path.read_text(encoding="utf-8").splitlines()
+    found: list[_Comment] = []
     with path.open("rb") as source:
         for tok in tokenize.tokenize(source.readline):
             if tok.type == tokenize.COMMENT:
-                full_line = tok.line.lstrip().startswith("#")
-                found.append((tok.start[0], tok.string, full_line))
+                line, column = tok.start
+                before = source_lines[line - 1][:column]
+                found.append(_Comment(line, tok.string, not before.strip()))
     return found
 
 
-def _modules() -> list[tuple[str, list[tuple[int, str, bool]]]]:
+def _modules() -> list[tuple[str, list[_Comment]]]:
     return [
         (path.relative_to(ROOT).as_posix(), _comments(path))
         for path in sorted((ROOT / "caliper").rglob("*.py"))
     ]
 
 
-def _long_blocks(comments: list[tuple[int, str, bool]]) -> list[tuple[int, int]]:
+def _long_blocks(comments: list[_Comment]) -> list[tuple[int, int]]:
     """(first line, length) of each run of full-line comments over the ceiling."""
     runs: list[list[int]] = []
-    for line, _, full_line in comments:
-        if not full_line:
+    for comment in comments:
+        if not comment.full_line:
             continue
-        if runs and runs[-1][-1] == line - 1:
-            runs[-1].append(line)
+        if runs and runs[-1][-1] == comment.line - 1:
+            runs[-1].append(comment.line)
         else:
-            runs.append([line])
+            runs.append([comment.line])
     return [(run[0], len(run)) for run in runs if len(run) > MAX_COMMENT_BLOCK_LINES]
 
 
 def test_comment_blocks_stay_short() -> None:
+    modules = _modules()
+    missing = sorted(LONG_COMMENT_BLOCK_ALLOWANCE.keys() - {rel for rel, _ in modules})
+    assert missing == [], (
+        f"LONG_COMMENT_BLOCK_ALLOWANCE names files that do not exist: {missing}"
+    )
+
     grown: list[str] = []
     shrunk: list[str] = []
-    modules = _modules()
     for rel, comments in modules:
         blocks = _long_blocks(comments)
-        allowed = LONG_COMMENT_BLOCK_ALLOWANCE.get(rel, 0)
-        if len(blocks) > allowed:
+        lengths = tuple(sorted((length for _, length in blocks), reverse=True))
+        allowed = LONG_COMMENT_BLOCK_ALLOWANCE.get(rel, ())
+        within = len(lengths) <= len(allowed) and all(
+            length <= cap for length, cap in zip(lengths, allowed, strict=False)
+        )
+        if not within:
             grown += [f"{rel}:{line} ({length} lines)" for line, length in blocks]
-        elif len(blocks) < allowed:
-            shrunk.append(f"{rel}: {allowed} -> {len(blocks)}")
+        elif lengths != allowed:
+            shrunk.append(f"{rel}: {allowed} -> {lengths}")
 
     assert grown == [], (
         f"comment blocks longer than {MAX_COMMENT_BLOCK_LINES} lines, in a file "
-        "that has more of them than LONG_COMMENT_BLOCK_ALLOWANCE allows. Move the "
+        "whose blocks LONG_COMMENT_BLOCK_ALLOWANCE does not cover. Move the "
         "reasoning to docs/adr/ or docs/CONTEXT.md and leave a short comment "
-        "that links it (`see docs/adr/NNNN-slug.md`):\n" + "\n".join(grown)
+        "that links it (`(docs/adr/NNNN)`):\n" + "\n".join(grown)
     )
-    missing = sorted(LONG_COMMENT_BLOCK_ALLOWANCE.keys() - {rel for rel, _ in modules})
     assert shrunk == [], (
-        "LONG_COMMENT_BLOCK_ALLOWANCE allows more than the code needs. Lower "
-        f"these counts, dropping an entry at 0: {shrunk}"
-    )
-    assert missing == [], (
-        f"LONG_COMMENT_BLOCK_ALLOWANCE names files that do not exist: {missing}"
+        "LONG_COMMENT_BLOCK_ALLOWANCE allows more than the code needs. Set these "
+        f"entries to the new lengths, dropping one left empty: {shrunk}"
     )
 
 
 def test_work_markers_cite_an_issue() -> None:
     unlinked = [
-        f"{rel}:{line}: {text}"
+        f"{rel}:{comment.line}: {comment.text}"
         for rel, comments in _modules()
-        for line, text, _ in comments
-        if _MARKER.search(text) and not _ISSUE_REF.search(text)
+        for comment in comments
+        if _UNLINKED_MARKER.search(comment.text)
     ]
     assert unlinked == [], (
         "a TODO, FIXME, XXX or HACK comment must cite the issue that tracks it "
@@ -115,10 +131,11 @@ def test_work_markers_cite_an_issue() -> None:
 
 def test_noqa_names_its_rules_and_a_reason() -> None:
     bare = [
-        f"{rel}:{line}: {text}"
+        f"{rel}:{comment.line}: {comment.text}"
         for rel, comments in _modules()
-        for line, text, _ in comments
-        if (noqa := _NOQA.search(text)) and not _RULES_AND_REASON.match(noqa.group(1))
+        for comment in comments
+        if (noqa := _NOQA.search(comment.text))
+        and not _RULES_AND_REASON.match(noqa.group(1))
     ]
     assert bare == [], (
         "a `# noqa` must name its rules and say why they do not apply here "

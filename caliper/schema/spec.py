@@ -261,12 +261,11 @@ _VALID_MCP_TYPES: frozenset[str] = frozenset({"stdio"}) | _REMOTE_MCP_TYPES
 class McpServer(BaseModel):
     """A declared MCP server the agent-under-test may use.
 
-    ``type`` picks the transport. ``stdio``, the default, is a local ``command``
-    with ``args`` and ``env`` that the harness spawns; ``http`` or ``sse`` is a
-    hosted ``url`` with optional auth ``headers``. The two field sets are
-    mutually exclusive. ``${VAR}`` in ``env``, ``headers`` or a remote ``url`` is
-    resolved from the host at run time, so secrets never live in the committed
-    spec (docs/adr/0009).
+    ``type`` picks the transport: ``stdio`` (the default) spawns a local
+    ``command`` with ``args`` and ``env``; ``http`` or ``sse`` reaches a hosted
+    ``url`` with optional auth ``headers``. The field sets are exclusive. A
+    ``${VAR}`` secret resolves from the host at the harness boundary
+    (docs/adr/0009, docs/adr/0011).
     """
 
     type: str = "stdio"
