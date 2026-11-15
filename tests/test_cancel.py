@@ -23,7 +23,7 @@ from types import SimpleNamespace
 
 import psutil
 import pytest
-from conftest import ScriptedHarness, ScriptedJudge
+from conftest import ScriptedHarness, ScriptedJudge, run_context
 from typer.testing import CliRunner
 
 from caliper import cancel
@@ -37,6 +37,7 @@ from caliper.harness.base import (
     ProcessResult,
     RunContext,
 )
+from caliper.harness.opencode import OpenCodeHarness
 from caliper.judge.base import JudgeResult
 from caliper.main import app
 from caliper.runner import RunAborted, run
@@ -48,7 +49,8 @@ from caliper.schema.results import (
     RunResults,
     TaskResult,
 )
-from caliper.schema.spec import EvalSpec, TaskSpec
+from caliper.schema.spec import EvalSpec, PlantedTurn, TaskSpec
+from caliper.workdir import StepCancelled
 
 runner = CliRunner()
 
@@ -339,6 +341,57 @@ def test_cancel_kills_an_agent_in_flight(tmp_path) -> None:
     thread.join()
     assert time.monotonic() - started < 10
     assert box["result"].returncode != 0
+
+
+def test_cancel_kills_an_opencode_history_import(monkeypatch, tmp_path) -> None:
+    """A planted history must not hold the run until the import timeout expires."""
+    marker = tmp_path / "import.started"
+    # Python stands in for the CLI, executing the fake import subcommand.
+    (tmp_path / "import").write_text(
+        "import os, time\n"
+        "from pathlib import Path\n"
+        f"Path({str(marker)!r}).write_text(str(os.getpid()))\n"
+        "time.sleep(30)\n"
+    )
+    monkeypatch.setattr(OpenCodeHarness, "cli_path", lambda _self: sys.executable)
+    ctx = run_context(
+        isolated_home=str(tmp_path / "home"),
+        workdir=str(tmp_path),
+        timeout=30,
+        model="local/test",
+        history=[PlantedTurn(user="Earlier question")],
+    )
+    finished = threading.Event()
+    box = {}
+
+    def spawn() -> None:
+        try:
+            box["result"] = OpenCodeHarness().run(ctx)
+        except Exception as exc:
+            box["exception"] = exc
+        finally:
+            finished.set()
+
+    thread = threading.Thread(target=spawn)
+    process: psutil.Process | None = None
+    cancel.reset()
+    thread.start()
+    try:
+        pid_text = _wait_for_text(marker, time.monotonic() + 10)
+        assert pid_text, f"the import did not start: {box}"
+        process = psutil.Process(int(pid_text))
+
+        cancel.request()
+
+        assert finished.wait(timeout=5), "the history import was not killed"
+        assert isinstance(box.get("exception"), StepCancelled), box
+        assert not process.is_running()
+    finally:
+        cancel.reset()
+        if process is not None and process.is_running():
+            with suppress(psutil.NoSuchProcess, psutil.AccessDenied):
+                process.kill()
+        thread.join(timeout=5)
 
 
 def test_cancelling_a_finished_agent_with_exited_tools_keeps_its_attempt() -> None:

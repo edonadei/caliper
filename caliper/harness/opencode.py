@@ -4,9 +4,7 @@ import json
 import os
 import re
 import secrets
-import shutil
 import string
-import subprocess
 from collections.abc import Callable
 from datetime import datetime
 from functools import partial
@@ -32,8 +30,11 @@ from caliper.harness.history import (
 )
 from caliper.harness.mcp import ResolvedMcpServer
 from caliper.harness.refusal import AUTH_MARKERS, ConfigSignal
+from caliper.harness.user_layer import copy_user_tree
 from caliper.schema.results import TokenUsage
 from caliper.schema.spec import PlantedShellCall
+from caliper.skills import frontmatter
+from caliper.workdir import StepCancelled
 
 # Errors only, on stderr: opencode's stream reports a failed run as a generic
 # "Unexpected server error", and names the cause only in its log.
@@ -64,6 +65,135 @@ def _opencode_entry(server: ResolvedMcpServer) -> dict:
     return entry
 
 
+_CONFIG_FILES = ("config.json", "opencode.json", "opencode.jsonc")
+_HTTP_URL = re.compile(r"^https?://", re.IGNORECASE)
+_MD = frozenset({".md"})
+_JS_TS = frozenset({".js", ".ts"})
+
+# Each directory a user's opencode keeps beside its config file, staged when an
+# attempt loads user customizations: name -> (inventory kind, recursive, suffixes).
+_USER_DIR_SPECS: dict[str, tuple[str, bool, frozenset[str]]] = {
+    "agent": ("settings", True, _MD),
+    "agents": ("settings", True, _MD),
+    "command": ("settings", True, _MD),
+    "commands": ("settings", True, _MD),
+    "mode": ("settings", False, _MD),
+    "modes": ("settings", False, _MD),
+    "plugin": ("plugin", False, _JS_TS),
+    "plugins": ("plugin", False, _JS_TS),
+    "tool": ("settings", False, _JS_TS),
+    "tools": ("settings", False, _JS_TS),
+}
+
+
+def _model_string(value: object) -> str | None:
+    """A configured model in ``provider/model`` form, from string or V2 object."""
+    if isinstance(value, str):
+        return value if value.strip() else None
+    if isinstance(value, dict):
+        provider = value.get("providerID")
+        model = value.get("model")
+        if (
+            isinstance(provider, str)
+            and provider.strip()
+            and isinstance(model, str)
+            and model.strip()
+        ):
+            return f"{provider}/{model}"
+    return None
+
+
+def _is_mcp_server_entry(entry: dict) -> bool:
+    """Whether ``entry`` is a V1 server object rather than V2 ``mcp.servers``."""
+    return any(
+        key in entry and not isinstance(entry[key], dict) for key in ("type", "enabled")
+    )
+
+
+def _normalize_mcp(normalized: dict) -> None:
+    mcp = normalized.get("mcp")
+    if not isinstance(mcp, dict):
+        return
+    servers = mcp.get("servers")
+    v2_servers = isinstance(servers, dict) and not _is_mcp_server_entry(servers)
+    timeout = mcp.get("timeout")
+    v2_timeout = (
+        isinstance(timeout, dict)
+        and not _is_mcp_server_entry(timeout)
+        and (
+            not timeout
+            or any(k in timeout for k in ("startup", "catalog", "execution"))
+        )
+    )
+    if not (v2_servers or v2_timeout):
+        return
+    rest = {
+        k: v
+        for k, v in mcp.items()
+        if not ((k == "servers" and v2_servers) or (k == "timeout" and v2_timeout))
+    }
+    normalized["mcp"] = {**(servers if v2_servers else {}), **rest}
+    if (
+        v2_timeout
+        and "startup" not in timeout
+        and isinstance(catalog := timeout.get("catalog"), int)
+        and catalog == timeout.get("execution")
+    ):
+        exp = normalized.get("experimental")
+        if exp is None or isinstance(exp, dict):
+            merged_exp = dict(exp) if isinstance(exp, dict) else {}
+            merged_exp.setdefault("mcp_timeout", catalog)
+            normalized["experimental"] = merged_exp
+
+
+def _normalize_named_entries(
+    normalized: dict, v2_key: str, v1_key: str, *, rename_system: bool = False
+) -> None:
+    entries = normalized.pop(v2_key, None)
+    if not isinstance(entries, dict):
+        return
+    current = normalized.get(v1_key)
+    if v1_key in normalized and not isinstance(current, dict):
+        return
+    merged = dict(current) if isinstance(current, dict) else {}
+    for name, spec in entries.items():
+        if name in merged or not isinstance(spec, dict):
+            continue
+        lowered = dict(spec)
+        if rename_system and "system" in lowered:
+            system = lowered.pop("system")
+            lowered.setdefault("prompt", system)
+        if isinstance(lowered.get("model"), dict) and (
+            model := _model_string(lowered["model"])
+        ):
+            lowered["model"] = model
+        merged[name] = lowered
+    if merged or isinstance(current, dict):
+        normalized[v1_key] = merged
+
+
+def _normalize_config(config: dict) -> dict:
+    """Apply OpenCode's per-file V2 shorthands before merging across config files."""
+    normalized = dict(config)
+    _normalize_mcp(normalized)
+    permission = normalized.get("permission")
+    if isinstance(permission, str):
+        normalized["permission"] = {"*": permission}
+    if isinstance(normalized.get("model"), dict) and (
+        lowered := _model_string(normalized["model"])
+    ):
+        normalized["model"] = lowered
+    skills = normalized.get("skills")
+    if isinstance(skills, list) and all(isinstance(item, str) for item in skills):
+        normalized["skills"] = {
+            "paths": [s for s in skills if not _HTTP_URL.match(s)],
+            "urls": [s for s in skills if _HTTP_URL.match(s)],
+        }
+    _normalize_named_entries(normalized, "agents", "agent", rename_system=True)
+    _normalize_named_entries(normalized, "commands", "command")
+    return normalized
+
+
 # Isolated, the provider definitions and the default model survive: with no
 # model named, the attempt runs what the operator's own `opencode run` would,
 # as pi's does (docs/adr/0012).
@@ -75,21 +205,8 @@ OPENCODE_CONFIG = CliConfig(
     ),
     servers_key="mcp",
     entry=_opencode_entry,
-)
-
-# What a user's opencode keeps beside its config file, copied into an attempt
-# that loads user customizations: its own agents, commands, plugins and tools.
-_USER_DIRS = (
-    "agent",
-    "agents",
-    "command",
-    "commands",
-    "mode",
-    "modes",
-    "plugin",
-    "plugins",
-    "tool",
-    "tools",
+    source_paths=_CONFIG_FILES,
+    normalize=_normalize_config,
 )
 
 
@@ -114,7 +231,7 @@ class OpenCodeHarness(CliHarness):
     # Its logins and sessions live apart, under ``$XDG_DATA_HOME/opencode``.
     data_home = ".local/share/opencode"
     user_rules = ("AGENTS.md",)
-    user_settings_file = "opencode.json"
+    user_settings_files = _CONFIG_FILES
     activation_tool_names = frozenset({"skill"})
     cli_name = "opencode"
     cli_path_env_var = "OPENCODE_CLI_PATH"
@@ -164,14 +281,54 @@ class OpenCodeHarness(CliHarness):
         # rewritten rather than copied (``cli_config``).
         return [Path(ctx.isolated_home) / self.data_home / "auth.json"]
 
-    def _prepare(self, ctx: RunContext) -> None:
-        if not ctx.user_customizations:
-            return
+    def user_skill_sources(self, ctx: RunContext) -> list[Path]:
+        # opencode discovers skills under both ``skills/`` and ``skill/``.
+        return [*super().user_skill_sources(ctx), self.user_config_home() / "skill"]
+
+    def stage_plugins(self, ctx: RunContext) -> tuple[list[str], dict[str, str]]:
         real = self.user_config_home()
         home = self.attempt_config_home(ctx)
-        for name in _USER_DIRS:
-            if (real / name).is_dir():
-                shutil.copytree(real / name, home / name, dirs_exist_ok=True)
+        files: list[str] = []
+        for name, (kind, recursive, suffixes) in _USER_DIR_SPECS.items():
+            if not (real / name).is_dir():
+                continue
+            copied = home / name
+            copy_user_tree(real / name, copied)
+            if _has_loadable_files(copied, recursive=recursive, suffixes=suffixes):
+                files.append(f"{kind}:{name}/")
+        return files, {}
+
+    def _has_wellknown_auth(self, ctx: RunContext) -> bool:
+        auth = Path(ctx.isolated_home) / self.data_home / "auth.json"
+        try:
+            entries = json.loads(auth.read_text(encoding="utf-8-sig"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            return False
+        return isinstance(entries, dict) and any(
+            isinstance(value, dict) and value.get("type") == "wellknown"
+            for value in entries.values()
+        )
+
+    def _prepare(self, ctx: RunContext) -> None:
+        if not self._has_wellknown_auth(ctx):
+            return
+        if not ctx.user_customizations:
+            raise HarnessConfigurationError(
+                "opencode's wellknown login imports remote settings that "
+                "Caliper cannot isolate.\n\n"
+                "Run with --user-customizations to load those settings, or "
+                "configure provider API/OAuth credentials with "
+                "`opencode auth login`, then retry the eval."
+            )
+        if ctx.spec_mcp_names or ctx.mcp_servers:
+            raise HarnessConfigurationError(
+                "opencode's wellknown login imports remote MCP settings that "
+                "Caliper cannot merge with declared or ablated mcp: servers.\n\n"
+                "Configure provider API/OAuth credentials with "
+                "`opencode auth login`, or run without declared mcp: servers, "
+                "then retry the eval. Remote settings can otherwise override "
+                "server definitions or restore an ablated server."
+            )
 
     @property
     def session_format(self) -> SessionFormat:
@@ -181,11 +338,16 @@ class OpenCodeHarness(CliHarness):
         self, ctx: RunContext, planted: PlantedSession | None
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
         opencode = self.cli_path() or "opencode"
+        model = ctx.model or (
+            _resume_model(self.attempt_config_home(ctx))
+            if planted is not None
+            else None
+        )
         # --auto approves what opencode would otherwise ask about, which in
         # `run` it rejects: the attempt runs unattended.
         cmd = [opencode, "run", "--format", "json", *_LOG_ERRORS, *_TITLE, "--auto"]
-        if ctx.model:
-            cmd += ["--model", ctx.model]
+        if model:
+            cmd += ["--model", model]
         if planted is not None:
             # opencode resumes only a session in its database, so the planted
             # one is imported first. The prompt becomes the next user turn, and
@@ -196,19 +358,20 @@ class OpenCodeHarness(CliHarness):
 
     def _import(self, planted: PlantedSession, ctx: RunContext) -> None:
         cmd = [self.cli_path() or "opencode", "import", str(planted.path)]
-        try:
-            proc = subprocess.run(
-                cmd,
-                env=self._environment(ctx),
-                cwd=ctx.workdir,
-                capture_output=True,
-                text=True,
-                timeout=ctx.timeout,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        proc = self._execute(
+            cmd,
+            env=self._environment(ctx),
+            cwd=ctx.workdir,
+            timeout=ctx.timeout,
+            stdin=None,
+        )
+        if proc.cancelled:
+            raise StepCancelled("history import")
+        if proc.timed_out:
             raise HarnessConfigurationError(
-                f"opencode could not import the task's planted history: {exc}"
-            ) from exc
+                "opencode could not import the task's planted history: "
+                f"import timed out after {ctx.timeout} seconds"
+            )
         if proc.returncode != 0:
             said = _ANSI.sub("", proc.stderr or proc.stdout).strip()
             raise HarnessConfigurationError(
@@ -222,7 +385,9 @@ class OpenCodeHarness(CliHarness):
     def _read(self, proc: ProcessResult, ctx: RunContext) -> AgentReport:
         servers = OPENCODE_CONFIG.servers(self.attempt_config_home(ctx))
         report = self._read_stream(proc.stdout, servers)
-        report.read_mcp_servers = lambda: servers
+        # A wellknown login can add remote servers that the local file cannot list.
+        if not self._has_wellknown_auth(ctx):
+            report.read_mcp_servers = lambda: servers
         return report
 
     def _read_stream(self, stdout: str, servers: set[str]) -> AgentReport:
@@ -350,6 +515,92 @@ def _xdg(variable: str, default: str) -> Path:
     """An XDG base directory the operator set, else its default under HOME."""
     selected = os.environ.get(variable, "").strip()
     return Path(selected).expanduser() if selected else Path.home() / default
+
+
+def _has_loadable_files(
+    directory: Path, *, recursive: bool, suffixes: frozenset[str]
+) -> bool:
+    """Whether ``directory`` holds a file opencode's scanner loads."""
+    if not directory.is_dir():
+        return False
+    if recursive:
+        for root, _, filenames in os.walk(directory, followlinks=True):
+            if any(
+                Path(name).suffix in suffixes and (Path(root) / name).is_file()
+                for name in filenames
+            ):
+                return True
+        return False
+    return any(p.is_file() and p.suffix in suffixes for p in directory.iterdir())
+
+
+def _iter_agent_markdown(home: Path) -> list[tuple[str, Path]]:
+    """``(default_name, path)`` pairs for markdown agent/mode definitions."""
+    entries: list[tuple[str, Path]] = []
+    for name in ("agent", "agents"):
+        base = home / name
+        if not base.is_dir():
+            continue
+        for root, _, filenames in os.walk(base, followlinks=True):
+            for filename in filenames:
+                path = Path(root) / filename
+                if path.suffix == ".md" and path.is_file():
+                    rel = path.relative_to(base).with_suffix("").as_posix()
+                    entries.append((rel, path))
+    for name in ("mode", "modes"):
+        base = home / name
+        if not base.is_dir():
+            continue
+        for path in base.iterdir():
+            if path.suffix == ".md" and path.is_file():
+                entries.append((path.stem, path))
+    return entries
+
+
+def _has_agent_model(home: Path, config: dict) -> bool:
+    """Whether ``home`` configures a model on the active primary agent."""
+    default_agent = config.get("default_agent")
+    agent = (
+        default_agent.strip()
+        if isinstance(default_agent, str) and default_agent.strip()
+        else "build"
+    )
+    for key in ("agent", "mode"):
+        section = config.get(key)
+        if (
+            isinstance(section, dict)
+            and isinstance(entry := section.get(agent), dict)
+            and _model_string(entry.get("model"))
+        ):
+            return True
+    for default_name, path in _iter_agent_markdown(home):
+        try:
+            meta = frontmatter(path.read_text(encoding="utf-8-sig"))
+        except (OSError, UnicodeDecodeError):
+            continue
+        declared = meta.get("name")
+        name = declared if isinstance(declared, str) and declared else default_name
+        if name == agent and _model_string(meta.get("model")):
+            return True
+    return False
+
+
+def _resume_model(home: Path) -> str | None:
+    """Top-level model to pin on a history resume when no agent model overrides it."""
+    config = OPENCODE_CONFIG.read(home)
+    if _has_agent_model(home, config):
+        return None
+    configured = _model_string(config.get("model"))
+    if not configured:
+        raise HarnessConfigurationError(
+            "opencode history: requires a model selected explicitly "
+            "or configured in opencode's config.\n\n"
+            "Pass `--model opencode:<provider>/<model>`, or set "
+            '`"model": "<provider>/<model>"` in your opencode config, '
+            "then rerun caliper. Native automatic model selection "
+            "cannot be used with a planted history."
+        )
+    return configured
 
 
 def _sanitized(name: str) -> str:

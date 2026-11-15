@@ -388,6 +388,9 @@ The shell is the only tool a planted turn can call.
   doesn't count toward `activates:`. `--ablate` on it leaves the turn as typed,
   which the CLI doesn't expand either: the baseline is "same conversation,
   without the skill".
+- **OpenCode requires a selected model.** For `history:`, pass
+  `--model opencode:<provider>/<model>` or set `model` in your OpenCode config.
+  Caliper refuses the history before import when neither is set.
 - **Every backend but hermes and antigravity.** On those a spec with
   `history:` is refused before the first attempt. See
   [ADR 0036](adr/0036-planted-history-is-a-neutral-transcript-each-backend-resumes-natively.md).

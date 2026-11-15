@@ -131,7 +131,9 @@ checks before its first attempt):
   `--ablate` stays as typed. `setup:` and the history must agree, since the
   agent trusts a planted output over the disk. Planted turns are kept out of the
   transcript, so cheat detection and `activates:` ignore them; the judge reads
-  them as prior context. hermes and antigravity refuse the spec.
+  them as prior context. hermes and antigravity refuse the spec. OpenCode
+  requires `--model opencode:<provider>/<model>` or `model` in its config
+  for planted history.
 - **Git sources.** `run` fetches them before the first attempt; `validate` never
   touches the network. A pinned `ref:` is offline after its first fetch. A git
   source whose skill has a symlink pointing outside the clone is refused.
@@ -179,7 +181,11 @@ profile under `%LOCALAPPDATA%\hermes`, and Git for Windows' `sh` must be on
 `PATH`.
 
 `opencode` attempts copy its stored logins (`opencode auth login`), not an API
-key it reads only from the shell environment. Its free `opencode/*` models
+key it reads only from the shell environment. A `wellknown` login imports remote
+settings that cannot be isolated or merged with declared `mcp:` servers, so
+isolated runs and runs with declared or ablated `mcp:` servers refuse it; with
+user customizations on and no declared `mcp:`, it runs and marks the MCP
+inventory `mcp:(not listed)`. Its free `opencode/*` models
 retry their usage limit until the attempt times out, so use a provider you're
 logged in to.
 
@@ -196,7 +202,9 @@ run; otherwise each engine grades itself and `compare` warns.
 A run records the model the backend reported running, not the one requested,
 and warns on a mismatch. An unknown backend name is refused before any attempt;
 an unavailable judge model, a failed judge login, an unavailable `claude-code`
-skill model, or an unknown `hermes:<model>` or `antigravity:<model>` stops the run with exit `2`. So does a spec with
+skill model, an unknown `hermes:<model>`, `antigravity:<model>` or
+`opencode:<model>`, or an `antigravity` Gemini API key mode without
+`GEMINI_API_KEY` stops the run with exit `2`. So does a spec with
 `expect:` when the judge's CLI isn't installed: install it, or drop
 `--judge-model` so the backend of the model being evaluated (`--model`)
 grades too.
@@ -212,8 +220,8 @@ itself, merged with what the spec declares:
 | `codex` | `~/.codex/skills`, `AGENTS.md` / `AGENTS.override.md`, plugins, settings, `~/.codex/config.toml` MCP servers and ChatGPT apps (its top-level model pin is stripped) |
 | `hermes` | `~/.hermes/skills`, settings, `~/.hermes/config.yaml` MCP servers (`%LOCALAPPDATA%\hermes` on Windows; still `--ignore-rules`, no persona or memory) |
 | `pi` | nothing |
-| `antigravity` | `~/.gemini/antigravity-cli/skills`, `~/.gemini/skills`, `~/.gemini/config/skills`, `AGENTS.md` / `GEMINI.md` rules, settings, `~/.gemini/config/mcp_config.json` MCP servers |
-| `opencode` | `~/.config/opencode/skills`, `AGENTS.md`, `opencode.json` settings and MCP servers, and its agents, commands, modes, plugins and tools directories |
+| `antigravity` | immediate child skills in `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/skills` and `~/.gemini/skills`, `AGENTS.md` / `GEMINI.md` rules in `~/.gemini` and `~/.gemini/config`, settings, `~/.gemini/config/mcp_config.json` MCP servers |
+| `opencode` | `~/.config/opencode/skills` and `skill`, `AGENTS.md`, merged `config.json`, `opencode.json` and `opencode.jsonc` settings and MCP servers, and its `agent(s)`, `command(s)`, `mode(s)`, `plugin(s)` and `tool(s)` directories |
 
 The paths are the defaults. When the CLI's own config-home variable is set
 (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `PI_CODING_AGENT_DIR`, `HERMES_HOME`, and

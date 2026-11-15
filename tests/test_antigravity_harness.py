@@ -416,3 +416,161 @@ def test_antigravity_refuses_planted_history_by_design() -> None:
     assert harness.supports_mcp
     assert not harness.supports_history
     assert "SQLite" in harness.history_unsupported_hint
+
+
+@pytest.mark.parametrize("judge", [False, True])
+def test_antigravity_missing_gemini_api_key_stops_the_run(
+    monkeypatch, tmp_path, judge
+) -> None:
+    # agy 1.5.9's startup error, before any model request.
+    _fake_agy(
+        monkeypatch,
+        stderr=(
+            'modelProvider is set to "gemini" in settings.json, but the '
+            "GEMINI_API_KEY environment variable is not set. Set GEMINI_API_KEY "
+            'to your Gemini API key, or remove "modelProvider" from '
+            "settings.json to use the default backend.\n"
+        ),
+        returncode=1,
+    )
+
+    invoke = (
+        (lambda: AntigravityHarness().run_prompt("Reply OK.", cwd=str(tmp_path)))
+        if judge
+        else (lambda: _run(tmp_path))
+    )
+    with pytest.raises(HarnessConfigurationError, match="GEMINI_API_KEY") as exc:
+        invoke()
+
+    assert type(exc.value) is HarnessConfigurationError
+    assert "Export `GEMINI_API_KEY`" in str(exc.value)
+
+
+def test_antigravity_preserves_an_explicit_adc_credential_file(
+    monkeypatch, tmp_path
+) -> None:
+    credentials = str(tmp_path / "external-adc.json")
+    monkeypatch.setenv("AGY_ADC_AUTH", "true")
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", credentials)
+    calls = _fake_agy(monkeypatch)
+
+    _run(tmp_path / "attempt")
+
+    env = calls[1][1]["env"]
+    assert env["AGY_ADC_AUTH"] == "true"
+    assert env["GOOGLE_APPLICATION_CREDENTIALS"] == credentials
+
+
+@pytest.mark.parametrize(
+    "relative_root",
+    ["antigravity-cli/skills", "skills", "config/skills"],
+)
+def test_antigravity_only_loads_direct_user_skill_children(
+    monkeypatch, tmp_path, relative_root
+) -> None:
+    # agy 1.5.9's /skills lists direct, and skips group/nested.
+    real_home = tmp_path / "real"
+    root = real_home / ".gemini" / relative_root
+    for relative, name in [("direct", "direct"), ("group/nested", "nested")]:
+        skill = root / relative
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: test\n---\nNo actions."
+        )
+    monkeypatch.setattr(Path, "home", lambda: real_home)
+    _fake_agy(monkeypatch)
+
+    attempt_home = tmp_path / "attempt"
+    result = _run(attempt_home, user_customizations=True)
+
+    installed = attempt_home / ".gemini" / "antigravity-cli" / "skills"
+    assert sorted(p.name for p in installed.iterdir()) == ["direct"]
+    assert result.loaded_user_customizations == ["skill:direct"]
+
+
+def test_antigravity_windows_profile_uses_the_attempt_home(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "real-home"))
+    real_appdata = tmp_path / "real-appdata"
+    adc = real_appdata / "gcloud" / "application_default_credentials.json"
+    adc.parent.mkdir(parents=True)
+    adc.write_text('{"type": "authorized_user"}')
+    monkeypatch.setenv("APPDATA", str(real_appdata))
+    attempt_home = tmp_path / "attempt"
+    ctx = run_context(isolated_home=str(attempt_home))
+
+    harness = AntigravityHarness()
+    harness.stage_home(ctx)
+    env = harness._environment(ctx)
+
+    assert env["HOME"] == str(attempt_home)
+    assert env["USERPROFILE"] == str(attempt_home)
+    assert env["APPDATA"] == str(attempt_home / "AppData" / "Roaming")
+    assert env["LOCALAPPDATA"] == str(attempt_home / "AppData" / "Local")
+    seeded_adc = (
+        attempt_home
+        / "AppData"
+        / "Roaming"
+        / "gcloud"
+        / "application_default_credentials.json"
+    )
+    assert seeded_adc.read_text() == '{"type": "authorized_user"}'
+
+
+def test_antigravity_judge_disables_auto_update(monkeypatch, tmp_path) -> None:
+    calls = _fake_agy(monkeypatch)
+
+    AntigravityHarness().run_prompt("Grade this.", cwd=str(tmp_path))
+
+    _, kwargs = calls[-1]
+    assert kwargs["env"]["AGY_CLI_DISABLE_AUTO_UPDATE"] == "1"
+
+
+def test_antigravity_user_skill_precedence_and_stray_root_file(
+    monkeypatch, tmp_path
+) -> None:
+    # agy 1.5.9 prefers antigravity-cli/skills > config/skills > skills, and
+    # ignores a stray SKILL.md placed directly inside a global skills root.
+    real_home = tmp_path / "real"
+    for relative_root, body in [
+        ("skills", "from-legacy-skills"),
+        ("config/skills", "from-config-skills"),
+    ]:
+        root = real_home / ".gemini" / relative_root
+        (root / "same").mkdir(parents=True)
+        (root / "same" / "SKILL.md").write_text(
+            f"---\nname: same\ndescription: test\n---\n{body}"
+        )
+        (root / "SKILL.md").write_text("---\nname: stray\ndescription: test\n---\n")
+    monkeypatch.setattr(Path, "home", lambda: real_home)
+    _fake_agy(monkeypatch)
+
+    attempt_home = tmp_path / "attempt"
+    result = _run(attempt_home, user_customizations=True)
+
+    installed = attempt_home / ".gemini" / "antigravity-cli" / "skills"
+    assert (installed / "same" / "SKILL.md").read_text().endswith("from-config-skills")
+    assert result.loaded_user_customizations == ["skill:same"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_antigravity_loads_direct_symlink_to_a_nested_pack_skill(
+    monkeypatch, tmp_path
+) -> None:
+    real_home = tmp_path / "real"
+    root = real_home / ".gemini" / "skills"
+    nested = root / "anthropics" / "pdf"
+    nested.mkdir(parents=True)
+    (nested / "SKILL.md").write_text(
+        "---\nname: pdf\ndescription: PDF helper\n---\nBody."
+    )
+    (root / "pdf").symlink_to(nested, target_is_directory=True)
+    monkeypatch.setattr(Path, "home", lambda: real_home)
+    _fake_agy(monkeypatch)
+
+    attempt_home = tmp_path / "attempt"
+    result = _run(attempt_home, user_customizations=True)
+
+    assert result.loaded_user_customizations == ["skill:pdf"]

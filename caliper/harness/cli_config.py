@@ -77,6 +77,9 @@ _JSONC_COMMA = re.compile(_JSON_STRING + r"|,(?=\s*[}\]])")
 
 def _loads_jsonc(text: str) -> object:
     """JSON with the comments and trailing commas opencode itself accepts."""
+    text = text.removeprefix("\ufeff")
+    if not text:
+        return {}
     for token in (_JSONC_COMMENT, _JSONC_COMMA):
         text = token.sub(lambda m: m[0] if m[0].startswith('"') else "", text)
     return json.loads(text)
@@ -88,6 +91,19 @@ JSONC = Codec(
     lambda config: json.dumps(config, indent=2),
     json.JSONDecodeError,
 )
+
+
+def _deep_merge(earlier: dict, later: dict) -> dict:
+    """Recursively merge dict values; later scalar and list values win."""
+    merged = dict(earlier)
+    for key, value in later.items():
+        previous = merged.get(key)
+        merged[key] = (
+            _deep_merge(previous, value)
+            if isinstance(previous, dict) and isinstance(value, dict)
+            else value
+        )
+    return merged
 
 
 @dataclass(frozen=True)
@@ -108,6 +124,21 @@ class CliConfig:
     # Settings the attempt's copy always carries, merged over the user's: what
     # the attempt itself needs from the CLI, not a user setting.
     pinned: Callable[[], dict] = dict
+    # Candidate files in the user's config home merged in order when ``real``
+    # names :attr:`path`; empty means ``real`` alone.
+    source_paths: tuple[str, ...] = ()
+    # Per-file normalization applied before merging across ``source_paths``.
+    normalize: Callable[[dict], dict] = lambda config: config
+
+    def sources(self, real: Path) -> list[Path]:
+        """Existing user config files contributing to ``real``, in merge order."""
+        if self.source_paths and real.name == self.path:
+            return [
+                real.parent / name
+                for name in self.source_paths
+                if (real.parent / name).is_file()
+            ]
+        return [real] if real.is_file() else []
 
     def write(self, ctx: RunContext, home: Path, *, backend: str, real: Path) -> None:
         """Write the attempt's copy into ``home``, its config home, from ``real``.
@@ -121,10 +152,14 @@ class CliConfig:
             for name, resolved in resolve_servers(ctx.mcp_servers).items()
         }
         pinned = self.pinned()
-        if not real.exists() and not declared and not pinned:
+        sources = self.sources(real)
+        if not sources and not declared and not pinned:
             return
 
-        config = self._load(real, backend=backend) if real.exists() else {}
+        config: dict = {}
+        for source in sources:
+            loaded = self.normalize(self._load(source, backend=backend))
+            config = _deep_merge(config, loaded) if config else dict(loaded)
         servers = merge_user_servers(config.get(self.servers_key), declared, ctx)
         if not ctx.user_customizations:
             config = {k: v for k, v in config.items() if k in self.connection_keys}

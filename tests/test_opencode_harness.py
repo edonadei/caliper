@@ -225,6 +225,375 @@ def test_the_login_is_seeded_from_the_xdg_data_home(monkeypatch, tmp_path) -> No
     assert seeded.read_text() == '{"openai": {"type": "oauth"}}'
 
 
+@pytest.mark.parametrize("customizations", [False, True])
+def test_a_jsonc_only_config_preserves_the_users_connection(
+    monkeypatch, tmp_path, customizations
+) -> None:
+    real = Path.home() / ".config" / "opencode"
+    real.mkdir(parents=True)
+    (real / "opencode.jsonc").write_text(
+        '{"model": "local/test", "provider": {"local": {"options": '
+        '{"baseURL": "http://localhost:1234/v1"}}}, "instructions": ["rules.md"],}'
+    )
+
+    _, result = _spawned(monkeypatch, tmp_path, user_customizations=customizations)
+
+    config = OPENCODE_CONFIG.read(tmp_path / "home" / ".config" / "opencode")
+    expected = {
+        "model": "local/test",
+        "provider": {"local": {"options": {"baseURL": "http://localhost:1234/v1"}}},
+    }
+    if customizations:
+        expected["instructions"] = ["rules.md"]
+    assert config == expected
+    assert result.loaded_user_customizations == (
+        ["settings:opencode.jsonc"] if customizations else None
+    )
+
+
+@pytest.mark.parametrize("customizations", [False, True])
+def test_global_config_files_merge_in_opencodes_order(
+    monkeypatch, tmp_path, customizations
+) -> None:
+    real = Path.home() / ".config" / "opencode"
+    real.mkdir(parents=True)
+    (real / "config.json").write_text(
+        json.dumps(
+            {
+                "model": "local/old",
+                "enabled_providers": ["old"],
+                "provider": {
+                    "local": {"name": "Local", "options": {"baseURL": "http://old"}}
+                },
+                "mcp": {"mine": {"type": "local", "command": ["mine"]}},
+            }
+        )
+    )
+    (real / "opencode.json").write_text(
+        json.dumps(
+            {
+                "model": "local/json",
+                "provider": {"local": {"options": {"apiKey": "test-key"}}},
+                "instructions": ["old.md"],
+            }
+        )
+    )
+    (real / "opencode.jsonc").write_text(
+        json.dumps(
+            {
+                "model": "local/jsonc",
+                "enabled_providers": ["local"],
+                "provider": {"local": {"options": {"baseURL": "http://new"}}},
+                "instructions": ["new.md"],
+            }
+        )
+    )
+
+    _, result = _spawned(monkeypatch, tmp_path, user_customizations=customizations)
+
+    config = OPENCODE_CONFIG.read(tmp_path / "home" / ".config" / "opencode")
+    expected = {
+        "model": "local/jsonc",
+        "enabled_providers": ["local"],
+        "provider": {
+            "local": {
+                "name": "Local",
+                "options": {"baseURL": "http://new", "apiKey": "test-key"},
+            }
+        },
+    }
+    if customizations:
+        expected["instructions"] = ["new.md"]
+        expected["mcp"] = {"mine": {"type": "local", "command": ["mine"]}}
+    assert config == expected
+    assert result.loaded_user_customizations == (
+        [
+            "mcp:mine",
+            "settings:config.json",
+            "settings:opencode.json",
+            "settings:opencode.jsonc",
+        ]
+        if customizations
+        else None
+    )
+
+
+@pytest.mark.parametrize("normal_type", ["api", "oauth"])
+def test_an_isolated_attempt_refuses_wellknown_remote_settings(
+    monkeypatch, tmp_path, normal_type
+) -> None:
+    data = tmp_path / "user-data"
+    real = data / "opencode"
+    real.mkdir(parents=True)
+    monkeypatch.setenv("XDG_DATA_HOME", str(data))
+    (real / "auth.json").write_text(
+        json.dumps(
+            {
+                "provider": {"type": normal_type, "key": "normal-secret"},
+                "https://private.example": {
+                    "type": "wellknown",
+                    "key": "PRIVATE_KEY",
+                    "token": "private-token",
+                },
+            }
+        )
+    )
+
+    with pytest.raises(HarnessConfigurationError) as raised:
+        _spawned(monkeypatch, tmp_path)
+
+    message = str(raised.value)
+    assert "remote settings" in message
+    assert "--user-customizations" in message
+    assert "API/OAuth" in message
+    for private in (
+        "https://private.example",
+        "PRIVATE_KEY",
+        "private-token",
+        "normal-secret",
+    ):
+        assert private not in message
+
+
+@pytest.mark.parametrize("state", ["active", "ablated", "direct"])
+def test_wellknown_settings_refuse_declared_mcp_even_with_user_customizations(
+    monkeypatch, tmp_path, state
+) -> None:
+    data = tmp_path / "user-data"
+    real = data / "opencode"
+    real.mkdir(parents=True)
+    monkeypatch.setenv("XDG_DATA_HOME", str(data))
+    (real / "auth.json").write_text(
+        '{"https://private.example": {"type": "wellknown", "key": "KEY", "token": "secret"}}'
+    )
+    servers = {} if state == "ablated" else {"echo": McpServer(command="echo")}
+    names = frozenset() if state == "direct" else frozenset({"echo"})
+
+    with pytest.raises(
+        HarnessConfigurationError, match="declared or ablated"
+    ) as raised:
+        _spawned(
+            monkeypatch,
+            tmp_path,
+            user_customizations=True,
+            mcp_servers=servers,
+            spec_mcp_names=names,
+        )
+
+    assert "API/OAuth" in str(raised.value)
+    assert "private.example" not in str(raised.value)
+    assert "secret" not in str(raised.value)
+
+
+def test_remote_settings_are_allowed_but_unlisted_with_user_customizations(
+    monkeypatch, tmp_path
+) -> None:
+    data = tmp_path / "user-data"
+    real = data / "opencode"
+    real.mkdir(parents=True)
+    monkeypatch.setenv("XDG_DATA_HOME", str(data))
+    auth = '{"https://private.example": {"type": "wellknown", "key": "KEY", "token": "token"}}'
+    (real / "auth.json").write_text(auth)
+
+    _, result = _spawned(monkeypatch, tmp_path, user_customizations=True)
+
+    assert result.loaded_user_customizations == ["mcp:(not listed)"]
+    seeded = tmp_path / "home" / ".local" / "share" / "opencode" / "auth.json"
+    assert seeded.read_text() == auth
+
+
+@pytest.mark.parametrize("normal_type", ["api", "oauth"])
+def test_normal_provider_logins_remain_available_when_isolated(
+    monkeypatch, tmp_path, normal_type
+) -> None:
+    data = tmp_path / "user-data"
+    real = data / "opencode"
+    real.mkdir(parents=True)
+    monkeypatch.setenv("XDG_DATA_HOME", str(data))
+    auth = json.dumps({"provider": {"type": normal_type, "key": "normal-secret"}})
+    (real / "auth.json").write_text(auth)
+
+    _, result = _spawned(monkeypatch, tmp_path)
+
+    assert result.loaded_user_customizations is None
+    seeded = tmp_path / "home" / ".local" / "share" / "opencode" / "auth.json"
+    assert seeded.read_text() == auth
+
+
+def test_copied_user_directories_are_recorded_without_a_json_config(
+    monkeypatch, tmp_path
+) -> None:
+    config_root = tmp_path / "user-config"
+    real = config_root / "opencode"
+    (real / "plugins").mkdir(parents=True)
+    (real / "agents").mkdir()
+    (real / "tools").mkdir()
+    (real / "modes").mkdir()
+    (real / "plugins" / "probe.js").write_text("export default async () => ({})")
+    (real / "agents" / "review.md").write_text("Review the code.")
+    # Hidden Finder metadata and empty directories are ignored by OpenCode's scanners.
+    (real / "tools" / ".DS_Store").write_bytes(b"\x00\x00")
+    (real / "modes" / "empty-subdir").mkdir()
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_root))
+
+    _, result = _spawned(monkeypatch, tmp_path, user_customizations=True)
+
+    assert result.loaded_user_customizations == ["plugin:plugins/", "settings:agents/"]
+    copied = tmp_path / "home" / ".config" / "opencode"
+    assert (
+        copied / "plugins" / "probe.js"
+    ).read_text() == "export default async () => ({})"
+    assert (copied / "agents" / "review.md").read_text() == "Review the code."
+
+
+def test_singular_skill_directory_and_bom_wellknown_auth_are_handled(
+    monkeypatch, tmp_path
+) -> None:
+    config_root = tmp_path / "user-config"
+    singular = config_root / "opencode" / "skill" / "solo"
+    singular.mkdir(parents=True)
+    (singular / "SKILL.md").write_text(
+        "---\nname: solo\ndescription: singular root\n---\nUse solo."
+    )
+    data = tmp_path / "user-data"
+    (data / "opencode").mkdir(parents=True)
+    (data / "opencode" / "auth.json").write_bytes(
+        b'\xef\xbb\xbf{"https://private.example": {"type": "wellknown", "key": "K", "token": "T"}}'
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_root))
+    monkeypatch.setenv("XDG_DATA_HOME", str(data))
+
+    with pytest.raises(HarnessConfigurationError, match="remote settings"):
+        _spawned(monkeypatch, tmp_path)
+
+    _, result = _spawned(monkeypatch, tmp_path, user_customizations=True)
+    assert result.loaded_user_customizations == ["mcp:(not listed)", "skill:solo"]
+
+
+def test_empty_bom_and_v2_opencode_configs_normalize_across_files(
+    monkeypatch, tmp_path
+) -> None:
+    config_root = tmp_path / "user-config"
+    real = config_root / "opencode"
+    real.mkdir(parents=True)
+    # 0-byte config.json, UTF-8 BOM + V2 shorthands in opencode.json, override in jsonc.
+    (real / "config.json").write_text("")
+    (real / "opencode.json").write_bytes(
+        b'\xef\xbb\xbf{"permission": "allow", '
+        b'"model": {"providerID": "local", "model": "v2"}, '
+        b'"mcp": {"servers": {"echo": {"type": "local", "command": ["user-echo"]}, '
+        b'"keep": {"type": "local", "command": ["keep-cmd"]}}}}'
+    )
+    (real / "opencode.jsonc").write_text('{"permission": {"bash": "deny"}}')
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_root))
+
+    _, result = _spawned(
+        monkeypatch,
+        tmp_path,
+        user_customizations=True,
+        mcp_servers={},
+        spec_mcp_names=frozenset({"echo"}),
+    )
+
+    staged = OPENCODE_CONFIG.read(tmp_path / "home" / ".config" / "opencode")
+    assert staged["model"] == "local/v2"
+    assert staged["permission"] == {"*": "allow", "bash": "deny"}
+    assert set(staged["mcp"]) == {"keep"}
+    assert "mcp:keep" in result.loaded_user_customizations
+    assert "mcp:echo" not in result.loaded_user_customizations
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_user_directory_links_survive_staging_when_dangling_or_escaping(
+    monkeypatch, tmp_path
+) -> None:
+    config_root = tmp_path / "user-config"
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "review.md").write_text("Shared reviewer.")
+    agents = config_root / "opencode" / "agents"
+    agents.mkdir(parents=True)
+    (agents / "review.md").symlink_to("../../../shared/review.md")
+    (agents / "dangling.md").symlink_to("missing.md")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_root))
+
+    _, result = _spawned(monkeypatch, tmp_path, user_customizations=True)
+
+    copied = tmp_path / "home" / ".config" / "opencode" / "agents"
+    assert (copied / "review.md").read_text() == "Shared reviewer."
+    assert (copied / "dangling.md").is_symlink()
+    assert result.loaded_user_customizations == ["settings:agents/"]
+
+
+def test_v1_server_named_servers_and_v2_aliases_merge_cleanly(
+    monkeypatch, tmp_path
+) -> None:
+    config_root = tmp_path / "xdg-config"
+    real = config_root / "opencode"
+    real.mkdir(parents=True)
+    (real / "config.json").write_text(
+        json.dumps(
+            {
+                "mcp": {
+                    "servers": {"type": "local", "command": ["v1-named-servers"]},
+                },
+                "skills": ["/dir-one", "https://example.com/skill"],
+                "agents": {
+                    "reviewer": {
+                        "system": "Review carefully.",
+                        "model": {"providerID": "openai", "model": "gpt-6.1-terra"},
+                    }
+                },
+                "commands": {
+                    "ship": {
+                        "template": "Ship it.",
+                        "model": {"providerID": "openai", "model": "gpt-6.1-mini"},
+                    }
+                },
+            }
+        )
+    )
+    (real / "opencode.jsonc").write_text(
+        json.dumps(
+            {
+                "mcp": {
+                    "timeout": {"catalog": 5000, "execution": 5000},
+                    "servers": {"extra": {"type": "local", "command": ["v2-extra"]}},
+                },
+                "skills": {"paths": ["/dir-two"]},
+                "agent": {"reviewer": {"description": "Code reviewer"}},
+            }
+        )
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_root))
+
+    _, result = _spawned(monkeypatch, tmp_path, user_customizations=True)
+
+    staged = json.loads(
+        (tmp_path / "home" / ".config" / "opencode" / "opencode.json").read_text()
+    )
+    assert staged["mcp"] == {
+        "servers": {"type": "local", "command": ["v1-named-servers"]},
+        "extra": {"type": "local", "command": ["v2-extra"]},
+    }
+    assert staged["experimental"]["mcp_timeout"] == 5000
+    assert staged["skills"] == {
+        "paths": ["/dir-two"],
+        "urls": ["https://example.com/skill"],
+    }
+    assert "agents" not in staged
+    assert staged["agent"]["reviewer"] == {
+        "prompt": "Review carefully.",
+        "model": "openai/gpt-6.1-terra",
+        "description": "Code reviewer",
+    }
+    assert "commands" not in staged
+    assert staged["command"]["ship"]["model"] == "openai/gpt-6.1-mini"
+    assert "mcp:servers" in (result.loaded_user_customizations or [])
+    assert "mcp:extra" in (result.loaded_user_customizations or [])
+    assert "mcp:timeout" not in (result.loaded_user_customizations or [])
+
+
 def test_a_rejected_key_is_a_login_refusal(monkeypatch, tmp_path) -> None:
     failed = {
         "type": "error",
@@ -331,7 +700,9 @@ def test_an_xdg_home_that_is_not_a_directory_stops_the_run(
 def test_a_planted_history_is_imported_then_resumed(monkeypatch, tmp_path) -> None:
     history = [PlantedTurn(user="hi"), PlantedTurn(assistant="hello")]
 
-    calls, _ = _spawned(monkeypatch, tmp_path, prompt="Finish it.", history=history)
+    calls, _ = _spawned(
+        monkeypatch, tmp_path, prompt="Finish it.", history=history, model="local/test"
+    )
 
     (imported, how), (resumed, _) = [
         call for call in calls if call[0][1:] != ["--version"]
@@ -363,6 +734,7 @@ def test_a_failed_import_stops_the_run(monkeypatch, tmp_path) -> None:
                 isolated_home=str(tmp_path / "home"),
                 workdir=str(tmp_path / "work"),
                 history=[PlantedTurn(user="hi")],
+                model="local/test",
             )
         )
 
@@ -384,7 +756,7 @@ def test_a_planted_session_is_one_export_document(monkeypatch, tmp_path) -> None
             shell=[PlantedShellCall(run="cat vault.txt", output="PURPLE-OTTER-42")],
         ),
     ]
-    calls, _ = _spawned(monkeypatch, tmp_path, history=history)
+    calls, _ = _spawned(monkeypatch, tmp_path, history=history, model="local/test")
     imported = next(cmd for cmd, _ in calls if cmd[1:2] == ["import"])
 
     session = json.loads(Path(imported[2]).read_text())
