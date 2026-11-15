@@ -2,8 +2,8 @@
 
 Three parts of Caliper are state machines whose order matters more than any one
 step. Each chart below is checked: `tests/test_state_machines.py` runs it as a
-Hypothesis rule-based machine against the real code, and fails if a chart names
-a state the machine doesn't walk, or misses one it does.
+Hypothesis rule-based machine against the real code, and fails if a chart's
+edges differ from the ones that machine moves along.
 
 ## How an attempt ends
 
@@ -16,6 +16,7 @@ as `Timeout`.
 stateDiagram-v2
     [*] --> Setup
     Setup --> InfraError: setup hook fails
+    Setup --> Discarded: a stop kills the hook, or lands before the agent starts
     Setup --> Agent: setup hook passes, or there is none
     Agent --> Agent: throttled, with retries left
     Agent --> RunAborted: spending cap, or a misconfiguration
@@ -49,8 +50,10 @@ stateDiagram-v2
 ## A tracked agent process
 
 `caliper/cancel.py` registers every agent process while it runs, so a stop can
-reach it. What the module remembers decides whether the attempt is evidence:
-one it killed while running is discarded, and one that exited first is kept.
+reach it. A kill also reaches the tools the agent started, even after the agent
+exits and leaves them behind. An agent that comes back after a stop killed it
+is discarded, not recorded. A timeout kills through the same module, but that
+attempt is kept as `Timeout`.
 
 ```mermaid
 stateDiagram-v2
@@ -58,7 +61,7 @@ stateDiagram-v2
     [*] --> Killed: spawned after a stop, outside a cleanup hook
     Live --> Finished: exits on its own, any exit code
     Live --> Killed: a timeout, or a stop of the run
-    Finished --> Finished: a later kill changes nothing
+    Finished --> Finished: a later kill ends its tools, and it stays an observation
 ```
 
 When tracking ends, the process leaves every registry (`_live`, `_descendants`,
@@ -72,6 +75,7 @@ answers the climber's questions about the train tasks only.
 ```mermaid
 stateDiagram-v2
     [*] --> Unsplit
+    Unsplit --> Unsplit: refused, fewer than 8 measured tasks
     Unsplit --> Split: climb.py split, with at least 8 measured tasks
     Split --> Split: rerun, failures, scores, or a refused second split
 ```

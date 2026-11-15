@@ -1,7 +1,7 @@
 """Caliper's state machines, run as Hypothesis rule-based machines.
 
-docs/statecharts.md draws each one. The machines here walk the same states,
-and the last tests check that the charts still name them.
+docs/statecharts.md draws each one. The machines here move along the same
+edges, and the last tests check that the charts still draw exactly those.
 """
 
 from __future__ import annotations
@@ -10,14 +10,19 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, NamedTuple
 
+import psutil
 import pytest
 from conftest import ScriptedHarness, ScriptedJudge
 from hypothesis import HealthCheck, given, settings
@@ -61,6 +66,8 @@ from caliper.workdir import AttemptWorkdir
 ROOT = Path(__file__).resolve().parent.parent
 STATECHARTS = ROOT / "docs" / "statecharts.md"
 
+Edge = tuple[str, str]
+
 
 def _state_name(outcome: Outcome) -> str:
     """``task_fail`` as the charts spell it: ``TaskFail``."""
@@ -72,41 +79,43 @@ def _state_name(outcome: Outcome) -> str:
 SKILL = "my-skill"
 
 # What can be true of one attempt, in the order caliper/attempt.py tests it,
-# and the state each one ends in when it is the first that holds.
-VERDICT_PRECEDENCE = (
-    ("setup_failed", "InfraError"),
-    ("cancelled", "Discarded"),
-    ("timed_out", "Timeout"),
-    ("exit_nonzero", "InfraError"),
-    ("refused", "InfraError"),
-    ("no_model_call", "InfraError"),
-    ("forbidden_read", "Cheat"),
-    ("unchecked", "NotChecked"),
+# and the edge the attempt leaves by when it is the first that holds.
+_VERDICT_PRECEDENCE: tuple[tuple[str, Edge], ...] = (
+    ("setup_failed", ("Setup", "InfraError")),
+    ("cancelled", ("Agent", "Discarded")),
+    ("timed_out", ("Agent", "Timeout")),
+    ("exit_nonzero", ("Agent", "InfraError")),
+    ("refused", ("Agent", "InfraError")),
+    ("no_model_call", ("Agent", "InfraError")),
+    ("forbidden_read", ("Sandbox", "Cheat")),
+    ("unchecked", ("Sandbox", "NotChecked")),
 )
-JUDGE_VERDICTS = {"pass": "Pass", "fail": "TaskFail", "error": "JudgeError"}
+_JUDGE_VERDICTS = {"pass": "Pass", "fail": "TaskFail", "error": "JudgeError"}
+# The way through when no exit above holds.
+_VERDICT_PATH: tuple[Edge, ...] = (
+    ("[*]", "Setup"),
+    ("Setup", "Agent"),
+    ("Agent", "Sandbox"),
+    ("Sandbox", "Judge"),
+)
+# Decided around attempt.py rather than in it, each checked elsewhere: the
+# throttle retry in tests/test_retry.py, a stop around the agent in
+# tests/test_cancel.py, and a fatal refusal by the stopped-run property below.
+_RUNNER_EDGES: tuple[Edge, ...] = (
+    ("Setup", "Discarded"),
+    ("Agent", "Agent"),
+    ("Agent", "RunAborted"),
+)
 # Exits that skip the judge because the agent never got a fair shot, so
 # activation is observed but not graded (docs/CONTEXT.md → Activation
 # admissibility).
 _INADMISSIBLE = {"timed_out", "exit_nonzero", "refused", "no_model_call"}
 
 
-class _CountingJudge:
-    backend = "test"
-    model = None
-    effort = None
-    prompt_version = None
-
-    def __init__(self, verdict: str) -> None:
-        self.result = JudgeResult(
-            passed=verdict == "pass",
-            errored=verdict == "error",
-            autorater_seconds=0.5,
-        )
-        self.calls = 0
-
-    def evaluate(self, task, transcript, workdir, history=None) -> JudgeResult:
-        self.calls += 1
-        return self.result
+def _verdict_edges() -> set[Edge]:
+    exits = {edge for _, edge in _VERDICT_PRECEDENCE}
+    judged = {("Judge", state) for state in _JUDGE_VERDICTS.values()}
+    return exits | judged | set(_VERDICT_PATH) | set(_RUNNER_EDGES)
 
 
 class _StubSandbox:
@@ -130,11 +139,11 @@ class AttemptVerdictMachine(RuleBasedStateMachine):
         self.verdict = "pass"
         self.loaded = False
 
-    @rule(fact=st.sampled_from([fact for fact, _ in VERDICT_PRECEDENCE]))
+    @rule(fact=st.sampled_from([fact for fact, _ in _VERDICT_PRECEDENCE]))
     def happen(self, fact: str) -> None:
         self.facts.add(fact)
 
-    @rule(verdict=st.sampled_from(sorted(JUDGE_VERDICTS)))
+    @rule(verdict=st.sampled_from(sorted(_JUDGE_VERDICTS)))
     def judge_answers(self, verdict: str) -> None:
         self.verdict = verdict
 
@@ -142,7 +151,7 @@ class AttemptVerdictMachine(RuleBasedStateMachine):
     def skill_loads(self) -> None:
         self.loaded = True
 
-    def _ended(self) -> AttemptResult | SetupFailed:
+    def _harness_result(self) -> AttemptResult | SetupFailed:
         if "setup_failed" in self.facts:
             return SetupFailed("setup exited 7")
         transcript = [ConversationTurn(role="assistant", content="done")]
@@ -170,18 +179,18 @@ class AttemptVerdictMachine(RuleBasedStateMachine):
             else None,
         )
 
-    def _expected(self) -> str:
-        for fact, state in VERDICT_PRECEDENCE:
-            if fact in self.facts:
-                return state
-        return JUDGE_VERDICTS[self.verdict]
-
     @invariant()
     def ends_where_the_chart_says(self) -> None:
-        judge = _CountingJudge(self.verdict)
+        judge = ScriptedJudge(
+            JudgeResult(
+                passed=self.verdict == "pass",
+                errored=self.verdict == "error",
+                autorater_seconds=0.5,
+            )
+        )
         unchecked = "unchecked" in self.facts
         assembled = assemble_attempt(
-            self._ended(),
+            self._harness_result(),
             attempt=1,
             task=TaskSpec(
                 id="task-001",
@@ -190,16 +199,20 @@ class AttemptVerdictMachine(RuleBasedStateMachine):
                 expect=None if unchecked else "it works",
                 activates=[SKILL],
             ),
-            # Never entered: the counting judge runs nothing in it.
-            workdir=AttemptWorkdir("/tmp"),
+            # Never entered: the scripted judge runs nothing in it.
+            workdir=AttemptWorkdir(ROOT),
             expected_activation=[SKILL],
             activation=ActivationDetector([SKILL], frozenset({"Skill"})),
             sandbox=_StubSandbox(["/secret"] if "forbidden_read" in self.facts else []),
             judge=judge,
         )
-        expected = self._expected()
+        first_exit = next((f for f, _ in _VERDICT_PRECEDENCE if f in self.facts), None)
+        if first_exit is None:
+            expected = _JUDGE_VERDICTS[self.verdict]
+        else:
+            expected = dict(_VERDICT_PRECEDENCE)[first_exit][1]
 
-        judged = expected in JUDGE_VERDICTS.values()
+        judged = first_exit is None
         assert judge.calls == (1 if judged else 0)
         if expected == "Discarded":
             assert assembled is None
@@ -209,14 +222,13 @@ class AttemptVerdictMachine(RuleBasedStateMachine):
         assert _state_name(record.outcome) == expected
         assert (record.judge_seconds is not None) == judged
 
-        saw_load = self.loaded and "no_model_call" not in self.facts
-        first = next((f for f, _ in VERDICT_PRECEDENCE if f in self.facts), None)
-        if first == "setup_failed":
+        if first_exit == "setup_failed":
             assert record.activated is None
             assert record.activation_passed is None
-        elif first in _INADMISSIBLE:
+        elif first_exit in _INADMISSIBLE:
             # A load seen before the cut still happened; seeing none is not a
             # negative observation.
+            saw_load = self.loaded and "no_model_call" not in self.facts
             assert record.activated == ([SKILL] if saw_load else None)
             assert record.activation_passed is None
         else:
@@ -230,177 +242,259 @@ TestAttemptVerdict.settings = settings(max_examples=150, stateful_step_count=12)
 
 # --- a tracked process -----------------------------------------------------
 
-# Waits on stdin, then exits with the code it reads: a process that only ends
-# when the machine says so, either on its own or killed.
-_AGENT = "import sys; sys.exit(int(sys.stdin.read() or 0))"
-PROCESS_STATES = ("Live", "Finished", "Killed")
+# Starts a tool in its own session, says which, then waits on stdin and exits
+# with the code it reads: an agent that only ends when the machine says so, and
+# leaves its tool behind, reparented, when it ends on its own.
+_AGENT = (
+    "import subprocess, sys; "
+    "tool = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], "
+    "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, start_new_session=True); "
+    "print(tool.pid, flush=True); "
+    "sys.exit(int(sys.stdin.read() or 0))"
+)
+_PROCESS_EDGES: tuple[Edge, ...] = (
+    ("[*]", "Live"),
+    ("[*]", "Killed"),
+    ("Live", "Finished"),
+    ("Live", "Killed"),
+    ("Finished", "Finished"),
+)
+
+
+@dataclass
+class _Agent:
+    """One agent process, and what the machine expects of it and its tool."""
+
+    proc: subprocess.Popen
+    tool: psutil.Process
+    tag: str | None
+    tracking: contextlib.ExitStack | None
+    state: str = "[*]"
+    tool_alive: bool = True
+
+    def move(self, to: str) -> None:
+        assert (self.state, to) in _PROCESS_EDGES
+        self.state = to
+
+
+def _running(process: psutil.Process) -> bool:
+    try:
+        return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return False
 
 
 class TrackedProcessMachine(RuleBasedStateMachine):
-    """Real processes registered with caliper/cancel.py, finished and killed.
+    """Real agents registered with caliper/cancel.py, finished and killed.
 
-    ``was_killed`` must name exactly the processes the module killed while they
-    ran, because that is what turns an attempt into no record at all; one that
-    exited on its own stays an observation. Leaving ``track`` must forget it.
+    ``was_killed`` must name exactly the agents the module killed while they
+    ran: one that comes back after a stop killed it is no record at all, and one
+    that exited on its own stays an observation. A kill must reach the agent's
+    tool even after the agent is gone, and leaving ``track`` must forget it.
     """
 
-    procs = Bundle("procs")
+    agents = Bundle("agents")
 
     def __init__(self) -> None:
         super().__init__()
         cancel.reset()
-        self.state: dict[subprocess.Popen, str] = {}
-        self.tracking: dict[subprocess.Popen, contextlib.ExitStack] = {}
-        self.tags: dict[subprocess.Popen, str] = {}
+        self.all: list[_Agent] = []
         self.stop_requested = False
 
-    @rule(target=procs, tagged=st.booleans(), cleanup=st.booleans())
-    def spawn(self, tagged: bool, cleanup: bool) -> subprocess.Popen:
+    def _tracked(self) -> list[_Agent]:
+        return [agent for agent in self.all if agent.tracking is not None]
+
+    @rule(target=agents, tagged=st.booleans(), cleanup=st.booleans())
+    def spawn(self, tagged: bool, cleanup: bool) -> _Agent:
+        tag = f"caliper-state-machine-{os.getpid()}-{len(self.all)}" if tagged else None
+        env = dict(os.environ)
+        if tag is not None:
+            # As the real harness does: the tool inherits it.
+            env[cancel.PROCESS_TAG] = tag
         proc = subprocess.Popen(
             [sys.executable, "-c", _AGENT],
             stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            env=env,
             start_new_session=True,
         )
-        tag = f"caliper-state-machine-{proc.pid}" if tagged else None
-        stack = contextlib.ExitStack()
+        assert proc.stdout is not None
+        tool = psutil.Process(int(proc.stdout.readline()))
+        tracking = contextlib.ExitStack()
         # A cleanup hook skips the immediate kill, so it still runs after a stop.
-        stack.enter_context(
+        tracking.enter_context(
             cancel.track(proc, cancel_if_requested=not cleanup, process_tag=tag)
         )
-        self.tracking[proc] = stack
-        if tag is not None:
-            self.tags[proc] = tag
-        killed_on_entry = self.stop_requested and not cleanup
-        self.state[proc] = "Killed" if killed_on_entry else "Live"
-        if killed_on_entry:
+        agent = _Agent(proc, tool, tag, tracking)
+        self.all.append(agent)
+        if self.stop_requested and not cleanup:
+            agent.move("Killed")
+            agent.tool_alive = False
             proc.wait(timeout=10)
-        return proc
+        else:
+            agent.move("Live")
+            self._until_the_watcher_sees(agent)
+        return agent
 
-    @rule(proc=procs, code=st.integers(0, 3))
-    def exits_on_its_own(self, proc: subprocess.Popen, code: int) -> None:
-        if self.state[proc] != "Live":
+    def _until_the_watcher_sees(self, agent: _Agent) -> None:
+        # Before then, only the live agent leads to its tool.
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            with cancel._lock:
+                if agent.tool in cancel._descendants.get(agent.proc, ()):
+                    return
+            time.sleep(0.01)
+        raise AssertionError("the watcher never saw the tool")
+
+    def _killed(self, agent: _Agent) -> None:
+        """What one ``cancel.kill`` should have done to an agent and its tool."""
+        if agent.state == "Live":
+            agent.move("Killed")
+            agent.tool_alive = False
+            agent.proc.wait(timeout=10)
+        elif agent.state == "Finished":
+            agent.move("Finished")
+            # Reparented: found through what tracking remembered, or the tag.
+            if agent.tracking is not None or agent.tag is not None:
+                agent.tool_alive = False
+
+    @rule(agent=agents, code=st.integers(0, 3))
+    def exits_on_its_own(self, agent: _Agent, code: int) -> None:
+        if agent.state != "Live":
             return
-        proc.communicate(str(code).encode(), timeout=10)
-        assert proc.returncode == code
-        self.state[proc] = "Finished"
+        agent.proc.communicate(str(code).encode(), timeout=10)
+        assert agent.proc.returncode == code
+        agent.move("Finished")
 
-    @rule(proc=procs)
-    def times_out(self, proc: subprocess.Popen) -> None:
-        cancel.kill(proc)
-        if self.state[proc] == "Live":
-            self.state[proc] = "Killed"
-            proc.wait(timeout=10)
+    @rule(agent=agents)
+    def times_out(self, agent: _Agent) -> None:
+        cancel.kill(agent.proc)
+        self._killed(agent)
 
     @rule()
     def stop_is_requested(self) -> None:
         cancel.request()
         self.stop_requested = True
-        for proc in self.tracking:
-            if self.state[proc] == "Live":
-                self.state[proc] = "Killed"
-                proc.wait(timeout=10)
+        for agent in self._tracked():
+            self._killed(agent)
 
-    @rule(proc=consumes(procs))
-    def leaves_track(self, proc: subprocess.Popen) -> None:
-        self.tracking.pop(proc).close()
-        self.tags.pop(proc, None)
+    @rule(agent=consumes(agents))
+    def leaves_track(self, agent: _Agent) -> None:
+        assert agent.tracking is not None
+        agent.tracking.close()
+        agent.tracking = None
 
     @invariant()
     def was_killed_names_only_what_the_module_killed(self) -> None:
-        for proc, state in self.state.items():
-            assert cancel.was_killed(proc) == (state == "Killed")
+        for agent in self.all:
+            assert cancel.was_killed(agent.proc) == (agent.state == "Killed")
 
     @invariant()
-    def only_tracked_processes_are_registered(self) -> None:
-        assert set(cancel._live) == set(self.tracking)
-        assert set(cancel._descendants) == set(self.tracking)
-        assert cancel._tags == self.tags
+    def a_kill_reaches_the_tool(self) -> None:
+        for agent in self.all:
+            if not agent.tool_alive:
+                psutil.wait_procs([agent.tool], timeout=5)
+            assert _running(agent.tool) == agent.tool_alive
+
+    @invariant()
+    def only_tracked_agents_are_registered(self) -> None:
+        tracked = self._tracked()
+        assert set(cancel._live) == {agent.proc for agent in tracked}
+        assert set(cancel._descendants) == {agent.proc for agent in tracked}
+        assert cancel._tags == {a.proc: a.tag for a in tracked if a.tag is not None}
         assert cancel.requested() == self.stop_requested
 
     def teardown(self) -> None:
-        for stack in self.tracking.values():
-            stack.close()
+        for agent in self._tracked():
+            assert agent.tracking is not None
+            agent.tracking.close()
         try:
             assert not cancel._live
             assert not cancel._descendants
             assert not cancel._tags
         finally:
-            for proc in self.state:
-                if proc.poll() is None:
-                    proc.kill()
-                proc.wait(timeout=10)
-                if proc.stdin is not None:
-                    proc.stdin.close()
+            for agent in self.all:
+                with contextlib.suppress(psutil.NoSuchProcess):
+                    agent.tool.kill()
+                if agent.proc.poll() is None:
+                    agent.proc.kill()
+                agent.proc.communicate(timeout=10)
             cancel.reset()
 
 
 TestTrackedProcess = TrackedProcessMachine.TestCase
 TestTrackedProcess.settings = settings(
-    max_examples=40, stateful_step_count=10, deadline=None
+    max_examples=80, stateful_step_count=10, deadline=None
 )
 
 
 # --- a run that stops ------------------------------------------------------
 
-# How one attempt ends, as the harness reports it. The first three leave the
-# run going; the rest stop it.
-_ACTIONS = (
-    "passes",
-    "fails",
-    "times_out",
-    "killed",
-    "fails_while_stopping",
-    "misconfigured",
-    "capped",
-)
-_STOPS = {"killed", "fails_while_stopping", "misconfigured", "capped"}
-_FATAL = {"misconfigured", "capped"}
-_KEPT = {
-    "passes": Outcome.PASS,
-    "fails": Outcome.INFRA_ERROR,
-    "times_out": Outcome.TIMEOUT,
-    "fails_while_stopping": Outcome.INFRA_ERROR,
+
+class _Ending(NamedTuple):
+    """How one attempt ends, as the harness reports it, and what the run does."""
+
+    stops: bool
+    kept: Outcome | None
+    result: dict[str, Any]
+    fatal: bool = False
+
+
+_ENDINGS = {
+    "passes": _Ending(False, Outcome.PASS, {}),
+    "fails": _Ending(False, Outcome.INFRA_ERROR, {"exit_code": 1}),
+    "times_out": _Ending(False, Outcome.TIMEOUT, {"timed_out": True}),
+    # The stop killed it: only the spawn knows, and says so.
+    "killed": _Ending(True, None, {"exit_code": -9, "cancelled": True}),
+    # Dying of its own causes while it stops the run.
+    "fails_while_stopping": _Ending(True, Outcome.INFRA_ERROR, {"exit_code": 1}),
+    "misconfigured": _Ending(True, None, {}, fatal=True),
+    "capped": _Ending(
+        True,
+        None,
+        {"refusal": CliRefusal(RefusalKind.SPENDING_CAP, "cap reached")},
+        fatal=True,
+    ),
 }
 
 
-def _scripted(actions: list[str]):
+def _scripted(endings: list[str]):
     def answer(ctx: RunContext) -> AttemptResult:
-        action = actions[ctx.attempt - 1]
-        if action == "misconfigured":
+        name = endings[ctx.attempt - 1]
+        if name == "misconfigured":
             raise HarnessConfigurationError("credentials expired mid-run")
-        if action in ("killed", "fails_while_stopping"):
+        ending = _ENDINGS[name]
+        if ending.stops and not ending.fatal:
             cancel.request()
-        return AttemptResult(
-            transcript=[ConversationTurn(role="assistant", content="done")],
-            final_output="done",
-            exit_code=1 if action in ("fails", "fails_while_stopping", "killed") else 0,
-            duration_seconds=0.01,
-            timed_out=action == "times_out",
-            cancelled=action == "killed",
-            refusal=CliRefusal(RefusalKind.SPENDING_CAP, "spending cap reached")
-            if action == "capped"
-            else None,
-        )
+        fields: dict[str, Any] = {
+            "transcript": [ConversationTurn(role="assistant", content="done")],
+            "final_output": "done",
+            "exit_code": 0,
+            "duration_seconds": 0.01,
+        }
+        return AttemptResult(**{**fields, **ending.result})
 
     return answer
 
 
 @settings(
-    max_examples=40,
+    max_examples=60,
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
-@given(actions=st.lists(st.sampled_from(_ACTIONS), min_size=1, max_size=6))
+@given(
+    endings=st.lists(st.sampled_from(sorted(_ENDINGS)), min_size=1, max_size=6),
+    workers=st.integers(1, 3),
+)
 def test_a_stopped_run_keeps_what_failed_on_its_own_and_drops_what_it_killed(
-    tmp_path, actions
+    tmp_path, endings, workers
 ):
     spec_path = tmp_path / "sample.eval.yaml"
     spec_path.write_text("tasks: []\n")
-    harness = ScriptedHarness(_scripted(actions))
+    harness = ScriptedHarness(_scripted(endings))
     judge = ScriptedJudge()
 
-    stop = next((i for i, a in enumerate(actions) if a in _STOPS), None)
-    ran = actions if stop is None else actions[: stop + 1]
+    aborted = None
     try:
         results = run(
             spec=EvalSpec(
@@ -411,23 +505,28 @@ def test_a_stopped_run_keeps_what_failed_on_its_own_and_drops_what_it_killed(
             spec_path=spec_path,
             harness=harness,
             judge=judge,
-            k=len(actions),
-            workers=1,
+            k=len(endings),
+            workers=workers,
             timeout=5,
         )
-        assert not _FATAL.intersection(ran)
-    except RunAborted as aborted:
-        assert ran[-1] in _FATAL
-        results = aborted.results
+    except RunAborted as exc:
+        aborted = exc
+        results = exc.results
     finally:
         cancel.reset()
 
-    # Nothing after the stop starts; what ran on its own is kept, in order.
-    assert [ctx.attempt for ctx in harness.contexts] == list(range(1, len(ran) + 1))
-    kept = [(i, _KEPT[a]) for i, a in enumerate(ran, start=1) if a in _KEPT]
+    started = sorted(ctx.attempt for ctx in harness.contexts)
+    ran = {i: _ENDINGS[endings[i - 1]] for i in started}
+    if workers == 1:
+        # One at a time, nothing after the first stop starts.
+        stop = next((i for i, e in enumerate(endings, 1) if _ENDINGS[e].stops), None)
+        assert started == list(range(1, (stop or len(endings)) + 1))
+    # What ran on its own is kept, whatever stopped the run around it.
+    kept = [(i, ending.kept) for i, ending in ran.items() if ending.kept is not None]
     attempts = results.task_results[0].attempts
     assert [(a.attempt, a.outcome) for a in attempts] == kept
-    assert results.run.interrupted == (stop is not None)
+    assert results.run.interrupted == any(e.stops for e in ran.values())
+    assert (aborted is not None) == any(e.fatal for e in ran.values())
     assert judge.calls == sum(1 for _, outcome in kept if outcome is Outcome.PASS)
 
 
@@ -439,7 +538,12 @@ _spec = importlib.util.spec_from_file_location(
 climb = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(climb)
 
-CLIMB_STATES = ("Unsplit", "Split")
+_CLIMB_EDGES: tuple[Edge, ...] = (
+    ("[*]", "Unsplit"),
+    ("Unsplit", "Unsplit"),
+    ("Unsplit", "Split"),
+    ("Split", "Split"),
+)
 _CLIMB_OUTCOMES = (
     Outcome.PASS,
     Outcome.TASK_FAIL,
@@ -454,15 +558,18 @@ def _marker(name: str) -> str:
 
 
 @st.composite
-def _climb_runs(draw, names: list[str]) -> RunResults:
+def _climb_run(draw, names: list[str], measurable: bool = False) -> RunResults:
+    """One run over ``names``; ``measurable`` gives every task a measured attempt."""
     tasks = []
     for name in names:
         k = draw(st.integers(1, 3))
         outcomes = draw(
             st.lists(st.sampled_from(_CLIMB_OUTCOMES), min_size=k, max_size=k)
         )
-        # At least one attempt each surface can measure.
-        outcomes[0] = draw(st.sampled_from((Outcome.PASS, Outcome.TASK_FAIL)))
+        expected = draw(st.sampled_from(([SKILL], [], None)))
+        if measurable:
+            outcomes[0] = draw(st.sampled_from((Outcome.PASS, Outcome.TASK_FAIL)))
+            expected = [] if expected is None else expected
         secret = _marker(name)
         tasks.append(
             TaskResult(
@@ -470,7 +577,7 @@ def _climb_runs(draw, names: list[str]) -> RunResults:
                 task_name=name,
                 prompt=f"prompt {secret}",
                 expect=f"expect {secret}",
-                activation_expected=draw(st.sampled_from(([SKILL], []))),
+                activation_expected=expected,
                 attempts=[
                     AttemptRecord(
                         attempt=i,
@@ -511,11 +618,39 @@ def _climb_runs(draw, names: list[str]) -> RunResults:
     )
 
 
+def _measured(results: RunResults, surface: str) -> set[str]:
+    """The tasks a split on ``surface`` divides: the ones it measures."""
+    if surface == "description":
+        return {
+            t.task_name
+            for t in results.task_results
+            if t.activation_expected is not None
+        }
+    return {
+        t.task_name
+        for t in results.task_results
+        if any(a.outcome is not Outcome.NOT_CHECKED for a in t.attempts)
+    }
+
+
 def _climb(*argv: str) -> str:
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
         climb.main(list(argv))
     return out.getvalue()
+
+
+@dataclass
+class _Climb:
+    """Where a climb stands, and the split it fixed."""
+
+    phase: str = "[*]"
+    train: set[str] = field(default_factory=set)
+    held_out: set[str] = field(default_factory=set)
+
+    def move(self, to: str) -> None:
+        assert (self.phase, to) in _CLIMB_EDGES
+        self.phase = to
 
 
 class HeldOutBoundaryMachine(RuleBasedStateMachine):
@@ -530,14 +665,25 @@ class HeldOutBoundaryMachine(RuleBasedStateMachine):
         self.dir = Path(tempfile.mkdtemp())
         self.run_path = self.dir / "run.json"
         self.state_path = self.dir / "hillclimb" / "state.json"
-        self.phase = "Unsplit"
+        self.climb = _Climb()
+        self.names: list[str] = []
+        self.results: RunResults | None = None
+        self.saved_state = ""
 
     def teardown(self) -> None:
         shutil.rmtree(self.dir, ignore_errors=True)
 
-    def _save(self, results: RunResults) -> None:
+    def _save(self, results: RunResults) -> RunResults:
         self.run_path.write_text(results.model_dump_json(), encoding="utf-8")
         self.results = results
+        return results
+
+    def _split(self, surface: str, seed: int) -> None:
+        argv = ["split", str(self.run_path), str(self.state_path)]
+        argv += ["--surface", surface, "--seed", str(seed)]
+        if surface == "description":
+            argv += ["--skill", SKILL]
+        _climb(*argv)
 
     @initialize(
         data=st.data(),
@@ -547,21 +693,27 @@ class HeldOutBoundaryMachine(RuleBasedStateMachine):
     )
     def split(self, data, count: int, surface: str, seed: int) -> None:
         self.names = [f"task-{i:02d}" for i in range(count)]
-        self._save(data.draw(_climb_runs(self.names)))
-        argv = ["split", str(self.run_path), str(self.state_path)]
-        argv += ["--surface", surface, "--seed", str(seed)]
-        if surface == "description":
-            argv += ["--skill", SKILL]
-        _climb(*argv)
-        self.phase = "Split"
+        self.climb.move("Unsplit")
+        measured = _measured(self._save(data.draw(_climb_run(self.names))), surface)
+        if len(measured) < climb.MIN_TASKS:
+            with pytest.raises(SystemExit, match="a climb needs"):
+                self._split(surface, seed)
+            assert not self.state_path.exists()
+            self.climb.move("Unsplit")
+            run = data.draw(_climb_run(self.names, measurable=True))
+            measured = _measured(self._save(run), surface)
+        self._split(surface, seed)
+        self.climb.move("Split")
         self.saved_state = self.state_path.read_text(encoding="utf-8")
         state = json.loads(self.saved_state)
-        self.train = set(state["train"])
-        self.held_out = set(state["held_out"])
+        self.climb.train = set(state["train"])
+        self.climb.held_out = set(state["held_out"])
+        assert self.climb.train | self.climb.held_out == measured
 
     @rule(data=st.data())
     def reruns(self, data) -> None:
-        self._save(data.draw(_climb_runs(self.names)))
+        self._save(data.draw(_climb_run(self.names)))
+        self.climb.move("Split")
 
     @rule(data=st.data(), one=st.booleans())
     def reads_failures(self, data, one: bool) -> None:
@@ -570,17 +722,18 @@ class HeldOutBoundaryMachine(RuleBasedStateMachine):
             self._assert_hidden(_climb(*argv))
             return
         task = data.draw(st.sampled_from(self.names))
-        if task in self.held_out:
+        if task not in self.climb.train:
             with pytest.raises(SystemExit, match="not a train task"):
                 _climb(*argv, "--task", task)
             return
         out = _climb(*argv, "--task", task)
         self._assert_hidden(out)
-        assert not any(f"## {name} " in out for name in self.train - {task})
+        assert not any(f"## {name} " in out for name in self.climb.train - {task})
 
     @rule(data=st.data())
     def reads_scores(self, data) -> None:
-        after = data.draw(_climb_runs(self.names))
+        assert self.results is not None
+        after = data.draw(_climb_run(self.names))
         comparison = comparison_to_json(diff_runs(self.results, after))
         stdin = sys.stdin
         sys.stdin = io.StringIO(comparison)
@@ -592,22 +745,18 @@ class HeldOutBoundaryMachine(RuleBasedStateMachine):
     @rule()
     def splits_again(self) -> None:
         with pytest.raises(SystemExit, match="fixed for the whole climb"):
-            _climb(
-                "split", str(self.run_path), str(self.state_path), "--surface", "body"
-            )
+            self._split("body", 0)
+        self.climb.move("Split")
 
     def _assert_hidden(self, out: str) -> None:
-        for name in self.held_out:
+        for name in self.climb.held_out:
             assert name not in out
             assert _marker(name) not in out
 
     @invariant()
     def the_split_never_moves(self) -> None:
-        if self.phase == "Unsplit":
-            return
         assert self.state_path.read_text(encoding="utf-8") == self.saved_state
-        assert not self.train & self.held_out
-        assert self.train | self.held_out == set(self.names)
+        assert not self.climb.train & self.climb.held_out
 
 
 TestHeldOutBoundary = HeldOutBoundaryMachine.TestCase
@@ -621,32 +770,22 @@ TestHeldOutBoundary.settings = settings(
 _EDGE = re.compile(r"^\s*(\[\*\]|\w+)\s*-->\s*(\[\*\]|\w+)", re.MULTILINE)
 
 
-def _charts() -> list[list[tuple[str, str]]]:
+def _charts() -> list[set[Edge]]:
     """Each ```mermaid block's edges, in the order docs/statecharts.md has them."""
     blocks = re.findall(r"```mermaid\n(.*?)```", STATECHARTS.read_text(), re.DOTALL)
-    return [_EDGE.findall(block) for block in blocks]
+    return [set(_EDGE.findall(block)) for block in blocks]
 
 
-def _states(edges: list[tuple[str, str]]) -> set[str]:
-    return {state for edge in edges for state in edge} - {"[*]"}
+def test_the_verdict_chart_ends_in_every_outcome():
+    reached = {target for _, (_, target) in _VERDICT_PRECEDENCE}
+    reached |= set(_JUDGE_VERDICTS.values())
+
+    assert reached == {_state_name(o) for o in Outcome} | {"Discarded"}
 
 
-def _terminal(edges: list[tuple[str, str]]) -> set[str]:
-    leaving = {source for source, target in edges if target != "[*]"}
-    return _states(edges) - leaving
+def test_each_chart_draws_the_edges_its_machine_moves_along():
+    verdict, process, hillclimb = _charts()
 
-
-def test_the_verdict_chart_ends_in_every_outcome_and_nothing_else():
-    verdict, _, _ = _charts()
-    reached = {state for _, state in VERDICT_PRECEDENCE} | set(JUDGE_VERDICTS.values())
-
-    assert {_state_name(o) for o in Outcome} | {"Discarded"} == reached
-    # The runner's own exit: a spending cap or misconfiguration stops the run.
-    assert _terminal(verdict) == reached | {"RunAborted"}
-
-
-def test_the_process_and_climb_charts_name_the_machines_states():
-    _, process, hillclimb = _charts()
-
-    assert _states(process) == set(PROCESS_STATES)
-    assert _states(hillclimb) == set(CLIMB_STATES)
+    assert verdict == _verdict_edges()
+    assert process == set(_PROCESS_EDGES)
+    assert hillclimb == set(_CLIMB_EDGES)
