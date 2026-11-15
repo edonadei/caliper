@@ -14,7 +14,7 @@ console = Console()
 
 
 class OutputFormat(str, Enum):
-    """What ``report`` and ``compare`` can print. A typer choice, so an unknown
+    """What ``report``, ``compare`` and ``list`` can print. A typer choice, so an unknown
     value is refused rather than silently rendered as a table."""
 
     TABLE = "table"

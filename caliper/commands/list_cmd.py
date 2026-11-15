@@ -26,7 +26,7 @@ console = Console()
 _INTERRUPTED = UNUSABLE_GLYPH
 
 
-def _score_cell(results: RunResults) -> str:
+def _score(results: RunResults) -> float | None:
     """The run's headline, on the same rule the report renders it by.
 
     A run whose every task is a trigger probe measured no execution question, so
@@ -34,8 +34,12 @@ def _score_cell(results: RunResults) -> str:
     listing disagree with the report about the same file, calling "nothing was
     asked" a total failure.
     """
-    if results.aggregate.measured:
-        score = f"{results.aggregate.avg_score * 100:.1f}%"
+    return results.aggregate.avg_score if results.aggregate.measured else None
+
+
+def _score_cell(results: RunResults) -> str:
+    if (headline := _score(results)) is not None:
+        score = f"{headline * 100:.1f}%"
     else:
         score = f"[dim]{RULE_GLYPH}[/dim]"
     # Marked whichever way the cell reads: a run that stopped early is still one
@@ -143,10 +147,13 @@ def _list_specs(store: RunStore) -> None:
     _print_legend(interrupted=marked, unmeasured=unmeasured)
 
 
-def _list_runs(store: RunStore, spec_name: str) -> None:
+def _require_spec(store: RunStore, spec_name: str) -> None:
     if not store.has_spec(spec_name):
         fail(BadInput(store.no_results(spec_name)))
 
+
+def _list_runs(store: RunStore, spec_name: str) -> None:
+    _require_spec(store, spec_name)
     runs = store.runs(spec_name)
     if not runs:
         console.print(f"[dim]No runs for {spec_name}.[/dim]")
@@ -191,7 +198,7 @@ def _list_runs(store: RunStore, spec_name: str) -> None:
     _print_legend(interrupted=marked, unmeasured=unmeasured)
 
 
-def _run_json(path: Path) -> dict[str, object]:
+def _run_json(store: RunStore, path: Path) -> dict[str, object]:
     """One run as `list --format json` prints it, every key present on every row.
 
     ``score`` is null where the table prints a rule or "?": an unmeasured run,
@@ -199,22 +206,20 @@ def _run_json(path: Path) -> dict[str, object]:
     """
     row: dict[str, object] = {"run": path.stem, "path": str(path)}
     try:
-        results = RunStore.load(path)
+        results = store.load(path)
     except UnreadableRun as exc:
         keys = ("k", "tasks", "score", "ablated", "interrupted")
         return {**row, **dict.fromkeys(keys), "error": str(exc.cause)}
-    aggregate = results.aggregate
     return {
         **row,
         "k": results.run.k,
         "tasks": len(results.task_results),
-        "score": aggregate.avg_score if aggregate.measured else None,
+        "score": _score(results),
         "ablated": results.run.ablated,
         "interrupted": results.run.interrupted,
     }
 
 
 def _print_runs_json(store: RunStore, spec_name: str) -> None:
-    if not store.has_spec(spec_name):
-        fail(BadInput(store.no_results(spec_name)))
-    console.print_json(data=[_run_json(path) for path in store.runs(spec_name)])
+    _require_spec(store, spec_name)
+    console.print_json(data=[_run_json(store, p) for p in store.runs(spec_name)])
