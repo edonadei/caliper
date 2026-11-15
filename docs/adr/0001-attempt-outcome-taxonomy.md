@@ -46,7 +46,7 @@ and judge noise stop being scored as task failure. The outcome is classified
 function — the single seam — with precedence `timeout → infra_error → cheat →
 judge_error → judge verdict`. Unusable outcomes (`judge_error`/`infra_error`/
 `timeout`) are excluded from the pass@k denominator and surfaced as a separate
-"unusable attempts" count. See [CONTEXT.md](../../CONTEXT.md) for the term
+"unusable attempts" count. See [CONTEXT.md](../CONTEXT.md) for the term
 definitions.
 
 ## Considered options

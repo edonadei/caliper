@@ -7,12 +7,13 @@ from __future__ import annotations
 
 import fnmatch
 import functools
+import json
 import os
 import re
 import subprocess
 import sys
 import typing
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import yaml
@@ -563,4 +564,201 @@ def test_no_unsolicited_markdown_files() -> None:
         ".github/**/*.md, docs/*.md linked from README.md, docs/adr/NNNN-*.md, "
         "examples/README.md, examples/*/SKILL.md, skills/*/{SKILL,REFERENCE}.md): "
         f"{unsolicited}"
+    )
+
+
+def _github_anchor_slug(heading: str) -> str:
+    s = heading.strip()
+    s = re.sub(r"<[^>]+>", "", s)
+    s = s.replace("`", "")
+    s = s.lower()
+    s = re.sub(r"[^\w\s-]", "", s)
+    s = re.sub(r"\s+", "-", s)
+    return s
+
+
+def _extract_heading_anchors(text: str) -> set[str]:
+    counts: Counter[str] = Counter()
+    anchors: set[str] = set()
+    in_fence = False
+    fence_char: str | None = None
+    fence_len = 0
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        m = re.match(r"^(```+|~~~+)", stripped)
+        if m:
+            chars = m.group(1)
+            if not in_fence:
+                in_fence = True
+                fence_char = chars[0]
+                fence_len = len(chars)
+                continue
+            elif chars[0] == fence_char and len(chars) >= fence_len:
+                in_fence = False
+                continue
+        if in_fence:
+            continue
+
+        hm = re.match(r"^\s{0,3}#{1,6}\s+(.*?)(?:\s+#+)?$", line)
+        if hm:
+            raw_title = hm.group(1).strip()
+            base_slug = _github_anchor_slug(raw_title)
+            count = counts[base_slug]
+            counts[base_slug] += 1
+            slug = base_slug if count == 0 else f"{base_slug}-{count}"
+            anchors.add(slug)
+
+    return anchors
+
+
+def test_markdown_relative_links_and_anchors_resolve() -> None:
+    files = _repo_markdown_files()
+    assert files, "found no markdown files in repository"
+
+    file_anchors: dict[Path, set[str]] = {}
+    for rel in files:
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        file_anchors[rel] = _extract_heading_anchors(text)
+
+    link_pattern = re.compile(r"!?\[([^\]]*)\]\(([^)]+)\)")
+    failures: list[str] = []
+
+    for rel in files:
+        source_path = ROOT / rel
+        source_dir = source_path.parent
+        lines = source_path.read_text(encoding="utf-8").splitlines()
+        in_fence = False
+        fence_char: str | None = None
+        fence_len = 0
+
+        for lineno, line in enumerate(lines, 1):
+            stripped = line.strip()
+            m = re.match(r"^(```+|~~~+)", stripped)
+            if m:
+                chars = m.group(1)
+                if not in_fence:
+                    in_fence = True
+                    fence_char = chars[0]
+                    fence_len = len(chars)
+                    continue
+                elif chars[0] == fence_char and len(chars) >= fence_len:
+                    in_fence = False
+                    continue
+            if in_fence:
+                continue
+
+            clean_line = re.sub(r"(`+)(.*?)\1", "", line)
+            for lm in link_pattern.finditer(clean_line):
+                raw_target = lm.group(2).strip()
+                target = raw_target.split()[0] if raw_target else ""
+                if not target or target.startswith(("http://", "https://", "mailto:")):
+                    continue
+
+                if "#" in target:
+                    path_part, fragment = target.split("#", 1)
+                else:
+                    path_part, fragment = target, None
+
+                if not path_part:
+                    target_rel = rel
+                    resolved_path = source_path
+                else:
+                    resolved_path = (source_dir / path_part).resolve()
+                    try:
+                        target_rel = resolved_path.relative_to(ROOT)
+                    except ValueError:
+                        failures.append(
+                            f"{rel}:{lineno} -> ({raw_target}) resolves outside ROOT: {resolved_path}"
+                        )
+                        continue
+
+                if not resolved_path.exists():
+                    failures.append(
+                        f"{rel}:{lineno} -> ({raw_target}) does not exist: {resolved_path}"
+                    )
+                    continue
+
+                if fragment is not None and resolved_path.suffix == ".md":
+                    anchors = file_anchors.get(target_rel)
+                    if anchors is None:
+                        anchors = _extract_heading_anchors(
+                            resolved_path.read_text(encoding="utf-8")
+                        )
+                        file_anchors[target_rel] = anchors
+                    if fragment not in anchors:
+                        available = sorted(anchors)
+                        failures.append(
+                            f"{rel}:{lineno} -> ({raw_target}) anchor #{fragment} not found in {target_rel}. "
+                            f"Available anchors: {available}"
+                        )
+
+    assert not failures, (
+        f"Broken markdown relative links or anchors found ({len(failures)}):\n  "
+        + "\n  ".join(failures)
+    )
+
+
+def test_contributing_ci_section_matches_workflow() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/lint.yml").read_text(encoding="utf-8")
+    )
+    jobs: dict[str, typing.Any] = workflow.get("jobs", {})
+    assert jobs, ".github/workflows/lint.yml has no jobs"
+
+    expected_contexts: list[str] = []
+    for job_id, job in jobs.items():
+        strategy = job.get("strategy") or {}
+        matrix = strategy.get("matrix") or {}
+        name_template = job.get("name", job_id)
+        if matrix:
+            if "python-version" in matrix:
+                for py_ver in matrix["python-version"]:
+                    placeholder = "${{ matrix.python-version }}"
+                    if placeholder in name_template:
+                        expected_contexts.append(
+                            name_template.replace(placeholder, str(py_ver))
+                        )
+                    else:
+                        expected_contexts.append(f"{name_template} ({py_ver})")
+            elif "os" in matrix:
+                for os_val in matrix["os"]:
+                    placeholder = "${{ matrix.os }}"
+                    if placeholder in name_template:
+                        expected_contexts.append(
+                            name_template.replace(placeholder, str(os_val))
+                        )
+                    else:
+                        expected_contexts.append(f"{name_template} ({os_val})")
+            else:
+                for key, vals in matrix.items():
+                    for val in vals:
+                        placeholder = f"${{{{ matrix.{key} }}}}"
+                        if placeholder in name_template:
+                            expected_contexts.append(
+                                name_template.replace(placeholder, str(val))
+                            )
+                        else:
+                            expected_contexts.append(f"{name_template} ({val})")
+        else:
+            expected_contexts.append(name_template)
+
+    ci_section = _markdown_section(".github/CONTRIBUTING.md", "## CI")
+
+    for job_id in jobs:
+        assert f"`{job_id}`" in ci_section or f"`{job_id} (" in ci_section, (
+            f"Job {job_id!r} from lint.yml is not documented in .github/CONTRIBUTING.md ## CI section"
+        )
+
+    json_match = re.search(r"<<\x27JSON\x27\s*\n(.*?)\nJSON", ci_section, re.DOTALL)
+    assert json_match is not None, (
+        "Could not find <<'JSON' block in .github/CONTRIBUTING.md ## CI section"
+    )
+    payload = json.loads(json_match.group(1))
+    actual_contexts = payload.get("required_status_checks", {}).get("contexts", [])
+
+    assert actual_contexts == expected_contexts, (
+        f".github/CONTRIBUTING.md required status check contexts mismatch:\n"
+        f"  actual:   {actual_contexts}\n"
+        f"  expected: {expected_contexts}"
     )

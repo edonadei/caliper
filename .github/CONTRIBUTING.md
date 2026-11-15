@@ -203,14 +203,27 @@ The comment at the top of each file shows how to run it.
 | `platform-test (macos-latest)` | the full suite on Python 3.12 |
 | `platform-test (windows-latest)` | the full suite on Python 3.12 |
 
-`lint` is a **required status check** on `main`. If branch protection is ever
-reset, add it back with:
+All 7 CI status checks (`lint`, `test (3.10)`, `test (3.11)`, `test (3.12)`,
+`test (3.13)`, `platform-test (macos-latest)`,
+`platform-test (windows-latest)`) are **required status checks** on `main`. If
+branch protection is ever reset, add them back with:
 
 ```bash
 gh api -X PATCH repos/edonadei/caliper/branches/main/protection \
   --input - <<'JSON'
 {
-  "required_status_checks": { "strict": true, "contexts": ["lint"] },
+  "required_status_checks": {
+    "strict": true,
+    "contexts": [
+      "lint",
+      "test (3.10)",
+      "test (3.11)",
+      "test (3.12)",
+      "test (3.13)",
+      "platform-test (macos-latest)",
+      "platform-test (windows-latest)"
+    ]
+  },
   "enforce_admins": null,
   "required_pull_request_reviews": null,
   "restrictions": null

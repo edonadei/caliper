@@ -466,6 +466,75 @@ def test_registered_backend_modules_never_import_each_other_or_leak() -> None:
     )
 
 
+def test_judge_and_internal_harness_helpers_stay_behind_seams() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    banned_api: dict[str, dict[str, str]] = pyproject["tool"]["ruff"]["lint"][
+        "flake8-tidy-imports"
+    ]["banned-api"]
+
+    expected_bans = {
+        "caliper.judge.eval_judge": (
+            "Go through caliper.judge; keep concrete judge internals behind the judge seam."
+        ),
+        "caliper.harness.cli_config": (
+            "Internal to caliper.harness; expose shared contracts through caliper.harness.base if needed outside harnesses."
+        ),
+        "caliper.harness.history": (
+            "Internal to caliper.harness; expose shared contracts through caliper.harness.base if needed outside harnesses."
+        ),
+        "caliper.harness.user_layer": (
+            "Internal to caliper.harness; expose shared contracts through caliper.harness.base if needed outside harnesses."
+        ),
+    }
+
+    missing_or_wrong: list[str] = []
+    for mod, expected_msg in expected_bans.items():
+        if mod not in banned_api:
+            missing_or_wrong.append(f"Missing banned-api entry for {mod}")
+        elif banned_api[mod].get("msg") != expected_msg:
+            missing_or_wrong.append(
+                f"{mod}: got {banned_api[mod].get('msg')!r}, expected {expected_msg!r}"
+            )
+    assert not missing_or_wrong, (
+        "pyproject.toml [tool.ruff.lint.flake8-tidy-imports.banned-api] must ban internal helpers:\n  "
+        + "\n  ".join(missing_or_wrong)
+    )
+
+    modules = _caliper_modules()
+    judge_banned = "caliper.judge.eval_judge"
+    harness_banned = (
+        "caliper.harness.cli_config",
+        "caliper.harness.history",
+        "caliper.harness.user_layer",
+    )
+
+    violations: list[str] = []
+    for mod in modules.values():
+        is_in_judge = mod.name == "caliper.judge" or mod.name.startswith(
+            "caliper.judge."
+        )
+        is_in_harness = mod.name == "caliper.harness" or mod.name.startswith(
+            "caliper.harness."
+        )
+        for edge in mod.imports:
+            if not is_in_judge and _matches_prefix(edge.target, judge_banned):
+                violations.append(
+                    f"  - {mod.rel_path}:{edge.lineno}: `{edge.statement}` "
+                    f"(imports `{edge.target}` outside caliper.judge)"
+                )
+            if not is_in_harness and _matches_any(edge.target, harness_banned):
+                violations.append(
+                    f"  - {mod.rel_path}:{edge.lineno}: `{edge.statement}` "
+                    f"(imports `{edge.target}` outside caliper.harness)"
+                )
+
+    assert not violations, (
+        "Modules outside caliper.judge must not import caliper.judge.eval_judge, and "
+        "modules outside caliper.harness must not import internal harness helpers:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_history_refusal_hints_list_every_history_capable_backend(
     tmp_path: Path,
 ) -> None:
