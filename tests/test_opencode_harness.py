@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 import subprocess
 from pathlib import Path
 
@@ -182,7 +184,8 @@ def test_declared_servers_are_written_in_opencodes_shape(monkeypatch, tmp_path) 
         },
         "web": {"type": "remote", "url": "https://x/mcp", "headers": {"A": "b"}},
     }
-    assert (home / "opencode.json").stat().st_mode & 0o777 == 0o600
+    if os.name == "posix":
+        assert stat.S_IMODE((home / "opencode.json").stat().st_mode) == 0o600
 
 
 def test_an_isolated_attempt_keeps_only_the_users_providers_and_model(
