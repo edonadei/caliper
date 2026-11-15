@@ -270,6 +270,7 @@ caliper run my-skill.eval.yaml --model pi --judge-model claude-code
 | `codex` | Codex CLI (`npm install -g @openai/codex`), then `codex login`. For a ChatGPT plan, also run `caliper login chatgpt` ([why](docs/backends.md#running-on-your-chatgpt-plan)) |
 | `pi` | pi CLI (`npm install -g @earendil-works/pi-coding-agent`), authenticated |
 | `hermes` | Hermes Agent CLI (Nous Research), authenticated, with a default model set |
+| `antigravity` | Antigravity CLI (`agy`, [install](docs/backends.md#antigravity)), signed in once with `agy` |
 
 The judge uses the backend of the model being evaluated (`--model`), on that
 CLI's default model, unless

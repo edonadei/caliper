@@ -32,8 +32,8 @@ caliper run my-skill.eval.yaml --model codex
 caliper run my-skill.eval.yaml --model codex --judge-model claude-code:claude-haiku-4-5-20251001
 ```
 
-Accepted backends: `claude-code`, `codex`, `pi`, `hermes` (aliases: `claude` and
-`claude_code` → `claude-code`).
+Accepted backends: `claude-code`, `codex`, `pi`, `hermes`, `antigravity`
+(aliases: `claude` and `claude_code` → `claude-code`, `agy` → `antigravity`).
 
 With no `--judge-model` the judge runs on the backend of the model being
 evaluated (`--model`), on that CLI's default model rather than the `--model`
@@ -50,7 +50,7 @@ of these CLIs with an API key (for example `ANTHROPIC_API_KEY` or
 When a run stops because the agent's or the judge's CLI is not logged in, it
 exits `2` with a `Not logged in` error that says how to log in. In an
 interactive terminal, `caliper run` also offers to run that backend's login
-command (`claude auth login`, `codex login` or `hermes model`, or
+command (`claude auth login`, `codex login`, `hermes model` or `agy`, or
 `caliper login chatgpt` when you [signed Caliper in to
 ChatGPT](#running-on-your-chatgpt-plan)) and reruns the
 eval once the login succeeds. pi logs in only from its own terminal UI, so it
@@ -69,6 +69,7 @@ reads from there instead:
 | `codex` | `CODEX_HOME` | `~/.codex` |
 | `pi` | `PI_CODING_AGENT_DIR` | `~/.pi/agent` |
 | `hermes` | `HERMES_HOME` | `~/.hermes` (`%LOCALAPPDATA%\hermes` on Windows) |
+| `antigravity` | none | `~/.gemini` (login in the OS keyring) |
 
 If the variable is set to something that isn't a directory, the run stops before
 the first attempt (exit `2`). With `CLAUDE_CONFIG_DIR` set, `.claude.json` is
@@ -246,6 +247,34 @@ attempt's gateway and removes the profile once the attempt is read, and a later
 run sweeps any profile left behind for a day
 ([ADR 0037](adr/0037-hermes-attempt-home-lives-under-the-hermes-root-on-windows.md)).
 
+## Antigravity
+
+```bash
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+agy   # sign in once with your Google account
+```
+
+`--model antigravity` runs Google's Antigravity CLI (`agy`) in print mode with
+`--output-format stream-json`, and installs the declared skills under
+`~/.gemini/antigravity-cli/skills`, where `agy` discovers them.
+`--model antigravity:<model>` (for example
+`antigravity:gemini-3.8-flash-medium`) picks the model. Run `agy models` to
+list them.
+
+- The prompt goes in on stdin as one `stream-json` message (`--input-format
+  stream-json`), because `agy` refuses a flag-shaped `--print` value.
+- Attempts run with `--dangerously-skip-permissions`. Print mode can't ask, and
+  it skips any tool that needs approval rather than running it.
+- The login stays in your OS keyring. On macOS, the attempt's isolated home
+  links in `~/Library/Keychains` so `agy` finds it. An API key login
+  (`GEMINI_API_KEY` with `"modelProvider": "gemini"`) or ADC (`AGY_ADC_AUTH`)
+  works too: `~/.gemini/antigravity-cli/settings.json` is copied into each
+  attempt, and those variables are passed through.
+- Self-update is turned off during attempts, so one attempt can't swap the
+  binary under another.
+- Set `AGY_CLI_PATH` to force a specific binary. Otherwise Caliper looks on
+  `PATH`, then in `~/.local/bin/agy`, where the installer puts it.
+
 ## CLI versions
 
 Caliper doesn't install or update agent CLIs: update each one the way you
@@ -267,6 +296,7 @@ your shell runs, or set the backend's `*_CLI_PATH` to force one.
 | `codex` | ✅ | ✅ header auth only |
 | `hermes` | ✅ | ✅ header auth only |
 | `pi` | ❌ by design | ❌ by design |
+| `antigravity` | ❌ not yet | ❌ not yet |
 
 Running a spec that declares `mcp:` on a backend that can't honor it is a hard
 error, never a silent no-op.
@@ -302,6 +332,7 @@ See [MCP servers](spec-reference.md#mcp-servers-mcp) for the spec format.
 | `codex` | ✅ |
 | `pi` | ✅ |
 | `hermes` | ❌ refused |
+| `antigravity` | ❌ not yet |
 
 A spec whose tasks declare `history:` is refused before the first attempt on a
 backend that can't resume from it, with a message naming the backend.
@@ -344,6 +375,7 @@ hosted OAuth connector a spec can't declare. `--no-user-customizations`, or
 | `codex` | The `[mcp_servers.*]` tables in your `~/.codex/config.toml`, your installed plugins (`~/.codex/plugins`, copied into the attempt), ChatGPT apps (`codex_apps`), `~/.codex/skills`, `AGENTS.md` / `AGENTS.override.md`, and `config.toml` settings (the top-level model pin is still stripped) |
 | `hermes` | `~/.hermes/skills` and `config.yaml` (`%LOCALAPPDATA%\hermes` on Windows), including `mcp_servers`; persona and memory remain excluded |
 | `pi` | Nothing: no MCP by design. The run records it as off, and warns only if a flag or the spec asked for it |
+| `antigravity` | Nothing yet: it has no MCP support in Caliper. The run records it as off, as on `pi` |
 
 - **The spec wins a name clash.** A declared skill or server replaces your own of the
   same name, including when the declared name is ablated, in the attempt's copy of the config. Your real config is never

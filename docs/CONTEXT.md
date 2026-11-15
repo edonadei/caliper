@@ -58,9 +58,9 @@ stateless because the leak comes from seeding the real config, not from agent
 state. `pi` will *never* honor `mcp:`
 natively — its agent has no MCP by design (see [[pi-mcp-unsupported-by-design]]),
 so caliper refuses an `mcp:` spec on `pi` with guidance to wrap the server as a
-CLI tool the skill drives, or as a pi extension. `pi` is now the only backend
-that refuses `mcp:`, and its refusal is permanent by design — not the
-"not-yet-implemented" placeholder codex used before it gained support.
+CLI tool the skill drives, or as a pi extension. Its refusal is permanent by
+design — not the "not-yet-implemented" placeholder codex used before it gained
+support, and `antigravity` uses now.
 _Avoid_: MCP config, tool server.
 
 ## User customizations
@@ -97,7 +97,7 @@ project-level default lands (the unified-harness-config direction).
 An adapter that runs the skill-under-test once and returns an `AttemptResult`
 (transcript + final output + exit code). Each backend implements
 `HarnessBackend.run(...)`. Current backends: `claude-code`, `codex`, `hermes`,
-`pi` — all CLI agents that can actually load and run a skill. Direct API access is *not* a
+`pi`, `antigravity` — all CLI agents that can actually load and run a skill. Direct API access is *not* a
 backend: to run against API-priced billing you configure one of these CLI
 harnesses with an API key (see [[cli-agent-backends-only]]).
 

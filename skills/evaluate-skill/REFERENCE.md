@@ -152,6 +152,7 @@ caliper run spec.eval.yaml --model codex                   # backend, its defaul
 caliper run spec.eval.yaml --model claude-sonnet-4-6       # model, backend stays claude-code
 caliper run spec.eval.yaml --model pi:claude-sonnet-4-6 --judge-model pi
 caliper run spec.eval.yaml --model hermes:anthropic/claude-sonnet-4.6 --judge-model hermes
+caliper run spec.eval.yaml --model antigravity:gemini-3.8-flash-medium
 caliper run spec.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001
 ```
 
@@ -161,6 +162,7 @@ caliper run spec.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001
 | `codex` | Codex CLI | stdio and remote with header auth |
 | `pi` | pi CLI, authenticated | none by design: expose the capability as a CLI tool or pi extension |
 | `hermes` | Hermes Agent CLI, authenticated | stdio and remote with header auth |
+| `antigravity` (alias `agy`) | Antigravity CLI, signed in once with `agy` | none yet |
 
 Every backend is a CLI agent using its own auth; for API billing, configure the
 CLI with an API key. To run `codex` on a ChatGPT plan, run `caliper login
@@ -203,6 +205,7 @@ itself, merged with what the spec declares:
 | `codex` | `~/.codex/skills`, `AGENTS.md` / `AGENTS.override.md`, plugins, settings, `~/.codex/config.toml` MCP servers and ChatGPT apps (its top-level model pin is stripped) |
 | `hermes` | `~/.hermes/skills`, settings, `~/.hermes/config.yaml` MCP servers (`%LOCALAPPDATA%\hermes` on Windows; still `--ignore-rules`, no persona or memory) |
 | `pi` | nothing |
+| `antigravity` | nothing |
 
 The paths are the defaults. When the CLI's own config-home variable is set
 (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `PI_CODING_AGENT_DIR`, `HERMES_HOME`),

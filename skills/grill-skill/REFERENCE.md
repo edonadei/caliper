@@ -23,7 +23,8 @@ caliper report <spec> --run 2026-06-21T14-53-12Z --verbose
 The engine is chosen at run time, never in the spec: `--model` for the skill
 and `--judge-model` for the judge, each `backend`, `backend:model` or a bare
 model (`--model codex`, `--model codex:gpt-5-codex`). Backends are
-`claude-code` (default), `codex`, `pi`, and `hermes`; on a ChatGPT plan, run
+`claude-code` (default), `codex`, `pi`, `hermes` and `antigravity`; on a
+ChatGPT plan, run
 `caliper login chatgpt` once before `--model codex`. The judge defaults to the
 `--model` backend; pass the same `--judge-model` to runs you compare across
 engines.
@@ -124,8 +125,8 @@ validation.
   `mcp:` block: stdio (`command`, `args`, `env`) or remote (`type: http`/`sse`,
   `url`, `headers`). Put secrets in host env vars as `${VAR}`. Stdio paths
   starting with `./` resolve from the spec's directory, and a server that can't
-  start stops the run as a configuration error. `pi` has no MCP support;
-  `claude-code`, `codex` and `hermes` do.
+  start stops the run as a configuration error. `pi` and `antigravity` have no
+  MCP support; `claude-code`, `codex` and `hermes` do.
 - **User customizations.** By default a run also loads the user's own skills,
   rules, settings, plugins, MCP servers, connectors and (on `claude-code`) the
   skills synced from claude.ai, so a task may rely on a connector the user has. Put `user_customizations: false` at the top of the
@@ -142,6 +143,7 @@ Each backend keeps the user's past sessions on disk:
 | `codex` | `${CODEX_HOME:-~/.codex}/sessions/YYYY/MM/DD/*.jsonl` |
 | `pi` | `${PI_CODING_AGENT_DIR:-~/.pi/agent}/sessions/*.jsonl` |
 | `hermes` | SQLite; `hermes sessions export --newer-than 30d -` prints JSONL |
+| `antigravity` | `~/.gemini/antigravity-cli/brain/<conversation>/.system_generated/logs/transcript.jsonl` |
 
 Search the last 30 days, newest first, by the skill's `name` and the words of
 its `description`, and sort each hit into the question it answers:
