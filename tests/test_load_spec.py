@@ -3,13 +3,14 @@ from __future__ import annotations
 import re
 
 import pytest
+import typer
 import yaml
 from pydantic import ValidationError
 from rich.console import Console
 from typer.testing import CliRunner
 
 from caliper.main import app
-from caliper.schema.spec import load_spec
+from caliper.schema.spec import UnreadableSpec, load_spec
 
 
 def _write(tmp_path, text: str):
@@ -347,8 +348,9 @@ def test_a_duplicate_key_is_refused_with_its_line(tmp_path) -> None:
         "tasks:\n  - name: t\n    prompt: p\n"
         "    assert: assert False\n    assert: assert True\n"
     )
-    with pytest.raises(yaml.YAMLError, match="duplicate key 'assert'") as exc:
+    with pytest.raises(UnreadableSpec, match="duplicate key 'assert'") as exc:
         load_spec(_write(tmp_path, text))
+    assert isinstance(exc.value.__cause__, yaml.YAMLError)
     assert "line 5" in str(exc.value)
 
 
@@ -402,3 +404,105 @@ def test_two_tasks_sharing_an_id_are_refused() -> None:
                 TaskSpec(id="x", name="b", prompt="p", assert_script="assert True"),
             ]
         )
+
+
+# --- UnreadableSpec boundary ----------------------------------------------
+
+
+def test_unreadable_spec_is_disjoint_from_validation_runtime_and_exit() -> None:
+    assert issubclass(UnreadableSpec, ValueError)
+    assert not issubclass(ValidationError, UnreadableSpec)
+    assert not issubclass(UnreadableSpec, ValidationError)
+    assert not issubclass(RuntimeError, UnreadableSpec)
+    assert not issubclass(typer.Exit, UnreadableSpec)
+
+
+@pytest.mark.parametrize(
+    ("module", "argv"),
+    [
+        ("validate", ("validate",)),
+        ("run", ("run", "--k", "1")),
+    ],
+)
+def test_spec_load_boundary_propagates_typer_exit_untouched(
+    tmp_path, monkeypatch, module, argv
+) -> None:
+    spec_path = _write(tmp_path, _TASK)
+
+    def abort_with_exit(_path):
+        raise typer.Exit(2)
+
+    monkeypatch.setattr(f"caliper.commands.{module}.load_spec", abort_with_exit)
+    result = CliRunner().invoke(app, [argv[0], str(spec_path), *argv[1:]])
+    assert result.exit_code == 2, result.output
+    assert "Invalid spec" not in result.output
+
+
+@pytest.mark.parametrize(
+    ("module", "argv"),
+    [
+        ("validate", ("validate",)),
+        ("run", ("run", "--k", "1")),
+    ],
+)
+def test_spec_load_boundary_propagates_runtime_error_untouched(
+    tmp_path, monkeypatch, module, argv
+) -> None:
+    spec_path = _write(tmp_path, _TASK)
+
+    def crash_with_bug(_path):
+        raise RuntimeError("bug")
+
+    monkeypatch.setattr(f"caliper.commands.{module}.load_spec", crash_with_bug)
+    result = CliRunner().invoke(app, [argv[0], str(spec_path), *argv[1:]])
+    assert type(result.exception) is RuntimeError
+    assert str(result.exception) == "bug"
+    assert "Invalid spec" not in result.output
+
+
+_SPEC_LOAD_ERROR_CASES: dict[str, tuple[str | bytes | None, str | None]] = {
+    "malformed-yaml": ("\ttasks:\n  - [unclosed\n", None),
+    "duplicate-keys": (
+        "tasks:\n  - name: t\n    prompt: p\n"
+        "    assert: assert False\n    assert: assert True\n",
+        "duplicate key 'assert'",
+    ),
+    "unhashable-key": ("{[a, b]: 1}\n", "unhashable key"),
+    "mistagged-map": ("!!map [1, 2]\n", "expected a mapping node"),
+    "non-utf8-bytes": (b"\xff\xfe\x00\x00", "codec can't decode"),
+    "removed-engine-key": (
+        "skills:\n  - ./SKILL.md\njudge:\n  backend: codex\n" + _TASK,
+        "--judge-model",
+    ),
+    "directory-path": (None, "dir.eval.yaml"),
+}
+
+
+@pytest.mark.parametrize("argv", [("validate",), ("run", "--k", "1")])
+@pytest.mark.parametrize("case", sorted(_SPEC_LOAD_ERROR_CASES))
+def test_validate_and_run_report_unreadable_specs_as_invalid_spec(
+    tmp_path, monkeypatch, argv, case
+) -> None:
+    monkeypatch.setattr("caliper.commands.diagnosis.console", Console(width=200))
+
+    def no_attempt(*args, **kwargs):
+        raise AssertionError("run reached the harness with an invalid spec")
+
+    monkeypatch.setattr("caliper.commands.engine.get_harness", no_attempt)
+
+    payload, needle = _SPEC_LOAD_ERROR_CASES[case]
+    if payload is None:
+        spec_path = tmp_path / "dir.eval.yaml"
+        spec_path.mkdir()
+    elif isinstance(payload, bytes):
+        spec_path = tmp_path / "s.eval.yaml"
+        spec_path.write_bytes(payload)
+    else:
+        spec_path = _write(tmp_path, payload)
+
+    result = CliRunner().invoke(app, [argv[0], str(spec_path), *argv[1:]])
+    assert result.exit_code == 1, result.output
+    assert isinstance(result.exception, SystemExit)
+    assert result.output.startswith("Error: Invalid spec: "), result.output
+    if needle is not None:
+        assert needle in result.output

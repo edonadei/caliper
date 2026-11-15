@@ -317,7 +317,7 @@ class HermesHarness(CliHarness):
                 return proc
             record = self._load_export(exported.stdout)
             recovered = record is not None and bool(self._turns(record)[0])
-        except Exception:
+        except (OSError, ValueError, KeyError, TypeError):
             return proc
         return replace(proc, stdout=exported.stdout) if recovered else proc
 

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Hashable
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
+import yaml
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -116,7 +118,10 @@ def load_history(path: Path) -> list[PlantedTurn]:
     """The turns a ``history:`` file plants, or ``ValueError`` naming the bad one."""
     if not path.is_file():
         raise ValueError(f"history file not found: {path}")
-    raw = _load_yaml(path.read_text())
+    try:
+        raw = _load_yaml(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        raise ValueError(f"history {path}: {exc}") from exc
     if not raw:
         raise ValueError(f"history {path} needs at least one turn")
     if not isinstance(raw, list):
@@ -446,6 +451,10 @@ _REMOVED_KEYS: dict[str, str] = {
 }
 
 
+class UnreadableSpec(ValueError):
+    """A spec file could not be read or parsed into a candidate spec."""
+
+
 def _reject_singular_skill(raw: dict) -> None:
     """Point ``skill: path:`` at the ``skills:`` neighbourhood that replaced it.
 
@@ -458,7 +467,7 @@ def _reject_singular_skill(raw: dict) -> None:
     skill = raw.get("skill")
     path = skill.get("path") if isinstance(skill, dict) else None
     example = f"  - {path}" if path else "  - ./SKILL.md"
-    raise ValueError(
+    raise UnreadableSpec(
         "`skill:` is no longer a spec key — a spec now declares a *set* of "
         "skills, all installed at the agent's own skills root and left for it "
         "to discover.\n\nReplace it with:\n\nskills:\n"
@@ -480,7 +489,7 @@ def _reject_removed_keys(raw: dict) -> None:
     lines = [
         f"  - {key} (engine now comes from {_REMOVED_KEYS[key]})" for key in offenders
     ]
-    raise ValueError(
+    raise UnreadableSpec(
         "backend/model are no longer spec fields — the engine is chosen at "
         "runtime (default: "
         f"{DEFAULT_BACKEND}). Delete these key(s) from the spec:\n"
@@ -496,16 +505,24 @@ def _load_yaml(text: str) -> object:
     YAML keeps the last of two equal keys, so a second ``assert:`` would
     silently replace the first, failing check rather than add to it.
     """
-    import yaml
 
     class UniqueKeyLoader(yaml.SafeLoader):
         def construct_mapping(self, node, deep=False):
+            if not isinstance(node, yaml.MappingNode):
+                return super().construct_mapping(node, deep=deep)
             seen = set()
             for key_node, _ in node.value:
                 # A merge key (``<<: *base``) is meant to be overridden.
                 if key_node.tag == "tag:yaml.org,2002:merge":
                     continue
                 key = self.construct_object(key_node, deep=deep)
+                if not isinstance(key, Hashable):
+                    raise yaml.constructor.ConstructorError(
+                        "while constructing a mapping",
+                        node.start_mark,
+                        "found unhashable key",
+                        key_node.start_mark,
+                    )
                 if key in seen:
                     raise yaml.constructor.ConstructorError(
                         "while constructing a mapping",
@@ -520,17 +537,26 @@ def _load_yaml(text: str) -> object:
 
 
 def load_spec(path: Path) -> EvalSpec:
+    """Parse and validate a ``.eval.yaml`` file.
+
+    Raises :class:`UnreadableSpec` when the file cannot be read or parsed into a
+    candidate spec mapping, and :class:`ValidationError` when its fields fail
+    the spec schema.
+    """
     # Refused before the run, not when it saves: the attempts are paid for.
     if not is_usable_spec_name(spec_name(path)):
-        raise ValueError(
+        raise UnreadableSpec(
             f"{path.name!r} gives no usable spec name, which names its results "
             "directory. Rename it to <name>.eval.yaml"
         )
-    raw = _load_yaml(path.read_text())
+    try:
+        raw = _load_yaml(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        raise UnreadableSpec(str(exc)) from exc
     if raw is None:
-        raise ValueError("the spec is empty: it needs at least a `tasks:` list")
+        raise UnreadableSpec("the spec is empty: it needs at least a `tasks:` list")
     if not isinstance(raw, dict):
-        raise ValueError(
+        raise UnreadableSpec(
             "the spec must be a mapping with a `tasks:` list at the top level, "
             f"not a {type(raw).__name__}"
         )
@@ -542,10 +568,12 @@ def load_spec(path: Path) -> EvalSpec:
     # word them as "instance of TaskSpec".
     tasks = raw.get("tasks")
     if "tasks" in raw and not isinstance(tasks, list):
-        raise ValueError(f"`tasks:` must be a list of tasks, not {_yaml_kind(tasks)}")
+        raise UnreadableSpec(
+            f"`tasks:` must be a list of tasks, not {_yaml_kind(tasks)}"
+        )
     for i, task in enumerate(tasks or [], 1):
         if not isinstance(task, dict):
-            raise ValueError(
+            raise UnreadableSpec(
                 f"task {i} must be a mapping with `name:` and `prompt:`, not "
                 f"{_yaml_kind(task)} ({task!r})"
             )

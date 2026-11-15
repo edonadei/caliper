@@ -109,6 +109,8 @@ def test_a_missing_history_file_is_refused(tmp_path) -> None:
         ),
         ("- user: hi\n- assistant: ''\n", "turn 2: an assistant turn needs text"),
         ("- assistant: hi\n", "must start with a user turn"),
+        ("- [unclosed\n", "while parsing a flow sequence"),
+        ("- user: a\n  user: b\n", "duplicate key 'user'"),
     ],
 )
 def test_a_malformed_history_is_refused_by_turn(tmp_path, text, needle) -> None:

@@ -6,7 +6,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from caliper.commands.diagnosis import BadInput, fail
-from caliper.schema.spec import load_spec, spec_name
+from caliper.schema.spec import UnreadableSpec, load_spec, spec_name
 from caliper.skillfetch import SkillFetcher
 from caliper.skills import (
     SkillResolutionError,
@@ -41,8 +41,8 @@ def validate_cmd(
         # it is worth more than the generic pydantic string every other command
         # would get.
         fail(BadInput(_format_validation_errors(exc), title="Validation failed"))
-    except Exception as exc:
-        fail(BadInput(f"Invalid spec: {exc}"))
+    except UnreadableSpec as exc:
+        fail(exc)
 
     # Resolve the neighbourhood here too: a lone slash-command .md, a missing
     # frontmatter name:, or two skills claiming one name are all things
