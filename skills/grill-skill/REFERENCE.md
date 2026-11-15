@@ -100,7 +100,7 @@ validation.
   `/name args` enters that declared skill, expanded as if typed. Make `setup:`
   build what the history claims: the agent trusts a planted output over the
   disk. The judge reads planted turns as prior context, never as the agent's.
-  Not on hermes.
+  Not on hermes or antigravity.
 - **Attempt workdir.** `setup:`, the agent, `assert:` and `cleanup:` all run in
   one fresh, empty directory per attempt, so relative paths mean the same file
   to each. It is not the spec's directory and not a git repo: build what the task

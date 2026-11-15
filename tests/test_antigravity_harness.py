@@ -144,6 +144,29 @@ def test_antigravity_links_the_login_keychain_into_the_attempt_home(
     link = attempt_home / "Library" / "Keychains"
     assert link.is_symlink()
     assert link.resolve() == (real_home / "Library" / "Keychains").resolve()
+    # Invoked again into the same home (docs/adr/0019): the link is kept.
+    _run(attempt_home)
+    assert link.is_symlink()
+
+
+def test_antigravity_does_not_grade_an_unparsed_stream(monkeypatch, tmp_path) -> None:
+    _fake_agy(monkeypatch, stdout="not an event\n")
+
+    result = _run(tmp_path)
+
+    assert result.transcript == []
+    assert result.final_output == ""
+
+
+def test_antigravity_rejected_option_names_the_cli(monkeypatch, tmp_path) -> None:
+    _fake_agy(
+        monkeypatch,
+        stderr="flags provided but not defined: -bogus\nUsage of agy:\n",
+        returncode=2,
+    )
+
+    with pytest.raises(HarnessConfigurationError, match="does not accept an option"):
+        _run(tmp_path)
 
 
 def test_antigravity_reads_tool_calls_answer_and_usage(monkeypatch, tmp_path) -> None:

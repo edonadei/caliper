@@ -44,7 +44,7 @@ tasks:
   - name: Short task name
     setup: <shell command>      # optional; runs in the attempt workdir; failure skips the agent and judge
     cleanup: <shell command>    # optional; runs in the attempt workdir, even after setup failure
-    history: ./histories/h.history.yaml # optional; earlier turns the agent resumes from (not hermes)
+    history: ./histories/h.history.yaml # optional; earlier turns the agent resumes from (not hermes or antigravity)
     prompt: <prompt sent to the agent>
     expect: <natural-language success condition>
     assert: |
@@ -388,8 +388,8 @@ The shell is the only tool a planted turn can call.
   doesn't count toward `activates:`. `--ablate` on it leaves the turn as typed,
   which the CLI doesn't expand either: the baseline is "same conversation,
   without the skill".
-- **Every backend but hermes.** On hermes a spec with `history:` is refused
-  before the first attempt. See
+- **Every backend but hermes and antigravity.** On those a spec with
+  `history:` is refused before the first attempt. See
   [ADR 0036](adr/0036-planted-history-is-a-neutral-transcript-each-backend-resumes-natively.md).
 
 ## Judging

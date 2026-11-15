@@ -47,7 +47,6 @@ BACKENDS: dict[str, Backend] = {
         Backend(
             "antigravity",
             "caliper.harness.antigravity:AntigravityHarness",
-            mcp_tool_separator="_",
         ),
     )
 }

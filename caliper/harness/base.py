@@ -1078,11 +1078,13 @@ class CliHarness(HarnessBackend):
         return None
 
     #: How each argument parser a backend CLI is built on rejects an option:
-    #: commander (claude, pi), clap (codex), argparse (hermes).
+    #: commander (claude, pi), clap (codex), argparse (hermes), Go's flag
+    #: package (agy, which says "flags provided").
     _REJECTED_OPTION_MARKERS = (
         "error: unknown option",
         "error: unexpected argument",
         "error: unrecognized arguments",
+        "provided but not defined",
     )
 
     def _rejected_option(self, proc: ProcessResult, cli_text: str) -> str | None:

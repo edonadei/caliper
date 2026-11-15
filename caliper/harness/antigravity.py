@@ -36,6 +36,9 @@ class AntigravityHarness(CliHarness):
     def __init__(self, model: str | None = None) -> None:
         self._model = model
 
+    # stdout is only the event stream: one that did not parse is no answer.
+    salvages_raw_stdout = False
+
     cli_name = "agy"
     cli_path_env_var = "AGY_CLI_PATH"
     # agy reads no variable for its config home, so the attempt's isolated
@@ -76,7 +79,8 @@ class AntigravityHarness(CliHarness):
 
     def seed_files(self, ctx: RunContext) -> list[Path]:
         # settings.json picks the model provider (an API key login, custom
-        # models), so it is copied verbatim (docs/adr/0012). An ADC login
+        # models), so it is part of the login and copied verbatim whatever
+        # the user layer, as pi's is (docs/adr/0012). An ADC login
         # (`AGY_ADC_AUTH`) reads gcloud's credentials from the home.
         return [
             self.attempt_config_home(ctx) / "antigravity-cli" / "settings.json",
@@ -94,12 +98,14 @@ class AntigravityHarness(CliHarness):
     def _prepare(self, ctx: RunContext) -> None:
         # macOS finds the login keychain under ``$HOME/Library/Keychains``, so
         # with the isolated home agy finds no login and starts an OAuth flow.
-        # Link the user's keychains in, as the operator's own agy reads them.
+        # Link the user's keychains in, as the operator's own agy reads them
+        # (docs/adr/0038); that the agent can then reach them is
+        # docs/adr/0027.
         if sys.platform != "darwin":
             return
         keychains = Path.home() / "Library" / "Keychains"
         link = Path(ctx.isolated_home) / "Library" / "Keychains"
-        if keychains.is_dir() and not link.exists():
+        if keychains.is_dir() and not link.is_symlink():
             link.parent.mkdir(parents=True, exist_ok=True)
             link.symlink_to(keychains, target_is_directory=True)
 
@@ -288,14 +294,9 @@ def _usage(usages: list[dict]) -> TokenUsage:
     agy's ``input_tokens`` is already non-cached, beside ``cache_read_tokens``,
     and ``output_tokens`` already counts its ``thinking_tokens``.
     """
-    totals = {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0}
-    for usage in usages:
-        for key in totals:
-            value = usage.get(key)
-            if isinstance(value, int):
-                totals[key] += value
-    return TokenUsage(
-        input_tokens=totals["input_tokens"],
-        output_tokens=totals["output_tokens"],
-        cache_read_tokens=totals["cache_read_tokens"],
-    )
+    fields = ("input_tokens", "output_tokens", "cache_read_tokens")
+    return TokenUsage(**{field: _sum(usages, field) for field in fields})
+
+
+def _sum(usages: list[dict], key: str) -> int:
+    return sum(u[key] for u in usages if isinstance(u.get(key), int))
