@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 from conftest import run_context
 
+from caliper.harness.antigravity import AntigravityHarness
 from caliper.harness.base import (
     AgentReport,
     CliHarness,
@@ -522,6 +523,7 @@ def test_timeout_keeps_the_agents_partial_transcript_and_activation(tmp_path) ->
     class UnusedJudge:
         backend = "test"
         model = None
+        effort = None
         prompt_version = None
 
         def evaluate(self, **kwargs):
@@ -943,3 +945,147 @@ def test_a_backend_with_no_unavailable_message_skips_the_readiness_check(
 
     with pytest.raises(_PastReadiness):
         Undeclared().run(run_context(isolated_home=str(tmp_path)))
+
+
+# --- effort ------------------------------------------------------------------
+
+# How each CLI takes the effort named after ``@`` in --model (docs/adr/0044).
+EFFORT_ARGS = [
+    (ClaudeCodeHarness, ["--effort", "high"]),
+    (CodexHarness, ["-c", 'model_reasoning_effort="high"']),
+    (PiHarness, ["--thinking", "high"]),
+    (AntigravityHarness, ["--effort", "high"]),
+    (OpenCodeHarness, ["--variant", "high"]),
+]
+
+
+def _has_run(argv: list[str], run: list[str]) -> bool:
+    return any(argv[i : i + len(run)] == run for i in range(len(argv)))
+
+
+def _prompt_argv(harness: CliHarness, monkeypatch) -> list[str]:
+    monkeypatch.setattr("caliper.harness.base.shutil.which", lambda name: name)
+    call = harness._prompt_command("Grade this", None)
+    if call.cleanup is not None:
+        call.cleanup()
+    return call.argv
+
+
+@pytest.mark.parametrize(("backend", "args"), EFFORT_ARGS)
+def test_a_named_effort_reaches_the_agent_and_the_judge(
+    backend, args, monkeypatch, tmp_path
+) -> None:
+    harness = backend(effort="high")
+    argv, _, _ = harness._command(_prepared(harness, tmp_path), None)
+
+    assert _has_run(argv, args)
+    assert _has_run(_prompt_argv(harness, monkeypatch), args)
+
+
+@pytest.mark.parametrize(("backend", "args"), EFFORT_ARGS)
+def test_no_named_effort_leaves_the_cli_its_own(
+    backend, args, monkeypatch, tmp_path
+) -> None:
+    harness = backend()
+    argv, _, _ = harness._command(_prepared(harness, tmp_path), None)
+
+    assert not _has_run(argv, args)
+    assert not _has_run(_prompt_argv(harness, monkeypatch), args)
+
+
+def test_hermes_takes_the_effort_through_the_environment(monkeypatch, tmp_path) -> None:
+    harness = HermesHarness(effort="ultra")
+    ctx = _prepared(harness, tmp_path)
+    (_, _, script), _, _ = harness._command(ctx, None)
+
+    assert '--reasoning "$CALIPER_EFFORT"' in script
+    assert harness._environment(ctx)["CALIPER_EFFORT"] == "ultra"
+    assert _has_run(_prompt_argv(harness, monkeypatch), ["--reasoning", "ultra"])
+
+
+def test_hermes_without_an_effort_names_none(monkeypatch, tmp_path) -> None:
+    harness = HermesHarness()
+    ctx = _prepared(harness, tmp_path)
+    (_, _, script), _, _ = harness._command(ctx, None)
+
+    assert "--reasoning" not in script
+    assert "CALIPER_EFFORT" not in harness._environment(ctx)
+    assert "--reasoning" not in _prompt_argv(harness, monkeypatch)
+
+
+def _proc(stdout: str = "") -> ProcessResult:
+    return ProcessResult(stdout=stdout, stderr="", returncode=0, timed_out=False)
+
+
+def test_pi_reports_the_thinking_level_on_its_answer() -> None:
+    stdout = json.dumps(
+        {
+            "type": "message_end",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "OK"}],
+                "thinkingLevel": "low",
+            },
+        }
+    )
+
+    assert PiHarness()._read(_proc(stdout), run_context()).resolved_effort == "low"
+
+
+def test_hermes_reports_the_effort_in_its_session_config() -> None:
+    record = {
+        "model": "m",
+        "model_config": json.dumps(
+            {"reasoning_config": {"enabled": True, "effort": "low"}}
+        ),
+        "messages": [{"role": "assistant", "content": "OK"}],
+    }
+    proc = _proc(json.dumps(record))
+
+    assert HermesHarness()._read(proc, run_context()).resolved_effort == "low"
+
+
+def test_codex_reports_the_effort_in_its_rollout(tmp_path) -> None:
+    harness = CodexHarness()
+    ctx = run_context(isolated_home=str(tmp_path))
+    day = harness.attempt_config_home(ctx) / "sessions" / "2026" / "11" / "15"
+    day.mkdir(parents=True)
+    (day / "rollout-x.jsonl").write_text(
+        json.dumps({"type": "session_meta", "payload": {}})
+        + "\n"
+        + json.dumps({"type": "turn_context", "payload": {"effort": "low"}})
+        + "\n"
+    )
+
+    assert harness._read(_proc(), ctx).resolved_effort == "low"
+
+
+def test_opencode_reports_the_variant_in_its_database(tmp_path) -> None:
+    import sqlite3
+
+    harness = OpenCodeHarness()
+    ctx = run_context(isolated_home=str(tmp_path))
+    data = tmp_path / ".local" / "share" / "opencode"
+    data.mkdir(parents=True)
+    with sqlite3.connect(data / "opencode.db") as db:
+        db.execute(
+            "CREATE TABLE message (id text, session_id text, time_created integer,"
+            " time_updated integer, data text)"
+        )
+        for i, info in enumerate(
+            [{"role": "user"}, {"role": "assistant", "variant": "low"}]
+        ):
+            db.execute(
+                "INSERT INTO message VALUES (?, 's', ?, ?, ?)",
+                (f"m{i}", i, i, json.dumps(info)),
+            )
+    db.close()
+
+    assert harness._read(_proc(), ctx).resolved_effort == "low"
+
+
+@pytest.mark.parametrize("backend", [CodexHarness, OpenCodeHarness])
+def test_no_session_store_reports_no_effort(backend, tmp_path) -> None:
+    ctx = run_context(isolated_home=str(tmp_path))
+
+    assert backend()._read(_proc(), ctx).resolved_effort is None

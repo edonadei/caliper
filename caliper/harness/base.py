@@ -24,7 +24,7 @@ from caliper.harness.refusal import (
     RefusalKind,
     classify,
 )
-from caliper.schema.results import TokenUsage
+from caliper.schema.results import EffortSource, TokenUsage
 from caliper.schema.spec import McpServer, PlantedTurn
 from caliper.skills import (
     SkillRef,
@@ -90,6 +90,10 @@ class AttemptResult:
     # run record the real model even when none was passed and the CLI's own
     # default was used. ``None`` when the backend cannot report it.
     resolved_model: str | None = None
+    # The effort the attempt ran at and how caliper knows it, ``None`` for the
+    # CLI's built-in default, which no CLI names (docs/adr/0044).
+    effort: str | None = None
+    effort_source: EffortSource | None = None
     # Token accounting for this attempt, when the backend can extract it from its
     # own output. ``None`` when the backend cannot report it (see ``AgentReport``).
     usage: TokenUsage | None = None
@@ -233,6 +237,8 @@ class AgentReport:
     api_error_status: int | None = None
     # The concrete model, when the output names it; else the requested one.
     resolved_model: str | None = None
+    # The effort level the CLI wrote down for the attempt, when it writes one.
+    resolved_effort: str | None = None
     # Every skill the CLI exposed to the attempt, whatever its source.
     exposed_skills: list[str] | None = None
     # How to read the optional provenance facts, handed over unread: the
@@ -489,6 +495,14 @@ class HarnessBackend(ABC):
     def model(self) -> str | None:
         return self._model
 
+    # The effort named after ``@`` in ``--model``, or ``None`` for the CLI's
+    # own (docs/adr/0044). Part of the engine, like the model.
+    _effort: str | None = None
+
+    @property
+    def effort(self) -> str | None:
+        return self._effort
+
     # Whether this backend can materialize declared ``mcp:`` servers for the
     # agent-under-test. Default ``False``: the run seam refuses to run a spec
     # that declares ``mcp:`` on a backend that cannot honor it (rather than
@@ -683,6 +697,7 @@ class CliHarness(HarnessBackend):
             transcript = [ConversationTurn(role="assistant", content=proc.stdout)]
             final_output = proc.stdout
 
+        effort, effort_source = self._effort_and_source(report, ctx)
         return AttemptResult(
             transcript=transcript,
             final_output=final_output,
@@ -691,6 +706,8 @@ class CliHarness(HarnessBackend):
             error=self._error_field(proc, final_output),
             timed_out=proc.timed_out,
             resolved_model=report.resolved_model or ctx.model,
+            effort=effort,
+            effort_source=effort_source,
             usage=report.usage,
             cancelled=proc.cancelled,
             salvaged=not parsed,
@@ -700,6 +717,32 @@ class CliHarness(HarnessBackend):
             user_skill_names=staged.user_skill_names(report),
             builtin_skill_names=staged.builtin(report),
         )
+
+    def _effort_and_source(
+        self, report: AgentReport, ctx: RunContext
+    ) -> tuple[str | None, EffortSource | None]:
+        """The effort an attempt ran at, most trusted source first (docs/adr/0044).
+
+        What the CLI wrote beats what ``@`` named, the way a reported model does;
+        with neither, the level the user's settings pin when they reached the
+        attempt.
+        """
+        if report.resolved_effort:
+            return report.resolved_effort, "reported"
+        if self._effort:
+            return self._effort, "named"
+        configured = self.configured_effort(ctx) if ctx.user_customizations else None
+        if configured:
+            return configured, "config"
+        return None, None
+
+    def configured_effort(self, ctx: RunContext) -> str | None:
+        """The effort the attempt's staged settings pin, for a CLI that reports none.
+
+        Default ``None``: a backend that reports its effort covers this case
+        by reporting it.
+        """
+        return None
 
     def run_prompt(
         self,

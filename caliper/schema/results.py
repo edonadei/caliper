@@ -174,6 +174,10 @@ MCP_ABLATION_PREFIX = "mcp:"
 
 HookPhase = Literal["setup", "cleanup"]
 
+# How a run knows its effort: the CLI wrote it down, ``@`` in ``--model`` named
+# it, or the user's own settings pin it (docs/adr/0044).
+EffortSource = Literal["reported", "named", "config"]
+
 
 class HookFailure(BaseModel):
     task_id: str
@@ -189,6 +193,11 @@ class RunMeta(BaseModel):
     k: Annotated[int, Field(ge=1)]
     backend: str
     model: str | None = None
+    # The effort the agent ran at, part of the engine like the model. ``None``
+    # is the CLI's own default, which no CLI names, and every run saved before
+    # effort was recorded (docs/adr/0044).
+    effort: str | None = None
+    effort_source: EffortSource | None = None
     # ``None`` = a legacy run; ``compare`` refuses to diff across this boundary.
     era: str | None = None
     # Subjects declared by the spec but deliberately *not* part of this run
@@ -226,6 +235,9 @@ class RunMeta(BaseModel):
     # judge provenance was recorded still load (they render as an unknown judge).
     judge_backend: str | None = None
     judge_model: str | None = None
+    # The effort ``--judge-model`` named, never read back: the judge runs in the
+    # real CLI home, which caliper does not own (docs/adr/0044).
+    judge_effort: str | None = None
     # How the autorater rendered its prompt for this run (``JUDGE_PROMPT_VERSION``).
     # With ``TaskResult.expect`` and each attempt's transcript, it lets the exact
     # judge input be rebuilt by ``render_judge_prompt`` — faithfully only while

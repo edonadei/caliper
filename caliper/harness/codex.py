@@ -161,8 +161,9 @@ _PLAN_LOGIN_SIGNALS = (
 
 
 class CodexHarness(CliHarness):
-    def __init__(self, model: str | None = None) -> None:
+    def __init__(self, model: str | None = None, effort: str | None = None) -> None:
         self._model = model
+        self._effort = effort
         # Settled once for the run, so a sign-in or sign-out mid-run cannot
         # split an attempt between two logins.
         account = chatgpt_account()
@@ -265,12 +266,23 @@ class CodexHarness(CliHarness):
         ]
         if ctx.model:
             cmd[2:2] = ["--model", ctx.model]
+        cmd[2:2] = self._effort_override()
         # The prompt becomes the next user turn after the planted ones. The
         # exec flags stay ahead of the subcommand, and the JSON stream does not
         # replay the planted turns, so they never reach the transcript.
         if planted is not None:
             cmd[-1:-1] = ["resume", planted.id]
         return cmd, full_prompt, None
+
+    def _effort_override(self) -> list[str]:
+        """The named effort as a config override; codex has no flag for it.
+
+        The value is a TOML string, and codex judges the level itself
+        (docs/adr/0044).
+        """
+        if not self._effort:
+            return []
+        return ["-c", f"model_reasoning_effort={json.dumps(self._effort)}"]
 
     @staticmethod
     def _connector_overrides(ctx: RunContext) -> tuple[str, ...]:
@@ -331,6 +343,7 @@ class CodexHarness(CliHarness):
 
         if latest_usage is not None:
             report.read_usage = partial(_usage, latest_usage)
+        report.resolved_effort = _rollout_effort(self.attempt_config_home(ctx))
         report.read_mcp_servers = partial(
             _configured_servers, self.attempt_config_home(ctx)
         )
@@ -461,6 +474,7 @@ class CodexHarness(CliHarness):
         ]
         if model:
             cmd[2:2] = ["--model", model]
+        cmd[2:2] = self._effort_override()
         return PromptCall(
             cmd,
             stdin=prompt,
@@ -760,3 +774,30 @@ def _chatgpt_login(auth_path: Path) -> bool:
     except (OSError, ValueError):
         return False
     return isinstance(auth, dict) and bool(auth.get("tokens"))
+
+
+def _rollout_effort(config_home: Path) -> str | None:
+    """The effort of the last turn codex ran, from its rollouts.
+
+    The ``exec --json`` stream never names it; each turn's ``turn_context`` in
+    the session's rollout does, even when the level came from ``config.toml``.
+    """
+    effort = None
+    for rollout in sorted((config_home / "sessions").rglob("rollout-*.jsonl")):
+        try:
+            lines = rollout.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "turn_context":
+                continue
+            payload = event.get("payload")
+            if isinstance(payload, dict):
+                level = payload.get("effort")
+                if isinstance(level, str) and level:
+                    effort = level
+    return effort

@@ -763,3 +763,84 @@ def test_a_run_saved_before_cli_versions_has_no_cli_row() -> None:
     out = _render(_make_results([_make_task("task-001", passed=True)]))
 
     assert not any("cli" in ln.split() for ln in out.splitlines())
+
+
+# --- effort in the engine label (docs/adr/0044) -----------------------------
+
+
+def _engine_row(out: str) -> str:
+    return next(ln for ln in out.splitlines() if ln.strip().startswith("engine"))
+
+
+def _with_effort(**meta) -> RunResults:
+    results = _make_results([_make_task("task-001", passed=True)])
+    for key, value in meta.items():
+        setattr(results.run, key, value)
+    return results
+
+
+def test_the_engine_names_its_effort_as_a_third_part() -> None:
+    results = _with_effort(model="opus", effort="high", effort_source="reported")
+
+    assert _engine_row(_render(results)).split() == [
+        "engine",
+        "claude-code",
+        "·",
+        "opus",
+        "·",
+        "high",
+    ]
+
+
+def test_an_effort_from_the_users_settings_says_so() -> None:
+    results = _with_effort(model="opus", effort="high", effort_source="config")
+
+    assert _engine_row(_render(results)).strip().endswith("high (your settings)")
+
+
+def test_an_engine_on_its_clis_default_effort_names_none() -> None:
+    results = _with_effort(model="opus")
+
+    assert _engine_row(_render(results)).split() == [
+        "engine",
+        "claude-code",
+        "·",
+        "opus",
+    ]
+
+
+def test_the_banner_names_the_effort(monkeypatch) -> None:
+    import caliper.reporter as reporter_mod
+
+    buf = io.StringIO()
+    monkeypatch.setattr(reporter_mod, "console", Console(file=buf, width=120))
+
+    reporter_mod.print_banner("my-skill", 3, "codex", "gpt-5.6-sol", "high")
+
+    assert "codex · gpt-5.6-sol · high" in buf.getvalue()
+
+
+def _judge_row(results: RunResults) -> str:
+    results.task_results[0].attempts[0].judge_seconds = 1.0
+    out = _render(results)
+    return next(ln for ln in out.splitlines() if ln.strip().startswith("judge"))
+
+
+def test_a_judge_on_its_default_effort_is_not_the_engine_at_a_named_one() -> None:
+    results = _with_effort(
+        model="opus", effort="max", effort_source="named", judge_backend="claude-code"
+    )
+
+    assert "same as engine" not in _judge_row(results)
+
+
+def test_a_judge_at_the_engines_effort_is_the_same_engine() -> None:
+    results = _with_effort(
+        model="opus",
+        effort="max",
+        effort_source="named",
+        judge_backend="claude-code",
+        judge_effort="max",
+    )
+
+    assert "same as engine" in _judge_row(results)

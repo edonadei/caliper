@@ -22,6 +22,16 @@ class Backend:
     # How the agent spells an MCP tool: ``mcp<sep><server><sep><tool>``
     # (docs/CONTEXT.md → MCP server (declared)).
     mcp_tool_separator: str = "__"
+    # The words this backend's CLI takes after ``@`` in ``--model``, as the
+    # current CLI spells them; ``None`` passes any word through for the CLI to
+    # judge (docs/adr/0044).
+    effort_levels: frozenset[str] | None = None
+
+
+_LOW_TO_MAX = frozenset({"low", "medium", "high", "xhigh", "max"})
+# codex checks its own level, so it declares none; these are the words it takes
+# today, which ``--model`` must still recognise as an effort.
+_CODEX_LEVELS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh"})
 
 
 BACKENDS: dict[str, Backend] = {
@@ -30,6 +40,7 @@ BACKENDS: dict[str, Backend] = {
         Backend(
             "claude-code",
             "caliper.harness.claude_code:ClaudeCodeHarness",
+            effort_levels=_LOW_TO_MAX,
         ),
         Backend(
             "codex",
@@ -39,15 +50,22 @@ BACKENDS: dict[str, Backend] = {
             "hermes",
             "caliper.harness.hermes:HermesHarness",
             mcp_tool_separator="_",
+            effort_levels=frozenset(
+                {"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
+            ),
         ),
         Backend(
             "pi",
             "caliper.harness.pi:PiHarness",
+            effort_levels=frozenset(
+                {"off", "minimal", "low", "medium", "high", "xhigh", "max"}
+            ),
         ),
         Backend(
             "antigravity",
             "caliper.harness.antigravity:AntigravityHarness",
             mcp_tool_separator="_",
+            effort_levels=_LOW_TO_MAX,
         ),
         Backend(
             "opencode",
@@ -57,6 +75,13 @@ BACKENDS: dict[str, Backend] = {
 }
 
 VALID_BACKENDS: frozenset[str] = frozenset(BACKENDS)
+
+# Every word some backend takes as an effort. ``parse_target`` splits ``@<word>`` off a model only for one
+# of these, so a Vertex-style ``claude-sonnet-4@20250514`` keeps its ``@``.
+EFFORT_WORDS: frozenset[str] = frozenset().union(
+    _CODEX_LEVELS,
+    *(b.effort_levels for b in BACKENDS.values() if b.effort_levels),
+)
 
 # The engine (backend + model) is a runtime axis, not a spec field: it is chosen
 # at invocation via --model / --judge-model. The skill defaults to this, and the

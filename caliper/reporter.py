@@ -185,14 +185,36 @@ def _rate_style(score: float | None) -> str:
     return "bold red" if score == 0 else "yellow"
 
 
-def _engine_label(backend: str | None, model: str | None) -> str:
-    """`backend · model` when a model is known, else just the backend."""
-    label = backend or "?"
-    return f"{label} {_SEP} {model}" if model else label
+def _engine_label(
+    backend: str | None,
+    model: str | None,
+    effort: str | None = None,
+    effort_source: str | None = None,
+) -> str:
+    """`backend · model · effort`, each part only when known.
+
+    An effort from the user's own settings says so: it is the one part no flag
+    of this run chose (docs/adr/0044).
+    """
+    parts = [backend or "?"]
+    if model:
+        parts.append(model)
+    elif effort:
+        parts.append("default model")
+    if effort:
+        parts.append(
+            f"{effort} (your settings)" if effort_source == "config" else effort
+        )
+    return f" {_SEP} ".join(parts)
 
 
-def _engine_text(backend: str | None, model: str | None) -> Text:
-    return Text(_engine_label(backend, model), style="cyan")
+def _engine_text(
+    backend: str | None,
+    model: str | None,
+    effort: str | None = None,
+    effort_source: str | None = None,
+) -> Text:
+    return Text(_engine_label(backend, model, effort, effort_source), style="cyan")
 
 
 # ── marks: one attempt, one glyph ───────────────────────────────────────────
@@ -352,7 +374,11 @@ def _judged(results: RunResults) -> bool:
 
 
 def print_banner(
-    spec_name: str, k: int, backend: str, model: str | None = None
+    spec_name: str,
+    k: int,
+    backend: str,
+    model: str | None = None,
+    effort: str | None = None,
 ) -> None:
     """The line `run` prints before its first attempt.
 
@@ -363,7 +389,7 @@ def print_banner(
     console.print(
         _badge("run", Text(spec_name, style="bold"), Text(str(k), style="cyan"))
         .append("   ")
-        .append_text(_engine_text(backend, model))
+        .append_text(_engine_text(backend, model, effort))
     )
 
 
@@ -379,21 +405,30 @@ def _print_run_header(results: RunResults) -> None:
         )
     )
     grid = _env_grid()
-    grid.add_row("engine", _engine_text(run.backend, run.model))
+    grid.add_row(
+        "engine", _engine_text(run.backend, run.model, run.effort, run.effort_source)
+    )
     if run.cli_version:
         grid.add_row("cli", run.cli_version)
     # Only when a judge actually ran: an assert-only run would otherwise name a
     # grader that never graded anything.
     if _judged(results) and run.judge_backend:
-        same = run.judge_backend == run.backend and run.judge_model in (
-            None,
-            run.model,
+        same = (
+            run.judge_backend == run.backend
+            and run.judge_model in (None, run.model)
+            # Only ever the named level: None is the judge CLI's default, not
+            # an unknown one (docs/adr/0044).
+            and run.judge_effort == run.effort
         )
         grid.add_row(
             "judge",
             Text("same as engine", style="dim")
             if same
-            else _engine_text(run.judge_backend, run.judge_model or "default model"),
+            else _engine_text(
+                run.judge_backend,
+                run.judge_model or "default model",
+                run.judge_effort,
+            ),
         )
         if run.judge_cli_version and run.judge_cli_version != run.cli_version:
             grid.add_row("judge cli", run.judge_cli_version)
@@ -1255,13 +1290,22 @@ def _print_compare_header(comp: RunComparison) -> None:
     grid.add_row("run", run_id(a), run_id(b))
     # A different engine is the question a harness comparison asks, not a
     # mistake: caliper warns on none of it, so it is cyan.
-    ea, eb = _engine_text(a.backend, a.model), _engine_text(b.backend, b.model)
-    _env_row(grid, "engine", ea, eb, ea.plain != eb.plain, "bold cyan")
+    ea = _engine_text(a.backend, a.model, a.effort, a.effort_source)
+    eb = _engine_text(b.backend, b.model, b.effort, b.effort_source)
+    # Where a level came from is no part of the engine.
+    differ = _engine_label(a.backend, a.model, a.effort) != _engine_label(
+        b.backend, b.model, b.effort
+    )
+    _env_row(grid, "engine", ea, eb, differ, "bold cyan")
     # A CLI upgrade is a likely cause of a regression: flagged, never refused.
     _cli_row(grid, "cli", a.cli_version, b.cli_version)
     if a.judge_backend or b.judge_backend:
-        ja = _engine_text(a.judge_backend, a.judge_model or "default model")
-        jb = _engine_text(b.judge_backend, b.judge_model or "default model")
+        ja = _engine_text(
+            a.judge_backend, a.judge_model or "default model", a.judge_effort
+        )
+        jb = _engine_text(
+            b.judge_backend, b.judge_model or "default model", b.judge_effort
+        )
         _env_row(
             grid,
             "judge",

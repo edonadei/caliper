@@ -10,12 +10,14 @@ from caliper.harness.base import (
 from caliper.harness.claude_code import ClaudeCodeHarness
 
 
-def get_harness(backend: str, model: str | None = None) -> HarnessBackend:
+def get_harness(
+    backend: str, model: str | None = None, effort: str | None = None
+) -> HarnessBackend:
     entry = BACKENDS.get(normalize_backend(backend))
     if entry is None:
         raise ValueError(f"Unknown backend: {backend!r}")
     module, _, cls = entry.harness.partition(":")
-    return getattr(importlib.import_module(module), cls)(model=model)
+    return getattr(importlib.import_module(module), cls)(model=model, effort=effort)
 
 
 __all__ = [

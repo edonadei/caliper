@@ -23,8 +23,8 @@ def test_every_registered_backend_builds_a_harness_of_that_name(name) -> None:
 @pytest.mark.parametrize("alias", ["claude", "claude_code"])
 def test_an_alias_means_the_same_backend_on_every_surface(alias) -> None:
     assert normalize_backend(alias) == "claude-code"
-    assert parse_target(alias) == ("claude-code", None)
-    assert parse_target(f"{alias}:m") == ("claude-code", "m")
+    assert parse_target(alias) == ("claude-code", None, None)
+    assert parse_target(f"{alias}:m") == ("claude-code", "m", None)
     assert get_harness(alias).name == "claude-code"
 
 

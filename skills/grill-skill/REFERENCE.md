@@ -22,7 +22,8 @@ caliper report <spec> --run 2026-06-21T14-53-12Z --verbose
 
 The engine is chosen at run time, never in the spec: `--model` for the skill
 and `--judge-model` for the judge, each `backend`, `backend:model` or a bare
-model (`--model codex`, `--model codex:gpt-5-codex`). Backends are
+model (`--model codex`, `--model codex:gpt-5-codex`), with an optional
+`@effort` (`--model codex:gpt-5-codex@high`). Backends are
 `claude-code` (default), `codex`, `pi`, `hermes`, `antigravity` and `opencode`
 (models named `provider/model`, e.g. `--model opencode:openai/gpt-6.1-terra`);
 on a ChatGPT plan, run

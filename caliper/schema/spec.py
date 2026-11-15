@@ -14,28 +14,41 @@ from pydantic import (
     model_validator,
 )
 
-from caliper.backends import DEFAULT_BACKEND, VALID_BACKENDS, normalize_backend
+from caliper.backends import (
+    DEFAULT_BACKEND,
+    EFFORT_WORDS,
+    VALID_BACKENDS,
+    normalize_backend,
+)
 
 # Runs load the user's customizations unless the invocation or the spec says
 # otherwise: most runs test a skill in the user's own agent (docs/adr/0028).
 DEFAULT_USER_CUSTOMIZATIONS: bool = True
 
 
-def parse_target(value: str) -> tuple[str | None, str | None]:
-    """Parse a --model / --judge-model value into (backend, model).
+def parse_target(value: str) -> tuple[str | None, str | None, str | None]:
+    """Parse a --model / --judge-model value into (backend, model, effort).
 
-    Accepts three forms:
-      "codex:gpt-5-codex"   -> ("codex", "gpt-5-codex")
-      "codex"               -> ("codex", None)   # known backend name
-      "claude-sonnet-4-6"   -> (None, "claude-sonnet-4-6")
+    The grammar is ``[backend][:model][@effort]`` (docs/adr/0044):
+      "codex:gpt-5-codex"      -> ("codex", "gpt-5-codex", None)
+      "codex"                  -> ("codex", None, None)   # known backend name
+      "claude-sonnet-4-6"      -> (None, "claude-sonnet-4-6", None)
+      "codex:gpt-5-codex@high" -> ("codex", "gpt-5-codex", "high")
+
+    The effort is split off the last ``@`` only when an effort word follows it,
+    or when what precedes it is a bare backend, which never names a model.
     """
+    effort = None
+    head, at, word = value.rpartition("@")
+    if at and (word in EFFORT_WORDS or normalize_backend(head) in VALID_BACKENDS):
+        value, effort = head, word or None
     if ":" in value:
         backend, _, model = value.partition(":")
-        return normalize_backend(backend) or None, model or None
+        return normalize_backend(backend) or None, model or None, effort
     normalized = normalize_backend(value)
     if normalized in VALID_BACKENDS:
-        return normalized, None
-    return None, value
+        return normalized, None, effort
+    return None, value or None, effort
 
 
 def assert_script_path(raw: str, spec_dir: Path) -> Path | None:

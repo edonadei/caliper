@@ -82,12 +82,15 @@ default MCP ("default" is the engine), extensions (misses rules and settings).
 
 ## Engine as runtime axis
 
-The **backend + model** used to run the skill-under-test (or to grade it) is a
-*swept axis of an invocation*, not a property of the [[eval spec]]. It comes from
+The **backend + model + effort** used to run the skill-under-test (or to grade
+it) is a *swept axis of an invocation*, not a property of the [[eval spec]]. The
+effort is the reasoning level the CLI runs at, named after `@` in the target;
+`opus@low` and `opus@max` are two engines. It comes from
 `--model` / `--judge-model` (defaulting to `claude-code`, and the judge to the
 backend of the model being evaluated), and the actual
 engine that produced a result is recorded per run in `RunMeta` — both the skill
-`backend`/`model` **and** the `judge_backend`/`judge_model` that graded it. The
+`backend`/`model`/`effort` **and** the `judge_backend`/`judge_model`/
+`judge_effort` that graded it. The
 skill `model` is the one the backend reported running (hermes' session export),
 not the one requested, and the `judge_model` is the one the judge reports when it
 reports one (the claude-code judge's JSON) — a concrete model rather than a bare

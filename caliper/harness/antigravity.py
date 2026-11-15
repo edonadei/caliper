@@ -47,8 +47,9 @@ class AntigravityHarness(CliHarness):
     (docs/adr/0013).
     """
 
-    def __init__(self, model: str | None = None) -> None:
+    def __init__(self, model: str | None = None, effort: str | None = None) -> None:
         self._model = model
+        self._effort = effort
 
     # stdout is only the event stream: one that did not parse is no answer.
     salvages_raw_stdout = False
@@ -153,7 +154,7 @@ class AntigravityHarness(CliHarness):
         agy = self.cli_path() or "agy"
         cmd = [
             agy,
-            *_print_flags(ctx.model),
+            *_print_flags(ctx.model, self._effort),
             # Headless mode cannot ask, and soft-denies anything that needs
             # approval: a shell command would be skipped, not run.
             "--dangerously-skip-permissions",
@@ -179,7 +180,9 @@ class AntigravityHarness(CliHarness):
         agy = self.cli_path()
         if not agy:
             raise HarnessConfigurationError("agy CLI not found")
-        return PromptCall([agy, *_print_flags(model)], stdin=_user_message(prompt))
+        return PromptCall(
+            [agy, *_print_flags(model, self._effort)], stdin=_user_message(prompt)
+        )
 
     def _read_prompt(self, proc: ProcessResult) -> AgentReport:
         return _read_stream(proc.stdout)
@@ -235,7 +238,7 @@ class AntigravityHarness(CliHarness):
         )
 
 
-def _print_flags(model: str | None) -> list[str]:
+def _print_flags(model: str | None, effort: str | None) -> list[str]:
     """Print mode reading one stream-json message from stdin, and streaming back.
 
     No ``--print``: it takes the prompt as its value, and stream-json input
@@ -245,6 +248,8 @@ def _print_flags(model: str | None) -> list[str]:
     flags += ["--output-format", "stream-json"]
     if model:
         flags += ["--model", model]
+    if effort:
+        flags += ["--effort", effort]
     return flags
 
 

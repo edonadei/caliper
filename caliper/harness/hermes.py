@@ -144,8 +144,9 @@ class HermesHarness(CliHarness):
     # the shape that makes a description measurable.
     activation_tool_names = frozenset({"skill_view"})
 
-    def __init__(self, model: str | None = None) -> None:
+    def __init__(self, model: str | None = None, effort: str | None = None) -> None:
         self._model = model
+        self._effort = effort
 
     @property
     def name(self) -> str:
@@ -253,9 +254,10 @@ class HermesHarness(CliHarness):
         # claude-code's --dangerously-skip-permissions and pi's --approve): the
         # neutral-agent harness runs non-interactively with stdin closed, so an
         # approval gate — e.g. before an MCP tool call — would hang until timeout.
-        # The model travels through the environment, like the prompt, so no
-        # caller-supplied string is ever spliced into the script.
+        # The model and effort travel through the environment, like the prompt,
+        # so no caller-supplied string is ever spliced into the script.
         model = ' --model "$CALIPER_MODEL"' if ctx.model else ""
+        model += ' --reasoning "$CALIPER_EFFORT"' if self._effort else ""
         script = (
             f'"$CALIPER_HERMES" -z "$CALIPER_PROMPT"{model} --yolo '
             "--ignore-rules 1>&2\n"
@@ -281,6 +283,8 @@ class HermesHarness(CliHarness):
         }
         if ctx.model:
             extra["CALIPER_MODEL"] = ctx.model
+        if self._effort:
+            extra["CALIPER_EFFORT"] = self._effort
         if sys.platform == "win32":
             # The junction's target: hermes places a home under its root by the
             # resolved path, never the temp-dir link.
@@ -334,6 +338,8 @@ class HermesHarness(CliHarness):
         cmd = [hermes, "-z", prompt, "--ignore-rules"]
         if model:
             cmd[2:2] = ["--model", model]
+        if self._effort:
+            cmd[2:2] = ["--reasoning", self._effort]
         return PromptCall(cmd)
 
     def _read(self, proc: ProcessResult, ctx: RunContext) -> AgentReport:
@@ -357,6 +363,7 @@ class HermesHarness(CliHarness):
         if isinstance(model, str) and model:
             # Echoed even when no model was passed and the config default ran.
             report.resolved_model = model
+        report.resolved_effort = _session_effort(record)
         return report
 
     def _turns(self, record: dict) -> tuple[list[ConversationTurn], str]:
@@ -614,3 +621,13 @@ def _usage(record: dict) -> TokenUsage | None:
     if all(v is None for v in fields.values()):
         return None
     return TokenUsage(**fields)
+
+
+def _session_effort(record: dict) -> str | None:
+    """The reasoning effort the session ran at, from its ``model_config`` JSON."""
+    try:
+        config = json.loads(record.get("model_config") or "{}")
+        effort = config["reasoning_config"]["effort"]
+    except (TypeError, ValueError, KeyError):
+        return None
+    return effort if isinstance(effort, str) and effort else None

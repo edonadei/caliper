@@ -130,12 +130,12 @@ def test_run_cli_resolves_backend_and_judge_model_targets(
             aggregate=AggregateScore(avg_score=0.0, per_task=[]),
         )
 
-    def fake_get_harness(backend, model):
-        harness_args["backend"], harness_args["model"] = backend, model
+    def fake_get_harness(backend, model, effort):
+        harness_args.update(backend=backend, model=model, effort=effort)
         return ScriptedHarness()
 
-    def fake_eval_judge(backend, model, **_):
-        judge_args["backend"], judge_args["model"] = backend, model
+    def fake_eval_judge(backend, model, effort, **_):
+        judge_args.update(backend=backend, model=model, effort=effort)
         return object()
 
     monkeypatch.setattr("caliper.commands.engine.get_harness", fake_get_harness)
@@ -154,15 +154,23 @@ def test_run_cli_resolves_backend_and_judge_model_targets(
             "run",
             str(spec_file),
             "--model",
-            "codex:gpt-5-codex",
+            "codex:gpt-5-codex@high",
             "--judge-model",
-            "pi:claude-sonnet-4-6",
+            "pi:claude-sonnet-4-6@low",
         ],
     )
 
     assert result.exit_code == 0, result.output
-    assert harness_args == {"backend": "codex", "model": "gpt-5-codex"}
-    assert judge_args == {"backend": "pi", "model": "claude-sonnet-4-6"}
+    assert harness_args == {
+        "backend": "codex",
+        "model": "gpt-5-codex",
+        "effort": "high",
+    }
+    assert judge_args == {
+        "backend": "pi",
+        "model": "claude-sonnet-4-6",
+        "effort": "low",
+    }
 
 
 def test_run_cli_collects_repeated_ablate_flags(monkeypatch, tmp_path) -> None:

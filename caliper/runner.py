@@ -24,6 +24,7 @@ from caliper.schema.results import (
     ERA_INSTALL_AND_DISCOVER,
     AggregateScore,
     AttemptRecord,
+    EffortSource,
     HookFailure,
     HookPhase,
     Outcome,
@@ -88,6 +89,8 @@ class _RunEnv:
     # the GIL, so these are safe to share across the pool's worker threads.
     resolved_models: list[str]
     judge_models: list[str]
+    # Each attempt's effort and how it is known, when it is (docs/adr/0044).
+    efforts: list[tuple[str, EffortSource]]
     # Each attempt's loaded customizations, where visible; same discipline.
     loaded_user_customizations: list[list[str]]
     # The first fatal misconfiguration a worker diagnosed, if any. Collected
@@ -178,6 +181,7 @@ def run(
         on_task_done=on_task_done,
         resolved_models=[],
         judge_models=[],
+        efforts=[],
         loaded_user_customizations=[],
         fatal=[],
         hook_failures=[],
@@ -219,6 +223,7 @@ def run(
         _finish_task(task, collected[task.id], env, k) for task in spec.tasks
     ]
     task_results.sort(key=lambda r: r.task_id)
+    effort, effort_source = _recorded_effort(harness.effort, env.efforts, on_warning)
 
     # Both scoreboards at once — they are two fields of one object, and the
     # activation half is never folded into avg_score (docs/adr/0014).
@@ -235,7 +240,10 @@ def run(
             # (docs/adr/0004): asked of them, not passed in beside them.
             backend=harness.name,
             model=_recorded_model(harness.model, env.resolved_models, on_warning),
+            effort=effort,
+            effort_source=effort_source,
             judge_backend=judge.backend,
+            judge_effort=judge.effort,
             # Recorded like the skill's model: what the autorater reported
             # (claude-code resolves an alias like `opus`), most common first if
             # attempts disagree, else the model asked for — so `compare` never
@@ -339,6 +347,7 @@ def _recorded_model(
     requested: str | None,
     resolved: list[str],
     on_warning: Callable[[str], None] | None,
+    what: str = "model",
 ) -> str | None:
     """The model ``RunMeta`` names: what the backend reported running (#131).
 
@@ -356,14 +365,35 @@ def _recorded_model(
     if on_warning and len(ranked) > 1:
         mixed = ", ".join(f"{model!r} ×{counts[model]}" for model in ranked)
         on_warning(
-            f"Attempts reported different models ({mixed}); the run records {actual!r}."
+            f"Attempts reported different {what}s ({mixed}); the run records "
+            f"{actual!r}."
         )
     elif on_warning and requested and actual != requested:
         on_warning(
-            f"Requested model {requested!r}, but the backend reported running "
+            f"Requested {what} {requested!r}, but the backend reported running "
             f"{actual!r}; the run records {actual!r}."
         )
     return actual
+
+
+def _recorded_effort(
+    named: str | None,
+    ran: list[tuple[str, EffortSource]],
+    on_warning: Callable[[str], None] | None,
+) -> tuple[str | None, EffortSource | None]:
+    """The effort ``RunMeta`` names, chosen and warned about as the model is.
+
+    With no attempt to say, it is the named one, if any (docs/adr/0044).
+    """
+    if not ran:
+        return named, "named" if named else None
+    effort = _recorded_model(
+        named, [level for level, _ in ran], on_warning, what="effort level"
+    )
+    # A reported level is the strongest claim any attempt makes for it.
+    order: tuple[EffortSource, ...] = ("reported", "named", "config")
+    source = min((s for level, s in ran if level == effort), key=order.index)
+    return effort, source
 
 
 def _recorded_customizations(per_attempt: list[list[str]]) -> list[str] | None:
@@ -551,6 +581,8 @@ def _assemble(
         return None
     if assembled.resolved_model:
         env.resolved_models.append(assembled.resolved_model)
+    if assembled.effort and assembled.effort_source:
+        env.efforts.append((assembled.effort, assembled.effort_source))
     if assembled.loaded_user_customizations is not None:
         env.loaded_user_customizations.append(assembled.loaded_user_customizations)
     if assembled.judge_model:

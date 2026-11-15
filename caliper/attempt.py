@@ -24,7 +24,12 @@ from caliper.activation import ActivationDetector, check_activation
 from caliper.harness.base import AttemptResult, ConversationTurn
 from caliper.judge.base import Judge, JudgeResult
 from caliper.sandbox import Sandbox
-from caliper.schema.results import AttemptRecord, Outcome, TranscriptTurn
+from caliper.schema.results import (
+    AttemptRecord,
+    EffortSource,
+    Outcome,
+    TranscriptTurn,
+)
 from caliper.schema.spec import PlantedTurn, TaskSpec
 from caliper.workdir import AttemptWorkdir
 
@@ -44,11 +49,12 @@ class SetupFailed:
 class AssembledAttempt:
     """One attempt's record, plus what the assembly observed about the run.
 
-    ``judge_model``, ``resolved_model`` and ``loaded_user_customizations`` are
-    *run*-level facts (they land in ``RunMeta``): the autorater's concrete
-    model, and the agent's model and user customizations as the backend
-    reported them. They ride out here rather than on the record — returned
-    rather than written into the run's collector, so this module stays pure and
+    ``judge_model``, ``resolved_model``, ``effort`` and
+    ``loaded_user_customizations`` are *run*-level facts (they land in
+    ``RunMeta``): the autorater's concrete model, and the agent's model, effort
+    and user customizations as the backend reported them. They ride out here
+    rather than on the record — returned rather than written into the run's
+    collector, so this module stays pure and
     the runner keeps ownership of what it accumulates across attempts. Deciding
     them here is what keeps an attempt the cancellation discarded from voting.
     """
@@ -56,6 +62,8 @@ class AssembledAttempt:
     record: AttemptRecord
     judge_model: str | None = None
     resolved_model: str | None = None
+    effort: str | None = None
+    effort_source: EffortSource | None = None
     loaded_user_customizations: list[str] | None = None
 
 
@@ -169,6 +177,8 @@ def assemble_attempt(
             ),
             judge_model=judge_model,
             resolved_model=result.resolved_model,
+            effort=result.effort,
+            effort_source=result.effort_source,
             loaded_user_customizations=result.loaded_user_customizations,
         )
 

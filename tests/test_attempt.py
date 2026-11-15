@@ -19,6 +19,7 @@ class RecordingJudge:
 
     backend = "test"
     model = None
+    effort = None
     prompt_version = None
 
     def __init__(self, result: JudgeResult | None = None) -> None:

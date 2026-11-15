@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from caliper.backends import DEFAULT_BACKEND, VALID_BACKENDS
+from caliper.backends import BACKENDS, DEFAULT_BACKEND, VALID_BACKENDS
 from caliper.commands.diagnosis import CannotRun
 from caliper.harness import get_harness
 from caliper.harness.base import HarnessBackend
@@ -20,10 +20,11 @@ from caliper.schema.spec import EvalSpec, parse_target
 
 @dataclass(frozen=True)
 class Engine:
-    """The resolved ``(backend, model)`` pairs, the ones ``RunMeta`` records.
+    """The resolved ``(backend, model, effort)`` engines, the ones ``RunMeta`` records.
 
     ``judge_named`` is whether ``--judge-model`` chose the judge, which decides
-    what a missing judge CLI should tell the caller to change.
+    what a missing judge CLI should tell the caller to change. An effort is
+    ``None`` when the flag named none (docs/adr/0044).
     """
 
     backend: str
@@ -31,14 +32,16 @@ class Engine:
     judge_backend: str
     judge_model: str | None
     judge_named: bool
+    effort: str | None = None
+    judge_effort: str | None = None
 
     def harness(self) -> HarnessBackend:
         """The backend that runs the skill."""
-        return get_harness(self.backend, self.model)
+        return get_harness(self.backend, self.model, self.effort)
 
     def judge(self) -> EvalJudge:
-        """The judge, which builds its own backend from the same pair."""
-        return EvalJudge(self.judge_backend, self.judge_model)
+        """The judge, which builds its own backend from the same engine."""
+        return EvalJudge(self.judge_backend, self.judge_model, self.judge_effort)
 
 
 def resolve_engine(model: str | None, judge_model: str | None) -> Engine:
@@ -48,20 +51,23 @@ def resolve_engine(model: str | None, judge_model: str | None) -> Engine:
     as a ``judge_error`` on every attempt after the agent was already paid for
     (``--judge-model``).
     """
-    backend, skill_model = DEFAULT_BACKEND, None
+    backend, skill_model, effort = DEFAULT_BACKEND, None, None
     if model:
-        b, skill_model = parse_target(model)
+        b, skill_model, effort = parse_target(model)
         backend = b or backend
 
-    # Only the backend is followed, not the skill's model: a judge on its CLI's
-    # own default grades --model codex:<cheap model> as well as --model codex. A
-    # bare --judge-model reads like a bare --model: a claude-code model.
-    judge_backend, judge_model_name = backend, None
+    # Only the backend is followed, not the skill's model or effort: a judge on
+    # its CLI's own default grades --model codex:<cheap model> as well as --model
+    # codex. A bare --judge-model reads like a bare --model: a claude-code model.
+    judge_backend, judge_model_name, judge_effort = backend, None, None
     if judge_model:
-        jb, judge_model_name = parse_target(judge_model)
+        jb, judge_model_name, judge_effort = parse_target(judge_model)
         judge_backend = jb or DEFAULT_BACKEND
 
-    for flag, chosen in (("--model", backend), ("--judge-model", judge_backend)):
+    for flag, chosen, chosen_model, chosen_effort in (
+        ("--model", backend, skill_model, effort),
+        ("--judge-model", judge_backend, judge_model_name, judge_effort),
+    ):
         if chosen not in VALID_BACKENDS:
             raise CannotRun(
                 f"Unknown backend {chosen!r} in {flag}.\n\n"
@@ -70,6 +76,7 @@ def resolve_engine(model: str | None, judge_model: str | None) -> Engine:
                 f"or a bare model name for the default {DEFAULT_BACKEND} backend.",
                 title="Unknown backend",
             )
+        _check_effort(flag, chosen, chosen_model, chosen_effort)
 
     return Engine(
         backend=backend,
@@ -77,7 +84,60 @@ def resolve_engine(model: str | None, judge_model: str | None) -> Engine:
         judge_backend=judge_backend,
         judge_model=judge_model_name,
         judge_named=judge_model is not None,
+        effort=effort,
+        judge_effort=judge_effort,
     )
+
+
+def _check_effort(
+    flag: str, backend: str, model: str | None, effort: str | None
+) -> None:
+    """Refuse an effort ``backend`` doesn't take, before any attempt is paid for.
+
+    pi's own ``<model>:<level>`` shorthand is refused too: the level would reach
+    pi without the run recording it, so ``@`` is the one spelling (docs/adr/0044).
+    """
+    levels = BACKENDS[backend].effort_levels
+    if levels is None:
+        return
+    pass_it = (
+        f"Pass {flag} {backend}[:<model>]@<level>, or leave @<level> off for the "
+        "CLI's default."
+    )
+    if effort is not None and effort not in levels:
+        raise CannotRun(
+            f"{backend} has no effort level {effort!r} (in {flag}).\n\n"
+            f"{backend} accepts: {', '.join(_ordered(levels))}.\n{pass_it}",
+            title="Unknown effort",
+        )
+    if backend == "pi" and model:
+        head, _, suffix = model.rpartition(":")
+        if head and suffix in levels:
+            raise CannotRun(
+                f"{flag} pi:{model} names pi's thinking level as a model suffix, "
+                "which the run would not record.\n\n"
+                f"Pass {flag} pi:{head}@{suffix} instead.",
+                title="Effort as a model suffix",
+            )
+
+
+# The order a CLI's own help lists its levels in, lowest first.
+_EFFORT_ORDER = (
+    "off",
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra",
+)
+
+
+def _ordered(levels: frozenset[str]) -> list[str]:
+    rank = {level: i for i, level in enumerate(_EFFORT_ORDER)}
+    return sorted(levels, key=lambda level: (rank.get(level, len(rank)), level))
 
 
 def check_judge_cli(engine: Engine, spec: EvalSpec) -> None:
