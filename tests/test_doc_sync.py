@@ -5,6 +5,7 @@ See AGENTS.md -> Updating docs after API changes, Formatting, and Decision docs.
 
 from __future__ import annotations
 
+import ast
 import fnmatch
 import functools
 import json
@@ -968,4 +969,105 @@ def test_contributing_ci_section_matches_workflow() -> None:
     assert not unknown, (
         ".github/CONTRIBUTING.md's branch-protection snippet requires status checks "
         f"that .github/workflows/lint.yml never reports: {unknown}"
+    )
+
+
+_FEATURE_MAP = "docs/feature-map.md"
+_PROVING_TEST = re.compile(r"`(tests/[^`]+?\.py)::([^`\[]+)(?:\[[^`]*\])?`")
+
+
+class _FeatureRow(typing.NamedTuple):
+    feature: str
+    reach: str
+    proof: str
+
+
+def _feature_map_rows() -> list[_FeatureRow]:
+    text = (ROOT / _FEATURE_MAP).read_text(encoding="utf-8")
+    rows = []
+    for line in text.splitlines():
+        cells = [cell.strip() for cell in line.strip().strip("|").split(" | ")]
+        if line.startswith("| ") and len(cells) == 3 and cells[0].strip("-: "):
+            rows.append(_FeatureRow(*cells))
+    return [row for row in rows if row.feature != "Feature"]
+
+
+def _cli_surface() -> dict[str, set[str]]:
+    """Each command as typed after `caliper`, mapped to its primary long flags."""
+    surface: dict[str, set[str]] = {}
+
+    def walk(command, path: list[str]) -> None:
+        for name, sub in getattr(command, "commands", {}).items():
+            walk(sub, [*path, name])
+        if path and not hasattr(command, "commands"):
+            surface[" ".join(path)] = {
+                param.opts[0]
+                for param in command.params
+                if param.param_type_name == "option" and param.opts[0].startswith("--")
+            }
+
+    walk(get_command(app), [])
+    return surface
+
+
+@functools.cache
+def _collected_tests(rel_path: str) -> set[str]:
+    """What pytest collects from a test file: its test functions and test classes."""
+    tree = ast.parse((ROOT / rel_path).read_text(encoding="utf-8"))
+    functions = (ast.FunctionDef, ast.AsyncFunctionDef)
+    names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, functions) and node.name.startswith("test_"):
+            names.add(node.name)
+        elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+            names.add(node.name)
+            names |= {
+                f"{node.name}::{f.name}"
+                for f in node.body
+                if isinstance(f, functions) and f.name.startswith("test_")
+            }
+        elif isinstance(node, ast.Assign):
+            names |= {
+                t.id
+                for t in node.targets
+                if isinstance(t, ast.Name) and t.id.startswith("Test")
+            }
+    return names
+
+
+def test_feature_map_has_a_row_for_every_command_flag_and_backend() -> None:
+    features = [row.feature for row in _feature_map_rows()]
+    unmapped = []
+    for command, flags in sorted(_cli_surface().items()):
+        named = re.compile(rf"`caliper {re.escape(command)}(?=[ `])")
+        cells = [cell for cell in features if named.search(cell)]
+        if not cells:
+            unmapped.append(f"caliper {command}")
+        unmapped += [
+            f"caliper {command} {flag}"
+            for flag in sorted(flags)
+            if not any(_mentions_flag(cell, flag) for cell in cells)
+        ]
+    unmapped += [
+        b for b in sorted(VALID_BACKENDS) if not any(f"`{b}`" in f for f in features)
+    ]
+    assert unmapped == [], f"add a {_FEATURE_MAP} row for: {unmapped}"
+
+
+def test_every_feature_map_row_names_a_test_that_exists() -> None:
+    rows = _feature_map_rows()
+    assert rows, f"{_FEATURE_MAP} has no feature rows"
+    unproven = [row.feature for row in rows if not _PROVING_TEST.search(row.proof)]
+    assert unproven == [], (
+        f"name a proving test for these {_FEATURE_MAP} rows: {unproven}"
+    )
+    missing = [
+        f"{path}::{name}"
+        for row in rows
+        for path, name in _PROVING_TEST.findall(row.proof)
+        if not (ROOT / path).is_file() or name not in _collected_tests(path)
+    ]
+    assert missing == [], (
+        f"{_FEATURE_MAP} names tests that no longer exist; point each row at the "
+        f"test that now proves it: {missing}"
     )

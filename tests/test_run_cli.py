@@ -412,6 +412,31 @@ def _project(root: Path) -> Path:
     return spec_dir
 
 
+def test_run_cli_passes_timeout_to_the_run_and_verbose_to_the_report(
+    monkeypatch, tmp_path
+) -> None:
+    finished = _finished(datetime(2026, 7, 3, 12, 30, tzinfo=timezone.utc))
+    _stub_a_run(monkeypatch, finished)
+    calls: dict = {}
+    monkeypatch.setattr(
+        "caliper.commands.run.run", lambda **kwargs: calls.update(kwargs) or finished
+    )
+    monkeypatch.setattr(
+        "caliper.commands.run.print_results",
+        lambda *args, **kwargs: calls.update(printed=kwargs),
+    )
+    _project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(
+        app, ["run", "evals/sample.eval.yaml", "--timeout", "30", "--verbose"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls["timeout"] == 30
+    assert calls["printed"] == {"verbose": True}
+
+
 def test_run_cli_saves_the_run_at_the_discovered_root(monkeypatch, tmp_path) -> None:
     """`run` files the run at the results root, not beside the spec file.
 

@@ -82,6 +82,8 @@ For those, update every one of these files that covers the change:
 6. `skills/grill-skill/REFERENCE.md`
 7. `skills/hillclimb-skill/`: the commands its `REFERENCE.md` and `SKILL.md` run,
    and the results and `compare` JSON that `climb.py` reads
+8. `docs/feature-map.md`: a row per command, flag and backend, naming the test
+   that proves it
 
 ## Formatting and linting
 

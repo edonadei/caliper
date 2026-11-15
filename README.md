@@ -457,6 +457,7 @@ It needs an eval with at least 8 tasks; build one with `grill-skill` first.
 | **[Troubleshooting](docs/troubleshooting.md)** | Judge, model and login errors, and what to do about them |
 | **[Usage telemetry](docs/telemetry.md)** | What anonymous usage metrics send, and how to opt out |
 | **[Glossary](docs/CONTEXT.md)** | Spec, neighbourhood, activation, ablation, attempt… |
+| **[Feature map](docs/feature-map.md)** | Every command, spec feature and backend, and the test that proves it |
 | **[State machines](docs/statecharts.md)** | How an attempt ends, how a stop reaches an agent, and hillclimb's held-out split |
 | **[Design decisions](docs/adr/)** | Architecture Decision Records |
 
