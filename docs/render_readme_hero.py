@@ -311,10 +311,16 @@ def render(theme: str) -> str:
     )
 
 
+def render_all() -> dict[str, str]:
+    """Render both README hero SVG variants in memory, keyed by filename."""
+    return {f"hero-{theme}.svg": render(theme) for theme in PALETTES}
+
+
 def main() -> None:
-    for theme in PALETTES:
-        out = ASSETS / f"hero-{theme}.svg"
-        out.write_text(render(theme), encoding="utf-8")
+    ASSETS.mkdir(parents=True, exist_ok=True)
+    for name, svg in render_all().items():
+        out = ASSETS / name
+        out.write_text(svg, encoding="utf-8", newline="\n")
         print(f"wrote {out.relative_to(ASSETS.parent.parent)}")
 
 
