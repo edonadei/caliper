@@ -6,6 +6,7 @@ tasks changes nothing. See docs/CONTEXT.md → Run comparison and Skill drift.
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 
 from hypothesis import given
@@ -48,6 +49,7 @@ snapshots = st.lists(
 def _run(
     task_specs: list[tuple[str, list[Outcome]]],
     snapshot_specs: list[tuple[str, str, str]] = (),
+    ablated: list[str] = (),
 ) -> RunResults:
     task_results = [
         TaskResult(
@@ -68,6 +70,7 @@ def _run(
             timestamp=datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc),
             k=5,
             backend="claude-code",
+            ablated=list(ablated),
         ),
         skill_snapshots=[
             SkillSnapshot(
@@ -96,7 +99,10 @@ def test_swapping_the_sides_negates_every_delta(a_tasks, b_tasks) -> None:
     forward = diff_runs(_run(a_tasks), _run(b_tasks))
     backward = diff_runs(_run(b_tasks), _run(a_tasks))
 
-    assert backward.aggregate_delta == -forward.aggregate_delta
+    # Swapping reorders each side's sum, so equal only to float precision.
+    assert math.isclose(
+        backward.aggregate_delta, -forward.aggregate_delta, abs_tol=1e-12
+    )
     assert _deltas(backward) == {
         name: [None if delta is None else -delta for delta in deltas]
         for name, deltas in _deltas(forward).items()
@@ -137,3 +143,35 @@ def test_reordering_b_changes_nothing(a_tasks, b_tasks, random) -> None:
     assert _deltas(reordered) == _deltas(original)
     assert reordered.aggregate_delta == original.aggregate_delta
     assert sorted(reordered.unmatched_b) == sorted(original.unmatched_b)
+
+
+skill_sets = st.frozensets(st.sampled_from(NAMES))
+
+
+def _installed(names: frozenset[str]) -> list[tuple[str, str, str]]:
+    return [(name, "path", "h1") for name in sorted(names)]
+
+
+@given(
+    skill_sets, skill_sets, st.lists(st.sampled_from(NAMES), min_size=1), st.booleans()
+)
+def test_an_ablation_pair_is_exactly_the_full_side_minus_its_subjects(
+    full, cut, removed, cut_first
+) -> None:
+    full_run = _run([], _installed(full))
+    cut_run = _run([], _installed(cut), ablated=sorted(set(removed)))
+    a, b = (cut_run, full_run) if cut_first else (full_run, cut_run)
+    comparison = diff_runs(a, b)
+
+    is_pair = set(removed) <= full and cut == full - set(removed)
+    assert (comparison.a_label is not None) == is_pair
+    assert (comparison.b_label is not None) == is_pair
+
+
+@given(skill_sets, skill_sets, st.lists(st.sampled_from(NAMES), min_size=1))
+def test_swapping_an_ablation_pair_swaps_its_labels(full, cut, removed) -> None:
+    full_run = _run([], _installed(full))
+    cut_run = _run([], _installed(cut), ablated=sorted(set(removed)))
+    forward = diff_runs(cut_run, full_run)
+    backward = diff_runs(full_run, cut_run)
+    assert (forward.a_label, forward.b_label) == (backward.b_label, backward.a_label)

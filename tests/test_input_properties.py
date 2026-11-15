@@ -7,6 +7,7 @@ sources).
 
 from __future__ import annotations
 
+import contextlib
 import posixpath
 from pathlib import PureWindowsPath
 
@@ -106,6 +107,16 @@ def test_a_server_without_underscores_round_trips_on_every_backend(
     )
 
 
+def test_a_single_separator_reads_an_underscored_tool_as_the_longer_server() -> None:
+    # The known limit of hermes' and antigravity's `mcp_<server>_<tool>`: a call
+    # to `archive_read` on `mail` is spelled exactly like `read` on
+    # `mail_archive`, and the longer declared server wins (docs/adr/0043).
+    for backend in ("hermes", "antigravity"):
+        name = mcp_tool_name(backend, "mail", "archive_read")
+        assert name == mcp_tool_name(backend, "mail_archive", "read")
+        assert mcp_server_of(name, ["mail", "mail_archive"], backend) == "mail_archive"
+
+
 @given(
     backends,
     st.lists(servers_with_underscores, min_size=1, max_size=4, unique=True),
@@ -140,6 +151,20 @@ def test_a_repeated_yaml_key_is_refused(names, data, nested) -> None:
         _load_yaml("\n".join(lines))
 
 
+@given(st.lists(keys, min_size=1, max_size=6, unique=True), st.data())
+def test_a_repeated_key_in_a_flow_mapping_inside_a_list_is_refused(names, data):
+    repeated = data.draw(st.sampled_from(names))
+    pairs = [f"{name}: {i}" for i, name in enumerate(names)] + [f"{repeated}: 0"]
+    with pytest.raises(yaml.YAMLError, match=f"duplicate key '{repeated}'"):
+        _load_yaml(f"- {{{', '.join(pairs)}}}")
+
+
+@given(st.text())
+def test_any_text_loads_or_raises_a_yaml_error(text) -> None:
+    with contextlib.suppress(yaml.YAMLError):
+        _load_yaml(text)
+
+
 @given(st.lists(keys, max_size=6, unique=True))
 def test_yaml_without_repeats_loads_as_safe_load_does(names) -> None:
     text = "\n".join(f"{name}: {i}" for i, name in enumerate(names))
@@ -154,10 +179,13 @@ path_parts = st.sampled_from(
 @given(st.lists(path_parts, max_size=5), st.booleans())
 def test_an_accepted_skill_path_stays_inside_the_checkout(parts, rooted) -> None:
     value = ("/" if rooted else "") + "/".join([*parts, "SKILL.md"])
+    escapes = rooted or "\\" in value or ".." in value.split("/")
+    escapes = escapes or bool(PureWindowsPath(value).drive)
     try:
         GitSkillSource(repo="owner/name", path=value)
     except ValidationError:
         return
+    assert not escapes, f"accepted {value!r}"
     # Accepted, so it must resolve inside the checkout however it is split.
     posix = posixpath.normpath(posixpath.join("/checkout", value))
     assert posix.startswith("/checkout/")
