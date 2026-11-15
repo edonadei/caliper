@@ -657,7 +657,7 @@ def test_skill_docs_use_only_flags_their_commands_have() -> None:
     checked = 0
     for doc in sorted(ROOT.glob("skills/*/*.md")):
         text = doc.read_text(encoding="utf-8")
-        for match in re.finditer(r"\bcaliper((?:\s+[a-z][\w-]*)+)", text):
+        for match in re.finditer(r"\bcaliper((?:[ \t]+[a-z][\w-]*)+)", text):
             named = _command_spellings(match.group(1).split())
             if named is None:
                 continue
