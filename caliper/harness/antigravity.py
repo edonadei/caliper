@@ -7,6 +7,7 @@ from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 
+from caliper.backends import mcp_tool_name
 from caliper.harness.base import (
     AgentReport,
     CliHarness,
@@ -17,9 +18,22 @@ from caliper.harness.base import (
     RunContext,
     stream_events,
 )
+from caliper.harness.cli_config import JSON, CliConfig
 from caliper.harness.history import PlantedSession
 from caliper.harness.refusal import AUTH_MARKERS, ConfigSignal
 from caliper.schema.results import TokenUsage
+
+# agy reads MCP servers from ``config/mcp_config.json`` under ``~/.gemini``,
+# which holds nothing else, and which the Antigravity app shares. It takes the
+# common server rendering unchanged (``url`` is its alias for ``serverUrl``)
+# and speaks only Streamable HTTP to a remote, so ``sse`` collapses onto it as
+# on codex.
+AGY_MCP_CONFIG = CliConfig(
+    path="config/mcp_config.json",
+    codec=JSON,
+    connection_keys=frozenset(),
+    servers_key="mcpServers",
+)
 
 
 class AntigravityHarness(CliHarness):
@@ -39,11 +53,26 @@ class AntigravityHarness(CliHarness):
     # stdout is only the event stream: one that did not parse is no answer.
     salvages_raw_stdout = False
 
+    supports_mcp = True
+    cli_config = AGY_MCP_CONFIG
+    # agy keeps conversations as protobuf steps in SQLite, written only by
+    # agy itself, so a planted history has no faithful way in (docs/adr/0036).
+    history_unsupported_hint = (
+        "Antigravity cannot resume planted turns: agy stores conversations "
+        "only in its own SQLite format, with no import. Run tasks with "
+        "history: on --model claude-code, --model codex or --model pi, or "
+        "remove history: to run on antigravity."
+    )
+
     cli_name = "agy"
     cli_path_env_var = "AGY_CLI_PATH"
     # agy reads no variable for its config home, so the attempt's isolated
     # ``HOME`` is what points it at the attempt's own.
     config_home = ".gemini"
+    # The global rules agy loads, cumulatively; ``config/rules/*.md`` is a
+    # directory the user layer does not stage.
+    user_rules = ("AGENTS.md", "GEMINI.md", "config/AGENTS.md", "config/GEMINI.md")
+    user_settings_file = "antigravity-cli/settings.json"
     cli_unavailable_message = (
         "Antigravity CLI is not available for the `antigravity` backend.\n\n"
         "Install it (`curl -fsSL https://antigravity.google/cli/install.sh | "
@@ -95,6 +124,15 @@ class AntigravityHarness(CliHarness):
         # read: an attempt meets only the CLI's neighbourhood.
         return self.attempt_config_home(ctx) / "antigravity-cli" / "skills"
 
+    def user_skill_sources(self, ctx: RunContext) -> list[Path]:
+        # agy also reads the global dirs it shares with gemini-cli and the app.
+        home = self.user_config_home()
+        return [
+            *super().user_skill_sources(ctx),
+            home / "skills",
+            home / "config" / "skills",
+        ]
+
     def _prepare(self, ctx: RunContext) -> None:
         # macOS finds the login keychain under ``$HOME/Library/Keychains``, so
         # with the isolated home agy finds no login and starts an OAuth flow.
@@ -128,7 +166,12 @@ class AntigravityHarness(CliHarness):
         return self._isolated_env(ctx, extra={"AGY_CLI_DISABLE_AUTO_UPDATE": "1"})
 
     def _read(self, proc: ProcessResult, ctx: RunContext) -> AgentReport:
-        return _read_stream(proc.stdout)
+        report = _read_stream(proc.stdout)
+        # The MCP inventory is the mcp_config.json the attempt ran with.
+        report.read_mcp_servers = partial(
+            AGY_MCP_CONFIG.servers, self.attempt_config_home(ctx)
+        )
+        return report
 
     # --- bare prompt call (the judge's half of the seam) -------------------
 
@@ -267,11 +310,23 @@ def _read_stream(stdout: str) -> AgentReport:
 
 
 def _tool_turns(step: dict) -> list[ConversationTurn]:
-    """A finished tool step as the call and what came back."""
+    """A finished tool step as the call and what came back.
+
+    agy reaches an MCP tool through one generic ``call_mcp_tool``; that call
+    is named ``mcp_<server>_<tool>``, the name agy itself gives an eager MCP
+    tool, so an MCP call reads the same whichever way agy loaded the tool
+    (docs/adr/0043).
+    """
     info = step.get("tool_info")
     info = info if isinstance(info, dict) else {}
     name = info.get("name") or step.get("tool_name")
     parameters = info.get("parameters")
+    if name == "call_mcp_tool" and isinstance(parameters, dict):
+        server, tool = parameters.get("ServerName"), parameters.get("ToolName")
+        if isinstance(server, str) and isinstance(tool, str) and server and tool:
+            name = mcp_tool_name("antigravity", server, tool)
+            arguments = parameters.get("Arguments")
+            parameters = arguments if isinstance(arguments, dict) else parameters
     output = info.get("output")
     error = info.get("error")
     if isinstance(error, dict) and isinstance(error.get("message"), str):

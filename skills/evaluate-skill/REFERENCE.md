@@ -162,12 +162,12 @@ caliper run spec.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001
 | `codex` | Codex CLI | stdio and remote with header auth |
 | `pi` | pi CLI, authenticated | none by design: expose the capability as a CLI tool or pi extension |
 | `hermes` | Hermes Agent CLI, authenticated | stdio and remote with header auth |
-| `antigravity` (alias `agy`) | Antigravity CLI, signed in once with `agy` | none yet |
+| `antigravity` (alias `agy`) | Antigravity CLI, signed in once with `agy` | stdio and remote with header auth |
 
 Every backend is a CLI agent using its own auth; for API billing, configure the
 CLI with an API key. To run `codex` on a ChatGPT plan, run `caliper login
 chatgpt` once: attempts and the judge then get a short-lived token instead of a
-copy of `~/.codex/auth.json`, which parallel attempts can break by refreshing. Remote OAuth MCP isn't supported on `codex` or `hermes`. An
+copy of `~/.codex/auth.json`, which parallel attempts can break by refreshing. Remote OAuth MCP isn't supported on `codex`, `hermes` or `antigravity`. An
 `mcp:` spec on a backend that can't honour it is a hard error.
 
 `hermes` is stateful, so Caliper strips it to a neutral agent per attempt:
@@ -177,7 +177,7 @@ profile under `%LOCALAPPDATA%\hermes`, and Git for Windows' `sh` must be on
 `PATH`.
 
 An MCP tool call appears in the transcript as `mcp__<server>__<tool>` on
-`claude-code` and `codex`, and `mcp_<server>_<tool>` on `hermes`. If the spec
+`claude-code` and `codex`, and `mcp_<server>_<tool>` on `hermes` and `antigravity`. If the spec
 runs on more than one engine, word `expect:` around the behaviour rather than
 one backend's spelling.
 
@@ -205,7 +205,7 @@ itself, merged with what the spec declares:
 | `codex` | `~/.codex/skills`, `AGENTS.md` / `AGENTS.override.md`, plugins, settings, `~/.codex/config.toml` MCP servers and ChatGPT apps (its top-level model pin is stripped) |
 | `hermes` | `~/.hermes/skills`, settings, `~/.hermes/config.yaml` MCP servers (`%LOCALAPPDATA%\hermes` on Windows; still `--ignore-rules`, no persona or memory) |
 | `pi` | nothing |
-| `antigravity` | nothing |
+| `antigravity` | `~/.gemini/antigravity-cli/skills`, `~/.gemini/skills`, `~/.gemini/config/skills`, `AGENTS.md` / `GEMINI.md` rules, settings, `~/.gemini/config/mcp_config.json` MCP servers |
 
 The paths are the defaults. When the CLI's own config-home variable is set
 (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `PI_CODING_AGENT_DIR`, `HERMES_HOME`),

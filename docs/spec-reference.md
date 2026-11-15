@@ -214,7 +214,7 @@ any skill.
 
 Each server's tools appear in the transcript as a namespaced call that an
 `expect:` judge can verify: `mcp__<server>__<tool>` on `claude-code` and
-`codex`, `mcp_<server>_<tool>` on `hermes`. If the spec should run on more than
+`codex`, `mcp_<server>_<tool>` on `hermes` and `antigravity`. If the spec should run on more than
 one engine, word `expect:` around the tool's behavior, not one backend's
 spelling.
 
@@ -311,7 +311,7 @@ user_customizations: false   # portable: every run sees only the declared skills
   needs your setup rather than leaving it to the default, and the run's notice
   names the spec as the source.
 - `--user-customizations` / `--no-user-customizations` override the spec for one run.
-- A backend without MCP (`pi`, `antigravity`) runs isolated; it warns only when the flag or the
+- A backend without MCP (`pi`) runs isolated; it warns only when the flag or the
   spec asked for them.
 - `caliper validate` shows an explicit setting in its summary.
 

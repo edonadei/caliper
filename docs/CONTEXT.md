@@ -58,9 +58,9 @@ stateless because the leak comes from seeding the real config, not from agent
 state. `pi` will *never* honor `mcp:`
 natively — its agent has no MCP by design (see [[pi-mcp-unsupported-by-design]]),
 so caliper refuses an `mcp:` spec on `pi` with guidance to wrap the server as a
-CLI tool the skill drives, or as a pi extension. Its refusal is permanent by
-design — not the "not-yet-implemented" placeholder codex used before it gained
-support, and `antigravity` uses now.
+CLI tool the skill drives, or as a pi extension. `pi` is now the only backend
+that refuses `mcp:`, and its refusal is permanent by design — not the
+"not-yet-implemented" placeholder codex used before it gained support.
 _Avoid_: MCP config, tool server.
 
 ## User customizations

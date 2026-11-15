@@ -1,7 +1,8 @@
 """The CLI config file an attempt runs with, rewritten from the user's own.
 
 Some agents keep their MCP servers in the same file as their login and model
-settings (codex's ``config.toml``, hermes' ``config.yaml``), so the file cannot
+settings (codex's ``config.toml``, hermes' ``config.yaml``), or in a file the
+user's own servers share (agy's ``mcp_config.json``), so the file cannot
 be copied verbatim like a ``seed_files`` entry (docs/adr/0012). A backend
 declares that file as a :class:`CliConfig` and this module rewrites it into the
 attempt's config home (docs/CONTEXT.md → Config home):
@@ -18,6 +19,7 @@ attempt's config home (docs/CONTEXT.md → Config home):
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,6 +51,13 @@ class Codec:
 
 
 TOML = Codec("TOML", tomllib.loads, tomli_w.dumps, tomllib.TOMLDecodeError)
+# An empty file reads as no config: agy's installer leaves one behind.
+JSON = Codec(
+    "JSON",
+    lambda text: json.loads(text) if text.strip() else {},
+    lambda config: json.dumps(config, indent=2),
+    json.JSONDecodeError,
+)
 YAML = Codec(
     "YAML",
     yaml.safe_load,

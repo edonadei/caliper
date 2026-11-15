@@ -8,10 +8,11 @@ from pathlib import Path
 import pytest
 from conftest import patch_cli_calls, run_context
 
-from caliper.backends import normalize_backend
+from caliper.backends import mcp_server_of, normalize_backend
 from caliper.harness import get_harness
 from caliper.harness.antigravity import AntigravityHarness
 from caliper.harness.base import HarnessConfigurationError, LoginRequired
+from caliper.schema.spec import McpServer
 from caliper.skills import resolve_skills
 
 # A real agy 1.5.9 stream: the agent reads an installed skill, runs the shell
@@ -280,3 +281,135 @@ def test_antigravity_judge_on_an_unknown_model_names_the_judge_flag(
     message = str(exc.value)
     assert message.startswith("The antigravity judge cannot run.")
     assert "`--judge-model antigravity:<model>`" in message
+
+
+def test_antigravity_writes_declared_mcp_servers_into_the_attempt_config(
+    monkeypatch, tmp_path
+) -> None:
+    real_home = tmp_path / "real"
+    user_config = real_home / ".gemini" / "config" / "mcp_config.json"
+    user_config.parent.mkdir(parents=True)
+    # agy's installer leaves an empty file behind; it reads as no servers.
+    user_config.write_text("")
+    monkeypatch.setattr(Path, "home", lambda: real_home)
+    monkeypatch.setenv("MCP_TOKEN", "s3cret")
+    monkeypatch.setattr(
+        "caliper.harness.mcp.preflight_stdio_servers", lambda *a, **kw: None
+    )
+    _fake_agy(monkeypatch)
+
+    attempt_home = tmp_path / "attempt"
+    result = _run(
+        attempt_home,
+        mcp_servers={
+            "echo": McpServer(command="python3", args=["echo.py"]),
+            "remote": McpServer(
+                type="http",
+                url="https://x/mcp",
+                headers={"Authorization": "Bearer ${MCP_TOKEN}"},
+            ),
+        },
+        spec_mcp_names=frozenset({"echo", "remote"}),
+    )
+
+    written = attempt_home / ".gemini" / "config" / "mcp_config.json"
+    assert json.loads(written.read_text()) == {
+        "mcpServers": {
+            "echo": {"command": "python3", "args": ["echo.py"]},
+            "remote": {
+                "url": "https://x/mcp",
+                "headers": {"Authorization": "Bearer s3cret"},
+            },
+        }
+    }
+    assert written.stat().st_mode & 0o777 == 0o600
+    # The user's real config is never touched.
+    assert user_config.read_text() == ""
+    assert result.loaded_user_customizations is None
+
+
+def test_antigravity_names_a_lazy_mcp_call_by_its_server_and_tool(
+    monkeypatch, tmp_path
+) -> None:
+    parameters = {"Arguments": {"q": 1}, "ServerName": "echo", "ToolName": "word"}
+    step = {
+        "event": "step_update",
+        "step_update": {
+            "step_index": 4,
+            "state": "DONE",
+            "step_type": "tool",
+            "tool_name": "call_mcp_tool",
+            "tool_info": {
+                "name": "call_mcp_tool",
+                "parameters": parameters,
+                "output": "caliper",
+            },
+        },
+    }
+    _fake_agy(monkeypatch, stdout=json.dumps(step))
+
+    result = _run(tmp_path)
+
+    call, answer = result.transcript
+    assert call.tool_name == "mcp_echo_word"
+    assert call.tool_input == {"q": 1}
+    assert answer.tool_output == "caliper"
+    assert mcp_server_of(call.tool_name, ["echo"], "antigravity") == "echo"
+
+
+def test_antigravity_loads_user_rules_and_every_user_skill_dir(
+    monkeypatch, tmp_path
+) -> None:
+    real_home = tmp_path / "real"
+    gemini = real_home / ".gemini"
+    for root, name in [
+        (gemini / "antigravity-cli" / "skills", "cli-skill"),
+        (gemini / "skills", "shared-skill"),
+        (gemini / "config" / "skills", "app-skill"),
+        # A skill the CLI's own dir already names: that one wins.
+        (gemini / "skills", "cli-skill"),
+    ]:
+        skill = root / name
+        skill.mkdir(parents=True, exist_ok=True)
+        if not (skill / "SKILL.md").exists():
+            (skill / "SKILL.md").write_text(
+                f"---\nname: {name}\ndescription: test\n---\n{root.name}"
+            )
+    (gemini / "GEMINI.md").write_text("rules")
+    (gemini / "config").mkdir(exist_ok=True)
+    (gemini / "config" / "AGENTS.md").write_text("more rules")
+    (gemini / "config" / "mcp_config.json").write_text(
+        '{"mcpServers": {"mine": {"command": "mine"}}}'
+    )
+    monkeypatch.setattr(Path, "home", lambda: real_home)
+    _fake_agy(monkeypatch)
+
+    attempt_home = tmp_path / "attempt"
+    result = _run(attempt_home, user_customizations=True)
+
+    attempt_gemini = attempt_home / ".gemini"
+    installed = attempt_gemini / "antigravity-cli" / "skills"
+    assert sorted(p.name for p in installed.iterdir()) == [
+        "app-skill",
+        "cli-skill",
+        "shared-skill",
+    ]
+    assert (installed / "cli-skill" / "SKILL.md").read_text().endswith("skills")
+    assert (attempt_gemini / "GEMINI.md").read_text() == "rules"
+    assert (attempt_gemini / "config" / "AGENTS.md").read_text() == "more rules"
+    assert result.loaded_user_customizations == [
+        "mcp:mine",
+        "rules:GEMINI.md",
+        "rules:config/AGENTS.md",
+        "skill:app-skill",
+        "skill:cli-skill",
+        "skill:shared-skill",
+    ]
+
+
+def test_antigravity_refuses_planted_history_by_design() -> None:
+    harness = AntigravityHarness()
+
+    assert harness.supports_mcp
+    assert not harness.supports_history
+    assert "SQLite" in harness.history_unsupported_hint

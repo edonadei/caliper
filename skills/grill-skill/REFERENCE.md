@@ -125,8 +125,8 @@ validation.
   `mcp:` block: stdio (`command`, `args`, `env`) or remote (`type: http`/`sse`,
   `url`, `headers`). Put secrets in host env vars as `${VAR}`. Stdio paths
   starting with `./` resolve from the spec's directory, and a server that can't
-  start stops the run as a configuration error. `pi` and `antigravity` have no
-  MCP support; `claude-code`, `codex` and `hermes` do.
+  start stops the run as a configuration error. `pi` has no MCP support;
+  `claude-code`, `codex`, `hermes` and `antigravity` do.
 - **User customizations.** By default a run also loads the user's own skills,
   rules, settings, plugins, MCP servers, connectors and (on `claude-code`) the
   skills synced from claude.ai, so a task may rely on a connector the user has. Put `user_customizations: false` at the top of the

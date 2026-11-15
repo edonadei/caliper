@@ -296,7 +296,7 @@ your shell runs, or set the backend's `*_CLI_PATH` to force one.
 | `codex` | ✅ | ✅ header auth only |
 | `hermes` | ✅ | ✅ header auth only |
 | `pi` | ❌ by design | ❌ by design |
-| `antigravity` | ❌ not yet | ❌ not yet |
+| `antigravity` | ✅ | ✅ header auth only |
 
 Running a spec that declares `mcp:` on a backend that can't honor it is a hard
 error, never a silent no-op.
@@ -307,14 +307,21 @@ error, never a silent no-op.
   streamable-HTTP transport from `url`, so `http` and `sse` collapse onto it.
 - **`hermes`** translates the block into its native `mcp_servers` config inside
   the isolated `HERMES_HOME`.
-- On both, `${VAR}` values are resolved at the harness boundary. Your personal
+- **`antigravity`** writes the block as `mcpServers` in the attempt's
+  `~/.gemini/config/mcp_config.json`: stdio as `command`/`args`/`env`, remote
+  as `url` plus `headers`. agy speaks only Streamable HTTP to a remote, so
+  `http` and `sse` collapse onto it, as on codex. agy loads MCP tools lazily
+  and calls them through `call_mcp_tool`; Caliper names that call
+  `mcp_<server>_<tool>`
+  ([ADR 0043](adr/0043-antigravity-names-a-lazy-mcp-call-by-its-server-and-tool.md)).
+- On all three, `${VAR}` values are resolved at the harness boundary. Your personal
   servers from the real config are kept alongside the declared set by default
   ([loaded](#loading-your-user-customizations)); an isolated run replaces them,
   so it sees only the declared set.
-- **Remote OAuth** isn't supported on `codex` or `hermes`: it needs an
+- **Remote OAuth** isn't supported on `codex`, `hermes` or `antigravity`: it needs an
   interactive browser flow the harness can't drive.
 - **A stdio server that speaks only MCP 2026-07-28** works only on `claude-code`
-  2.1.292 or later. On `codex` and `hermes`, the preflight stops the run with a
+  2.1.292 or later. On `codex`, `hermes` and `antigravity`, the preflight stops the run with a
   configuration error
   ([ADR 0035](adr/0035-mcp-preflight-gates-modern-only-servers-on-the-backend.md)).
 - **`pi`** has no MCP by design
@@ -332,7 +339,7 @@ See [MCP servers](spec-reference.md#mcp-servers-mcp) for the spec format.
 | `codex` | ✅ |
 | `pi` | ✅ |
 | `hermes` | ❌ refused |
-| `antigravity` | ❌ not yet |
+| `antigravity` | ❌ refused |
 
 A spec whose tasks declare `history:` is refused before the first attempt on a
 backend that can't resume from it, with a message naming the backend.
@@ -354,6 +361,8 @@ backend that can't resume from it, with a message naming the backend.
 - **`hermes`** stores sessions in SQLite, and its only import path drops tool
   calls and their output, so it can't resume a history faithfully
   ([ADR 0036](adr/0036-planted-history-is-a-neutral-transcript-each-backend-resumes-natively.md)).
+- **`antigravity`** stores each conversation as protobuf steps in its own
+  SQLite file, with no import path, so it can't resume a history either.
 
 See [Planted history](spec-reference.md#planted-history-history) for the spec
 format.
@@ -375,7 +384,7 @@ hosted OAuth connector a spec can't declare. `--no-user-customizations`, or
 | `codex` | The `[mcp_servers.*]` tables in your `~/.codex/config.toml`, your installed plugins (`~/.codex/plugins`, copied into the attempt), ChatGPT apps (`codex_apps`), `~/.codex/skills`, `AGENTS.md` / `AGENTS.override.md`, and `config.toml` settings (the top-level model pin is still stripped) |
 | `hermes` | `~/.hermes/skills` and `config.yaml` (`%LOCALAPPDATA%\hermes` on Windows), including `mcp_servers`; persona and memory remain excluded |
 | `pi` | Nothing: no MCP by design. The run records it as off, and warns only if a flag or the spec asked for it |
-| `antigravity` | Nothing yet: it has no MCP support in Caliper. The run records it as off, as on `pi` |
+| `antigravity` | The `mcpServers` in your `~/.gemini/config/mcp_config.json`, the skills in `~/.gemini/antigravity-cli/skills`, `~/.gemini/skills` and `~/.gemini/config/skills`, the rules files `AGENTS.md` / `GEMINI.md` in `~/.gemini` and `~/.gemini/config`, and `antigravity-cli/settings.json`. Plugins and `config/rules/*.md` are not loaded yet |
 
 - **The spec wins a name clash.** A declared skill or server replaces your own of the
   same name, including when the declared name is ablated, in the attempt's copy of the config. Your real config is never
