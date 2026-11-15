@@ -8,9 +8,12 @@ import sys
 
 import pytest
 
+from caliper.harness.antigravity import AGY_MCP_CONFIG
 from caliper.harness.base import HarnessConfigurationError
 from caliper.harness.codex import CODEX_CONFIG
 from caliper.harness.hermes import HERMES_CONFIG
+from caliper.harness.mcp import resolve_servers
+from caliper.harness.opencode import OPENCODE_CONFIG
 from caliper.schema.spec import McpServer
 from tests.conftest import run_context
 
@@ -21,6 +24,7 @@ CONFIGS = [
         CODEX_CONFIG, "codex", "model_provider", "approval_policy", id="codex"
     ),
     pytest.param(HERMES_CONFIG, "hermes", "provider", "personality", id="hermes"),
+    pytest.param(OPENCODE_CONFIG, "opencode", "model", "instructions", id="opencode"),
 ]
 
 
@@ -83,7 +87,10 @@ def test_user_customizations_merge_servers_and_the_spec_wins(
 
     written = config.read(attempt)
     assert written[ambient] == "leaked"
-    assert written[config.servers_key]["personal"]["command"] == "declared"
+    expected = config.entry(
+        resolve_servers({"personal": McpServer(command="declared")})["personal"]
+    )
+    assert written[config.servers_key]["personal"] == expected
 
 
 @pytest.mark.parametrize(("config", "backend", "connection", "ambient"), CONFIGS)
@@ -130,3 +137,20 @@ def test_a_utf8_config_survives_a_non_utf8_locale(
     )
 
     assert config.read(attempt)[connection] == "café → ☕"
+
+
+def test_antigravity_mcp_config_keeps_only_declared_servers_when_isolated(
+    tmp_path,
+) -> None:
+    path = tmp_path / "home" / AGY_MCP_CONFIG.path
+    path.parent.mkdir(parents=True)
+    path.write_text('{"mcpServers": {"personal": {"command": "mine"}}}')
+
+    attempt = _write(
+        AGY_MCP_CONFIG,
+        "antigravity",
+        tmp_path,
+        mcp_servers={"echo": McpServer(command="echo")},
+    )
+
+    assert AGY_MCP_CONFIG.servers(attempt) == {"echo"}

@@ -58,7 +58,10 @@ stateless because the leak comes from seeding the real config, not from agent
 state. `opencode` honors `mcp:` the same way (stdio, plus remote
 *header-auth*), in the `mcp` table of the isolated `opencode.json`; its agent
 names a call `<server>_<tool>`, which caliper records under the doubled form
-`mcp__<server>__<tool>`, matching the longest declared server name. `pi` will *never* honor `mcp:`
+`mcp__<server>__<tool>`, matching the longest declared server name. `antigravity`
+honors `mcp:` (stdio, plus remote *header-auth*) the same way, recording its
+tool calls under the single-underscore form `mcp_<server>_<tool>` (see
+[[0043-antigravity-names-a-lazy-mcp-call-by-its-server-and-tool]]). `pi` will *never* honor `mcp:`
 natively — its agent has no MCP by design (see [[pi-mcp-unsupported-by-design]]),
 so caliper refuses an `mcp:` spec on `pi` with guidance to wrap the server as a
 CLI tool the skill drives, or as a pi extension. `pi` is now the only backend

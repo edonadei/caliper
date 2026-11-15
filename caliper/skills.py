@@ -95,21 +95,32 @@ def skill_body(text: str) -> str:
     return (text[block.end() :] if block else text).strip()
 
 
-def frontmatter_name(text: str) -> str | None:
-    """The ``name:`` from a SKILL.md's YAML frontmatter, or ``None``."""
+def frontmatter(text: str) -> dict:
+    """Parsed YAML frontmatter mapping from ``text``, or ``{}``."""
     import yaml
 
     block = _FRONTMATTER_RE.match(text)
     if not block:
-        return None
+        return {}
     try:
         fields = yaml.safe_load(block.group(1))
     except yaml.YAMLError:
+        return {}
+    return fields if isinstance(fields, dict) else {}
+
+
+def frontmatter_name(text: str) -> str | None:
+    """The ``name:`` from a SKILL.md's YAML frontmatter, or ``None``."""
+    block = _FRONTMATTER_RE.match(text)
+    if not block:
+        return None
+    fields = frontmatter(text)
+    if not fields:
         # Agents read hand-written frontmatter leniently (an unquoted
         # ``description: Use when: x`` is not YAML), so fall back to the line.
         match = _NAME_LINE_RE.search(block.group(1))
         return match.group(1).strip("\"'") if match else None
-    name = fields.get("name") if isinstance(fields, dict) else None
+    name = fields.get("name")
     return name.strip() if isinstance(name, str) else None
 
 

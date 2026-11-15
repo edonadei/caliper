@@ -35,6 +35,14 @@ AGY_MCP_CONFIG = CliConfig(
     servers_key="mcpServers",
 )
 
+# A background self-update in an attempt or a judge call would rewrite the
+# binary other attempts of the run are spawning.
+_NO_AUTOUPDATE = {"AGY_CLI_DISABLE_AUTO_UPDATE": "1"}
+
+
+def _windows_roaming(home: str | Path) -> Path:
+    return Path(home) / "AppData" / "Roaming"
+
 
 class AntigravityHarness(CliHarness):
     """CLI-subprocess backend for Google's Antigravity CLI (`agy`).
@@ -73,6 +81,8 @@ class AntigravityHarness(CliHarness):
     # directory the user layer does not stage.
     user_rules = ("AGENTS.md", "GEMINI.md", "config/AGENTS.md", "config/GEMINI.md")
     user_settings_file = "antigravity-cli/settings.json"
+    # agy scans only immediate child skill folders; nested folders are skipped.
+    recursive_user_skills = False
     cli_unavailable_message = (
         "Antigravity CLI is not available for the `antigravity` backend.\n\n"
         "Install it (`curl -fsSL https://antigravity.google/cli/install.sh | "
@@ -89,6 +99,7 @@ class AntigravityHarness(CliHarness):
         "GEMINI_API_KEY",
         "GOOGLE_GEMINI_BASE_URL",
         "AGY_ADC_AUTH",
+        "GOOGLE_APPLICATION_CREDENTIALS",
         "GOOGLE_CLOUD_PROJECT",
         "GOOGLE_CLOUD_QUOTA_PROJECT",
         "GOOGLE_CLOUD_LOCATION",
@@ -110,14 +121,29 @@ class AntigravityHarness(CliHarness):
         # settings.json picks the model provider (an API key login, custom
         # models), so it is part of the login and copied verbatim whatever
         # the user layer, as pi's is (docs/adr/0012). An ADC login
-        # (`AGY_ADC_AUTH`) reads gcloud's credentials from the home.
+        # (`AGY_ADC_AUTH`) reads gcloud's credentials from APPDATA on Windows
+        # and ~/.config/gcloud elsewhere.
+        adc = (
+            _windows_roaming(ctx.isolated_home)
+            if sys.platform == "win32"
+            else Path(ctx.isolated_home) / ".config"
+        )
         return [
             self.attempt_config_home(ctx) / "antigravity-cli" / "settings.json",
-            Path(ctx.isolated_home)
-            / ".config"
-            / "gcloud"
-            / "application_default_credentials.json",
+            adc / "gcloud" / "application_default_credentials.json",
         ]
+
+    def user_path(self, isolated: Path, ctx: RunContext) -> Path:
+        if sys.platform == "win32" and (
+            appdata := os.environ.get("APPDATA", "").strip()
+        ):
+            try:
+                return Path(appdata) / isolated.relative_to(
+                    _windows_roaming(ctx.isolated_home)
+                )
+            except ValueError:
+                pass
+        return super().user_path(isolated, ctx)
 
     def skills_root(self, ctx: RunContext) -> Path:
         # The CLI's own global skills dir, which the Antigravity app does not
@@ -125,12 +151,13 @@ class AntigravityHarness(CliHarness):
         return self.attempt_config_home(ctx) / "antigravity-cli" / "skills"
 
     def user_skill_sources(self, ctx: RunContext) -> list[Path]:
-        # agy also reads the global dirs it shares with gemini-cli and the app.
+        # agy also reads the global dirs it shares with the app and gemini-cli,
+        # preferring config/skills over skills.
         home = self.user_config_home()
         return [
             *super().user_skill_sources(ctx),
-            home / "skills",
             home / "config" / "skills",
+            home / "skills",
         ]
 
     def _prepare(self, ctx: RunContext) -> None:
@@ -161,9 +188,14 @@ class AntigravityHarness(CliHarness):
         return cmd, _user_message(ctx.prompt), None
 
     def _environment(self, ctx: RunContext) -> dict[str, str]:
-        # A background self-update would rewrite the binary other attempts of
-        # the run are spawning.
-        return self._isolated_env(ctx, extra={"AGY_CLI_DISABLE_AUTO_UPDATE": "1"})
+        extra = dict(_NO_AUTOUPDATE)
+        if sys.platform == "win32":
+            # Go's os.UserConfigDir and os.UserCacheDir read APPDATA and
+            # LOCALAPPDATA on Windows; USERPROFILE comes from ``_isolated_env``.
+            roaming = _windows_roaming(ctx.isolated_home)
+            extra["APPDATA"] = str(roaming)
+            extra["LOCALAPPDATA"] = str(roaming.parent / "Local")
+        return self._isolated_env(ctx, extra=extra)
 
     def _read(self, proc: ProcessResult, ctx: RunContext) -> AgentReport:
         report = _read_stream(proc.stdout)
@@ -181,6 +213,9 @@ class AntigravityHarness(CliHarness):
             raise HarnessConfigurationError("agy CLI not found")
         return PromptCall([agy, *_print_flags(model)], stdin=_user_message(prompt))
 
+    def _prompt_environment(self) -> dict[str, str]:
+        return {**super()._prompt_environment(), **_NO_AUTOUPDATE}
+
     def _read_prompt(self, proc: ProcessResult) -> AgentReport:
         return _read_stream(proc.stdout)
 
@@ -188,6 +223,16 @@ class AntigravityHarness(CliHarness):
         return [self.cli_path() or "agy"]
 
     config_signals = (
+        ConfigSignal(
+            ("gemini_api_key environment variable is not set",),
+            "Antigravity CLI is configured for a Gemini API key, but "
+            "GEMINI_API_KEY is not set.\n\n"
+            "Export `GEMINI_API_KEY` with your Gemini API key, or remove "
+            '`"modelProvider": "gemini"` from '
+            "`~/.gemini/antigravity-cli/settings.json` to use the account "
+            "login, then rerun caliper. The agy CLI returned:\n"
+            "  {text}",
+        ),
         ConfigSignal(
             (
                 *AUTH_MARKERS,

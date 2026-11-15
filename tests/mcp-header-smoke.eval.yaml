@@ -1,6 +1,6 @@
 # End-to-end smoke eval for a remote (HTTP) MCP server with BEARER-HEADER AUTH.
-# Backend-neutral: runs under any --model that honors remote mcp: (claude-code
-# and hermes today).
+# Backend-neutral: runs under any --model that honors remote mcp: (claude-code,
+# hermes, codex, antigravity and opencode today).
 #
 # Unlike tests/mcp-remote-smoke.eval.yaml (public, no-auth DeepWiki), this one
 # actually exercises the header-auth path: setup: starts the bundled
@@ -21,6 +21,9 @@
 #   export MCP_ECHO_TOKEN=s3cr3t
 #   caliper run tests/mcp-header-smoke.eval.yaml --k 1 --workers 1                 # claude-code
 #   caliper run tests/mcp-header-smoke.eval.yaml --k 1 --workers 1 --model hermes  # hermes
+#   caliper run tests/mcp-header-smoke.eval.yaml --k 1 --workers 1 --model codex   # codex
+#   caliper run tests/mcp-header-smoke.eval.yaml --k 1 --workers 1 --model antigravity
+#   caliper run tests/mcp-header-smoke.eval.yaml --k 1 --workers 1 --model opencode
 
 # Pinned isolated: see test_every_smoke_eval_pins_isolation.
 user_customizations: false

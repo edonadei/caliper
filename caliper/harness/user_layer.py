@@ -150,9 +150,12 @@ def _copy_rules(harness: CliHarness, ctx: RunContext) -> list[str]:
             (target / name).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source / name, target / name)
             names.append(f"rules:{name}")
-    settings = harness.user_settings_file
-    if settings and (source / settings).is_file():
-        names.append(f"settings:{settings}")
+    settings_files = harness.user_settings_files or (
+        (harness.user_settings_file,) if harness.user_settings_file else ()
+    )
+    for settings in settings_files:
+        if (source / settings).is_file():
+            names.append(f"settings:{settings}")
     return names
 
 
@@ -167,6 +170,48 @@ def _install_skills(harness: CliHarness, ctx: RunContext) -> list[str]:
     return sorted(ref.name for ref in refs)
 
 
+def copy_user_tree(source: Path, copy: Path) -> None:
+    """Copy a user customization directory, keeping links working across homes.
+
+    Links are copied as links so dangling ones and loops cannot abort the copy,
+    and relative links that escape ``source`` are repointed at their original
+    targets so they do not dangle in the isolated home.
+    """
+    shutil.copytree(source, copy, symlinks=True, dirs_exist_ok=True)
+    for directory, dirnames, filenames in os.walk(copy):
+        for name in [*dirnames, *filenames]:
+            link = Path(directory) / name
+            if not link.is_symlink():
+                continue
+            target = os.readlink(link)
+            if os.path.isabs(target):
+                continue
+            original = source / link.parent.relative_to(copy)
+            resolved = Path(os.path.normpath(original / target))
+            if not resolved.is_relative_to(source):
+                link.unlink()
+                link.symlink_to(resolved)
+
+
+def _add_skill(
+    harness: CliHarness,
+    ctx: RunContext,
+    path: Path,
+    bundled: set[str],
+    refs: list[SkillRef],
+) -> None:
+    name = harness.user_skill_name(path)
+    if not name or name in ctx.spec_skill_names or name in bundled:
+        return
+    if name in {".", ".."} or "/" in name or "\\" in name:
+        raise HarnessConfigurationError(f"Invalid user skill name: {name!r}")
+    # Installed flat, so two same-named skills (e.g. in different hermes
+    # categories) cannot both land; the first in walk order wins.
+    if any(ref.name == name for ref in refs):
+        return
+    refs.append(SkillRef(name, path))
+
+
 def _collect_skills(
     harness: CliHarness,
     ctx: RunContext,
@@ -175,27 +220,24 @@ def _collect_skills(
     visited: set[Path],
 ) -> None:
     """Add the user skills under ``source`` that no earlier source named."""
+    if not source.is_dir():
+        return
     bundled = harness.bundled_skill_names(source)
     for directory, directories, files in os.walk(source, followlinks=True):
-        resolved = Path(directory).resolve()
+        current = Path(directory)
+        is_root = current == source
+        resolved = current.resolve()
         if resolved in visited:
             directories.clear()
             continue
         visited.add(resolved)
-        # Hidden directories hold the CLI's own state and system skills
-        # (codex's `.system`), which it installs for itself.
-        directories[:] = sorted(d for d in directories if not d.startswith("."))
-        if "SKILL.md" not in files:
+        if is_root or harness.recursive_user_skills:
+            # Hidden directories hold the CLI's own state and system skills
+            # (codex's `.system`), which it installs for itself.
+            directories[:] = sorted(d for d in directories if not d.startswith("."))
+        else:
+            directories.clear()
+        if "SKILL.md" not in files or (is_root and not harness.recursive_user_skills):
             continue
         directories.clear()
-        path = Path(directory) / "SKILL.md"
-        name = harness.user_skill_name(path)
-        if not name or name in ctx.spec_skill_names or name in bundled:
-            continue
-        if name in {".", ".."} or "/" in name or "\\" in name:
-            raise HarnessConfigurationError(f"Invalid user skill name: {name!r}")
-        # Installed flat, so two same-named skills (e.g. in different hermes
-        # categories) cannot both land; the first in walk order wins.
-        if any(ref.name == name for ref in refs):
-            continue
-        refs.append(SkillRef(name, path))
+        _add_skill(harness, ctx, current / "SKILL.md", bundled, refs)

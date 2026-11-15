@@ -20,12 +20,19 @@ def test_every_registered_backend_builds_a_harness_of_that_name(name) -> None:
     assert (harness.name, harness.model) == (name, "some-model")
 
 
-@pytest.mark.parametrize("alias", ["claude", "claude_code"])
-def test_an_alias_means_the_same_backend_on_every_surface(alias) -> None:
-    assert normalize_backend(alias) == "claude-code"
-    assert parse_target(alias) == ("claude-code", None)
-    assert parse_target(f"{alias}:m") == ("claude-code", "m")
-    assert get_harness(alias).name == "claude-code"
+@pytest.mark.parametrize(
+    ("alias", "expected"),
+    [
+        ("claude", "claude-code"),
+        ("claude_code", "claude-code"),
+        ("agy", "antigravity"),
+    ],
+)
+def test_an_alias_means_the_same_backend_on_every_surface(alias, expected) -> None:
+    assert normalize_backend(alias) == expected
+    assert parse_target(alias) == (expected, None)
+    assert parse_target(f"{alias}:m") == (expected, "m")
+    assert get_harness(alias).name == expected
 
 
 def test_an_unknown_backend_is_refused_by_name() -> None:
