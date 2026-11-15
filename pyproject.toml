@@ -83,6 +83,7 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 "caliper.harness.cli_config".msg = "Internal to caliper.harness; expose shared contracts through caliper.harness.base if needed outside harnesses."
 "caliper.harness.history".msg = "Internal to caliper.harness; expose shared contracts through caliper.harness.base if needed outside harnesses."
 "caliper.harness.user_layer".msg = "Internal to caliper.harness; expose shared contracts through caliper.harness.base if needed outside harnesses."
+"caliper.harness.windows_job".msg = "Internal to caliper.harness; expose shared contracts through caliper.harness.base if needed outside harnesses."
 
 [tool.ruff.lint.per-file-ignores]
 "caliper/harness/**" = ["TID251"]

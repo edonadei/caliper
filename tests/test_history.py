@@ -24,8 +24,8 @@ from caliper.harness.claude_code import CLAUDE_SESSION, ClaudeCodeHarness
 from caliper.harness.codex import CODEX_ROLLOUT, CodexHarness
 from caliper.harness.opencode import OPENCODE_SESSION, OpenCodeHarness
 from caliper.harness.pi import PI_SESSION, PiHarness
+from caliper.judge import EvalJudge, render_judge_prompt
 from caliper.judge.base import JudgeResult
-from caliper.judge.eval_judge import EvalJudge, render_judge_prompt
 from caliper.main import app
 from caliper.runner import run
 from caliper.schema.spec import PlantedShellCall, PlantedTurn, load_spec

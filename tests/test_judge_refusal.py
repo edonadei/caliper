@@ -22,7 +22,7 @@ from caliper.harness.base import (
 from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.harness.codex import CodexHarness
 from caliper.harness.refusal import RefusalKind
-from caliper.judge.eval_judge import EvalJudge
+from caliper.judge import EvalJudge
 from caliper.retry import SpendingCapReached
 from caliper.schema.spec import TaskSpec
 from caliper.workdir import StepCancelled

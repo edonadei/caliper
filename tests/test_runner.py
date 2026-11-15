@@ -25,9 +25,8 @@ from caliper.harness.base import (
     PromptResult,
     RunContext,
 )
-from caliper.judge import EvalJudge
+from caliper.judge import JUDGE_PROMPT_VERSION, EvalJudge, render_judge_prompt
 from caliper.judge.base import JudgeResult
-from caliper.judge.eval_judge import JUDGE_PROMPT_VERSION, render_judge_prompt
 from caliper.reporter import print_results
 from caliper.runner import run
 from caliper.schema.results import Outcome

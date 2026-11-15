@@ -568,13 +568,11 @@ def test_no_unsolicited_markdown_files() -> None:
 
 
 def _github_anchor_slug(heading: str) -> str:
-    s = heading.strip()
-    s = re.sub(r"<[^>]+>", "", s)
-    s = s.replace("`", "")
-    s = s.lower()
+    # GitHub drops punctuation and turns each space into its own hyphen, so
+    # "Usable / unusable attempt" -> "usable--unusable-attempt".
+    s = re.sub(r"<[^>]+>", "", heading.strip()).lower()
     s = re.sub(r"[^\w\s-]", "", s)
-    s = re.sub(r"\s+", "-", s)
-    return s
+    return s.replace(" ", "-")
 
 
 def _unfenced_lines(text: str) -> typing.Iterator[tuple[int, str]]:
@@ -592,6 +590,14 @@ def _unfenced_lines(text: str) -> typing.Iterator[tuple[int, str]]:
                 continue
         if fence is None:
             yield lineno, line
+
+
+def _prose_only(text: str) -> str:
+    """Blank out code fences and inline code, keeping every line in place."""
+    lines = text.splitlines()
+    for lineno, line in _unfenced_lines(text):
+        lines[lineno - 1] = "\x00" + re.sub(r"(`+)(.*?)\1", "", line)
+    return "\n".join(line[1:] if line.startswith("\x00") else "" for line in lines)
 
 
 def _extract_heading_anchors(text: str) -> set[str]:
@@ -614,53 +620,54 @@ def test_markdown_relative_links_and_anchors_resolve() -> None:
     texts = {rel: (ROOT / rel).read_text(encoding="utf-8") for rel in files}
     file_anchors = {rel: _extract_heading_anchors(text) for rel, text in texts.items()}
 
-    link_pattern = re.compile(r"!?\[([^\]]*)\]\(([^)]+)\)")
+    # Link text may wrap across lines; the target never does.
+    link_pattern = re.compile(r"!?\[([^\]]*)\]\(([^)\n]+)\)")
     failures: list[str] = []
 
     for rel, text in texts.items():
         source_path = ROOT / rel
-        for lineno, line in _unfenced_lines(text):
-            clean_line = re.sub(r"(`+)(.*?)\1", "", line)
-            for lm in link_pattern.finditer(clean_line):
-                raw_target = lm.group(2).strip()
-                target = raw_target.split()[0] if raw_target else ""
-                if not target or target.startswith(("http://", "https://", "mailto:")):
-                    continue
+        prose = _prose_only(text)
+        for lm in link_pattern.finditer(prose):
+            lineno = prose.count("\n", 0, lm.start()) + 1
+            raw_target = lm.group(2).strip()
+            target = raw_target.split()[0] if raw_target else ""
+            if not target or target.startswith(("http://", "https://", "mailto:")):
+                continue
 
-                path_part, _, fragment = target.partition("#")
-                if not path_part:
-                    target_rel = rel
-                    resolved_path = source_path
-                else:
-                    resolved_path = (source_path.parent / path_part).resolve()
-                    try:
-                        target_rel = resolved_path.relative_to(ROOT)
-                    except ValueError:
-                        failures.append(
-                            f"{rel}:{lineno} -> ({raw_target}) resolves outside ROOT: {resolved_path}"
-                        )
-                        continue
-
-                if not resolved_path.exists():
+            path_part, _, fragment = target.partition("#")
+            if not path_part:
+                target_rel = rel
+                resolved_path = source_path
+            else:
+                resolved_path = (source_path.parent / path_part).resolve()
+                try:
+                    target_rel = resolved_path.relative_to(ROOT)
+                except ValueError:
                     failures.append(
-                        f"{rel}:{lineno} -> ({raw_target}) does not exist: {resolved_path}"
+                        f"{rel}:{lineno} -> ({raw_target}) resolves outside ROOT: {resolved_path}"
                     )
                     continue
 
-                if fragment and resolved_path.suffix == ".md":
-                    if target_rel not in file_anchors:
-                        file_anchors[target_rel] = _extract_heading_anchors(
-                            resolved_path.read_text(encoding="utf-8")
-                        )
-                    anchors = file_anchors[target_rel]
-                    if fragment not in anchors:
-                        failures.append(
-                            f"{rel}:{lineno} -> ({raw_target}) anchor #{fragment} not found in {target_rel}. "
-                            f"Available anchors: {sorted(anchors)}"
-                        )
+            if not resolved_path.exists():
+                failures.append(
+                    f"{rel}:{lineno} -> ({raw_target}) does not exist: {resolved_path}"
+                )
+                continue
+
+            if fragment and resolved_path.suffix == ".md":
+                if target_rel not in file_anchors:
+                    file_anchors[target_rel] = _extract_heading_anchors(
+                        resolved_path.read_text(encoding="utf-8")
+                    )
+                anchors = file_anchors[target_rel]
+                if fragment not in anchors:
+                    failures.append(
+                        f"{rel}:{lineno} -> ({raw_target}) anchor #{fragment} not found in {target_rel}. "
+                        f"Available anchors: {sorted(anchors)}"
+                    )
 
     assert not failures, (
-        f"Broken markdown relative links or anchors found ({len(failures)}):\n  "
+        f"broken relative markdown links or anchors ({len(failures)}):\n  "
         + "\n  ".join(failures)
     )
 
@@ -690,21 +697,32 @@ def test_contributing_ci_section_matches_workflow() -> None:
     )
     jobs: dict[str, typing.Any] = workflow.get("jobs", {})
     assert jobs, ".github/workflows/lint.yml has no jobs"
+    contexts = set(_workflow_check_contexts(jobs))
 
     ci_section = _markdown_section(".github/CONTRIBUTING.md", "## CI")
+    table_rows = re.findall(r"^\| `([^`]+)` \|", ci_section, re.MULTILINE)
+    assert table_rows, "found no job table in .github/CONTRIBUTING.md ## CI"
 
-    for job_id in jobs:
-        assert f"`{job_id}`" in ci_section or f"`{job_id} (" in ci_section, (
-            f"Job {job_id!r} from lint.yml is not documented in .github/CONTRIBUTING.md ## CI section"
-        )
+    undocumented = sorted(
+        job_id
+        for job_id in jobs
+        if not any(row == job_id or row.startswith(f"{job_id} (") for row in table_rows)
+    )
+    assert not undocumented, (
+        f"lint.yml jobs missing from the .github/CONTRIBUTING.md ## CI table: {undocumented}"
+    )
+    stale = sorted(set(table_rows) - set(jobs) - contexts)
+    assert not stale, (
+        f".github/CONTRIBUTING.md ## CI table lists jobs lint.yml doesn't run: {stale}"
+    )
 
     json_match = re.search(r"<<'JSON'\s*\n(.*?)\nJSON", ci_section, re.DOTALL)
     assert json_match is not None, (
-        "Could not find <<'JSON' block in .github/CONTRIBUTING.md ## CI section"
+        "found no <<'JSON' branch-protection snippet in .github/CONTRIBUTING.md ## CI"
     )
     payload = json.loads(json_match.group(1))
     required = payload.get("required_status_checks", {}).get("contexts", [])
-    unknown = sorted(set(required) - set(_workflow_check_contexts(jobs)))
+    unknown = sorted(set(required) - contexts)
 
     assert required, "the branch-protection snippet in ## CI requires no status checks"
     assert not unknown, (
