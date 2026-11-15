@@ -22,10 +22,10 @@ When any of the following change, update every location below that covers it bef
 5. `skills/evaluate-skill/REFERENCE.md` — the source skill reference
 6. `skills/grill-skill/REFERENCE.md` — the grill-skill reference
 
-`tests/test_doc_sync.py` fails when a `caliper run` flag is missing from (or
-stale in) the README table or missing from the evaluate-skill reference, and
-when a spec key is missing from `docs/spec-reference.md`. The rest of this list
-is still on you.
+`tests/test_doc_sync.py` locks CLI subcommands, `caliper run` flags, exit codes,
+registered backends, `.eval.yaml` keys, `Outcome` values, and `RunResults`
+schema fields across those files; keep the surrounding prose and judging rules
+aligned when behavior changes.
 
 ## Formatting
 

@@ -6,6 +6,7 @@ See docs/adr/0044-module-boundaries-are-enforced-on-a-flat-package.md.
 from __future__ import annotations
 
 import ast
+import fnmatch
 import functools
 import importlib.util
 import json
@@ -701,3 +702,27 @@ def test_every_main_app_command_uses_telemetry_command() -> None:
     assert not unwrapped, (
         f"Top-level CLI commands registered without TelemetryCommand: {unwrapped}"
     )
+
+
+def test_pytest_config_isolates_discovery() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    ini = pyproject["tool"]["pytest"]["ini_options"]
+    assert ini["testpaths"] == ["tests"]
+    patterns = ini["norecursedirs"]
+    for excluded in (
+        ".claude",
+        ".caliper",
+        ".codex",
+        ".git",
+        ".venv",
+        "build",
+        "dist",
+        "foo.egg",
+        "node_modules",
+        "venv",
+        "worktrees",
+    ):
+        assert any(fnmatch.fnmatchcase(excluded, pat) for pat in patterns), (
+            f"{excluded!r} is not excluded by [tool.pytest.ini_options].norecursedirs "
+            f"({patterns!r}); explicit `pytest .` runs would recurse into it."
+        )

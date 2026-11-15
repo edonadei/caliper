@@ -82,7 +82,7 @@ Unknown top-level keys are removed; new connection keys need an explicit update.
 Codex's top-level model strip (0012) remains. Behavioral settings in Codex and
 Hermes now follow the switch rather than leaking into isolated attempts.
 
-See [user skills compete for activation](0031-user-skills-compete-for-activation.md) for this decision.
+See [user skills compete for activation](0047-user-skills-compete-for-activation.md) for this decision.
 
 **Hermes stays neutral.** We retain 0005's persona/memory exclusion and
 `--ignore-rules`. Loading mutable memory is deferred: a realistic starting memory

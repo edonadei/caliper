@@ -1,6 +1,6 @@
 # Run `pre-commit install` once to enable these hooks locally.
-# The ruff version here is pinned to match `ruff==0.15.20` in pyproject.toml's
-# dev extras and the CI lint workflow — keep all three in lockstep.
+# The ruff version here is pinned to match `ruff==0.15.20` in pyproject.toml,
+# .github/CONTRIBUTING.md, and AGENTS.md — keep all four in lockstep.
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.20

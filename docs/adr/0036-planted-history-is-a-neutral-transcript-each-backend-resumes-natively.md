@@ -45,7 +45,7 @@ added later, but a tool removed from the format would break specs that use it.
 
 The session file embeds the absolute working directory, and claude-code derives
 its storage path from it. The file is therefore written per attempt, after the
-attempt workdir exists (docs/adr/0026), never shipped prebuilt.
+attempt workdir exists (docs/adr/0046), never shipped prebuilt.
 
 ## Hermes refuses planted history
 

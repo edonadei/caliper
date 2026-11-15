@@ -474,7 +474,7 @@ tasks:
 
 `assert: ./check.py` still resolves against the spec's directory; the script
 runs in the workdir. See
-[ADR 0026](adr/0026-an-attempt-runs-in-one-fresh-workdir.md).
+[ADR 0046](adr/0046-an-attempt-runs-in-one-fresh-workdir.md).
 
 ## Complete example: inbox-triage
 

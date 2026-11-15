@@ -63,7 +63,7 @@ class Judge(Protocol):
     ``workdir`` is the attempt workdir, where every assertion *runs*. An
     ``assert: ./check.py`` path still resolves from the spec's directory, which
     the workdir carries as ``workdir.spec_dir``
-    (docs/adr/0026-an-attempt-runs-in-one-fresh-workdir.md).
+    (docs/adr/0046-an-attempt-runs-in-one-fresh-workdir.md).
 
     ``history`` is the task's planted history as the attempt resumed from it,
     shown to the autorater as prior context, never graded (docs/adr/0036).

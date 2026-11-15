@@ -21,7 +21,8 @@ Fraction = Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)]
 class Outcome(str, Enum):
     """The typed result of a single attempt.
 
-    Usable outcomes got a fair shot at the task and count toward pass@k;
+    Usable outcomes got a fair shot at the task and count toward the score
+    (raw success rate, docs/adr/0007);
     the unusable ones are infrastructure/judge noise and are excluded from
     the denominator. See docs/CONTEXT.md and docs/adr/0001-attempt-outcome-taxonomy.md.
     """
@@ -41,7 +42,7 @@ class Outcome(str, Enum):
 
     @property
     def is_usable(self) -> bool:
-        """True when the attempt was fairly measured (counts toward pass@k).
+        """True when the attempt was fairly measured (counts toward the score, docs/adr/0007).
 
         ``NOT_CHECKED`` is excluded — but as *unasked*, not as noise. The
         execution score is over checks that were made, and a task that made none
@@ -592,7 +593,7 @@ class TaskResult(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def usable(self) -> int:
-        """Attempts that got a fair shot (the pass@k / rate denominator).
+        """Attempts that got a fair shot (the score denominator, docs/adr/0007).
 
         Derived from the attempts rather than ``len - unusable``: since
         ``NOT_CHECKED`` is neither usable nor noise, that subtraction would
@@ -1375,8 +1376,8 @@ class RunComparison(BaseModel):
     warnings: list[str]
 
     # Run usage totals per side (all tasks, not just matched). Token/wall deltas
-    # are shown alongside pass@k but NEVER feed has_regression — a token drop is a
-    # win, not a failure (docs/CONTEXT.md → Regression).
+    # are shown alongside the score (docs/adr/0007) but NEVER feed has_regression —
+    # a token drop is a win, not a failure (docs/CONTEXT.md → Regression).
     a_usage: UsageTotals
     b_usage: UsageTotals
 

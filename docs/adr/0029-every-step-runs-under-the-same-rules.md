@@ -1,6 +1,6 @@
 # Every step runs under the same rules
 
-[0026](0026-an-attempt-runs-in-one-fresh-workdir.md) put `setup:`, `assert:`,
+[0046](0046-an-attempt-runs-in-one-fresh-workdir.md) put `setup:`, `assert:`,
 the autorater's script check and `cleanup:` in one workdir, but they still ran
 through two different subprocess paths. Hooks were killed by a Ctrl-C and had no
 time limit, so a hanging `setup:` held a worker for the rest of the run.

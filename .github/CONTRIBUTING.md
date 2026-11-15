@@ -90,14 +90,16 @@ formatter on this codebase.
 ### Pinned version
 
 Ruff is pinned to **`ruff==0.15.20`** so local runs and CI always agree. The pin
-lives in three places that must stay in lockstep:
+lives in four places that must stay in lockstep:
 
 - `pyproject.toml`: the `dev` optional dependencies (`ruff==0.15.20`)
 - `.pre-commit-config.yaml`: `rev: v0.15.20`
 - `.github/CONTRIBUTING.md`: this file
+- `AGENTS.md`: the `Formatting` section
 
 CI installs ruff through `pip install -e ".[dev]"`. When you bump ruff, update
-all three places in one PR and expect a formatting reflow in the same PR.
+all four places in one PR (`tests/test_doc_sync.py` checks this) and expect a
+formatting reflow in the same PR.
 
 ### Commands
 

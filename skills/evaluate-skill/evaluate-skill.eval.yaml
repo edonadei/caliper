@@ -17,7 +17,7 @@ user_customizations: false
 # contains that very pattern — see the same note in grill-skill.eval.yaml.
 
 tasks:
-  # Every attempt runs in a fresh attempt workdir (docs/adr/0026), so fixtures
+  # Every attempt runs in a fresh attempt workdir (docs/adr/0046), so fixtures
   # are built there with relative paths — fixed /tmp paths would collide across
   # attempts running in parallel.
   #

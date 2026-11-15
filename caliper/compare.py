@@ -447,8 +447,9 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         judge_mismatch=judge_warning is not None,
         skill_drift=skill_drift,
         warnings=warnings,
-        # Token/wall totals over each whole run. Shown alongside pass@k but never
-        # folded into has_regression — a token drop is a win, not a regression.
+        # Token/wall totals over each whole run. Shown alongside the score
+        # (docs/adr/0007) but never folded into has_regression — a token drop is a
+        # win, not a regression.
         a_usage=UsageTotals.from_task_results(a_tasks),
         b_usage=UsageTotals.from_task_results(b_tasks),
     )
