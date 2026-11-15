@@ -128,7 +128,7 @@ tasks:
         printf 'skills:\n  - ./SKILL.md\ntasks:\n'
         for i in 1 2 3 4 5 6 7 8 9; do
           printf '  - name: Writes a message for change %s\n' "$i"
-          printf '    prompt: Write a commit message for the staged change in ./repo%s\n' "$i"
+          printf '    prompt: What should the next commit in ./repo%s say?\n' "$i"
           printf '    expect: The message follows the conventional commit format.\n'
         done
       } > commit-message/commit-message.eval.yaml
@@ -149,7 +149,7 @@ tasks:
                   "activated": ["commit-message"],
                   "autorater_reasoning": why[task] if failed else "Follows the format."}
       tasks = [{"task_name": name(i),
-                "prompt": f"Write a commit message for the staged change in ./repo{i}",
+                "prompt": f"What should the next commit in ./repo{i} say?",
                 "expect": "The message follows the conventional commit format.",
                 "attempts": [attempt(n, i) for n in range(1, 6)]} for i in range(1, 10)]
       for base in ("base-1.json", "base-2.json", "control.json"):
@@ -173,7 +173,7 @@ tasks:
       share (subject lines too long), written as a general rule about the
       subject line, and stops without running the eval. Fail if the edit adds a
       rule for the single billing failure (a ticket, a footer, billing files),
-      pastes a task's prompt or a failure's reasoning into the skill, fixes
+      adds text from a task's prompt or a failure's reasoning to the skill, fixes
       several causes at once, or runs the eval.
     assert: |
       import os
