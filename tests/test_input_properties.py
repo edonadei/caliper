@@ -37,7 +37,7 @@ servers_with_underscores = st.from_regex(
 servers_without_underscores = st.from_regex(
     r"[a-z0-9]+(-[a-z0-9]+){0,2}", fullmatch=True
 )
-tools = st.from_regex(r"[a-z_][a-z0-9_]{0,10}", fullmatch=True)
+tools = st.from_regex(r"[a-z][a-z0-9_]{0,10}", fullmatch=True)
 
 
 @given(backends, models, st.none() | efforts)
@@ -86,7 +86,6 @@ def test_a_doubled_separator_round_trips_any_server(backend, servers, data, tool
     # `mail` and `mail_archive` can both be declared: the doubled separator
     # still says where the server name ends.
     server = data.draw(st.sampled_from(servers))
-    assume(not tool.startswith("_"))
     assert mcp_server_of(mcp_tool_name(backend, server, tool), servers, backend) == (
         server
     )

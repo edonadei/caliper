@@ -67,7 +67,7 @@ reason. `tests/test_comment_policy.py` checks all three.
 
 Some changes have to be documented in several places:
 
-- a `caliper run` CLI flag is added, removed, or renamed
+- a `caliper` CLI flag is added, removed, or renamed (most often on `caliper run`)
 - the `.eval.yaml` spec format changes
 - the judge's behavior changes (how `expect:` or `assert:` are evaluated)
 - the results JSON schema changes (`RunMeta`, `AttemptRecord`, …)
@@ -80,6 +80,8 @@ For those, update every one of these files that covers the change:
 4. `docs/results.md`: scoring, `caliper compare`, and the results JSON schema
 5. `skills/evaluate-skill/REFERENCE.md`
 6. `skills/grill-skill/REFERENCE.md`
+7. `skills/hillclimb-skill/`: the commands its `REFERENCE.md` and `SKILL.md` run,
+   and the results and `compare` JSON that `climb.py` reads
 
 ## Formatting and linting
 

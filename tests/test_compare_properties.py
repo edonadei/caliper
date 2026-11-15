@@ -7,6 +7,7 @@ tasks changes nothing. See docs/CONTEXT.md → Run comparison and Skill drift.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from datetime import datetime, timezone
 
 from hypothesis import given
@@ -47,9 +48,9 @@ snapshots = st.lists(
 
 
 def _run(
-    task_specs: list[tuple[str, list[Outcome]]],
-    snapshot_specs: list[tuple[str, str, str]] = (),
-    ablated: list[str] = (),
+    task_specs: Sequence[tuple[str, list[Outcome]]],
+    snapshot_specs: Sequence[tuple[str, str, str]] = (),
+    ablated: Sequence[str] = (),
 ) -> RunResults:
     task_results = [
         TaskResult(
@@ -152,26 +153,38 @@ def _installed(names: frozenset[str]) -> list[tuple[str, str, str]]:
     return [(name, "path", "h1") for name in sorted(names)]
 
 
-@given(
-    skill_sets, skill_sets, st.lists(st.sampled_from(NAMES), min_size=1), st.booleans()
-)
+@st.composite
+def ablation_sides(draw) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
+    """A full side, the subjects removed, and an ablated side that is, about
+    half the time, exactly the full side minus them."""
+    full = draw(skill_sets)
+    removed = draw(skill_sets.filter(bool))
+    cut = draw(st.just(full - removed) | skill_sets)
+    return full, removed, cut
+
+
+@given(ablation_sides(), st.booleans())
 def test_an_ablation_pair_is_exactly_the_full_side_minus_its_subjects(
-    full, cut, removed, cut_first
+    sides, cut_first
 ) -> None:
+    full, removed, cut = sides
     full_run = _run([], _installed(full))
-    cut_run = _run([], _installed(cut), ablated=sorted(set(removed)))
+    cut_run = _run([], _installed(cut), ablated=sorted(removed))
     a, b = (cut_run, full_run) if cut_first else (full_run, cut_run)
     comparison = diff_runs(a, b)
+    full_label = comparison.b_label if cut_first else comparison.a_label
 
-    is_pair = set(removed) <= full and cut == full - set(removed)
-    assert (comparison.a_label is not None) == is_pair
-    assert (comparison.b_label is not None) == is_pair
+    if removed <= full and cut == full - removed:
+        assert full_label == f"with {', '.join(sorted(removed))}"
+    else:
+        assert (comparison.a_label, comparison.b_label) == (None, None)
 
 
-@given(skill_sets, skill_sets, st.lists(st.sampled_from(NAMES), min_size=1))
-def test_swapping_an_ablation_pair_swaps_its_labels(full, cut, removed) -> None:
+@given(ablation_sides())
+def test_swapping_an_ablation_pair_swaps_its_labels(sides) -> None:
+    full, removed, cut = sides
     full_run = _run([], _installed(full))
-    cut_run = _run([], _installed(cut), ablated=sorted(set(removed)))
+    cut_run = _run([], _installed(cut), ablated=sorted(removed))
     forward = diff_runs(cut_run, full_run)
     backward = diff_runs(full_run, cut_run)
     assert (forward.a_label, forward.b_label) == (backward.b_label, backward.a_label)

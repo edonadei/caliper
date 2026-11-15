@@ -8,7 +8,7 @@
 
 When any of the following change, update every location below that covers it before marking the task done:
 
-- A `caliper run` CLI flag is added, removed, or renamed
+- A `caliper` CLI flag is added, removed, or renamed (most often on `caliper run`)
 - The `.eval.yaml` spec format changes (new fields, removed fields, renamed keys)
 - The judge behavior changes (how `expect:` or `assert:` are evaluated)
 - The results JSON schema changes (`RunMeta`, `AttemptRecord`, etc.)
@@ -21,8 +21,11 @@ When any of the following change, update every location below that covers it bef
 4. `docs/results.md` — scoring, `caliper compare`, and the results JSON schema
 5. `skills/evaluate-skill/REFERENCE.md` — the source skill reference
 6. `skills/grill-skill/REFERENCE.md` — the grill-skill reference
+7. `skills/hillclimb-skill/` — the commands its `REFERENCE.md` and `SKILL.md`
+   run, and the results and `compare` JSON that `climb.py` reads
 
-`tests/test_doc_sync.py` locks CLI subcommands, `caliper run` flags, exit codes,
+`tests/test_doc_sync.py` locks CLI subcommands, `caliper run` flags (and that
+skill docs pass only real flags to any command), exit codes,
 registered backends, `.eval.yaml` keys, `Outcome` values, and `RunResults`
 schema fields across those files; keep the surrounding prose and judging rules
 aligned when behavior changes. Run
