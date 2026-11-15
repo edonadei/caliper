@@ -11,6 +11,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from caliper.harness.base import AttemptResult, ConversationTurn
+from caliper.harness.refusal import CliRefusal, RefusalKind
 from caliper.retry import merge
 from caliper.schema.results import (
     AttemptRecord,
@@ -98,7 +99,13 @@ def test_noise_and_trigger_probes_leave_every_score_unchanged(values, extra) -> 
 @given(
     st.lists(
         st.tuples(
-            st.sampled_from([Outcome.PASS, Outcome.TASK_FAIL]),
+            st.sampled_from(
+                [
+                    o
+                    for o in Outcome
+                    if o.is_activation_usable and o is not Outcome.JUDGE_ERROR
+                ]
+            ),
             st.none() | st.booleans(),
             st.booleans(),
         ),
@@ -145,7 +152,7 @@ def test_total_tokens_sums_the_reported_parts(usage) -> None:
 
 
 @given(st.lists(st.tuples(st.sampled_from(Outcome), durations, st.none() | usages)))
-def test_usable_and_unusable_attempts_add_up(attempts) -> None:
+def test_run_totals_are_the_attempts_spend(attempts) -> None:
     totals = UsageTotals.from_task_results(
         [
             _task(
@@ -162,9 +169,15 @@ def test_usable_and_unusable_attempts_add_up(attempts) -> None:
             )
         ]
     )
-    assert totals.usable_attempts + totals.unusable_attempts == totals.attempts
+    # Every attempt's spend counts toward the run, and the noise subset is the
+    # noise attempts' own spend (docs/CONTEXT.md → Run usage totals).
+    spent = [(o, (u.total_tokens or 0) if u else 0) for o, _, u in attempts]
     assert totals.attempts == len(attempts)
-    assert 0 <= totals.unusable_tokens <= totals.total_tokens
+    assert totals.total_tokens == sum(tokens for _, tokens in spent)
+    assert totals.unusable_tokens == sum(
+        tokens for outcome, tokens in spent if outcome.is_execution_noise
+    )
+    assert totals.unusable_attempts == sum(o.is_execution_noise for o, _, _ in attempts)
 
 
 @given(
@@ -187,50 +200,52 @@ turns = st.builds(
     role=st.sampled_from(["user", "assistant", "tool"]),
     content=st.text(max_size=8),
 )
-invocations = st.builds(
+invocation_results = st.builds(
     AttemptResult,
     transcript=st.lists(turns, max_size=3),
     final_output=st.text(max_size=8),
     exit_code=st.integers(min_value=-1, max_value=2),
     duration_seconds=durations,
     timed_out=st.booleans(),
+    error=st.none() | st.text(max_size=4),
     resolved_model=st.none() | st.text(max_size=4),
     usage=st.none() | usages,
+    cancelled=st.booleans(),
     salvaged=st.booleans(),
+    refusal=st.none()
+    | st.builds(
+        CliRefusal, kind=st.sampled_from(RefusalKind), message=st.text(max_size=4)
+    ),
 )
 
 
-@given(invocations)
+@given(invocation_results)
 def test_merging_one_invocation_returns_it(invocation) -> None:
-    assert merge([invocation]) is invocation
+    assert merge([invocation]) == invocation
 
 
-@given(st.lists(invocations, min_size=2, max_size=5))
-def test_merge_ends_like_the_last_invocation_and_keeps_every_turn(invs) -> None:
-    merged = merge(invs)
-    last = invs[-1]
-    assert (
-        merged.final_output,
-        merged.exit_code,
-        merged.timed_out,
-        merged.resolved_model,
-        merged.salvaged,
-    ) == (
-        last.final_output,
-        last.exit_code,
-        last.timed_out,
-        last.resolved_model,
-        last.salvaged,
-    )
-    earlier = [turn for inv in invs[:-1] if not inv.salvaged for turn in inv.transcript]
+@given(st.lists(invocation_results, min_size=2, max_size=5))
+def test_merge_ends_like_the_last_invocation_and_keeps_every_turn(invocations) -> None:
+    merged = merge(invocations)
+    last = invocations[-1]
+    ending = ("final_output", "exit_code", "error", "timed_out", "resolved_model")
+    ending += ("cancelled", "salvaged", "refusal")
+    assert [getattr(merged, name) for name in ending] == [
+        getattr(last, name) for name in ending
+    ]
+    # Earlier invocations add their turns unless salvaged; the last one's turns
+    # are kept either way, since it is the attempt's own ending.
+    earlier = [
+        turn for inv in invocations[:-1] if not inv.salvaged for turn in inv.transcript
+    ]
     assert merged.transcript == [*earlier, *last.transcript]
-    assert merged.duration_seconds == sum(inv.duration_seconds for inv in invs)
+    assert merged.duration_seconds == sum(inv.duration_seconds for inv in invocations)
 
 
-@given(st.lists(invocations, min_size=2, max_size=5))
-def test_merge_sums_each_reported_token_field(invs) -> None:
-    merged = merge(invs)
-    reported = [inv.usage for inv in invs if inv.usage is not None]
+@given(st.lists(invocation_results, min_size=2, max_size=5))
+def test_merge_sums_each_reported_token_field(invocations) -> None:
+    merged = merge(invocations)
+    reported = [inv.usage for inv in invocations if inv.usage is not None]
     if not reported:
         assert merged.usage is None
         return

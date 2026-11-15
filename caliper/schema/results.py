@@ -696,8 +696,9 @@ class UsageTotals(BaseModel):
     # meaningless and render as "—" (wall time is always real).
     tokens_reported: bool = False
     # The same, over the usable attempts alone: a per-attempt figure from noise
-    # spend alone would be a confident zero, not a measurement.
-    usable_tokens_reported: bool = False
+    # spend alone would be a confident zero, not a measurement. Not serialized;
+    # ``tokens_per_attempt`` carries it.
+    usable_tokens_reported: bool = Field(default=False, exclude=True)
     # The unusable-attempt subset of the totals above, reported on its own line.
     unusable_tokens: int = 0
     unusable_wall_seconds: float = 0.0
