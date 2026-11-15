@@ -215,10 +215,14 @@ def test_loaded_sets_warn_only_when_both_are_known_and_differ(
 @pytest.mark.parametrize(
     ("a", "b", "warns"),
     [
-        (dict(loads=True, loaded=["gmail"]), dict(loads=True, loaded=["gmail"]), True),
-        (dict(loads=True, loaded=["gmail"]), dict(loads=False), True),
-        (dict(loads=True, loaded=[]), dict(loads=True, loaded=[]), False),
-        (dict(loads=False), dict(loads=False), False),  # the harness comparison
+        (
+            {"loads": True, "loaded": ["gmail"]},
+            {"loads": True, "loaded": ["gmail"]},
+            True,
+        ),
+        ({"loads": True, "loaded": ["gmail"]}, {"loads": False}, True),
+        ({"loads": True, "loaded": []}, {"loads": True, "loaded": []}, False),
+        ({"loads": False}, {"loads": False}, False),  # the harness comparison
     ],
 )
 def test_a_cross_backend_diff_warns_once_when_a_setup_may_confound_it(a, b, warns):
@@ -236,14 +240,14 @@ def test_a_cross_backend_diff_warns_once_when_a_setup_may_confound_it(a, b, warn
     ("full", "cut", "label"),
     [
         (
-            dict(loads=True, loaded=["gmail"]),
-            dict(loads=True, loaded=["gmail"]),
+            {"loads": True, "loaded": ["gmail"]},
+            {"loads": True, "loaded": ["gmail"]},
             "without subject",
         ),
-        (dict(loads=True, loaded=["gmail"]), dict(loads=False), None),
+        ({"loads": True, "loaded": ["gmail"]}, {"loads": False}, None),
         (
-            dict(loads=True, loaded=["gmail"]),
-            dict(loads=True, loaded=["gmail", "drive"]),
+            {"loads": True, "loaded": ["gmail"]},
+            {"loads": True, "loaded": ["gmail", "drive"]},
             None,
         ),
     ],

@@ -58,7 +58,7 @@ def test_backend_smoke_requires_a_fresh_artifact(
     (tmp_path / artifact).write_text("hello", encoding="utf-8")
     with AttemptWorkdir(_SPEC_DIR) as first, AttemptWorkdir(_SPEC_DIR) as second:
         for workdir in (first, second):
-            assert os.listdir(workdir.path) == []
+            assert list(Path(workdir.path).iterdir()) == []
             assert task.setup is None
             assert task.cleanup is None
             missing = workdir.run_python("assert", task.assert_script)
@@ -101,7 +101,7 @@ def test_stdio_smoke_fixture_is_available_to_every_task() -> None:
             assert task.cleanup is None
             step = workdir.run_python("assert", code)
             assert step.ok, step.output
-            assert os.listdir(workdir.path) == []
+            assert list(Path(workdir.path).iterdir()) == []
 
 
 @pytest.mark.skipif(os.name == "nt", reason="HTTP smoke fixture requires POSIX shell")

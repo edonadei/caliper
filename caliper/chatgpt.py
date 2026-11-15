@@ -219,7 +219,7 @@ class ChatGPTAccount:
     def _locked(self) -> Generator[None, None, None]:
         """Hold the login against every other refresh, in any caliper process."""
         self._home.mkdir(parents=True, exist_ok=True)
-        with _THREAD_LOCK, open(self._home / "chatgpt.lock", "a+b") as handle:
+        with _THREAD_LOCK, (self._home / "chatgpt.lock").open("a+b") as handle:
             _lock_file(handle)
             try:
                 yield
@@ -456,7 +456,7 @@ def _write_private(path: Path, text: str) -> None:
     fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         handle.write(text)
-    os.replace(temp, path)
+    temp.replace(path)
 
 
 class _Callback:

@@ -410,7 +410,7 @@ def test_codex_judge_uses_output_last_message(
     def fake_run(cmd, **kwargs):
         calls.append((cmd, kwargs))
         output_path = cmd[cmd.index("--output-last-message") + 1]
-        with open(output_path, "w") as f:
+        with Path(output_path).open("w") as f:
             json.dump(
                 {
                     "mode": "verdict",

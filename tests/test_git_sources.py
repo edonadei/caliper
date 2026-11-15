@@ -8,7 +8,9 @@ and docs/CONTEXT.md → Skill source, Skill drift.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -107,7 +109,7 @@ def test_ref_and_path_are_optional():
 
 
 def test_path_must_point_at_a_skill_md():
-    with pytest.raises(ValidationError, match="SKILL.md"):
+    with pytest.raises(ValidationError, match=re.escape("SKILL.md")):
         _spec([{"repo": "owner/name", "path": "skills/tdd"}])
 
 
@@ -723,3 +725,23 @@ def test_offline_resolution_skips_an_uncached_git_source(tmp_path: Path, origin:
 
     assert [r.name for r in refs] == ["mine"]
     assert fetcher.unresolved
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX symlinks")
+def test_a_git_source_with_an_escaping_symlink_is_diagnosed_by_resolve_skills(
+    tmp_path: Path, origin: Path
+):
+    """Fetch stays lexical so resolve_skills raises the ADR 0027 symlink refusal."""
+    outside = _write_skill(tmp_path / "outside", "escaped")
+    (origin / "SKILL.md").unlink()
+    (origin / "SKILL.md").symlink_to(outside)
+    _git("add", "-A", cwd=origin)
+    _git("commit", "-m", "symlink skill out of repo", cwd=origin)
+
+    fetcher = SkillFetcher(cache_dir=tmp_path / "cache")
+    src = GitSkillSource(repo=str(origin), ref="main")
+    fetched = fetcher.materialize(src)
+    assert fetched is not None
+
+    with pytest.raises(SkillResolutionError, match="symlink"):
+        resolve_skills([src], tmp_path, fetcher=fetcher)

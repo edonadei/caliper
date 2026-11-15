@@ -592,10 +592,7 @@ def _yaml_kind(value: object) -> str:
 
 
 def spec_name(path: Path) -> str:
-    name = path.stem
-    if name.endswith(".eval"):
-        name = name[: -len(".eval")]
-    return name
+    return path.stem.removesuffix(".eval")
 
 
 def is_usable_spec_name(name: str) -> bool:

@@ -69,7 +69,7 @@ def test_history_without_a_selected_model_is_refused_before_import(
         history=[PlantedTurn(user="Earlier question")],
     )
 
-    with pytest.raises(HarnessConfigurationError, match="history.*requires a model"):
+    with pytest.raises(HarnessConfigurationError, match=r"history.*requires a model"):
         OpenCodeHarness().run(ctx)
 
     assert not history_cli.exists()
@@ -130,7 +130,7 @@ def test_nested_subagent_build_md_does_not_mask_missing_primary_model(
         history=[PlantedTurn(user="Earlier question")],
     )
 
-    with pytest.raises(HarnessConfigurationError, match="history.*requires a model"):
+    with pytest.raises(HarnessConfigurationError, match=r"history.*requires a model"):
         OpenCodeHarness().run(ctx)
 
 

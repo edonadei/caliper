@@ -77,7 +77,7 @@ def _fmt_tokens(n: int) -> str:
 
 def _fmt_duration(seconds: float) -> str:
     """Wall-clock time: '42s', '6m 18s', '1h 2m'."""
-    total = int(round(seconds))
+    total = round(seconds)
     if total < 60:
         return f"{total}s"
     if total < 3600:

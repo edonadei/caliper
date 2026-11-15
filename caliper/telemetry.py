@@ -84,7 +84,7 @@ def set_enabled(value: bool) -> None:
         with tempfile.NamedTemporaryFile(mode="w", dir=home, delete=False) as stream:
             temporary = Path(stream.name)
             json.dump({"enabled": value}, stream)
-        os.replace(temporary, home / "telemetry.json")
+        temporary.replace(home / "telemetry.json")
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)

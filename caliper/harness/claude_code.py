@@ -105,7 +105,7 @@ class ClaudeCodeHarness(CliHarness):
     activation_tool_names = frozenset({"Skill"})
     # `claude setup-token` is the documented way to authenticate a headless run,
     # and the stripped HOME is exactly the case it exists for.
-    env_passthrough = CliHarness.env_passthrough + ("CLAUDE_CODE_OAUTH_TOKEN",)
+    env_passthrough = (*CliHarness.env_passthrough, "CLAUDE_CODE_OAUTH_TOKEN")
     config_home_env = "CLAUDE_CONFIG_DIR"
     config_home = ".claude"
     # Attempts are left on the default layout under the isolated HOME rather
@@ -427,7 +427,7 @@ class ClaudeCodeHarness(CliHarness):
             prefixes.extend(
                 p
                 for p in ("/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin")
-                if os.path.isdir(p)
+                if Path(p).is_dir()
             )
         return prefixes
 

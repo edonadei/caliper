@@ -417,7 +417,11 @@ def test_a_declined_sign_in_stores_nothing(auth, tmp_path) -> None:
 
 def test_identity_rejects_missing_or_malformed_id_token(auth, tmp_path) -> None:
     acct = account(auth, tmp_path)
-    with pytest.raises(ChatGPTLoginError, match="ChatGPT returned no usable ID token."):
+    with pytest.raises(
+        ChatGPTLoginError, match=r"ChatGPT returned no usable ID token\."
+    ):
         acct._identity(None, "client-id", "nonce")
-    with pytest.raises(ChatGPTLoginError, match="ChatGPT returned no usable ID token."):
+    with pytest.raises(
+        ChatGPTLoginError, match=r"ChatGPT returned no usable ID token\."
+    ):
         acct._identity("not-a-jwt", "client-id", "nonce")

@@ -21,8 +21,8 @@ def get_harness(
 
 __all__ = [
     "AttemptResult",
+    "CliHarness",
     "ConversationTurn",
     "HarnessBackend",
-    "CliHarness",
     "get_harness",
 ]

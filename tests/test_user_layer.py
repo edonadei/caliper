@@ -528,7 +528,7 @@ def test_synced_account_skills_are_the_users_never_built_in(
 
     report = AgentReport(
         exposed_skills=["personal", "anthropic-skills:pdf", "debug"],
-        read_mcp_servers=lambda: [],
+        read_mcp_servers=list,
     )
     assert "anthropic-skills:pdf" not in (staged.builtin(report) or [])
     if loads:

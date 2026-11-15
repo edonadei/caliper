@@ -726,3 +726,39 @@ def test_pytest_config_isolates_discovery() -> None:
             f"{excluded!r} is not excluded by [tool.pytest.ini_options].norecursedirs "
             f"({patterns!r}); explicit `pytest .` runs would recurse into it."
         )
+
+
+def test_ruff_lint_selects_agent_guardrail_rules() -> None:
+    """Ruff lint configuration must enforce agent guardrail rule families.
+
+    See docs/adr/0002-ruff-as-sole-formatting-authority.md.
+    """
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    lint = pyproject["tool"]["ruff"]["lint"]
+    selected = set(lint.get("select", []))
+    required = {
+        "B",
+        "BLE",
+        "C4",
+        "E4",
+        "E7",
+        "E9",
+        "F",
+        "FURB",
+        "I",
+        "PIE",
+        "PT",
+        "PTH",
+        "RUF",
+        "SIM",
+        "T20",
+        "TID",
+        "UP",
+    }
+    missing = required - selected
+    assert not missing, (
+        f"[tool.ruff.lint].select in pyproject.toml is missing required rule families: {sorted(missing)}"
+    )
+    assert "E501" not in selected, (
+        "E501 must stay off: the formatter owns line length (see docs/adr/0002-ruff-as-sole-formatting-authority.md)."
+    )

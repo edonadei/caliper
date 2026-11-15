@@ -224,7 +224,7 @@ class HermesHarness(CliHarness):
         # home; whatever is still held is left, marked, for a later sweep.
         link = self.attempt_config_home(ctx)
         if os.path.lexists(link):
-            os.rmdir(link)
+            link.rmdir()
         _remove_attempt_home(attempt_home)
 
     def bundled_skill_names(self, source: Path) -> set[str]:
