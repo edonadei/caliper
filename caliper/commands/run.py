@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import NoReturn
@@ -42,7 +42,7 @@ console = Console()
 
 
 @contextmanager
-def _interrupt_guard(console: Console) -> Iterator[None]:
+def _interrupt_guard(console: Console) -> Generator[None, None, None]:
     """Make the first Ctrl-C a graceful stop and the second a hard quit.
 
     The first interrupt asks the run to stop and kills the agents in flight, so
@@ -316,7 +316,7 @@ def run_cmd(
 
     if stopped is not None:
         _stop(stopped)
-    if saved is False:
+    if saved is False or results is None:
         raise typer.Exit(ExitCode.CANNOT_RUN)
     if results.run.interrupted:
         raise typer.Exit(ExitCode.INTERRUPTED)

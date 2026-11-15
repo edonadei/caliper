@@ -18,7 +18,7 @@ import threading
 import time
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import click
 import typer
@@ -254,7 +254,7 @@ def _outcome(code: int) -> Outcome:
 class TelemetryCommand(TyperCommand):
     """Observe parsed commands, preserving Click's return and exception behavior."""
 
-    def invoke(self, ctx: typer.Context) -> object:
+    def invoke(self, ctx: Any) -> object:
         started = time.monotonic()
         outcome: Outcome = "error"
         try:
@@ -274,7 +274,7 @@ class TelemetryCommand(TyperCommand):
             raise
         finally:
             record(
-                self.name,
+                self.name or "unknown",
                 outcome,
                 time.monotonic() - started,
                 model=ctx.params.get("model"),

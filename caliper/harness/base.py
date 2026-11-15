@@ -308,28 +308,6 @@ def _timeout_output(partial: bytes | str | None, drained: bytes | str | None) ->
     return output.replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
-def _cancel_synchronous_io(reader: threading.Thread) -> None:
-    """Interrupt a Windows thread blocked in a synchronous ``ReadFile``."""
-    if reader.native_id is None:
-        return
-    import ctypes
-    from ctypes import wintypes
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.OpenThread.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
-    kernel32.OpenThread.restype = wintypes.HANDLE
-    kernel32.CancelSynchronousIo.argtypes = (wintypes.HANDLE,)
-    kernel32.CancelSynchronousIo.restype = wintypes.BOOL
-    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
-    kernel32.CloseHandle.restype = wintypes.BOOL
-    thread_handle = kernel32.OpenThread(0x0001, False, reader.native_id)
-    if thread_handle:
-        try:
-            kernel32.CancelSynchronousIo(thread_handle)
-        finally:
-            kernel32.CloseHandle(thread_handle)
-
-
 def _communicate_windows(proc: subprocess.Popen, deadline: float) -> ProcessResult:
     """Drain ``proc`` on Windows without ``Popen.communicate``'s uninterruptible read.
 
@@ -395,7 +373,7 @@ def _communicate_windows(proc: subprocess.Popen, deadline: float) -> ProcessResu
             stopped.set()
             for reader, stream in readers:
                 if reader.is_alive():
-                    _cancel_synchronous_io(reader)
+                    cancel.cancel_synchronous_io(reader)
                 stream.close()
             for reader, _ in readers:
                 reader.join(timeout=1)
@@ -528,7 +506,9 @@ class HarnessBackend(ABC):
     # ``history:``. Default ``False``: the run seam refuses such a spec rather
     # than starting the agent at turn 1 on a different task (docs/adr/0036).
     # A ``CliHarness`` derives it from its ``session_format``.
-    supports_history: bool = False
+    @property
+    def supports_history(self) -> bool:
+        return False
 
     # Appended to that refusal by a backend whose lack of support is by design.
     history_unsupported_hint: str | None = None
@@ -619,9 +599,6 @@ class CliHarness(HarnessBackend):
     (``AgentReport.cli_errors``), and this class classifies them
     (docs/adr/0030).
     """
-
-    # The misconfigurations this backend's CLI reports, checked in order.
-    config_signals: tuple[ConfigSignal, ...] = ()
 
     # Whether raw stdout is kept as a single turn when nothing parsed out of it.
     # ``False`` for a CLI whose stdout is only ever its event stream, where an
@@ -915,6 +892,11 @@ class CliHarness(HarnessBackend):
     @property
     def supports_history(self) -> bool:
         return self.session_format is not None
+
+    # The misconfigurations this backend's CLI reports, checked in order.
+    @property
+    def config_signals(self) -> tuple[ConfigSignal, ...]:
+        return ()
 
     def _attempt_scope(self, ctx: RunContext) -> contextlib.AbstractContextManager:
         """Whatever must exist for the whole attempt, from staging to the read.

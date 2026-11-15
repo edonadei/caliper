@@ -21,9 +21,10 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import sys
 import threading
 import weakref
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager, suppress
 
 import psutil
@@ -87,7 +88,7 @@ def track(
     *,
     cancel_if_requested: bool = True,
     process_tag: str | None = None,
-) -> Iterator[subprocess.Popen]:
+) -> Generator[subprocess.Popen, None, None]:
     """Register a spawned process so :func:`request` can reach it.
 
     A cancellation that lands between the spawn and the registration would
@@ -210,3 +211,26 @@ def _tagged_processes(tag: str) -> set[psutil.Process]:
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
     return matches
+
+
+def cancel_synchronous_io(reader: threading.Thread) -> None:
+    """Interrupt a Windows thread blocked in a synchronous ``ReadFile``."""
+    if reader.native_id is None:
+        return
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenThread.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel32.OpenThread.restype = wintypes.HANDLE
+        kernel32.CancelSynchronousIo.argtypes = (wintypes.HANDLE,)
+        kernel32.CancelSynchronousIo.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        thread_handle = kernel32.OpenThread(0x0001, False, reader.native_id)
+        if thread_handle:
+            try:
+                kernel32.CancelSynchronousIo(thread_handle)
+            finally:
+                kernel32.CloseHandle(thread_handle)

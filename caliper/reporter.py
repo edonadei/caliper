@@ -25,7 +25,7 @@ the other:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 
@@ -85,6 +85,25 @@ def _fmt_duration(seconds: float) -> str:
     return f"{total // 3600}h {(total % 3600) // 60}m"
 
 
+_UNICODE: bool = False
+_SEP: str = "-"
+_RULE: str = "-"
+_WARN: str = "!"
+_CHECK: str = "+"
+_CROSS: str = "x"
+_TO: str = "->"
+_UNUSABLE: str = "o"
+_PENDING: str = "."
+_DOWN: str = "v"
+_DELTA: str = "delta"
+UNUSABLE_GLYPH: str = "o"
+RULE_GLYPH: str = "-"
+WARN_GLYPH: str = "!"
+SEP_GLYPH: str = "-"
+_OUTCOME_MARK: dict[Outcome, tuple[str, str]] = {}
+_TALLY_ORDER: list[str] = []
+
+
 def _configure_glyphs(unicode: bool) -> None:
     global _UNICODE, _SEP, _RULE, _WARN, _CHECK, _CROSS, _TO, _UNUSABLE, _PENDING
     global _DOWN, _DELTA, UNUSABLE_GLYPH, RULE_GLYPH, WARN_GLYPH, SEP_GLYPH
@@ -133,7 +152,9 @@ _STRIP_MAX = 5
 
 
 @contextmanager
-def use_console(target: Console, *, unicode: bool | None = None) -> Iterator[None]:
+def use_console(
+    target: Console, *, unicode: bool | None = None
+) -> Generator[None, None, None]:
     """Direct reporter output to ``target`` with matching glyph capabilities."""
     global console
     prev_console = console
@@ -347,7 +368,7 @@ def _badge(command: str, spec: Text, k: Text, when: str = "") -> Text:
     return line
 
 
-def _names(names: list[str], removed: list[str] = ()) -> Text:
+def _names(names: list[str], removed: Sequence[str] = ()) -> Text:
     """A comma list, with removed members struck through and marked."""
     text = Text()
     for name in names:

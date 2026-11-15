@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from conftest import run_context
+from conftest import ScriptedHarness, run_context
 
 from caliper.backends import BACKENDS
 from caliper.harness import get_harness
@@ -30,6 +30,7 @@ from caliper.harness.base import (
     AgentReport,
     CliHarness,
     ConversationTurn,
+    HarnessBackend,
     HarnessConfigurationError,
     ProcessResult,
 )
@@ -1133,3 +1134,26 @@ def test_no_session_store_reports_no_effort(backend, tmp_path) -> None:
     ctx = run_context(isolated_home=str(tmp_path))
 
     assert backend()._read(_proc(), ctx).resolved_effort is None
+
+
+def test_harness_backend_property_contract() -> None:
+    class MinimalHarness(HarnessBackend):
+        @property
+        def name(self) -> str:
+            return "minimal"
+
+        def cli_version(self, *, prompt: bool = False) -> str | None:
+            return None
+
+        def run(self, ctx):
+            raise NotImplementedError
+
+    harness = MinimalHarness()
+    assert harness.supports_history is False
+    assert not hasattr(harness, "config_signals")
+    assert _ReadyHarness().config_signals == ()
+
+    scripted_default = ScriptedHarness()
+    assert scripted_default.supports_history is False
+    scripted_custom = ScriptedHarness(supports_history=True)
+    assert scripted_custom.supports_history is True

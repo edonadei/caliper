@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import subprocess
+import sys
 import time
 from ctypes import wintypes
 
@@ -13,27 +14,28 @@ CREATE_SUSPENDED = 0x00000004
 _THREAD_SUSPEND_RESUME = 0x0002
 _INVALID_RESUME_COUNT = 0xFFFFFFFF
 
-_kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-_kernel32.CreateJobObjectW.argtypes = (wintypes.LPVOID, wintypes.LPCWSTR)
-_kernel32.CreateJobObjectW.restype = wintypes.HANDLE
-_kernel32.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
-_kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
-_kernel32.TerminateJobObject.argtypes = (wintypes.HANDLE, wintypes.UINT)
-_kernel32.TerminateJobObject.restype = wintypes.BOOL
-_kernel32.OpenThread.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
-_kernel32.OpenThread.restype = wintypes.HANDLE
-_kernel32.ResumeThread.argtypes = (wintypes.HANDLE,)
-_kernel32.ResumeThread.restype = wintypes.DWORD
-_kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
-_kernel32.CloseHandle.restype = wintypes.BOOL
-_kernel32.QueryInformationJobObject.argtypes = (
-    wintypes.HANDLE,
-    ctypes.c_int,
-    wintypes.LPVOID,
-    wintypes.DWORD,
-    wintypes.LPDWORD,
-)
-_kernel32.QueryInformationJobObject.restype = wintypes.BOOL
+if sys.platform == "win32":
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _kernel32.CreateJobObjectW.argtypes = (wintypes.LPVOID, wintypes.LPCWSTR)
+    _kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    _kernel32.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
+    _kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    _kernel32.TerminateJobObject.argtypes = (wintypes.HANDLE, wintypes.UINT)
+    _kernel32.TerminateJobObject.restype = wintypes.BOOL
+    _kernel32.OpenThread.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    _kernel32.OpenThread.restype = wintypes.HANDLE
+    _kernel32.ResumeThread.argtypes = (wintypes.HANDLE,)
+    _kernel32.ResumeThread.restype = wintypes.DWORD
+    _kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    _kernel32.CloseHandle.restype = wintypes.BOOL
+    _kernel32.QueryInformationJobObject.argtypes = (
+        wintypes.HANDLE,
+        ctypes.c_int,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.LPDWORD,
+    )
+    _kernel32.QueryInformationJobObject.restype = wintypes.BOOL
 
 _JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION = 1
 
@@ -53,11 +55,14 @@ class _BasicAccounting(ctypes.Structure):
 
 def assign_and_resume(process: subprocess.Popen) -> int:
     """Assign before the launcher can start children, then resume its thread."""
+    if sys.platform != "win32":
+        return 0
     job = _kernel32.CreateJobObjectW(None, None)
     if not job:
         raise ctypes.WinError(ctypes.get_last_error())
     try:
-        if not _kernel32.AssignProcessToJobObject(job, process._handle):
+        handle = int(getattr(process, "_handle"))  # noqa: B009 - Windows-only CPython attribute
+        if not _kernel32.AssignProcessToJobObject(job, handle):
             raise ctypes.WinError(ctypes.get_last_error())
         threads = psutil.Process(process.pid).threads()
         if not threads:
@@ -83,6 +88,8 @@ def close(job: int, timeout: float = 2.0) -> None:
     ``timeout``) until the job reports no active process, as the POSIX branch
     waits on its process group: a caller that returns must leave no survivor.
     """
+    if sys.platform != "win32":
+        return
     try:
         if not _kernel32.TerminateJobObject(job, 1):
             raise ctypes.WinError(ctypes.get_last_error())
@@ -94,6 +101,8 @@ def close(job: int, timeout: float = 2.0) -> None:
 
 
 def _active_processes(job: int) -> int:
+    if sys.platform != "win32":
+        return 0
     info = _BasicAccounting()
     if not _kernel32.QueryInformationJobObject(
         job,

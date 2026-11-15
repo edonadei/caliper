@@ -43,6 +43,8 @@ dev = [
     "pytest",
     "ruff==0.15.20",
     "pre-commit",
+    "ty==0.0.104",
+    "tomli>=2",
 ]
 
 [project.scripts]
@@ -81,6 +83,9 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 "tests/**" = ["TID251"]
 "docs/**" = ["T20"]
 "skills/**" = ["T20"]
+
+[tool.ty.src]
+include = ["caliper", "docs", "skills"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -273,22 +273,7 @@ def _drain_windows(process: subprocess.Popen, fd: int, keep, deadline: float) ->
     # Closing a pipe does not reliably interrupt another thread's synchronous
     # ReadFile on Windows. Cancel that read explicitly before closing the
     # stream, then wait for the thread to exit.
-    import ctypes
-    from ctypes import wintypes
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.OpenThread.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
-    kernel32.OpenThread.restype = wintypes.HANDLE
-    kernel32.CancelSynchronousIo.argtypes = (wintypes.HANDLE,)
-    kernel32.CancelSynchronousIo.restype = wintypes.BOOL
-    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
-    kernel32.CloseHandle.restype = wintypes.BOOL
-    thread_handle = kernel32.OpenThread(0x0001, False, reader.native_id)
-    if thread_handle:
-        try:
-            kernel32.CancelSynchronousIo(thread_handle)
-        finally:
-            kernel32.CloseHandle(thread_handle)
+    cancel.cancel_synchronous_io(reader)
     assert process.stdout is not None
     process.stdout.close()
     reader.join(timeout=1)
