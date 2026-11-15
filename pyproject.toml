@@ -79,9 +79,15 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 "caliper.harness.hermes".msg = "Go through caliper.harness.get_harness; backends stay behind the harness seam."
 "caliper.harness.antigravity".msg = "Go through caliper.harness.get_harness; backends stay behind the harness seam."
 "caliper.harness.opencode".msg = "Go through caliper.harness.get_harness; backends stay behind the harness seam."
+"caliper.judge.eval_judge".msg = "Go through caliper.judge; keep concrete judge internals behind the judge seam."
+"caliper.harness.cli_config".msg = "Internal to caliper.harness; expose shared contracts through caliper.harness.base if needed outside harnesses."
+"caliper.harness.history".msg = "Internal to caliper.harness; expose shared contracts through caliper.harness.base if needed outside harnesses."
+"caliper.harness.user_layer".msg = "Internal to caliper.harness; expose shared contracts through caliper.harness.base if needed outside harnesses."
+"caliper.harness.windows_job".msg = "Internal to caliper.harness; expose shared contracts through caliper.harness.base if needed outside harnesses."
 
 [tool.ruff.lint.per-file-ignores]
 "caliper/harness/**" = ["TID251"]
+"caliper/judge/__init__.py" = ["TID251"]
 "tests/**" = ["TID251"]
 "docs/**" = ["T20"]
 "skills/**" = ["T20"]

@@ -42,6 +42,28 @@ EXPECTED_SEAM_BAN_MSG = (
     "Go through caliper.harness.get_harness; backends stay behind the harness seam."
 )
 
+# Seam packages: outside the package, only these modules may be imported. Every
+# other module in it (bar registered backends, covered above) is internal and
+# must be banned in pyproject.toml with the package's message.
+SEAM_PUBLIC_MODULES = {
+    "caliper.harness": (
+        "caliper.harness",
+        "caliper.harness.base",
+        "caliper.harness.mcp",
+        "caliper.harness.refusal",
+    ),
+    "caliper.judge": ("caliper.judge", "caliper.judge.base"),
+}
+EXPECTED_INTERNAL_BAN_MSG = {
+    "caliper.harness": (
+        "Internal to caliper.harness; expose shared contracts through "
+        "caliper.harness.base if needed outside harnesses."
+    ),
+    "caliper.judge": (
+        "Go through caliper.judge; keep concrete judge internals behind the judge seam."
+    ),
+}
+
 # 1. Stdlib-only registry, version, and local config.
 REGISTRY_AND_CONFIG = ("caliper", "caliper.backends", "caliper.config")
 
@@ -344,11 +366,13 @@ def test_every_caliper_module_is_classified() -> None:
     )
 
 
-def test_every_registered_backend_is_banned_behind_harness_seam() -> None:
+def _pyproject_banned_api() -> dict[str, dict[str, str]]:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    banned_api: dict[str, dict[str, str]] = pyproject["tool"]["ruff"]["lint"][
-        "flake8-tidy-imports"
-    ]["banned-api"]
+    return pyproject["tool"]["ruff"]["lint"]["flake8-tidy-imports"]["banned-api"]
+
+
+def test_every_registered_backend_is_banned_behind_harness_seam() -> None:
+    banned_api = _pyproject_banned_api()
     backends = _registered_backend_modules()
 
     missing: list[str] = []
@@ -463,6 +487,55 @@ def test_registered_backend_modules_never_import_each_other_or_leak() -> None:
         "No module in caliper/ may statically import a registered backend module "
         "(caliper/harness/** is exempted from Ruff TID251, so this test closes the "
         "gap inside caliper/harness/ as well):\n" + "\n".join(seam_leaks)
+    )
+
+
+def _seam_internal_modules(package: str) -> tuple[str, ...]:
+    backend_mods = {mod for mod, _ in _registered_backend_modules().values()}
+    return tuple(
+        sorted(
+            name
+            for name in _caliper_modules()
+            if _matches_prefix(name, package)
+            and name not in SEAM_PUBLIC_MODULES[package]
+            and name not in backend_mods
+        )
+    )
+
+
+@pytest.mark.parametrize("package", sorted(SEAM_PUBLIC_MODULES))
+def test_seam_internal_modules_are_banned_outside_their_package(package: str) -> None:
+    banned_api = _pyproject_banned_api()
+    internal = _seam_internal_modules(package)
+    expected_msg = EXPECTED_INTERNAL_BAN_MSG[package]
+
+    missing = [mod for mod in internal if mod not in banned_api]
+    wrong_msg = [
+        f"{mod}: {banned_api[mod].get('msg')!r}"
+        for mod in internal
+        if mod in banned_api and banned_api[mod].get("msg") != expected_msg
+    ]
+    assert not missing, (
+        f"Internal {package} module(s) not banned in pyproject.toml under "
+        f"[tool.ruff.lint.flake8-tidy-imports.banned-api] ({ADR_0044}):\n  "
+        + "\n  ".join(missing)
+        + f"\nFix: ban each with msg {expected_msg!r}, or, if callers outside "
+        f"{package} need it, add it to SEAM_PUBLIC_MODULES in tests/test_architecture.py."
+    )
+    assert not wrong_msg, (
+        f"Internal {package} banned-api entries must use {expected_msg!r}. "
+        "Mismatched:\n  " + "\n  ".join(wrong_msg)
+    )
+
+    _check_banned_imports(
+        [
+            mod
+            for mod in _caliper_modules().values()
+            if not _matches_prefix(mod.name, package)
+        ],
+        internal,
+        boundary_label=f"Code outside {package}",
+        remedy=f"import from {package} (or {package}.base) instead.",
     )
 
 

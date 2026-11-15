@@ -28,8 +28,7 @@ from caliper.harness.claude_code import NO_ACCOUNT_CONTENT
 from caliper.harness.codex import CodexHarness, _extract_codex_error
 from caliper.harness.hermes import HermesHarness
 from caliper.harness.pi import PiHarness
-from caliper.judge import eval_judge
-from caliper.judge.eval_judge import EvalJudge, render_judge_prompt
+from caliper.judge import EvalJudge, eval_judge, render_judge_prompt
 from caliper.schema.results import TranscriptTurn
 from caliper.schema.spec import TaskSpec
 from caliper.workdir import _STEP_TIMEOUTS, StepCancelled
