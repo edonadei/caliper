@@ -245,6 +245,14 @@ gh api -X PATCH repos/edonadei/caliper/branches/main/protection \
 JSON
 ```
 
+`.github/workflows/views.yml` runs only on a pull request that touches what
+the README's terminal views are drawn from: `caliper/reporter.py`,
+`caliper/compare.py`, `caliper/schema/results.py`, the README render scripts,
+`docs/assets/`, or `pyproject.toml`. Its `views` job checks that the committed
+SVGs are the real renders. It then shows each view the PR changes in the job
+summary, before and after, so you review the output rather than the SVG
+source. It isn't a required check, since most pull requests never run it.
+
 ## Pull requests
 
 - Keep each PR to one issue, and link that issue in the body (`Closes #123`).
