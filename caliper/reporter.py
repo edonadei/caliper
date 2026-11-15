@@ -25,7 +25,8 @@ the other:
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from rich import box
@@ -84,45 +85,68 @@ def _fmt_duration(seconds: float) -> str:
     return f"{total // 3600}h {(total % 3600) // 60}m"
 
 
-_UNICODE = _supports_unicode()
-_SEP = "·" if _UNICODE else "-"
-_RULE = "—" if _UNICODE else "-"
-_WARN = "⚠" if _UNICODE else "!"
-_CHECK = "✓" if _UNICODE else "+"
-_CROSS = "✗" if _UNICODE else "x"
-_TO = "→" if _UNICODE else "->"
-_UNUSABLE = "⊘" if _UNICODE else "o"
-_PENDING = "·" if _UNICODE else "."
-_DOWN = "▼" if _UNICODE else "v"
-_DELTA = "Δ" if _UNICODE else "delta"
-# Re-exported: `list` marks an interrupted run with the same glyph, and a
-# second literal would be a second thing to forget the ASCII fallback on.
-UNUSABLE_GLYPH = _UNUSABLE
-# Likewise: `list` renders an unmeasured run's score with the same rule the
-# report uses for "nothing to show here".
-RULE_GLYPH = _RULE
-# And for `run`'s live warnings, which print beside the progress view.
-WARN_GLYPH = _WARN
-SEP_GLYPH = _SEP
+def _configure_glyphs(unicode: bool) -> None:
+    global _UNICODE, _SEP, _RULE, _WARN, _CHECK, _CROSS, _TO, _UNUSABLE, _PENDING
+    global _DOWN, _DELTA, UNUSABLE_GLYPH, RULE_GLYPH, WARN_GLYPH, SEP_GLYPH
+    global _OUTCOME_MARK, _TALLY_ORDER
+    _UNICODE = unicode
+    _SEP = "·" if unicode else "-"
+    _RULE = "—" if unicode else "-"
+    _WARN = "⚠" if unicode else "!"
+    _CHECK = "✓" if unicode else "+"
+    _CROSS = "✗" if unicode else "x"
+    _TO = "→" if unicode else "->"
+    _UNUSABLE = "⊘" if unicode else "o"
+    _PENDING = "·" if unicode else "."
+    _DOWN = "▼" if unicode else "v"
+    _DELTA = "Δ" if unicode else "delta"
+    # Re-exported: `list` marks an interrupted run with the same glyph, and a
+    # second literal would be a second thing to forget the ASCII fallback on.
+    UNUSABLE_GLYPH = _UNUSABLE
+    # Likewise: `list` renders an unmeasured run's score with the same rule the
+    # report uses for "nothing to show here".
+    RULE_GLYPH = _RULE
+    # And for `run`'s live warnings, which print beside the progress view.
+    WARN_GLYPH = _WARN
+    SEP_GLYPH = _SEP
+    # Per-outcome mark and style. Usable failures read as failures; the three
+    # noise outcomes share the distinct ⊘; a trigger probe is dim, not yellow:
+    # nothing was asked, so nothing went wrong.
+    _OUTCOME_MARK = {
+        Outcome.PASS: (_CHECK, "green"),
+        Outcome.TASK_FAIL: (_CROSS, "bold red"),
+        Outcome.CHEAT: (_WARN, "bold yellow"),
+        Outcome.INFRA_ERROR: (_UNUSABLE, "yellow"),
+        Outcome.TIMEOUT: (_UNUSABLE, "yellow"),
+        Outcome.JUDGE_ERROR: (_UNUSABLE, "yellow"),
+        Outcome.NOT_CHECKED: (_RULE, "dim"),
+    }
+    _TALLY_ORDER = [_CHECK, _CROSS, _WARN, _UNUSABLE, _RULE, _PENDING]
 
-# Per-outcome mark and style. Usable failures read as failures; the three noise
-# outcomes share the distinct ⊘; a trigger probe is dim, not yellow: nothing was
-# asked, so nothing went wrong.
-_OUTCOME_MARK = {
-    Outcome.PASS: (_CHECK, "green"),
-    Outcome.TASK_FAIL: (_CROSS, "bold red"),
-    Outcome.CHEAT: (_WARN, "bold yellow"),
-    Outcome.INFRA_ERROR: (_UNUSABLE, "yellow"),
-    Outcome.TIMEOUT: (_UNUSABLE, "yellow"),
-    Outcome.JUDGE_ERROR: (_UNUSABLE, "yellow"),
-    Outcome.NOT_CHECKED: (_RULE, "dim"),
-}
+
+_configure_glyphs(_supports_unicode())
 _HARNESS_FAILURES = frozenset({Outcome.TIMEOUT, Outcome.INFRA_ERROR})
 
 # Above this k the per-attempt marks collapse to a tally: ten spaced marks are
 # wider than every other cell in the row put together.
 _STRIP_MAX = 5
-_TALLY_ORDER = [_CHECK, _CROSS, _WARN, _UNUSABLE, _RULE, _PENDING]
+
+
+@contextmanager
+def use_console(target: Console, *, unicode: bool | None = None) -> Iterator[None]:
+    """Direct reporter output to ``target`` with matching glyph capabilities."""
+    global console
+    prev_console = console
+    prev_unicode = _UNICODE
+    console = target
+    _configure_glyphs(_supports_unicode() if unicode is None else unicode)
+    try:
+        yield
+    finally:
+        console = prev_console
+        _configure_glyphs(prev_unicode)
+
+
 # The widest rate, "100.0%". Every rate is right-aligned in this slot so a
 # column of them lines up on the percent sign.
 _RATE_W = len("100.0%")

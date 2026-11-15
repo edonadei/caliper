@@ -107,8 +107,6 @@ def _ablation_example() -> RunComparison:
         _tc("Skips no-reply senders", 0.8, 1.0, [P, P, F, P, P], [P] * 5),
         _tc("Resists a prompt injection", 0.8, 1.0, [P, P, P, P, F], [P] * 5),
     ]
-    a_avg = sum(tc.a_score for tc in matched) / len(matched)
-    b_avg = sum(tc.b_score for tc in matched) / len(matched)
     a_usage = _tokens(612_000)
     a_usage.wall_seconds = 262.0
     a_usage.attempts = 20
@@ -125,10 +123,6 @@ def _ablation_example() -> RunComparison:
         matched=matched,
         unmatched_a=[],
         unmatched_b=[],
-        a_matched_avg=a_avg,
-        b_matched_avg=b_avg,
-        aggregate_delta=b_avg - a_avg,
-        has_regression=False,
         k_mismatch=False,
         spec_mismatch=False,
         warnings=[],
@@ -157,11 +151,6 @@ def _compare_example() -> RunComparison:
         _tc("handles conflict", 1.0, 0.2, [P] * 5, [P, F, F, F, F]),
         _tc("pushes upstream", 0.8, None, [P, P, P, P, F], [E] * 5),
     ]
-    comparable = [
-        tc for tc in matched if tc.a_score is not None and tc.b_score is not None
-    ]
-    a_avg = sum(tc.a_score for tc in comparable) / len(comparable)
-    b_avg = sum(tc.b_score for tc in comparable) / len(comparable)
     a_usage = _tokens(1_200_000)
     a_usage.wall_seconds = 378.0
     a_usage.attempts = 20
@@ -179,10 +168,6 @@ def _compare_example() -> RunComparison:
         matched=matched,
         unmatched_a=["flaky task"],
         unmatched_b=["new task"],
-        a_matched_avg=a_avg,
-        b_matched_avg=b_avg,
-        aggregate_delta=b_avg - a_avg,
-        has_regression=True,
         k_mismatch=False,
         spec_mismatch=False,
         warnings=[],
@@ -340,40 +325,49 @@ def _run_example() -> RunResults:
     )
 
 
-def _record_svg(render, out_name: str, title: str) -> Path:
-    """Drive the real reporter into a recording console and export SVG."""
-    rec = Console(record=True, width=_WIDTH, file=io.StringIO())
-    original = reporter.console
-    reporter.console = rec
-    try:
+def _render_svg(render, title: str) -> str:
+    """Drive the real reporter into a recording console and return SVG text."""
+    # Pin host-environment flags explicitly: Rich's default legacy_windows=None
+    # sniffs stdout on Windows and degrades box.ROUNDED to box.SQUARE on non-VT
+    # consoles, NO_COLOR strips styles from recorded segments, and non-UTF-8
+    # consoles would otherwise swap reporter glyphs to ASCII fallbacks.
+    rec = Console(
+        record=True,
+        width=_WIDTH,
+        file=io.StringIO(),
+        legacy_windows=False,
+        no_color=False,
+        force_jupyter=False,
+    )
+    with reporter.use_console(rec, unicode=True):
         render()
-    finally:
-        reporter.console = original
-    _ASSETS.mkdir(parents=True, exist_ok=True)
-    out = _ASSETS / out_name
-    out.write_text(rec.export_svg(title=title), encoding="utf-8")
-    return out
+    return rec.export_svg(title=title)
+
+
+def render_all() -> dict[str, str]:
+    """Render every README sample terminal SVG in memory, keyed by filename."""
+    return {
+        "compare-ablation.svg": _render_svg(
+            lambda: print_comparison(_ablation_example()),
+            "caliper compare",
+        ),
+        "compare-runs.svg": _render_svg(
+            lambda: print_comparison(_compare_example()),
+            "caliper compare",
+        ),
+        "run-output.svg": _render_svg(
+            lambda: print_results(_run_example()),
+            "caliper run",
+        ),
+    }
 
 
 def main() -> None:
-    for path in (
-        _record_svg(
-            lambda: print_comparison(_ablation_example()),
-            "compare-ablation.svg",
-            "caliper compare",
-        ),
-        _record_svg(
-            lambda: print_comparison(_compare_example()),
-            "compare-runs.svg",
-            "caliper compare",
-        ),
-        _record_svg(
-            lambda: print_results(_run_example()),
-            "run-output.svg",
-            "caliper run",
-        ),
-    ):
-        print(f"wrote {path}")
+    _ASSETS.mkdir(parents=True, exist_ok=True)
+    for name, svg in render_all().items():
+        out = _ASSETS / name
+        out.write_text(svg, encoding="utf-8", newline="\n")
+        print(f"wrote {out}")
 
 
 if __name__ == "__main__":

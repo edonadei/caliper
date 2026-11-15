@@ -81,3 +81,7 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 "tests/**" = ["TID251"]
 "docs/**" = ["T20"]
 "skills/**" = ["T20"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [".*", "*.egg", "build", "dist", "node_modules", "venv", "worktrees"]
