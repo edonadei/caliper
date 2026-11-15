@@ -342,6 +342,7 @@ def test_cancel_kills_an_agent_in_flight(tmp_path) -> None:
     thread.join()
     assert time.monotonic() - started < 10
     assert box["result"].returncode != 0
+    assert box["result"].cancelled
 
 
 def test_cancel_kills_an_opencode_history_import(monkeypatch, tmp_path) -> None:
@@ -701,6 +702,8 @@ def test_timeout_keeps_partial_output_when_a_pipe_holder_survives(
     ) as (_pids, finished, box):
         assert finished.wait(4), "the inherited pipe held the attempt open"
         assert box["result"].timed_out
+        # The timeout killed it, but the attempt is evidence: kept as a timeout.
+        assert not box["result"].cancelled
         assert box["result"].stdout == "partial transcript"
 
 
