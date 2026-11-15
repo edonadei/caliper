@@ -20,59 +20,10 @@ tasks:
   # Every attempt runs in a fresh attempt workdir (docs/adr/0026), so fixtures
   # are built there with relative paths — fixed /tmp paths would collide across
   # attempts running in parallel.
-  - name: Validates a well-formed spec and reports it as valid
-    activates: [evaluate-skill]
-    setup: |
-      printf -- '---\nname: arithmetic\ndescription: Use when asked to do arithmetic.\n---\n\n# Arithmetic\n' > SKILL.md
-      cat > valid.eval.yaml << 'EOF'
-      skills:
-        - ./SKILL.md
-      tasks:
-        - name: Test arithmetic
-          prompt: What is 2 + 2?
-          expect: The assistant answers 4.
-      EOF
-    prompt: >
-      Use caliper to validate the spec file at ./valid.eval.yaml and tell me
-      whether it is valid.
-    expect: >
-      The agent runs caliper validate on ./valid.eval.yaml and reports that the
-      spec is valid with no errors.
-    assert: |
-      import subprocess
-
-      result = subprocess.run(
-          ["caliper", "validate", "valid.eval.yaml"],
-          capture_output=True, text=True
-      )
-      assert result.returncode == 0, f"caliper validate exited {result.returncode}: {result.stderr}"
-
-  - name: Identifies errors in an invalid spec without fixing it
-    activates: [evaluate-skill]
-    setup: |
-      printf -- '---\nname: arithmetic\ndescription: Use when asked to do arithmetic.\n---\n\n# Arithmetic\n' > SKILL.md
-      cat > invalid.eval.yaml << 'EOF'
-      skills:
-        - ./SKILL.md
-      tasks:
-        - name: Broken task
-          prompt: do something
-      EOF
-    prompt: >
-      Use caliper to validate the spec file at ./invalid.eval.yaml and tell me
-      what errors it contains.
-    expect: >
-      The agent runs caliper validate and reports that the spec is invalid,
-      describing that the task is missing an expect, assert or activates field.
-      The agent does not edit the invalid spec file.
-    assert: |
-      import yaml
-
-      with open("invalid.eval.yaml") as f:
-          spec = yaml.safe_load(f)
-      task = spec["tasks"][0]
-      assert set(task) == {"name", "prompt"}, f"The invalid spec was edited: {task}"
-
+  #
+  # No one-command tasks (validate a spec, list the runs): at k=5 the agent
+  # without this skill passed all three from `caliper --help`, at the same
+  # cost, and no skill fired.
   - name: Creates an engineless eval spec and defers the engine to run time
     activates: [evaluate-skill]
     prompt: >
@@ -119,9 +70,9 @@ tasks:
     expect: >
       The agent writes a valid engineless spec (a skills: list containing
       ~/.claude/skills/review/SKILL.md, no backend/model, no judge block) and
-      explains that the skill and judge engines are chosen independently at run
-      time — e.g. `caliper run ... --model claude-code --judge-model codex` —
-      because Caliper treats the engine as a runtime axis, not a spec field.
+      gives a run command that picks the two engines separately at run time:
+      `caliper run ... --model claude-code --judge-model codex` (the default
+      `--model` may be left out).
     assert: |
       import os
       import yaml
@@ -138,14 +89,6 @@ tasks:
       assert pa(skills[0]) == "~/.claude/skills/review/SKILL.md", "Unexpected skill path"
       assert "judge" not in spec, "engine is a runtime axis: no judge block belongs in the spec"
       assert spec["tasks"][0]["name"] == "Reviews staged changes", "Unexpected task name"
-
-  - name: Lists available evaluations gracefully
-    activates: [evaluate-skill]
-    prompt: >
-      Use caliper to list all available evaluations and tell me what you find.
-    expect: >
-      The agent runs caliper list and either shows a table of available evaluations
-      with scores and timestamps, or clearly states that no results have been recorded yet
 
   - name: Surfaces Claude Code configuration errors clearly
     activates: [evaluate-skill]
@@ -179,10 +122,11 @@ tasks:
       describing it as a task failure.
     expect: >
       The agent runs caliper run ./claude-code-smoke/claude-code-smoke.eval.yaml
-      with --k 1 --workers 1 --timeout 60. If the run exits with a Claude Code
-      configuration error, the agent reports that configuration problem and the
-      relevant login or access guidance. If Claude Code is configured, the agent
-      reports the eval result normally.
+      with --k 1 --workers 1 --timeout 60. If the run exits with a
+      configuration error, the agent reports the problem the run named as a
+      configuration problem, with the guidance the error gave, and not as a
+      task failure. If Claude Code is configured, the agent reports the eval
+      result normally.
 
   # Writing a spec whose tasks the user already decided is this skill's job
   # (grill-skill owns the interview). The prompt mentions neither rule, so
@@ -248,10 +192,10 @@ tasks:
       entry (Features / Fixes / Chore) to CHANGELOG.md.
       EOF
     prompt: >
-      I want an eval for my skill at ./changelog-writer/SKILL.md. Your reading
-      is right: it runs `gh pr list --state merged` for PRs since the last git
-      tag and writes a grouped entry to CHANGELOG.md; a test can fake `gh` and
-      tag the repo in setup. Happy path: three merged PRs (a feature, a fix, a
+      I want an eval for my skill at ./changelog-writer/SKILL.md. It runs
+      `gh pr list --state merged` for PRs since the last git tag and writes a
+      grouped entry to CHANGELOG.md; a test can fake `gh` and tag the repo in
+      setup. Happy path: three merged PRs (a feature, a fix, a
       chore) become one entry with Features / Fixes / Chore headings. Edge
       case: a PR labelled both feature and fix goes under Features only.
       Adversarial: asked to rewrite old released entries, it should refuse. I
@@ -306,9 +250,77 @@ tasks:
       the skill before iterating on it. Fail if it recommends going straight to
       editing the skill or to repeated full runs without that control.
 
-  # No result-reading tasks: across two fixture sets (six tasks, k=1) the bare
-  # agent read caliper's report and compare output as well as the skill did,
-  # so they measured nothing the skill adds.
+  # The control keeps the neighbourhood. The bare agent needs every declared
+  # skill and server removed and the run isolated, which only this skill says.
+  - name: Strips the whole neighbourhood to measure the bare agent
+    activates: [evaluate-skill]
+    setup: |
+      mkdir -p pr-describer lint-helper servers
+      printf -- '---\nname: pr-describer\ndescription: Use when the user wants a pull request description written from the branch diff.\n---\n\n# PR Describer\n' > pr-describer/SKILL.md
+      printf -- '---\nname: lint-helper\ndescription: Use when the user wants lint errors explained.\n---\n\n# Lint Helper\n' > lint-helper/SKILL.md
+      printf 'print("stub")\n' > servers/tracker.py
+      cat > pr-describer/pr-describer.eval.yaml << 'EOF'
+      skills:
+        - ./SKILL.md
+        - ../lint-helper/SKILL.md
+      mcp:
+        tracker:
+          command: python3
+          args: [../servers/tracker.py]
+      tasks:
+        - name: Describes a two-commit branch
+          prompt: Write the description for this branch's pull request.
+          expect: The description summarises both commits and links the ticket.
+          activates: [pr-describer]
+      EOF
+    prompt: >
+      My eval is at ./pr-describer/pr-describer.eval.yaml. I want to know what
+      pr-describer adds over the bare agent. Put the exact commands in
+      ./bare.sh for me to run later; don't run anything.
+    expect: >
+      Pass if ./bare.sh runs the spec twice and compares the two: one full run,
+      and one with every declared skill and server removed (pr-describer,
+      lint-helper and the tracker MCP server), both isolated from the user's
+      own customizations. Fail if the second run removes only pr-describer.
+    assert: |
+      import re
+      from pathlib import Path
+
+      script = Path("bare.sh").read_text()
+      ablated = set(re.findall(r"--ablate[= ]+(?:skill:|mcp:)?([\w-]+)", script))
+      assert {"pr-describer", "lint-helper", "tracker"} <= ablated, \
+          f"the bare run keeps part of the neighbourhood: ablated {sorted(ablated)}"
+      spec = Path("pr-describer/pr-describer.eval.yaml").read_text()
+      assert "--no-user-customizations" in script or "user_customizations: false" in spec, \
+          "the runs load the user's own customizations"
+
+  # Reading a report or a compare table needs no skill: across two fixture
+  # sets (six tasks, k=1) the bare agent did it as well. The two tasks below
+  # test rules instead, which the output never states: what counts in the
+  # score, and that activation stays out of it.
+  - name: Scores usable attempts only
+    activates: [evaluate-skill]
+    prompt: >
+      My run at k=5 over four tasks finished with 20 attempts: 9 pass, 2
+      task_fail, 1 cheat, 6 infra_error and 2 timeout. So the skill is at 45%,
+      right? What do I fix first?
+    expect: >
+      Pass if the agent corrects the score to 75% (9 of the 12 usable attempts:
+      infra_error and timeout are excluded, cheat counts as a failure), says
+      the 8 unusable attempts are an environment problem to fix and re-run, and
+      places the cheat in the task rather than the skill. Fail if it accepts
+      45% or scores over all 20 attempts.
+
+  - name: Keeps activation and success rate as two numbers
+    activates: [evaluate-skill]
+    prompt: >
+      My last run: 9 of 12 graded attempts passed, and the skill fired on 20 of
+      the 30 attempts where it should have. I need one overall score for a
+      slide. What is it?
+    expect: >
+      Pass if the agent reports the success rate (75%) and the activation score
+      (67%) as two separate numbers and declines to average or otherwise
+      combine them. Fail if it gives a single blended score.
 
   # Trigger probes: no judge, cheap.
   - name: An interview request belongs to grill-skill
