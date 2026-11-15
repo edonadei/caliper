@@ -420,8 +420,8 @@ recorded. Only the version is saved, never the binary's path.
   cost the tables print: `tokens_per_attempt` and `wall_per_attempt`, over the
   usable attempts only (unusable spend is its own line), and
   `judge_per_attempt`, over the attempts a judge graded. Each is `null` when
-  there is nothing to divide by: no usable attempt, no tokens reported, or no
-  judge.
+  there is nothing to divide by: no usable attempt, no tokens reported by a
+  usable attempt, or no judge.
 
 ### Activation fields
 

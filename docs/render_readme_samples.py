@@ -55,7 +55,9 @@ E = Outcome.INFRA_ERROR
 
 def _tokens(total: int) -> UsageTotals:
     """A usage roll-up whose only reported figure is a round token total."""
-    return UsageTotals(input_tokens=total, tokens_reported=True)
+    return UsageTotals(
+        input_tokens=total, tokens_reported=True, usable_tokens_reported=True
+    )
 
 
 def _tc(name, a_score, b_score, a_outcomes, b_outcomes):

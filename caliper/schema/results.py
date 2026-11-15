@@ -695,6 +695,10 @@ class UsageTotals(BaseModel):
     # False when no attempt reported any token field — the token figures are then
     # meaningless and render as "—" (wall time is always real).
     tokens_reported: bool = False
+    # The same, over the usable attempts alone: a per-attempt figure from noise
+    # spend alone would be a confident zero, not a measurement. Not serialized;
+    # ``tokens_per_attempt`` carries it.
+    usable_tokens_reported: bool = Field(default=False, exclude=True)
     # The unusable-attempt subset of the totals above, reported on its own line.
     unusable_tokens: int = 0
     unusable_wall_seconds: float = 0.0
@@ -744,7 +748,7 @@ class UsageTotals(BaseModel):
     @computed_field
     @property
     def tokens_per_attempt(self) -> int | None:
-        if not self.tokens_reported or not self.usable_attempts:
+        if not self.usable_tokens_reported or not self.usable_attempts:
             return None
         return (self.total_tokens - self.unusable_tokens) // self.usable_attempts
 
@@ -796,6 +800,7 @@ class UsageTotals(BaseModel):
                 if all(f is None for f in fields):
                     continue
                 totals.tokens_reported = True
+                totals.usable_tokens_reported |= not unusable
                 totals.input_tokens += u.input_tokens or 0
                 totals.output_tokens += u.output_tokens or 0
                 totals.cache_read_tokens += u.cache_read_tokens or 0
