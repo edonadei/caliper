@@ -230,7 +230,7 @@ pi   # then authenticate (e.g. /login for a subscription provider, or set the pr
 ```
 
 `--model pi` runs `pi --print --mode json` and installs the declared skills under
-pi's agent dir, where pi discovers them.
+pi's config home, where pi discovers them.
 
 - Caliper never passes pi's `--skill` flag, because it *preloads* the skill.
   Discovery is pi's default behavior, which is why pi also has `--no-skills`.

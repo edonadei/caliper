@@ -127,7 +127,7 @@ class RunContext:
     Created fresh per ``run`` call and threaded through the hooks. It is the
     only per-attempt state a backend has: the harness object is shared across
     the runner's worker threads, so anything an attempt needs to remember must
-    be derivable from the context (a config dir under ``isolated_home``, a file
+    be derivable from the context (a config home under ``isolated_home``, a file
     the template seeded there) rather than stashed on the instance.
     """
 
@@ -143,7 +143,7 @@ class RunContext:
     isolated_home: str
     # The agent's cwd — the attempt workdir that ``setup:``, ``cleanup:`` and
     # ``assert:`` also run in. Kept apart from ``isolated_home`` so the agent's
-    # working tree is not its config dir. See
+    # working tree is not its isolated home. See
     # docs/adr/0046-an-attempt-runs-in-one-fresh-workdir.md.
     workdir: str
     extra_path: list[str]

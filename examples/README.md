@@ -114,7 +114,7 @@ caliper compare .caliper/results/false-success/<ablated-run>.json false-success
 
 `false-success` on the right means that spec's latest run. `caliper list`
 shows run IDs. The ablated run depends only on the tasks, so keep it and
-re-diff as the skill changes.
+re-diff each time you change the skill.
 
 For the full spec format see [docs/spec-reference.md](../docs/spec-reference.md),
 or run `/grill-skill` to have an agent write a spec with you.

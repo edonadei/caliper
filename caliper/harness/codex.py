@@ -218,9 +218,10 @@ class CodexHarness(CliHarness):
     def _command(
         self, ctx: RunContext, planted: PlantedSession | None
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
-        # The prompt goes to the agent unmodified. Codex has no force-load flag,
-        # and caliper no longer invents one: the skill is installed at
-        # .codex/skills/<name>/ and the agent discovers it (docs/adr/0013).
+        # The prompt goes to the agent unmodified. Codex has no flag that
+        # preloads a skill, and caliper no longer invents one: the skill is
+        # installed at .codex/skills/<name>/ and the agent discovers it
+        # (docs/adr/0013).
         full_prompt = ctx.prompt
         codex = self.cli_path() or "codex"
         cmd = [

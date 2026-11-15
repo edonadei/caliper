@@ -148,7 +148,7 @@ class ClaudeCodeHarness(CliHarness):
         return level if isinstance(level, str) and level else None
 
     def user_path(self, isolated: Path, ctx: RunContext) -> Path:
-        # .claude.json sits beside ~/.claude by default, inside the config dir
+        # .claude.json sits beside ~/.claude by default, inside the config home
         # when the operator sets one.
         selected = self.selected_config_home()
         if selected and isolated == Path(ctx.isolated_home) / ".claude.json":
@@ -332,7 +332,7 @@ class ClaudeCodeHarness(CliHarness):
     ) -> tuple[list[str], str | None, Callable[[], None] | None]:
         # The skill neighbourhood is installed at .claude/skills/<name>/ by the
         # template method and left for the agent to discover (docs/adr/0013);
-        # only the MCP config is staged per attempt, and removed after the
+        # only ``.caliper-mcp.json`` is staged per attempt, and removed after the
         # process exits.
         cmd = [
             "claude",
@@ -630,7 +630,7 @@ class ClaudeCodeHarness(CliHarness):
         """The Keychain entry the operator's CLI keeps its OAuth login under.
 
         Suffixed, as the CLI names it, with the first 8 hex digits of the
-        config dir's sha256 when ``CLAUDE_CONFIG_DIR`` is set.
+        config home's sha256 when ``CLAUDE_CONFIG_DIR`` is set.
         """
         config_dir = (
             os.environ.get(self.config_home_env, "") if self.config_home_env else ""

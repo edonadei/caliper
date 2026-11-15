@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 import sys
+import tokenize
 import typing
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -311,6 +312,194 @@ def test_context_glossary_wiki_links_resolve() -> None:
         "every [[wiki]] link in docs/CONTEXT.md must match a `## ` heading "
         "(link to ADRs with `[ADR NNNN](adr/NNNN-slug.md)` instead): "
         f"{unresolved}"
+    )
+
+
+# `_Avoid_:` terms that also name something else the glossary keeps, so a
+# match is not a misuse. Every other term is banned wherever it is checked.
+_CONTEXT_DEPENDENT_AVOID_TERMS = {
+    "baseline": "hillclimb-skill's baseline runs are a different concept",
+    "codex login": "the Codex CLI's own login command",
+    "connectors": "hosted connectors are one kind of user customization",
+    "extensions": "pi extensions are real",
+    "firing": "avoided only for the observation, not the event",
+    "hook": "`setup:` and `cleanup:` are hooks",
+    "inject": "codex injects a mentioned skill, and prompt injection is its own",
+    "invocation": "avoided only for the observation, not the event",
+    "profile": "hermes' own word for something narrower",
+    "sandbox": "an entry of its own, avoided only for the three it is not",
+    "script": "a step may run a script",
+    "setup": "the `setup:` step",
+    "spec dir": "the spec's own directory, avoided only as a name for the workdir",
+    "triggering": "avoided only for the observation, not the event",
+}
+
+# Where an avoided term may stand: the glossary defines them, ADRs record the
+# vocabulary of their time, and a migration guide names the old terms.
+_AVOID_TERM_EXEMPT_DOCS = ("docs/CONTEXT.md", "docs/adr/*", "docs/MIGRATING-*.md")
+
+# Code that names the era a pre-#18 saved run carries, in that era's words.
+_AVOID_TERM_HISTORICAL_USES = {
+    "caliper/compare.py": {"force-load"},
+    "caliper/schema/results.py": {"force-load"},
+}
+
+_STRING_BODY = re.compile(r"[rRbBuUfF]*('''|\"\"\"|'|\")(.*)\1", re.DOTALL)
+
+
+def _without_parentheticals(text: str) -> str:
+    kept: list[str] = []
+    depth = 0
+    for char in text:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(depth - 1, 0)
+        elif depth == 0:
+            kept.append(char)
+    return "".join(kept)
+
+
+def _glossary_avoid_terms() -> dict[str, list[str]]:
+    """Each `_Avoid_:` term in docs/CONTEXT.md, mapped to the entries avoiding it."""
+    context = (ROOT / "docs/CONTEXT.md").read_text(encoding="utf-8")
+    terms: defaultdict[str, list[str]] = defaultdict(list)
+    heading = ""
+    for block in re.split(r"\n\s*\n", context):
+        if found := re.findall(r"^## (.+)$", block, re.MULTILINE):
+            heading = found[-1]
+        avoid = re.search(r"^_Avoid_:(.*)", block, re.MULTILINE | re.DOTALL)
+        if avoid is None:
+            continue
+        # A parenthetical says when or why, and may hold commas, links and
+        # parentheticals of its own.
+        for term in _without_parentheticals(avoid.group(1)).split(","):
+            if term := " ".join(term.split()).strip(" .`").lower():
+                terms[term].append(heading)
+    return dict(terms)
+
+
+def _python_prose(path: Path) -> list[tuple[int, str]]:
+    """The comments and string literals of a module, each run with its first line.
+
+    Code is left out, so a match never spans two statements. A run of comment
+    lines, or of implicitly concatenated literals, is one piece, so a term split
+    across it still matches. An escape such as ``\\n`` reads as a space.
+    """
+    strings = {tokenize.STRING, getattr(tokenize, "FSTRING_MIDDLE", -1)}
+    # Tokens that may sit inside a run without ending it.
+    within_run = {
+        tokenize.NL,
+        getattr(tokenize, "FSTRING_START", -1),
+        getattr(tokenize, "FSTRING_END", -1),
+    }
+    pieces: list[tuple[int, str]] = []
+    run_kind: int | None = None
+    run_end = -1
+    with path.open("rb") as source:
+        for tok in tokenize.tokenize(source.readline):
+            if tok.type in within_run:
+                continue
+            if tok.type == tokenize.COMMENT:
+                text = tok.string.lstrip("#")
+                joins = run_kind == tokenize.COMMENT and run_end == tok.start[0] - 1
+                run_kind = tokenize.COMMENT
+            elif tok.type in strings:
+                body = tok.string
+                if quoted := _STRING_BODY.fullmatch(body):
+                    body = quoted.group(2)
+                text = re.sub(r"\\.", " ", body)
+                joins = run_kind == tokenize.STRING
+                run_kind = tokenize.STRING
+            else:
+                run_kind = None
+                continue
+            if joins:
+                gap = "\n" * (tok.start[0] - run_end)
+                pieces[-1] = (pieces[-1][0], pieces[-1][1] + gap + text)
+            else:
+                pieces.append((tok.start[0], text))
+            run_end = tok.end[0]
+    return pieces
+
+
+def _avoid_term_pattern(term: str) -> re.Pattern[str]:
+    words = (re.escape(word) for word in re.split(r"[\s-]+", term))
+    # Hyphens and line breaks count as spaces, so a wrapped or hyphenated
+    # spelling still matches, as does an inflection like `injected`, but an
+    # identifier like `config_dir` does not.
+    return re.compile(
+        r"(?<![\w-])" + r"[\s-]+".join(words) + r"(?:s|es|d|ed|ing)?(?![\w-])",
+        re.IGNORECASE,
+    )
+
+
+def test_context_dependent_avoid_terms_are_still_avoided() -> None:
+    stale = sorted(_CONTEXT_DEPENDENT_AVOID_TERMS.keys() - _glossary_avoid_terms())
+    assert stale == [], (
+        f"_CONTEXT_DEPENDENT_AVOID_TERMS lists terms docs/CONTEXT.md no longer "
+        f"avoids; delete them: {stale}"
+    )
+
+
+def test_glossary_avoid_terms_are_not_used() -> None:
+    terms = _glossary_avoid_terms()
+    assert terms, "found no `_Avoid_:` terms in docs/CONTEXT.md"
+    malformed = [
+        term
+        for term in terms
+        if not re.fullmatch(r"\w[\w' -]*", term) or len(term.split()) > 4
+    ]
+    assert malformed == [], (
+        "these `_Avoid_:` terms did not parse as a short phrase; keep each "
+        f"`_Avoid_:` line a comma-separated list of terms: {malformed}"
+    )
+    banned = {
+        term: _avoid_term_pattern(term)
+        for term in terms
+        if term not in _CONTEXT_DEPENDENT_AVOID_TERMS
+    }
+
+    pieces = [
+        (rel, 1, (ROOT / rel).read_text(encoding="utf-8"))
+        for rel in _repo_markdown_files()
+        if not any(
+            fnmatch.fnmatchcase(rel.as_posix(), p) for p in _AVOID_TERM_EXEMPT_DOCS
+        )
+    ]
+    for path in sorted((ROOT / "caliper").rglob("*.py")):
+        rel = path.relative_to(ROOT)
+        pieces += [(rel, line, text) for line, text in _python_prose(path)]
+
+    misuses: list[str] = []
+    historical: set[tuple[str, str]] = set()
+    for rel, first_line, text in pieces:
+        for term, pattern in banned.items():
+            for match in pattern.finditer(text):
+                if term in _AVOID_TERM_HISTORICAL_USES.get(rel.as_posix(), ()):
+                    historical.add((rel.as_posix(), term))
+                    continue
+                line_no = first_line + text.count("\n", 0, match.start())
+                entries = ", ".join(terms[term])
+                misuses.append(
+                    f"{rel.as_posix()}:{line_no}: {match.group(0)!r} "
+                    f"(docs/CONTEXT.md → {entries})"
+                )
+
+    assert misuses == [], (
+        "these spell a term docs/CONTEXT.md says to avoid. Use the entry's own "
+        "term instead; if the word is right in this sense, add it to "
+        "_CONTEXT_DEPENDENT_AVOID_TERMS with the reason:\n" + "\n".join(misuses)
+    )
+    unused = sorted(
+        (rel, term)
+        for rel, uses in _AVOID_TERM_HISTORICAL_USES.items()
+        for term in uses
+        if (rel, term) not in historical
+    )
+    assert unused == [], (
+        f"_AVOID_TERM_HISTORICAL_USES allows uses that no longer occur; delete them: "
+        f"{unused}"
     )
 
 
