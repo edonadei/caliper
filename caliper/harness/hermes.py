@@ -287,13 +287,10 @@ class HermesHarness(CliHarness):
             extra["CALIPER_EFFORT"] = self._effort
         if sys.platform == "win32":
             # The junction's target: hermes places a home under its root by the
-            # resolved path, never the temp-dir link.
+            # resolved path, never the temp-dir link. Hermes finds its root
+            # through LOCALAPPDATA; USERPROFILE comes from ``_isolated_env``.
             home = self.attempt_config_home(ctx)
             extra["HERMES_HOME"] = str(Path(os.path.realpath(home)))
-            # Python on Windows ignores HOME: Path.home() reads USERPROFILE, so
-            # the isolated home goes there too, or hermes "could not determine
-            # home directory". Hermes finds its root through LOCALAPPDATA.
-            extra["USERPROFILE"] = ctx.isolated_home
             local = os.environ.get("LOCALAPPDATA")
             if local:
                 extra["LOCALAPPDATA"] = local

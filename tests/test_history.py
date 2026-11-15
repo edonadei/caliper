@@ -189,10 +189,12 @@ def test_a_slash_command_naming_no_declared_skill_is_warned_about(tmp_path) -> N
     assert "repro-frist" in result.output
 
 
-def test_a_backend_without_history_refuses_the_spec_by_name(tmp_path) -> None:
-
-    with pytest.raises(HarnessConfigurationError, match="'hermes' backend") as e:
-        _resolve(_spec(tmp_path), get_harness("hermes"))
+@pytest.mark.parametrize("unsupported", ["hermes", "antigravity"])
+def test_a_backend_without_history_refuses_the_spec_by_name(
+    tmp_path, unsupported
+) -> None:
+    with pytest.raises(HarnessConfigurationError, match=unsupported) as e:
+        _resolve(_spec(tmp_path), get_harness(unsupported))
     # Pointed at the backends that can resume it.
     for backend in ("claude-code", "codex", "pi", "opencode"):
         assert f"--model {backend}" in str(e.value)

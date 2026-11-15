@@ -23,6 +23,8 @@ from pathlib import Path
 import pytest
 from conftest import run_context
 
+from caliper.backends import BACKENDS
+from caliper.harness import get_harness
 from caliper.harness.antigravity import AntigravityHarness
 from caliper.harness.base import (
     AgentReport,
@@ -47,6 +49,7 @@ ALL_BACKENDS = [
     HermesHarness,
     PiHarness,
     OpenCodeHarness,
+    AntigravityHarness,
 ]
 SEED_INVENTORIES = [
     (
@@ -70,6 +73,17 @@ SEED_INVENTORIES = [
         },
     ),
     (OpenCodeHarness, {".local/share/opencode/auth.json": "opencode auth"}),
+    (
+        AntigravityHarness,
+        {
+            ".gemini/antigravity-cli/settings.json": "agy settings",
+            (
+                "AppData/Roaming/gcloud/application_default_credentials.json"
+                if sys.platform == "win32"
+                else ".config/gcloud/application_default_credentials.json"
+            ): "gcloud auth",
+        },
+    ),
 ]
 
 # Where each seed file comes from when the operator points the CLI at another
@@ -112,7 +126,13 @@ CONFIG_HOME_SOURCES = [
 # absent on purpose: it spawns a bare ``claude`` and leaves the lookup to the
 # attempt's PATH, so it resolves its binary there rather than through
 # ``cli_path``.
-DISCOVERING_BACKENDS = [CodexHarness, HermesHarness, PiHarness, OpenCodeHarness]
+DISCOVERING_BACKENDS = [
+    CodexHarness,
+    HermesHarness,
+    PiHarness,
+    OpenCodeHarness,
+    AntigravityHarness,
+]
 
 
 def _prepared(harness: CliHarness, tmp_path: Path):
@@ -150,6 +170,7 @@ def _no_keychain(monkeypatch):
 def test_every_backend_has_a_seed_inventory() -> None:
     """The inventories are literal, so a new backend must add its own."""
     assert [backend for backend, _ in SEED_INVENTORIES] == ALL_BACKENDS
+    assert set(ALL_BACKENDS) == {type(get_harness(name)) for name in BACKENDS}
 
 
 @pytest.mark.parametrize(("backend", "inventory"), SEED_INVENTORIES)
@@ -189,8 +210,11 @@ def test_seeding_skips_files_the_user_does_not_have(
     assert _staged_files(harness, ctx) == {}
 
 
-def test_every_backend_names_its_config_home_variable() -> None:
-    assert [backend for backend, _, _ in CONFIG_HOME_SOURCES] == ALL_BACKENDS
+def test_every_configurable_backend_names_its_config_home_variable() -> None:
+    # agy always uses ~/.gemini and has no config-home override.
+    assert [backend for backend, _, _ in CONFIG_HOME_SOURCES] == [
+        backend for backend in ALL_BACKENDS if backend is not AntigravityHarness
+    ]
 
 
 @pytest.mark.parametrize(("backend", "variable", "sources"), CONFIG_HOME_SOURCES)
@@ -245,6 +269,7 @@ ATTEMPT_CONFIG_HOMES = [
     (HermesHarness, "HERMES_HOME", ".hermes"),
     (PiHarness, "PI_CODING_AGENT_DIR", ".pi/agent"),
     (OpenCodeHarness, "XDG_CONFIG_HOME", None),
+    (OpenCodeHarness, "XDG_DATA_HOME", None),
 ]
 
 
@@ -270,6 +295,7 @@ CONFIG_HOMES = [
     (HermesHarness, ".hermes"),
     (PiHarness, ".pi/agent"),
     (OpenCodeHarness, ".config/opencode"),
+    (AntigravityHarness, ".gemini"),
 ]
 
 
@@ -282,7 +308,8 @@ def test_the_attempts_config_home_holds_its_skills_root(
     ctx = run_context(isolated_home=str(home))
 
     assert harness.attempt_config_home(ctx) == home / inside
-    assert harness.skills_root(ctx) == home / inside / "skills"
+    skills = "antigravity-cli/skills" if backend is AntigravityHarness else "skills"
+    assert harness.skills_root(ctx) == home / inside / skills
 
 
 @pytest.mark.parametrize(("backend", "inside"), CONFIG_HOMES)
@@ -377,12 +404,16 @@ def test_cli_path_is_none_when_nothing_is_installed(backend, monkeypatch) -> Non
 def test_windows_system_root_passthrough(backend, platform, monkeypatch) -> None:
     monkeypatch.setattr(sys, "platform", platform)
     monkeypatch.setenv("SystemRoot", r"C:\Windows")
-    env = backend()._isolated_env(run_context())
+    monkeypatch.setenv("USERPROFILE", r"C:\Users\operator")
+    ctx = run_context()
+    env = backend()._isolated_env(ctx)
 
     if platform == "win32":
         assert env["SystemRoot"] == r"C:\Windows"
+        assert env["USERPROFILE"] == ctx.isolated_home
     else:
         assert "SystemRoot" not in env
+        assert "USERPROFILE" not in env
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows Node startup regression")
@@ -637,6 +668,19 @@ def _answer_stream(backend: type[CliHarness]) -> str:
         ]
     elif backend is OpenCodeHarness:
         events = [{"type": "text", "part": {"type": "text", "text": _ANSWER}}]
+    elif backend is AntigravityHarness:
+        events = [
+            {
+                "event": "step_update",
+                "step_update": {
+                    "step_index": 0,
+                    "step_type": "agent_response",
+                    "state": "DONE",
+                    "text_delta": _ANSWER,
+                },
+            },
+            {"event": "result", "result": {"status": "SUCCESS", "response": _ANSWER}},
+        ]
     else:
         return json.dumps(
             {

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
-import shutil
 import sys
 import tempfile
 from collections.abc import Callable
@@ -30,6 +28,7 @@ from caliper.harness.history import (
 )
 from caliper.harness.mcp import ResolvedMcpServer
 from caliper.harness.refusal import AUTH_MARKERS, ConfigSignal
+from caliper.harness.user_layer import copy_user_tree
 from caliper.schema.results import TokenUsage
 from caliper.schema.spec import PlantedShellCall
 
@@ -210,35 +209,7 @@ class CodexHarness(CliHarness):
         # directory rather than in config.toml; a copy keeps the user's own
         # untouched (docs/adr/0028).
         if ctx.user_customizations and (real / "plugins").is_dir():
-            shutil.copytree(
-                real / "plugins",
-                codex_home / "plugins",
-                symlinks=True,
-                dirs_exist_ok=True,
-            )
-            self._repoint_escaping_links(real / "plugins", codex_home / "plugins")
-
-    @staticmethod
-    def _repoint_escaping_links(source: Path, copy: Path) -> None:
-        """Make copied relative links that leave ``source`` absolute.
-
-        Links are copied as links so dangling ones and loops cannot abort the
-        copy, but a relative link out of the tree would dangle in the isolated
-        home. Pointing it at the user's original target keeps it working.
-        """
-        for directory, dirnames, filenames in os.walk(copy):
-            for name in [*dirnames, *filenames]:
-                link = Path(directory) / name
-                if not link.is_symlink():
-                    continue
-                target = os.readlink(link)
-                if os.path.isabs(target):
-                    continue
-                original = source / link.parent.relative_to(copy)
-                resolved = Path(os.path.normpath(original / target))
-                if not resolved.is_relative_to(source):
-                    link.unlink()
-                    link.symlink_to(resolved)
+            copy_user_tree(real / "plugins", codex_home / "plugins")
 
     @property
     def session_format(self) -> SessionFormat:

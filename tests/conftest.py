@@ -300,12 +300,14 @@ def _isolate_home(monkeypatch, tmp_path_factory):
     home = str(tmp_path_factory.mktemp("home"))
     monkeypatch.setenv("HOME", home)
     monkeypatch.setenv("USERPROFILE", home)
+    monkeypatch.setenv("APPDATA", os.path.join(home, "AppData", "Roaming"))
     real_setenv = monkeypatch.setenv
 
     def setenv(name: str, value: str, prepend: str | None = None) -> None:
         real_setenv(name, value, prepend=prepend)
         if os.name == "nt" and name == "HOME":
             real_setenv("USERPROFILE", value)
+            real_setenv("APPDATA", os.path.join(value, "AppData", "Roaming"))
 
     monkeypatch.setenv = setenv
 

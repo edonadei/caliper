@@ -13,6 +13,8 @@ from caliper.backends import mcp_server_of, mcp_tool_name
         ("claude-code", "mcp__mail__read"),
         ("codex", "mcp__mail__read"),
         ("hermes", "mcp_mail_read"),
+        ("antigravity", "mcp_mail_read"),
+        ("opencode", "mcp__mail__read"),
     ],
 )
 def test_a_spelled_name_reads_back_to_its_server(backend, expected) -> None:

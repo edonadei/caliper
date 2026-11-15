@@ -958,6 +958,10 @@ class CliHarness(HarnessBackend):
     # :mod:`caliper.harness.user_layer` (docs/adr/0028).
     user_rules: tuple[str, ...] = ()
     user_settings_file: str | None = None
+    user_settings_files: tuple[str, ...] = ()
+    # Whether the CLI discovers nested user skills (as codex, hermes and
+    # opencode do) or only immediate children of each skills root (agy).
+    recursive_user_skills: bool = True
     # The namespace of skills the CLI syncs from the user's account into every
     # session, which the exposed list names but no staged file does.
     synced_skill_prefix: str | None = None
@@ -1389,7 +1393,10 @@ class CliHarness(HarnessBackend):
         env.update(extra or {})
         # Windows cryptographic initialization needs SystemRoot even when the
         # agent's HOME is isolated; without it Node aborts before running (#112).
+        # Node, Bun, Go and Python on Windows all read USERPROFILE rather than
+        # HOME, falling back to the operator's real profile when it is unset.
         if sys.platform == "win32":
+            env.setdefault("USERPROFILE", ctx.isolated_home)
             self._passthrough(env, ("SystemRoot",))
         return self._passthrough(env, self.env_passthrough)
 

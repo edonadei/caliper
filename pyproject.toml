@@ -73,6 +73,8 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 "caliper.harness.codex".msg = "Go through caliper.harness.get_harness; backends stay behind the harness seam."
 "caliper.harness.pi".msg = "Go through caliper.harness.get_harness; backends stay behind the harness seam."
 "caliper.harness.hermes".msg = "Go through caliper.harness.get_harness; backends stay behind the harness seam."
+"caliper.harness.antigravity".msg = "Go through caliper.harness.get_harness; backends stay behind the harness seam."
+"caliper.harness.opencode".msg = "Go through caliper.harness.get_harness; backends stay behind the harness seam."
 
 [tool.ruff.lint.per-file-ignores]
 "caliper/harness/**" = ["TID251"]

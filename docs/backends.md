@@ -263,11 +263,20 @@ opencode discovers them. The agent opens one with its `skill` tool.
 
 - opencode names models `provider/model`, so the flag reads
   `--model opencode:openai/gpt-6.1-terra`. `opencode models` lists what you can
-  run. With no model, opencode uses the `model` in your `opencode.json`, or
-  picks one itself.
-- Attempts copy your logins (`auth.json`) and the connection settings of your
-  `opencode.json`. An API key opencode reads only from your shell environment
-  doesn't reach an attempt, so store it with `opencode auth login`.
+  run. With no model, opencode uses your configured `model`, or picks one
+  itself. Planted history requires an explicit or configured model.
+- Attempts copy your logins (`auth.json`) and merge the connection settings
+  from `config.json`, `opencode.json`, then `opencode.jsonc` in your config
+  home. Later values override earlier ones, with nested objects merged.
+  Caliper writes the merged attempt config as `opencode.json`. An API key
+  opencode reads only from your shell environment doesn't reach an attempt,
+  so store it with `opencode auth login`.
+- A `wellknown` login loads remote configuration, including rules and MCP
+  servers. Caliper supports these logins with user customizations on and no
+  declared MCP servers. Other runs refuse them because remote settings can
+  bypass isolation or restore ablated servers. Use a provider API key or
+  OAuth login for those runs. The saved MCP inventory carries
+  `mcp:(not listed)` when a `wellknown` login loads remote customizations.
 - Attempts pass `--auto`, which approves anything opencode would ask
   permission for. The judge doesn't pass it, and `opencode run` rejects such
   requests without asking.
@@ -344,11 +353,15 @@ list them.
   links in `~/Library/Keychains` so `agy` finds it. An API key login
   (`GEMINI_API_KEY` with `"modelProvider": "gemini"`) or ADC (`AGY_ADC_AUTH`)
   works too: `~/.gemini/antigravity-cli/settings.json` is copied into each
-  attempt, and those variables are passed through.
-- Self-update is turned off during attempts, so one attempt can't swap the
-  binary under another.
+  attempt, and those variables are passed through. ADC also honors
+  `GOOGLE_APPLICATION_CREDENTIALS` when you select a credential file. A
+  Gemini API key configuration with no `GEMINI_API_KEY` stops the run with
+  setup guidance.
+- Self-update is turned off during attempts and judge calls, so one run can't
+  swap the binary under another.
 - Set `AGY_CLI_PATH` to force a specific binary. Otherwise Caliper looks on
-  `PATH`, then in `~/.local/bin/agy`, where the installer puts it.
+  `PATH`, then in `~/.local/bin/agy` (`%LOCALAPPDATA%\agy\bin\agy.exe` on
+  Windows), where the installer puts it.
 
 ## CLI versions
 
@@ -396,7 +409,7 @@ error, never a silent no-op.
   with `url` and a static `headers` map. opencode names an MCP tool
   `<server>_<tool>`, which Caliper records as `mcp__<server>__<tool>`, the
   name `claude-code` and `codex` use.
-- On all three, `${VAR}` values are resolved at the harness boundary. Your personal
+- On all four, `${VAR}` values are resolved at the harness boundary. Your personal
   servers from the real config are kept alongside the declared set by default
   ([loaded](#loading-your-user-customizations)); an isolated run replaces them,
   so it sees only the declared set.
@@ -420,7 +433,7 @@ See [MCP servers](spec-reference.md#mcp-servers-mcp) for the spec format.
 | `claude-code` | ✅ |
 | `codex` | ✅ |
 | `pi` | ✅ |
-| `opencode` | ✅ |
+| `opencode` | ✅ with an explicit or configured model |
 | `hermes` | ❌ refused |
 | `antigravity` | ❌ refused |
 
@@ -447,6 +460,11 @@ backend that can't resume from it, with a message naming the backend.
   `--session <id>`. A planted shell call becomes a finished `bash` tool call
   with its output, and a planted `/name` of a declared skill becomes what
   opencode expands that command to: the skill's body and its base directory.
+  Pass `--model opencode:<provider>/<model>`, or configure `model` (or the
+  active agent's `model`) in your OpenCode config. Without one, Caliper refuses
+  the history before importing it; OpenCode would otherwise select the planted
+  placeholder model. Import processes follow the run's cancellation, so Ctrl-C
+  also stops a blocked import.
 - **`hermes`** stores sessions in SQLite, and its only import path drops tool
   calls and their output, so it can't resume a history faithfully
   ([ADR 0036](adr/0036-planted-history-is-a-neutral-transcript-each-backend-resumes-natively.md)).
@@ -473,8 +491,8 @@ hosted OAuth connector a spec can't declare. `--no-user-customizations`, or
 | `codex` | The `[mcp_servers.*]` tables in your `~/.codex/config.toml`, your installed plugins (`~/.codex/plugins`, copied into the attempt), ChatGPT apps (`codex_apps`), `~/.codex/skills`, `AGENTS.md` / `AGENTS.override.md`, and `config.toml` settings (the top-level model pin is still stripped) |
 | `hermes` | `~/.hermes/skills` and `config.yaml` (`%LOCALAPPDATA%\hermes` on Windows), including `mcp_servers`; persona and memory remain excluded |
 | `pi` | Nothing: no MCP by design. The run records it as off, and warns only if a flag or the spec asked for it |
-| `antigravity` | The `mcpServers` in your `~/.gemini/config/mcp_config.json`, the skills in `~/.gemini/antigravity-cli/skills`, `~/.gemini/skills` and `~/.gemini/config/skills`, the rules files `AGENTS.md` / `GEMINI.md` in `~/.gemini` and `~/.gemini/config`, and `antigravity-cli/settings.json`. Plugins and `config/rules/*.md` are not loaded yet |
-| `opencode` | The `mcp` table in your `~/.config/opencode/opencode.json` and its other settings (plugins included), `~/.config/opencode/skills`, `AGENTS.md`, and your `agents`, `commands`, `modes`, `plugins` and `tools` directories (copied into the attempt) |
+| `antigravity` | The `mcpServers` in your `~/.gemini/config/mcp_config.json`, the immediate child skill folders in `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/skills` and `~/.gemini/skills`, the rules files `AGENTS.md` / `GEMINI.md` in `~/.gemini` and `~/.gemini/config`, and `antigravity-cli/settings.json`. Nested skill folders are skipped, matching agy's discovery. Plugins and `config/rules/*.md` are not loaded yet |
+| `opencode` | The merged `config.json`, `opencode.json` and `opencode.jsonc` settings in `~/.config/opencode`, including `mcp` and plugins, `~/.config/opencode/skills` and `~/.config/opencode/skill`, `AGENTS.md`, and your `agent(s)`, `command(s)`, `mode(s)`, `plugin(s)` and `tool(s)` directories (copied into the attempt, preserving symlinks). A `wellknown` login can also load remote customizations; its MCP inventory is marked incomplete |
 
 - **The spec wins a name clash.** A declared skill or server replaces your own of the
   same name, including when the declared name is ablated, in the attempt's copy of the config. Your real config is never
