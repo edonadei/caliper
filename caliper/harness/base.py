@@ -963,6 +963,14 @@ class CliHarness(HarnessBackend):
             return Path.home() / isolated.relative_to(ctx.isolated_home)
         return self.user_config_home() / inside
 
+    def user_skill_sources(self, ctx: RunContext) -> list[Path]:
+        """The user's skill dirs, in the order the CLI prefers them.
+
+        Each is installed flat at :meth:`skills_root`; the first of two
+        same-named skills wins. Default: the user's own copy of that root.
+        """
+        return [self.user_path(self.skills_root(ctx), ctx)]
+
     def stage_plugins(self, ctx: RunContext) -> tuple[list[str], dict[str, str]]:
         """Stage the user's plugins; return their ``plugin:`` files and skills.
 
@@ -1078,11 +1086,13 @@ class CliHarness(HarnessBackend):
         return None
 
     #: How each argument parser a backend CLI is built on rejects an option:
-    #: commander (claude, pi), clap (codex), argparse (hermes).
+    #: commander (claude, pi), clap (codex), argparse (hermes), Go's flag
+    #: package (agy, which says "flags provided").
     _REJECTED_OPTION_MARKERS = (
         "error: unknown option",
         "error: unexpected argument",
         "error: unrecognized arguments",
+        "provided but not defined",
     )
 
     def _rejected_option(self, proc: ProcessResult, cli_text: str) -> str | None:

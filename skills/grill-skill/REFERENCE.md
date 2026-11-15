@@ -23,8 +23,9 @@ caliper report <spec> --run 2026-06-21T14-53-12Z --verbose
 The engine is chosen at run time, never in the spec: `--model` for the skill
 and `--judge-model` for the judge, each `backend`, `backend:model` or a bare
 model (`--model codex`, `--model codex:gpt-5-codex`). Backends are
-`claude-code` (default), `codex`, `pi`, `hermes`, and `opencode` (models named
-`provider/model`, e.g. `--model opencode:openai/gpt-6.1-terra`); on a ChatGPT plan, run
+`claude-code` (default), `codex`, `pi`, `hermes`, `antigravity` and `opencode`
+(models named `provider/model`, e.g. `--model opencode:openai/gpt-6.1-terra`);
+on a ChatGPT plan, run
 `caliper login chatgpt` once before `--model codex`. The judge defaults to the
 `--model` backend; pass the same `--judge-model` to runs you compare across
 engines.
@@ -100,7 +101,7 @@ validation.
   `/name args` enters that declared skill, expanded as if typed. Make `setup:`
   build what the history claims: the agent trusts a planted output over the
   disk. The judge reads planted turns as prior context, never as the agent's.
-  Not on hermes.
+  Not on hermes or antigravity.
 - **Attempt workdir.** `setup:`, the agent, `assert:` and `cleanup:` all run in
   one fresh, empty directory per attempt, so relative paths mean the same file
   to each. It is not the spec's directory and not a git repo: build what the task
@@ -126,7 +127,7 @@ validation.
   `url`, `headers`). Put secrets in host env vars as `${VAR}`. Stdio paths
   starting with `./` resolve from the spec's directory, and a server that can't
   start stops the run as a configuration error. `pi` has no MCP support;
-  `claude-code`, `codex`, `hermes` and `opencode` do.
+  `claude-code`, `codex`, `hermes`, `antigravity` and `opencode` do.
 - **User customizations.** By default a run also loads the user's own skills,
   rules, settings, plugins, MCP servers, connectors and (on `claude-code`) the
   skills synced from claude.ai, so a task may rely on a connector the user has. Put `user_customizations: false` at the top of the
@@ -143,6 +144,7 @@ Each backend keeps the user's past sessions on disk:
 | `codex` | `${CODEX_HOME:-~/.codex}/sessions/YYYY/MM/DD/*.jsonl` |
 | `pi` | `${PI_CODING_AGENT_DIR:-~/.pi/agent}/sessions/*.jsonl` |
 | `hermes` | SQLite; `hermes sessions export --newer-than 30d -` prints JSONL |
+| `antigravity` | `~/.gemini/antigravity-cli/brain/<conversation>/.system_generated/logs/transcript.jsonl` |
 | `opencode` | SQLite; `opencode session list --format json` names them, `opencode export <id>` prints one as JSON |
 
 Search the last 30 days, newest first, by the skill's `name` and the words of

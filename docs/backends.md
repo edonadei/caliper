@@ -32,8 +32,9 @@ caliper run my-skill.eval.yaml --model codex
 caliper run my-skill.eval.yaml --model codex --judge-model claude-code:claude-haiku-4-5-20251001
 ```
 
-Accepted backends: `claude-code`, `codex`, `pi`, `hermes`, `opencode` (aliases:
-`claude` and `claude_code` → `claude-code`).
+Accepted backends: `claude-code`, `codex`, `pi`, `hermes`, `antigravity`,
+`opencode` (aliases: `claude` and `claude_code` → `claude-code`, `agy` →
+`antigravity`).
 
 With no `--judge-model` the judge runs on the backend of the model being
 evaluated (`--model`), on that CLI's default model rather than the `--model`
@@ -50,7 +51,7 @@ of these CLIs with an API key (for example `ANTHROPIC_API_KEY` or
 When a run stops because the agent's or the judge's CLI is not logged in, it
 exits `2` with a `Not logged in` error that says how to log in. In an
 interactive terminal, `caliper run` also offers to run that backend's login
-command (`claude auth login`, `codex login`, `hermes model` or
+command (`claude auth login`, `codex login`, `hermes model`, `agy` or
 `opencode auth login`, or
 `caliper login chatgpt` when you [signed Caliper in to
 ChatGPT](#running-on-your-chatgpt-plan)) and reruns the
@@ -70,6 +71,7 @@ reads from there instead:
 | `codex` | `CODEX_HOME` | `~/.codex` |
 | `pi` | `PI_CODING_AGENT_DIR` | `~/.pi/agent` |
 | `hermes` | `HERMES_HOME` | `~/.hermes` (`%LOCALAPPDATA%\hermes` on Windows) |
+| `antigravity` | none | `~/.gemini` (login in the OS keyring) |
 | `opencode` | `XDG_CONFIG_HOME`, `XDG_DATA_HOME` | `~/.config/opencode` (config), `~/.local/share/opencode` (logins) |
 
 If the variable is set to something that isn't a directory, the run stops before
@@ -279,6 +281,34 @@ attempt's gateway and removes the profile once the attempt is read, and a later
 run sweeps any profile left behind for a day
 ([ADR 0037](adr/0037-hermes-attempt-home-lives-under-the-hermes-root-on-windows.md)).
 
+## Antigravity
+
+```bash
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+agy   # sign in once with your Google account
+```
+
+`--model antigravity` runs Google's Antigravity CLI (`agy`) in print mode with
+`--output-format stream-json`, and installs the declared skills under
+`~/.gemini/antigravity-cli/skills`, where `agy` discovers them.
+`--model antigravity:<model>` (for example
+`antigravity:gemini-3.8-flash-medium`) picks the model. Run `agy models` to
+list them.
+
+- The prompt goes in on stdin as one `stream-json` message (`--input-format
+  stream-json`), because `agy` refuses a flag-shaped `--print` value.
+- Attempts run with `--dangerously-skip-permissions`. Print mode can't ask, and
+  it skips any tool that needs approval rather than running it.
+- The login stays in your OS keyring. On macOS, the attempt's isolated home
+  links in `~/Library/Keychains` so `agy` finds it. An API key login
+  (`GEMINI_API_KEY` with `"modelProvider": "gemini"`) or ADC (`AGY_ADC_AUTH`)
+  works too: `~/.gemini/antigravity-cli/settings.json` is copied into each
+  attempt, and those variables are passed through.
+- Self-update is turned off during attempts, so one attempt can't swap the
+  binary under another.
+- Set `AGY_CLI_PATH` to force a specific binary. Otherwise Caliper looks on
+  `PATH`, then in `~/.local/bin/agy`, where the installer puts it.
+
 ## CLI versions
 
 Caliper doesn't install or update agent CLIs: update each one the way you
@@ -300,6 +330,7 @@ your shell runs, or set the backend's `*_CLI_PATH` to force one.
 | `codex` | ✅ | ✅ header auth only |
 | `hermes` | ✅ | ✅ header auth only |
 | `pi` | ❌ by design | ❌ by design |
+| `antigravity` | ✅ | ✅ header auth only |
 | `opencode` | ✅ | ✅ header auth only |
 
 Running a spec that declares `mcp:` on a backend that can't honor it is a hard
@@ -311,6 +342,13 @@ error, never a silent no-op.
   streamable-HTTP transport from `url`, so `http` and `sse` collapse onto it.
 - **`hermes`** translates the block into its native `mcp_servers` config inside
   the isolated `HERMES_HOME`.
+- **`antigravity`** writes the block as `mcpServers` in the attempt's
+  `~/.gemini/config/mcp_config.json`: stdio as `command`/`args`/`env`, remote
+  as `url` plus `headers`. agy speaks only Streamable HTTP to a remote, so
+  `http` and `sse` collapse onto it, as on codex. agy loads MCP tools lazily
+  and calls them through `call_mcp_tool`; Caliper names that call
+  `mcp_<server>_<tool>`
+  ([ADR 0043](adr/0043-antigravity-names-a-lazy-mcp-call-by-its-server-and-tool.md)).
 - **`opencode`** translates the block into the `mcp` table of the isolated
   `opencode.json`: stdio as a `local` server whose `command` list holds the
   command and its args, with `environment`, and remote as a `remote` server
@@ -321,10 +359,10 @@ error, never a silent no-op.
   servers from the real config are kept alongside the declared set by default
   ([loaded](#loading-your-user-customizations)); an isolated run replaces them,
   so it sees only the declared set.
-- **Remote OAuth** isn't supported on `codex`, `hermes` or `opencode`: it needs an
-  interactive browser flow the harness can't drive.
+- **Remote OAuth** isn't supported on `codex`, `hermes`, `antigravity` or
+  `opencode`: it needs an interactive browser flow the harness can't drive.
 - **A stdio server that speaks only MCP 2026-07-28** works only on `claude-code`
-  2.1.292 or later. On `codex`, `hermes` and `opencode`, the preflight stops the run with a
+  2.1.292 or later. On `codex`, `hermes`, `antigravity` and `opencode`, the preflight stops the run with a
   configuration error
   ([ADR 0035](adr/0035-mcp-preflight-gates-modern-only-servers-on-the-backend.md)).
 - **`pi`** has no MCP by design
@@ -343,6 +381,7 @@ See [MCP servers](spec-reference.md#mcp-servers-mcp) for the spec format.
 | `pi` | ✅ |
 | `opencode` | ✅ |
 | `hermes` | ❌ refused |
+| `antigravity` | ❌ refused |
 
 A spec whose tasks declare `history:` is refused before the first attempt on a
 backend that can't resume from it, with a message naming the backend.
@@ -370,6 +409,8 @@ backend that can't resume from it, with a message naming the backend.
 - **`hermes`** stores sessions in SQLite, and its only import path drops tool
   calls and their output, so it can't resume a history faithfully
   ([ADR 0036](adr/0036-planted-history-is-a-neutral-transcript-each-backend-resumes-natively.md)).
+- **`antigravity`** stores each conversation as protobuf steps in its own
+  SQLite file, with no import path, so it can't resume a history either.
 
 See [Planted history](spec-reference.md#planted-history-history) for the spec
 format.
@@ -391,6 +432,7 @@ hosted OAuth connector a spec can't declare. `--no-user-customizations`, or
 | `codex` | The `[mcp_servers.*]` tables in your `~/.codex/config.toml`, your installed plugins (`~/.codex/plugins`, copied into the attempt), ChatGPT apps (`codex_apps`), `~/.codex/skills`, `AGENTS.md` / `AGENTS.override.md`, and `config.toml` settings (the top-level model pin is still stripped) |
 | `hermes` | `~/.hermes/skills` and `config.yaml` (`%LOCALAPPDATA%\hermes` on Windows), including `mcp_servers`; persona and memory remain excluded |
 | `pi` | Nothing: no MCP by design. The run records it as off, and warns only if a flag or the spec asked for it |
+| `antigravity` | The `mcpServers` in your `~/.gemini/config/mcp_config.json`, the skills in `~/.gemini/antigravity-cli/skills`, `~/.gemini/skills` and `~/.gemini/config/skills`, the rules files `AGENTS.md` / `GEMINI.md` in `~/.gemini` and `~/.gemini/config`, and `antigravity-cli/settings.json`. Plugins and `config/rules/*.md` are not loaded yet |
 | `opencode` | The `mcp` table in your `~/.config/opencode/opencode.json` and its other settings (plugins included), `~/.config/opencode/skills`, `AGENTS.md`, and your `agents`, `commands`, `modes`, `plugins` and `tools` directories (copied into the attempt) |
 
 - **The spec wins a name clash.** A declared skill or server replaces your own of the

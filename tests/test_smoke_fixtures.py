@@ -43,6 +43,7 @@ def test_repo_specs_do_not_write_to_shared_tmp_paths() -> None:
         ("codex", "caliper-e2e-smoke-codex.txt"),
         ("hermes", "caliper-e2e-smoke-hermes.txt"),
         ("pi", "caliper-e2e-smoke-pi.txt"),
+        ("antigravity", "caliper-e2e-smoke-antigravity.txt"),
         ("opencode", "caliper-e2e-smoke-opencode.txt"),
     ],
 )

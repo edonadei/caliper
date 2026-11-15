@@ -133,7 +133,8 @@ tasks:
       for real cases to build tasks from, and asks for the user's go-ahead
       before reading them, then stops to wait. Fail if it reads any session
       store in this turn (~/.claude/projects, ~/.codex/sessions,
-      ~/.pi/agent/sessions, or `hermes sessions export`), invents the test
+      ~/.pi/agent/sessions, ~/.gemini/antigravity-cli/brain, or `hermes sessions
+      export`), invents the test
       cases itself without the user, or writes an .eval.yaml file.
     assert: |
       import glob

@@ -23,7 +23,7 @@ from caliper.harness.base import (
     RunContext,
     stream_events,
 )
-from caliper.harness.cli_config import JSON, CliConfig
+from caliper.harness.cli_config import JSONC, CliConfig
 from caliper.harness.history import (
     PlantedSession,
     PlantedSkill,
@@ -69,7 +69,7 @@ def _opencode_entry(server: ResolvedMcpServer) -> dict:
 # as pi's does (docs/adr/0012).
 OPENCODE_CONFIG = CliConfig(
     path="opencode.json",
-    codec=JSON,
+    codec=JSONC,
     connection_keys=frozenset(
         {"provider", "enabled_providers", "disabled_providers", "model", "small_model"}
     ),

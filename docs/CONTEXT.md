@@ -100,7 +100,7 @@ project-level default lands (the unified-harness-config direction).
 An adapter that runs the skill-under-test once and returns an `AttemptResult`
 (transcript + final output + exit code). Each backend implements
 `HarnessBackend.run(...)`. Current backends: `claude-code`, `codex`, `hermes`,
-`pi`, `opencode` — all CLI agents that can actually load and run a skill. Direct API access is *not* a
+`pi`, `antigravity`, `opencode` — all CLI agents that can actually load and run a skill. Direct API access is *not* a
 backend: to run against API-priced billing you configure one of these CLI
 harnesses with an API key (see [[cli-agent-backends-only]]).
 
@@ -685,7 +685,7 @@ backend that cannot report them leaves them `None`, exactly like
 **The four fields are disjoint** — `input_tokens` is *non-cached* prompt tokens
 only, cache lives solely in `cache_read_tokens`/`cache_creation_tokens` — so their
 sum never double-counts. This is a normalized contract, not each CLI's raw
-numbers, because backends disagree: claude, pi, hermes and opencode report `input` already
+numbers, because backends disagree: claude, pi, hermes, antigravity and opencode report `input` already
 *excluding* cache (pass through), but codex uses OpenAI semantics where
 `input_tokens` *includes* `cached_input_tokens`, so caliper **subtracts**
 (`input = raw.input_tokens − raw.cached_input_tokens`, `cache_read =

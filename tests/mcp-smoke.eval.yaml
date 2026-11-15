@@ -1,12 +1,13 @@
 # End-to-end smoke eval for a local stdio MCP server. Backend-neutral: the
 # engine is a runtime axis, so the same spec runs under any --model that honors
-# mcp: (claude-code, hermes, codex and opencode today).
+# mcp: (claude-code, hermes, codex, antigravity and opencode today).
 #
 # It declares a trivial stdio MCP server (the bundled echo_server.py, which
 # exposes one tool: secret_word -> "caliper") and checks that the agent actually
 # gained the tool, called it, and reported what it returned. The `expect:` judge
 # reads the transcript. The call's tool name is backend-specific (claude-code,
-# codex and opencode spell it mcp__echo__secret_word, hermes mcp_echo_secret_word), so the
+# codex and opencode spell it mcp__echo__secret_word, hermes and antigravity
+# mcp_echo_secret_word), so the
 # check below is worded around the tool's *behavior*, never one backend's spelling.
 #
 # Caliper resolves the explicitly relative `args:` path against this spec's
@@ -17,6 +18,7 @@
 #   caliper run tests/mcp-smoke.eval.yaml --k 1                 # claude-code
 #   caliper run tests/mcp-smoke.eval.yaml --k 1 --model hermes  # hermes
 #   caliper run tests/mcp-smoke.eval.yaml --k 1 --model codex   # codex
+#   caliper run tests/mcp-smoke.eval.yaml --k 1 --model antigravity
 
 # Pinned isolated: see test_every_smoke_eval_pins_isolation.
 user_customizations: false

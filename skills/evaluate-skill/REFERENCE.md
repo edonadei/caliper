@@ -65,7 +65,7 @@ tasks:
   - name: Short description of what success looks like
     setup: <shell command run in the attempt workdir>     # optional
     cleanup: <shell command>                              # optional
-    history: ./histories/h.history.yaml   # optional: earlier turns to resume from (not hermes)
+    history: ./histories/h.history.yaml   # optional: earlier turns to resume from (not hermes or antigravity)
     prompt: <what a real user would type>
     expect: <natural-language pass/fail criterion>
     assert: |                                             # or ./check.py
@@ -131,7 +131,7 @@ checks before its first attempt):
   `--ablate` stays as typed. `setup:` and the history must agree, since the
   agent trusts a planted output over the disk. Planted turns are kept out of the
   transcript, so cheat detection and `activates:` ignore them; the judge reads
-  them as prior context. hermes refuses the spec.
+  them as prior context. hermes and antigravity refuse the spec.
 - **Git sources.** `run` fetches them before the first attempt; `validate` never
   touches the network. A pinned `ref:` is offline after its first fetch. A git
   source whose skill has a symlink pointing outside the clone is refused.
@@ -152,6 +152,7 @@ caliper run spec.eval.yaml --model codex                   # backend, its defaul
 caliper run spec.eval.yaml --model claude-sonnet-4-6       # model, backend stays claude-code
 caliper run spec.eval.yaml --model pi:claude-sonnet-4-6 --judge-model pi
 caliper run spec.eval.yaml --model hermes:anthropic/claude-sonnet-4.6 --judge-model hermes
+caliper run spec.eval.yaml --model antigravity:gemini-3.8-flash-medium
 caliper run spec.eval.yaml --model opencode:openai/gpt-6.1-terra   # opencode models are provider/model
 caliper run spec.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001
 ```
@@ -162,12 +163,13 @@ caliper run spec.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001
 | `codex` | Codex CLI | stdio and remote with header auth |
 | `pi` | pi CLI, authenticated | none by design: expose the capability as a CLI tool or pi extension |
 | `hermes` | Hermes Agent CLI, authenticated | stdio and remote with header auth |
+| `antigravity` (alias `agy`) | Antigravity CLI, signed in once with `agy` | stdio and remote with header auth |
 | `opencode` | opencode CLI, then `opencode auth login` | stdio and remote with header auth |
 
 Every backend is a CLI agent using its own auth; for API billing, configure the
 CLI with an API key. To run `codex` on a ChatGPT plan, run `caliper login
 chatgpt` once: attempts and the judge then get a short-lived token instead of a
-copy of `~/.codex/auth.json`, which parallel attempts can break by refreshing. Remote OAuth MCP isn't supported on `codex`, `hermes` or `opencode`. An
+copy of `~/.codex/auth.json`, which parallel attempts can break by refreshing. Remote OAuth MCP isn't supported on `codex`, `hermes`, `antigravity` or `opencode`. An
 `mcp:` spec on a backend that can't honour it is a hard error.
 
 `hermes` is stateful, so Caliper strips it to a neutral agent per attempt:
@@ -182,7 +184,7 @@ retry their usage limit until the attempt times out, so use a provider you're
 logged in to.
 
 An MCP tool call appears in the transcript as `mcp__<server>__<tool>` on
-`claude-code`, `codex` and `opencode`, and `mcp_<server>_<tool>` on `hermes`. If the spec
+`claude-code`, `codex` and `opencode`, and `mcp_<server>_<tool>` on `hermes` and `antigravity`. If the spec
 runs on more than one engine, word `expect:` around the behaviour rather than
 one backend's spelling.
 
@@ -194,7 +196,7 @@ run; otherwise each engine grades itself and `compare` warns.
 A run records the model the backend reported running, not the one requested,
 and warns on a mismatch. An unknown backend name is refused before any attempt;
 an unavailable judge model, a failed judge login, an unavailable `claude-code`
-skill model, or an unknown `hermes:<model>` stops the run with exit `2`. So does a spec with
+skill model, or an unknown `hermes:<model>` or `antigravity:<model>` stops the run with exit `2`. So does a spec with
 `expect:` when the judge's CLI isn't installed: install it, or drop
 `--judge-model` so the backend of the model being evaluated (`--model`)
 grades too.
@@ -210,6 +212,7 @@ itself, merged with what the spec declares:
 | `codex` | `~/.codex/skills`, `AGENTS.md` / `AGENTS.override.md`, plugins, settings, `~/.codex/config.toml` MCP servers and ChatGPT apps (its top-level model pin is stripped) |
 | `hermes` | `~/.hermes/skills`, settings, `~/.hermes/config.yaml` MCP servers (`%LOCALAPPDATA%\hermes` on Windows; still `--ignore-rules`, no persona or memory) |
 | `pi` | nothing |
+| `antigravity` | `~/.gemini/antigravity-cli/skills`, `~/.gemini/skills`, `~/.gemini/config/skills`, `AGENTS.md` / `GEMINI.md` rules, settings, `~/.gemini/config/mcp_config.json` MCP servers |
 | `opencode` | `~/.config/opencode/skills`, `AGENTS.md`, `opencode.json` settings and MCP servers, and its agents, commands, modes, plugins and tools directories |
 
 The paths are the defaults. When the CLI's own config-home variable is set

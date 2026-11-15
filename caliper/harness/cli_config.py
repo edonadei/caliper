@@ -2,7 +2,8 @@
 
 Some agents keep their MCP servers in the same file as their login and model
 settings (codex's ``config.toml``, hermes' ``config.yaml``, opencode's
-``opencode.json``), so the file cannot
+``opencode.json``), or in a file the user's own servers share (agy's
+``mcp_config.json``), so the file cannot
 be copied verbatim like a ``seed_files`` entry (docs/adr/0012). A backend
 declares that file as a :class:`CliConfig` and this module rewrites it into the
 attempt's config home (docs/CONTEXT.md → Config home):
@@ -52,6 +53,13 @@ class Codec:
 
 
 TOML = Codec("TOML", tomllib.loads, tomli_w.dumps, tomllib.TOMLDecodeError)
+# An empty file reads as no config: agy's installer leaves one behind.
+JSON = Codec(
+    "JSON",
+    lambda text: json.loads(text) if text.strip() else {},
+    lambda config: json.dumps(config, indent=2),
+    json.JSONDecodeError,
+)
 YAML = Codec(
     "YAML",
     yaml.safe_load,
@@ -73,8 +81,8 @@ def _loads_jsonc(text: str) -> object:
     )
 
 
-JSON = Codec(
-    "JSON",
+JSONC = Codec(
+    "JSONC",
     _loads_jsonc,
     lambda config: json.dumps(config, indent=2),
     json.JSONDecodeError,
