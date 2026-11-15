@@ -31,11 +31,9 @@ aligned when behavior changes.
 
 `ruff` is the single formatting and linting authority for this repo, pinned to
 `ruff==0.15.20`. `ty` is the static type checker, pinned to `ty==0.0.104`. Run
-`ruff format .`, `ruff check .`, and `ty check` before finishing. Never
-hand-reformat lines outside the scope of your change — the formatter is the
-only style authority, and manual reflow inflates diffs. CI enforces
-`ruff format --check .`, `ruff check .`, and `ty check` on every PR. See
-`.github/CONTRIBUTING.md` for details.
+`ruff format .`, `ruff check .`, and `ty check` before finishing. Leave lines
+outside your change as they are: the formatter is the only style authority, and
+manual reflow inflates diffs.
 
 ## Decision docs
 
@@ -48,8 +46,13 @@ This repo keeps its domain model and design decisions **in version control**:
 - `docs/adr/` — Architecture Decision Records (`0001-*.md`, …), one short entry
   per hard-to-reverse, non-obvious, real-trade-off decision.
 
-Both are committed and ship with the repo. **Reference them freely** from code
-comments, docstrings, and docs — e.g. `see docs/CONTEXT.md → Regression` or
-`docs/adr/0001-attempt-outcome-taxonomy.md`. Because the files clone with the
-repo, these links resolve for everyone. Prefer a short comment that links the
-record over re-explaining the decision inline.
+Both ship with the repo, so **link them freely** from code comments,
+docstrings, and docs — e.g. `see docs/CONTEXT.md → Regression` or
+`docs/adr/0001-attempt-outcome-taxonomy.md`.
+
+## Comments
+
+A comment is a short pointer: five lines at most, with the reasoning in the
+record it links. A `TODO` cites its issue (`# TODO(#123): ...`), and a `# noqa`
+names its rule and why it does not apply. `tests/test_comment_policy.py` checks
+all three, with a per-file allowance for the longer blocks that predate it.
