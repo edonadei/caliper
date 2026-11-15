@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -322,7 +324,8 @@ def test_antigravity_writes_declared_mcp_servers_into_the_attempt_config(
             },
         }
     }
-    assert written.stat().st_mode & 0o777 == 0o600
+    if os.name == "posix":
+        assert stat.S_IMODE(written.stat().st_mode) == 0o600
     # The user's real config is never touched.
     assert user_config.read_text() == ""
     assert result.loaded_user_customizations is None
