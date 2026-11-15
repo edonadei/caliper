@@ -427,6 +427,21 @@ Skip the path if you're already in the skill's directory. If an `.eval.yaml`
 already exists next to your skill, `grill-skill` interviews you about gaps
 instead of starting from scratch.
 
+### `hillclimb-skill`: let the agent improve the skill
+
+`hillclimb-skill` edits your `SKILL.md` against its eval, one change a round.
+It sets a third of the tasks aside as held-out, reads only the failures of the
+rest, and keeps a change only when the held-out tasks improve too, so the skill
+gets better at the job rather than at the eval. It measures the eval's noise
+first, and reports the held-out result against the baseline at the end. Aim it
+at a higher score, or at fewer tokens for the same score.
+
+```text
+/hillclimb-skill ./inbox-triage/SKILL.md
+```
+
+It needs an eval with at least 8 tasks; build one with `grill-skill` first.
+
 ## Documentation
 
 | | |

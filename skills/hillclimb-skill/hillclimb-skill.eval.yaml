@@ -1,0 +1,131 @@
+skills:
+  - ./SKILL.md
+  # The neighbours: all three talk about evals, so every activates: below also
+  # checks that the right one fires.
+  - ../grill-skill/SKILL.md
+  - ../evaluate-skill/SKILL.md
+
+# Isolated: these numbers are published, and the user's own skills would
+# otherwise compete for every activates: below (docs/adr/0028).
+user_customizations: false
+
+# Single-shot harness, so only the first turn is judged: a climb's rounds need
+# answers and many agent sessions, which no attempt has.
+
+tasks:
+  # Task 1 — Framing before editing. The skill's first duty is to ask what to
+  # optimize and get a go-ahead on the cost; an agent that starts rewriting the
+  # skill has skipped the split, the baseline and the noise floor.
+  - name: Frames the climb before touching the skill
+    activates: [hillclimb-skill]
+    setup: |
+      mkdir -p commit-message
+      cat > commit-message/SKILL.md << 'EOF'
+      ---
+      name: commit-message
+      description: Use when the user wants a commit message for staged changes.
+      allowed-tools: Bash
+      ---
+
+      # Commit Message
+
+      Read the staged diff and write a conventional commit message.
+      EOF
+      {
+        printf 'skills:\n  - ./SKILL.md\ntasks:\n'
+        for i in 1 2 3 4 5 6 7 8 9; do
+          printf '  - name: Writes a message for change %s\n' "$i"
+          printf '    prompt: Write a commit message for the staged change in ./repo%s\n' "$i"
+          printf '    expect: The message follows the conventional commit format.\n'
+          printf '    activates: [commit-message]\n'
+        done
+      } > commit-message/commit-message.eval.yaml
+      cp commit-message/SKILL.md original-SKILL.md
+    prompt: >
+      My skill at ./commit-message/SKILL.md has an eval beside it and passes
+      about 60% of the time. Can you work on the skill yourself, round after
+      round, until that number goes up? I'm here if you need anything from me
+      before you start.
+    expect: >
+      Pass if the agent, before changing the skill or running the eval, asks the
+      user at least one framing question (what to optimize, which part of the
+      skill to change, how large a gain matters, or how many rounds to spend)
+      and then stops to wait. Fail if it edits SKILL.md, starts an eval run, or
+      proposes skill changes in this turn.
+    assert: |
+      before = open("original-SKILL.md").read()
+      after = open("commit-message/SKILL.md").read()
+      assert before == after, "Agent edited the skill before framing the climb"
+
+  # Task 2 — Too few tasks to hold any out. The prompt answers the framing
+  # questions up front, so a single shot reaches the refusal.
+  - name: Refuses to climb an eval too small to hold tasks out
+    activates: [hillclimb-skill]
+    setup: |
+      mkdir -p summarize
+      cat > summarize/SKILL.md << 'EOF'
+      ---
+      name: summarize
+      description: Use when the user wants to summarize a file.
+      allowed-tools: Bash
+      ---
+
+      # Summarize
+
+      Summarize the contents of a file provided by the user.
+      EOF
+      cat > summarize/summarize.eval.yaml << 'EOF'
+      skills:
+        - ./SKILL.md
+      tasks:
+        - name: Summarizes a short text file
+          prompt: Summarize ./notes.txt
+          expect: The agent produces a summary of the file contents.
+        - name: Summarizes a long log
+          prompt: What happened in ./server.log?
+          expect: The agent reports the errors in the log.
+        - name: Says so when the file is missing
+          prompt: Summarize ./missing.txt
+          expect: The agent reports that the file does not exist.
+      EOF
+      cp summarize/SKILL.md original-SKILL.md
+    prompt: >
+      Optimize ./summarize/SKILL.md against its eval on your own. I care about
+      the score, change the body only, a 10-point gain is worth keeping, and you
+      can spend up to four rounds. Go ahead, no need to check anything with me.
+    expect: >
+      Pass if the agent declines to start and says the eval has too few tasks to
+      set some aside as held-out (or to measure a gain reliably), and suggests
+      adding tasks first. Fail if it edits SKILL.md, runs the eval, or starts
+      improving the skill anyway.
+    assert: |
+      import os
+      before = open("original-SKILL.md").read()
+      after = open("summarize/SKILL.md").read()
+      assert before == after, "Agent edited the skill of an eval it should refuse"
+      assert not os.path.exists(".caliper"), "Agent ran the eval it should refuse"
+
+  # Trigger probe: designing an eval belongs to grill-skill.
+  - name: A skill with no eval belongs to grill-skill
+    activates: [grill-skill]
+    setup: |
+      mkdir -p changelog-writer
+      printf -- '---\nname: changelog-writer\ndescription: Use when the user wants to turn merged PRs into a changelog entry.\n---\n\n# Changelog Writer\n' > changelog-writer/SKILL.md
+    prompt: >
+      I need an eval for ./changelog-writer/SKILL.md and I can't think of good
+      test cases. How do we start?
+
+  # Trigger probe: a plain validation request belongs to evaluate-skill.
+  - name: A validation request belongs to evaluate-skill
+    activates: [evaluate-skill]
+    setup: |
+      printf -- '---\nname: arithmetic\ndescription: Use when asked to do arithmetic.\n---\n\n# Arithmetic\n' > SKILL.md
+      printf 'skills:\n  - ./SKILL.md\ntasks:\n  - name: Adds\n    prompt: What is 2 + 2?\n    expect: The answer is 4.\n' > valid.eval.yaml
+    prompt: Is the caliper spec at ./valid.eval.yaml valid?
+
+  # Trigger probe: ordinary work, no eval in sight.
+  - name: Unrelated work stays silent
+    activates: []
+    setup: |
+      printf 'def total(items):\n    tmp = 0\n    for i in items:\n        tmp += i\n    return tmp\n' > a.py
+    prompt: Rename the variable tmp to result in ./a.py
