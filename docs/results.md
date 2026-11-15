@@ -97,9 +97,9 @@ doesn't change the measured outcome, but the report highlights it and
 `caliper run` exits `2`.
 
 Each hook failure is saved in `AttemptRecord.hook_failures` (when an attempt was
-recorded) and in `RunMeta.hook_failures`, with task ID, attempt number, phase,
-exit code, and captured output. The run-level list also keeps cleanup failures
-from interrupted attempts that have no attempt record.
+recorded) and in `RunMeta.hook_failures`, with `task_id`, `attempt`, `phase`,
+`exit_code`, and captured `output`. The run-level list also keeps cleanup
+failures from interrupted attempts that have no attempt record.
 
 ### Stopping early with `--fail-fast`
 
@@ -312,6 +312,22 @@ The footer of the results table, then the notes under it:
 
 ## Results JSON
 
+Saved runs serialize `RunResults`:
+
+- `RunResults` has `run` (`RunMeta`: `spec`, `timestamp`, `k`, plus engine and
+  environment metadata below), `skill_snapshots`, `task_results`, and
+  `aggregate`.
+- Each `TaskResult` records `task_id`, `task_name`, `attempts`, and derived
+  `successes`, `usable`, `unusable`, `score`, `pass_at_k`, and `pass_hat_k`.
+- Each `AttemptRecord` records `attempt`, `output`, `duration_seconds`,
+  `outcome` (with derived `passed` and `cheated`), `cheat_evidence`,
+  `assert_passed`/`assert_evidence`, and
+  `autorater_passed`/`autorater_reasoning`, alongside `judge_seconds` and
+  `retries`.
+- `AggregateScore` records `avg_score`, `scored_tasks`, and `per_task`
+  (`TaskScore` entries of `task_id`, `task_name`, `k`, `successes`, `score`),
+  alongside the activation fields below.
+
 A results file whose numbers are impossible — a negative count or duration,
 a score outside 0–1, `k` below 1, or NaN — is refused as unreadable rather
 than rendered.
@@ -432,9 +448,11 @@ recorded. Only the version is saved, never the binary's path.
   infra failure that showed none.
 - `TaskResult` has `activation_expected` (the task's `activates:` set) plus
   derived `activation_usable` / `activation_successes` / `activation_score`.
-- `AggregateScore` has `avg_activation_score`, `activation_tasks`, and
-  `activation_per_skill` (per-skill `expected`/`fired`/`hits` with derived
-  `recall`/`precision`), alongside `scored_tasks` for the execution half.
+- `AggregateScore` has `avg_activation_score`, `activation_tasks`,
+  `activation_asserted`, and `activation_per_skill` (per-skill `total`,
+  `expected`, `fired`, and `hits`, with derived `recall`, `precision`,
+  `opportunities`, `unwanted`, and `unwanted_rate`), alongside `scored_tasks`
+  for the execution half.
 - `RunMeta.era` records how skills were loaded when the run was made. Runs saved
   before Caliper switched to install-and-discover
   ([ADR 0013](adr/0013-install-and-discover-is-the-only-loading-discipline.md))

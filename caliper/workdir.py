@@ -2,7 +2,7 @@
 
 One fresh directory per attempt, shared by ``setup:``, the agent, ``assert:``
 and ``cleanup:``, so a relative path means the same place to every step. See
-docs/adr/0026-an-attempt-runs-in-one-fresh-workdir.md.
+docs/adr/0046-an-attempt-runs-in-one-fresh-workdir.md.
 
 :class:`AttemptWorkdir` owns the attempt's temp dir — the workdir and, beside
 it, the agent's isolated home — and runs every **step** (docs/CONTEXT.md →

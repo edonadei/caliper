@@ -399,7 +399,7 @@ class EvalJudge(Judge):
 
         # In the workdir, not the spec dir: the judge grades what the agent left
         # there, and must not sit beside the answer key or write into the
-        # author's repo (docs/adr/0026).
+        # author's repo (docs/adr/0046).
         # Timed around the model call alone: an assert script or building the
         # harness is not judge time (docs/CONTEXT.md → Judge time).
         started = time.monotonic()
