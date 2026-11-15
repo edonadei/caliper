@@ -59,7 +59,7 @@ A score objective also needs the **control** (`--ablate <skill-name>`, run once 
 Each round:
 
 1. **Read** the train failures of the current best run (`climb.py failures`).
-2. **Name one cause**: the one most failing train tasks share. A failure only one task shows is not a cause yet: it waits for the reflection round. Fix the cause at its root with the smallest change that does: rewrite the section that causes it, or add the one rule that is missing. Write the rule in the skill's own terms, general enough for a request you have not seen. Wording from a task's prompt, `expect:`, assert or transcript stays out of the skill.
+2. **Name one cause**: the most common one, shared by the most failing train tasks. A cause only one task shows comes last, once no shared cause is left. Fix the cause at its root with the smallest change that does: rewrite the section that causes it, or add the one rule that is missing. Write the rule in the skill's own terms, general enough for a request you have not seen. Wording from a task's prompt, `expect:`, assert or transcript stays out of the skill.
 3. **Snapshot** the files you will edit, make the one change, run the whole spec, and score it against the current best run.
 4. **Verdict**, then one line in the log: the cause, the change, both scores, kept or reverted.
 
@@ -72,7 +72,7 @@ Train must gain more than its noise floor. On held-out, *up* is any rise, *flat*
 | Gains | Flat or down | **Revert**: the change learned the train tasks |
 | No gain, or down | Any | **Revert** |
 
-With a **cost objective**, score each round against the baseline as well as the current best, and keep a change when tokens per attempt fall by 5% or more and neither split falls beyond its noise floor from the *baseline*, so small losses can't add up. Look for cost in sections no train task exercises, repeated meaning, and reference that belongs in a sibling file.
+With a **cost objective**, keep a change when tokens per attempt fall by 5% or more and neither split falls beyond its noise floor from the *baseline*: score each round against it as well as the current best, so small losses can't add up. Look for cost in sections no train task exercises, repeated meaning, and reference that belongs in a sibling file.
 
 **Two reverts in a row** make the next round a **reflection round**: no edit. Sort every remaining train failure by cause ([REFERENCE.md → Causes](REFERENCE.md#causes)). Only failures caused by the skill go into further rounds. If no single cause could gain more than the noise floor, stop.
 
