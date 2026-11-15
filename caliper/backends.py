@@ -24,7 +24,7 @@ class Backend:
     mcp_tool_separator: str = "__"
     # The words this backend's CLI takes after ``@`` in ``--model``, as the
     # current CLI spells them; ``None`` passes any word through for the CLI to
-    # judge (docs/adr/0044).
+    # judge (docs/adr/0045).
     effort_levels: frozenset[str] | None = None
 
 

@@ -194,7 +194,7 @@ def _engine_label(
     """`backend · model · effort`, each part only when known.
 
     An effort from the user's own settings says so: it is the one part no flag
-    of this run chose (docs/adr/0044).
+    of this run chose (docs/adr/0045).
     """
     parts = [backend or "?"]
     if model:
@@ -417,7 +417,7 @@ def _print_run_header(results: RunResults) -> None:
             run.judge_backend == run.backend
             and run.judge_model in (None, run.model)
             # Only ever the named level: None is the judge CLI's default, not
-            # an unknown one (docs/adr/0044).
+            # an unknown one (docs/adr/0045).
             and run.judge_effort == run.effort
         )
         grid.add_row(

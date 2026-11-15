@@ -313,7 +313,7 @@ class EvalJudge(Judge):
         self.backend = backend
         self.model = model
         # Recorded as named: the judge's sessions run in the real CLI home,
-        # which caliper does not read back (docs/adr/0044).
+        # which caliper does not read back (docs/adr/0045).
         self.effort = effort
         # The backend that answers the autorater's prompt, through the
         # ``run_prompt`` half of the backend seam. Built from ``backend`` on

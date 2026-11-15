@@ -173,7 +173,7 @@ def test_the_mcp_preflight_is_not_counted_as_the_agents_wall_time(
     assert result.duration_seconds < 0.5
 
 
-# --- the effort an attempt ran at (docs/adr/0044) ----------------------------
+# --- the effort an attempt ran at (docs/adr/0045) ----------------------------
 
 
 class _Reporting(ClaudeCodeHarness):

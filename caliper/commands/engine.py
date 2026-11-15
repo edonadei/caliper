@@ -24,7 +24,7 @@ class Engine:
 
     ``judge_named`` is whether ``--judge-model`` chose the judge, which decides
     what a missing judge CLI should tell the caller to change. An effort is
-    ``None`` when the flag named none (docs/adr/0044).
+    ``None`` when the flag named none (docs/adr/0045).
     """
 
     backend: str
@@ -95,7 +95,7 @@ def _check_effort(
     """Refuse an effort ``backend`` doesn't take, before any attempt is paid for.
 
     pi's own ``<model>:<level>`` shorthand is refused too: the level would reach
-    pi without the run recording it, so ``@`` is the one spelling (docs/adr/0044).
+    pi without the run recording it, so ``@`` is the one spelling (docs/adr/0045).
     """
     levels = BACKENDS[backend].effort_levels
     if levels is None:

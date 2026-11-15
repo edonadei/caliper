@@ -55,7 +55,7 @@ class Judge(Protocol):
     ``backend`` and ``model`` are the judge engine as configured — what
     ``RunMeta`` records, asked of the judge rather than passed in beside it.
     ``model`` is ``None`` when the judge lets its CLI pick, and ``effort`` when
-    ``--judge-model`` named none (docs/adr/0044).
+    ``--judge-model`` named none (docs/adr/0045).
     ``prompt_version`` names how the autorater renders its prompt, so a saved run
     can tell whether ``render_judge_prompt`` still reproduces what its judge
     saw; ``None`` for a judge with no templates (a test double).

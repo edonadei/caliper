@@ -983,7 +983,7 @@ def test_run_refuses_fewer_than_one_attempt(tmp_path, k) -> None:
         )
 
 
-# --- the effort a run ran at (docs/adr/0044) ---------------------------------
+# --- the effort a run ran at (docs/adr/0045) ---------------------------------
 
 
 def _effort_run(tmp_path, harness, judge=None, k=1):

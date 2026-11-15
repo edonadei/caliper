@@ -765,7 +765,7 @@ def test_a_run_saved_before_cli_versions_has_no_cli_row() -> None:
     assert not any("cli" in ln.split() for ln in out.splitlines())
 
 
-# --- effort in the engine label (docs/adr/0044) -----------------------------
+# --- effort in the engine label (docs/adr/0045) -----------------------------
 
 
 def _engine_row(out: str) -> str:

@@ -89,7 +89,7 @@ class _RunEnv:
     # the GIL, so these are safe to share across the pool's worker threads.
     resolved_models: list[str]
     judge_models: list[str]
-    # Each attempt's effort and how it is known, when it is (docs/adr/0044).
+    # Each attempt's effort and how it is known, when it is (docs/adr/0045).
     efforts: list[tuple[str, EffortSource]]
     # Each attempt's loaded customizations, where visible; same discipline.
     loaded_user_customizations: list[list[str]]
@@ -383,7 +383,7 @@ def _recorded_effort(
 ) -> tuple[str | None, EffortSource | None]:
     """The effort ``RunMeta`` names, chosen and warned about as the model is.
 
-    With no attempt to say, it is the named one, if any (docs/adr/0044).
+    With no attempt to say, it is the named one, if any (docs/adr/0045).
     """
     if not ran:
         return named, "named" if named else None

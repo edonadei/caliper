@@ -52,7 +52,7 @@ and `caliper compare` warns that the judges differ
 
 `@<effort>` sets the effort the CLI runs at, for the attempts or the judge.
 `opus@low` and `opus@max` are different engines, so a run records the effort as
-part of its engine ([ADR 0044](adr/0044-effort-is-part-of-the-engine-target.md)).
+part of its engine ([ADR 0045](adr/0045-effort-is-part-of-the-engine-target.md)).
 Each backend takes the words its own CLI uses:
 
 | Backend | Passed as | Levels |

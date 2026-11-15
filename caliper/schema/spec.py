@@ -29,7 +29,7 @@ DEFAULT_USER_CUSTOMIZATIONS: bool = True
 def parse_target(value: str) -> tuple[str | None, str | None, str | None]:
     """Parse a --model / --judge-model value into (backend, model, effort).
 
-    The grammar is ``[backend][:model][@effort]`` (docs/adr/0044):
+    The grammar is ``[backend][:model][@effort]`` (docs/adr/0045):
       "codex:gpt-5-codex"      -> ("codex", "gpt-5-codex", None)
       "codex"                  -> ("codex", None, None)   # known backend name
       "claude-sonnet-4-6"      -> (None, "claude-sonnet-4-6", None)

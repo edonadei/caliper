@@ -91,7 +91,7 @@ class AttemptResult:
     # default was used. ``None`` when the backend cannot report it.
     resolved_model: str | None = None
     # The effort the attempt ran at and how caliper knows it, ``None`` for the
-    # CLI's built-in default, which no CLI names (docs/adr/0044).
+    # CLI's built-in default, which no CLI names (docs/adr/0045).
     effort: str | None = None
     effort_source: EffortSource | None = None
     # Token accounting for this attempt, when the backend can extract it from its
@@ -496,7 +496,7 @@ class HarnessBackend(ABC):
         return self._model
 
     # The effort named after ``@`` in ``--model``, or ``None`` for the CLI's
-    # own (docs/adr/0044). Part of the engine, like the model.
+    # own (docs/adr/0045). Part of the engine, like the model.
     _effort: str | None = None
 
     @property
@@ -721,7 +721,7 @@ class CliHarness(HarnessBackend):
     def _effort_and_source(
         self, report: AgentReport, ctx: RunContext
     ) -> tuple[str | None, EffortSource | None]:
-        """The effort an attempt ran at, most trusted source first (docs/adr/0044).
+        """The effort an attempt ran at, most trusted source first (docs/adr/0045).
 
         What the CLI wrote beats what ``@`` named, the way a reported model does;
         with neither, the level the user's settings pin when they reached the

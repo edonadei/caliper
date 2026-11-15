@@ -993,7 +993,7 @@ def test_a_backend_with_no_unavailable_message_skips_the_readiness_check(
 
 # --- effort ------------------------------------------------------------------
 
-# How each CLI takes the effort named after ``@`` in --model (docs/adr/0044).
+# How each CLI takes the effort named after ``@`` in --model (docs/adr/0045).
 EFFORT_ARGS = [
     (ClaudeCodeHarness, ["--effort", "high"]),
     (CodexHarness, ["-c", 'model_reasoning_effort="high"']),

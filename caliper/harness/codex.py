@@ -249,7 +249,7 @@ class CodexHarness(CliHarness):
         """The named effort as a config override; codex has no flag for it.
 
         The value is a TOML string, and codex judges the level itself
-        (docs/adr/0044).
+        (docs/adr/0045).
         """
         if not self._effort:
             return []
