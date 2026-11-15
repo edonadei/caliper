@@ -367,7 +367,7 @@ def test_cancel_kills_an_opencode_history_import(monkeypatch, tmp_path) -> None:
     def spawn() -> None:
         try:
             box["result"] = OpenCodeHarness().run(ctx)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — forward worker failure to main thread
             box["exception"] = exc
         finally:
             finished.set()

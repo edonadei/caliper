@@ -1205,7 +1205,7 @@ def test_cancel_interrupts_stalled_preflight_and_skips_next_server(
     def check() -> None:
         try:
             preflight_stdio_servers(servers, timeout=5)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — forward worker failure to main thread
             errors.append(exc)
 
     cancel.reset()
@@ -1257,7 +1257,7 @@ def test_interrupt_during_preflight_returns_an_interrupted_run(tmp_path) -> None
             box["result"] = run(
                 spec, spec_path, _AttemptPreflightHarness(), ScriptedJudge(), k=1
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — forward worker failure to main thread
             box["error"] = exc
 
     thread = threading.Thread(target=execute)

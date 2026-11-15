@@ -183,7 +183,7 @@ def _post(host: str, body: bytes) -> None:
             connection.getresponse().close()
         finally:
             connection.close()
-    except Exception:
+    except Exception:  # noqa: BLE001 — optional network delivery must never fail
         # This is an optional network boundary. No error text is sent or printed.
         pass
 
@@ -232,7 +232,7 @@ def record(
         if outcome != "interrupted":
             # Someone who pressed Ctrl-C asked to leave; don't hold them up.
             worker.join(DELIVERY_BUDGET_SECONDS)
-    except (Exception, KeyboardInterrupt):
+    except (Exception, KeyboardInterrupt):  # noqa: BLE001 — never alter CLI exit
         # Optional config, metadata and thread failures cannot replace a CLI
         # result, and neither can a second Ctrl-C during the bounded wait.
         pass
