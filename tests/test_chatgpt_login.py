@@ -22,9 +22,11 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import pytest
+from typer.testing import CliRunner
 
 from caliper.chatgpt import PLAN_SCOPE, ChatGPTAccount, ChatGPTLoginError
 from caliper.harness.base import HarnessConfigurationError, LoginRequired
+from caliper.main import app
 
 FULL_SCOPE = f"openid profile email offline_access resource.invoke {PLAN_SCOPE}"
 
@@ -425,3 +427,36 @@ def test_identity_rejects_missing_or_malformed_id_token(auth, tmp_path) -> None:
         ChatGPTLoginError, match=r"ChatGPT returned no usable ID token\."
     ):
         acct._identity("not-a-jwt", "client-id", "nonce")
+
+
+def _cli_against(auth: FakeAuth, home: Path, monkeypatch) -> CliRunner:
+    monkeypatch.setattr(
+        "caliper.commands.login.chatgpt_account", lambda: account(auth, home)
+    )
+    monkeypatch.setattr("caliper.commands.login.webbrowser.open", browser)
+    return CliRunner()
+
+
+def test_login_and_logout_through_the_cli(auth, tmp_path, monkeypatch) -> None:
+    cli = _cli_against(auth, tmp_path, monkeypatch)
+
+    signed_in = cli.invoke(app, ["login", "chatgpt"])
+    assert signed_in.exit_code == 0, signed_in.output
+    assert "Signed in as you@example.com" in signed_in.output
+    assert account(auth, tmp_path).signed_in
+
+    signed_out = cli.invoke(app, ["logout", "chatgpt"])
+    assert signed_out.exit_code == 0, signed_out.output
+    assert "Signed out of ChatGPT" in signed_out.output
+    assert not account(auth, tmp_path).signed_in
+    again = cli.invoke(app, ["logout", "chatgpt"])
+    assert "Not signed in to ChatGPT" in again.output
+
+
+def test_a_declined_login_exits_two(auth, tmp_path, monkeypatch) -> None:
+    auth.deny = True
+
+    result = _cli_against(auth, tmp_path, monkeypatch).invoke(app, ["login", "chatgpt"])
+
+    assert result.exit_code == 2
+    assert "access_denied" in result.output

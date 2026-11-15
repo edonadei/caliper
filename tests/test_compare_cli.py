@@ -223,3 +223,66 @@ def test_json_carries_the_numbers_the_table_prints(monkeypatch, tmp_path) -> Non
     assert data["unmeasured"] == []
     assert data["has_regression"] is True
     assert data["aggregate_delta"] == -1.0
+
+
+def test_report_reads_the_run_it_is_named_and_verbose_shows_a_pass(
+    monkeypatch, tmp_path
+) -> None:
+    for minute, output in ((0, "first output"), (30, "second output")):
+        attempt = AttemptRecord(
+            attempt=1, output=output, duration_seconds=1.0, outcome=Outcome.PASS
+        )
+        ts = datetime(2026, 8, 4, 10, minute, tzinfo=timezone.utc)
+        _write_run(tmp_path, "demo", ts, ablated=[], skills=[], attempt=attempt)
+    monkeypatch.chdir(tmp_path)
+
+    quiet = runner.invoke(app, ["report", "demo", "--run", "2026-08-04T10-00-00Z"])
+    assert quiet.exit_code == 0, quiet.output
+    assert "first output" not in quiet.output
+
+    named = runner.invoke(
+        app, ["report", "demo", "--run", "2026-08-04T10-00-00Z", "--verbose"]
+    )
+    assert named.exit_code == 0, named.output
+    assert "first output" in named.output
+    latest = runner.invoke(app, ["report", "demo", "-v"])
+    assert "second output" in latest.output
+
+
+def test_compare_verbose_adds_pass_at_k(monkeypatch, tmp_path) -> None:
+    a, b = (
+        _write_run(
+            tmp_path,
+            "demo",
+            datetime(2026, 8, 4, 10, minute, tzinfo=timezone.utc),
+            ablated=[],
+            skills=[],
+        )
+        for minute in (0, 30)
+    )
+    monkeypatch.chdir(tmp_path)
+
+    plain = runner.invoke(app, ["compare", str(a), str(b)])
+    verbose = runner.invoke(app, ["compare", str(a), str(b), "--verbose"])
+
+    assert plain.exit_code == verbose.exit_code == 0, verbose.output
+    assert "pass@k" not in plain.output
+    assert "pass@k" in verbose.output
+    assert "pass^k" in verbose.output
+
+
+def test_report_json_is_the_saved_run_plus_its_usage_totals(
+    monkeypatch, tmp_path
+) -> None:
+    ts = datetime(2026, 8, 4, 10, 0, tzinfo=timezone.utc)
+    path = _write_run(tmp_path, "demo", ts, ablated=[], skills=["mine"])
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["report", "demo", "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data.pop("usage_totals")["attempts"] == 1
+    assert RunResults.model_validate(data) == RunResults.model_validate_json(
+        path.read_text()
+    )
