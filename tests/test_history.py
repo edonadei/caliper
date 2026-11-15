@@ -22,6 +22,7 @@ from caliper.harness.base import (
 )
 from caliper.harness.claude_code import CLAUDE_SESSION, ClaudeCodeHarness
 from caliper.harness.codex import CODEX_ROLLOUT, CodexHarness
+from caliper.harness.opencode import OPENCODE_SESSION, OpenCodeHarness
 from caliper.harness.pi import PI_SESSION, PiHarness
 from caliper.judge.base import JudgeResult
 from caliper.judge.eval_judge import EvalJudge, render_judge_prompt
@@ -193,7 +194,7 @@ def test_a_backend_without_history_refuses_the_spec_by_name(tmp_path) -> None:
     with pytest.raises(HarnessConfigurationError, match="'hermes' backend") as e:
         _resolve(_spec(tmp_path), get_harness("hermes"))
     # Pointed at the backends that can resume it.
-    for backend in ("claude-code", "codex", "pi"):
+    for backend in ("claude-code", "codex", "pi", "opencode"):
         assert f"--model {backend}" in str(e.value)
 
 
@@ -204,6 +205,7 @@ _FORMATS = [
     pytest.param(ClaudeCodeHarness(), CLAUDE_SESSION, id="claude-code"),
     pytest.param(CodexHarness(), CODEX_ROLLOUT, id="codex"),
     pytest.param(PiHarness(), PI_SESSION, id="pi"),
+    pytest.param(OpenCodeHarness(), OPENCODE_SESSION, id="opencode"),
 ]
 
 
@@ -333,7 +335,9 @@ def test_each_planted_call_is_answered_by_its_own_result(
 
     ids = [s for s in _strings(lines) if s.startswith(fmt.call_prefix)]
     assert len(set(ids)) == 3
-    assert all(ids.count(call_id) == 2 for call_id in ids)
+    # opencode keeps a call and its result in one tool part.
+    mentions = 1 if fmt is OPENCODE_SESSION else 2
+    assert all(ids.count(call_id) == mentions for call_id in ids)
 
 
 @pytest.mark.parametrize(("harness", "fmt"), _FORMATS)

@@ -1,8 +1,9 @@
 """The CLI config file an attempt runs with, rewritten from the user's own.
 
 Some agents keep their MCP servers in the same file as their login and model
-settings (codex's ``config.toml``, hermes' ``config.yaml``), or in a file the
-user's own servers share (agy's ``mcp_config.json``), so the file cannot
+settings (codex's ``config.toml``, hermes' ``config.yaml``, opencode's
+``opencode.json``), or in a file the user's own servers share (agy's
+``mcp_config.json``), so the file cannot
 be copied verbatim like a ``seed_files`` entry (docs/adr/0012). A backend
 declares that file as a :class:`CliConfig` and this module rewrites it into the
 attempt's config home (docs/CONTEXT.md → Config home):
@@ -20,6 +21,7 @@ attempt's config home (docs/CONTEXT.md → Config home):
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,6 +65,28 @@ YAML = Codec(
     yaml.safe_load,
     lambda config: yaml.safe_dump(config, sort_keys=False),
     yaml.YAMLError,
+)
+
+# What JSONC adds to JSON, each matched after a string so that a ``//`` inside
+# a URL is left alone: comments, then a comma before a closing bracket. Two
+# passes, so a comma with a comment before its bracket goes too.
+_JSON_STRING = r'"(?:\\.|[^"\\])*"'
+_JSONC_COMMENT = re.compile(_JSON_STRING + r"|//[^\n]*|/\*.*?\*/", re.DOTALL)
+_JSONC_COMMA = re.compile(_JSON_STRING + r"|,(?=\s*[}\]])")
+
+
+def _loads_jsonc(text: str) -> object:
+    """JSON with the comments and trailing commas opencode itself accepts."""
+    for token in (_JSONC_COMMENT, _JSONC_COMMA):
+        text = token.sub(lambda m: m[0] if m[0].startswith('"') else "", text)
+    return json.loads(text)
+
+
+JSONC = Codec(
+    "JSONC",
+    _loads_jsonc,
+    lambda config: json.dumps(config, indent=2),
+    json.JSONDecodeError,
 )
 
 

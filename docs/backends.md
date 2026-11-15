@@ -32,8 +32,9 @@ caliper run my-skill.eval.yaml --model codex
 caliper run my-skill.eval.yaml --model codex --judge-model claude-code:claude-haiku-4-5-20251001
 ```
 
-Accepted backends: `claude-code`, `codex`, `pi`, `hermes`, `antigravity`
-(aliases: `claude` and `claude_code` → `claude-code`, `agy` → `antigravity`).
+Accepted backends: `claude-code`, `codex`, `pi`, `hermes`, `antigravity`,
+`opencode` (aliases: `claude` and `claude_code` → `claude-code`, `agy` →
+`antigravity`).
 
 With no `--judge-model` the judge runs on the backend of the model being
 evaluated (`--model`), on that CLI's default model rather than the `--model`
@@ -50,7 +51,8 @@ of these CLIs with an API key (for example `ANTHROPIC_API_KEY` or
 When a run stops because the agent's or the judge's CLI is not logged in, it
 exits `2` with a `Not logged in` error that says how to log in. In an
 interactive terminal, `caliper run` also offers to run that backend's login
-command (`claude auth login`, `codex login`, `hermes model` or `agy`, or
+command (`claude auth login`, `codex login`, `hermes model`, `agy` or
+`opencode auth login`, or
 `caliper login chatgpt` when you [signed Caliper in to
 ChatGPT](#running-on-your-chatgpt-plan)) and reruns the
 eval once the login succeeds. pi logs in only from its own terminal UI, so it
@@ -70,6 +72,7 @@ reads from there instead:
 | `pi` | `PI_CODING_AGENT_DIR` | `~/.pi/agent` |
 | `hermes` | `HERMES_HOME` | `~/.hermes` (`%LOCALAPPDATA%\hermes` on Windows) |
 | `antigravity` | none | `~/.gemini` (login in the OS keyring) |
+| `opencode` | `XDG_CONFIG_HOME`, `XDG_DATA_HOME` | `~/.config/opencode` (config), `~/.local/share/opencode` (logins) |
 
 If the variable is set to something that isn't a directory, the run stops before
 the first attempt (exit `2`). With `CLAUDE_CONFIG_DIR` set, `.claude.json` is
@@ -206,6 +209,37 @@ pi's agent dir, where pi discovers them.
   relies on your pi config to resolve a provider you're authenticated for.
 - Set `PI_CLI_PATH` to force a specific binary.
 
+## opencode
+
+```bash
+npm install -g opencode-ai
+opencode auth login   # pick a provider; OpenAI offers a ChatGPT Plus/Pro login
+```
+
+`--model opencode` runs `opencode run --format json` with the prompt on stdin,
+and installs the declared skills under `~/.config/opencode/skills`, where
+opencode discovers them. The agent opens one with its `skill` tool.
+
+- opencode names models `provider/model`, so the flag reads
+  `--model opencode:openai/gpt-6.1-terra`. `opencode models` lists what you can
+  run. With no model, opencode uses the `model` in your `opencode.json`, or
+  picks one itself.
+- Attempts copy your logins (`auth.json`) and the connection settings of your
+  `opencode.json`. An API key opencode reads only from your shell environment
+  doesn't reach an attempt, so store it with `opencode auth login`.
+- Attempts pass `--auto`, which approves anything opencode would ask
+  permission for. The judge doesn't pass it, and `opencode run` rejects such
+  requests without asking.
+- Caliper passes a fixed `--title`, so opencode doesn't spend a call on its
+  small model naming each session, and sets `OPENCODE_DISABLE_AUTOUPDATE` for
+  attempts and the judge.
+- Like the other judges, the `opencode` judge runs in your own environment, so
+  each judge call is saved as a session in your opencode history.
+- opencode's free `opencode/*` models need no login, but they're unreliable
+  for evals: once their usage limit is reached, opencode retries until the
+  attempt times out. Use a provider you're logged in to.
+- Set `OPENCODE_CLI_PATH` to force a specific binary.
+
 ## Hermes
 
 ```bash
@@ -297,6 +331,7 @@ your shell runs, or set the backend's `*_CLI_PATH` to force one.
 | `hermes` | ✅ | ✅ header auth only |
 | `pi` | ❌ by design | ❌ by design |
 | `antigravity` | ✅ | ✅ header auth only |
+| `opencode` | ✅ | ✅ header auth only |
 
 Running a spec that declares `mcp:` on a backend that can't honor it is a hard
 error, never a silent no-op.
@@ -314,14 +349,20 @@ error, never a silent no-op.
   and calls them through `call_mcp_tool`; Caliper names that call
   `mcp_<server>_<tool>`
   ([ADR 0043](adr/0043-antigravity-names-a-lazy-mcp-call-by-its-server-and-tool.md)).
+- **`opencode`** translates the block into the `mcp` table of the isolated
+  `opencode.json`: stdio as a `local` server whose `command` list holds the
+  command and its args, with `environment`, and remote as a `remote` server
+  with `url` and a static `headers` map. opencode names an MCP tool
+  `<server>_<tool>`, which Caliper records as `mcp__<server>__<tool>`, the
+  name `claude-code` and `codex` use.
 - On all three, `${VAR}` values are resolved at the harness boundary. Your personal
   servers from the real config are kept alongside the declared set by default
   ([loaded](#loading-your-user-customizations)); an isolated run replaces them,
   so it sees only the declared set.
-- **Remote OAuth** isn't supported on `codex`, `hermes` or `antigravity`: it needs an
-  interactive browser flow the harness can't drive.
+- **Remote OAuth** isn't supported on `codex`, `hermes`, `antigravity` or
+  `opencode`: it needs an interactive browser flow the harness can't drive.
 - **A stdio server that speaks only MCP 2026-07-28** works only on `claude-code`
-  2.1.292 or later. On `codex`, `hermes` and `antigravity`, the preflight stops the run with a
+  2.1.292 or later. On `codex`, `hermes`, `antigravity` and `opencode`, the preflight stops the run with a
   configuration error
   ([ADR 0035](adr/0035-mcp-preflight-gates-modern-only-servers-on-the-backend.md)).
 - **`pi`** has no MCP by design
@@ -338,6 +379,7 @@ See [MCP servers](spec-reference.md#mcp-servers-mcp) for the spec format.
 | `claude-code` | ✅ |
 | `codex` | ✅ |
 | `pi` | ✅ |
+| `opencode` | ✅ |
 | `hermes` | ❌ refused |
 | `antigravity` | ❌ refused |
 
@@ -358,6 +400,12 @@ backend that can't resume from it, with a message naming the backend.
   place of `--no-session`. A planted shell call becomes a `bash` tool call and
   its result, and a planted `/name` of an installed skill becomes what pi
   expands `/skill:name` to.
+- **`opencode`** keeps sessions in a SQLite database, so Caliper writes the
+  planted turns in the JSON format `opencode export` writes, imports them into
+  the attempt's isolated database with `opencode import`, and resumes with
+  `--session <id>`. A planted shell call becomes a finished `bash` tool call
+  with its output, and a planted `/name` of a declared skill becomes what
+  opencode expands that command to: the skill's body and its base directory.
 - **`hermes`** stores sessions in SQLite, and its only import path drops tool
   calls and their output, so it can't resume a history faithfully
   ([ADR 0036](adr/0036-planted-history-is-a-neutral-transcript-each-backend-resumes-natively.md)).
@@ -385,6 +433,7 @@ hosted OAuth connector a spec can't declare. `--no-user-customizations`, or
 | `hermes` | `~/.hermes/skills` and `config.yaml` (`%LOCALAPPDATA%\hermes` on Windows), including `mcp_servers`; persona and memory remain excluded |
 | `pi` | Nothing: no MCP by design. The run records it as off, and warns only if a flag or the spec asked for it |
 | `antigravity` | The `mcpServers` in your `~/.gemini/config/mcp_config.json`, the skills in `~/.gemini/antigravity-cli/skills`, `~/.gemini/skills` and `~/.gemini/config/skills`, the rules files `AGENTS.md` / `GEMINI.md` in `~/.gemini` and `~/.gemini/config`, and `antigravity-cli/settings.json`. Plugins and `config/rules/*.md` are not loaded yet |
+| `opencode` | The `mcp` table in your `~/.config/opencode/opencode.json` and its other settings (plugins included), `~/.config/opencode/skills`, `AGENTS.md`, and your `agents`, `commands`, `modes`, `plugins` and `tools` directories (copied into the attempt) |
 
 - **The spec wins a name clash.** A declared skill or server replaces your own of the
   same name, including when the declared name is ablated, in the attempt's copy of the config. Your real config is never
@@ -423,6 +472,7 @@ carrying new behavioral settings into an isolated run (ADR 0028):
 | --- | --- |
 | Codex | `model_provider`, `model_providers`, `cli_auth_credentials_store`, `forced_login_method`, `forced_chatgpt_workspace_id`, `chatgpt_base_url`, `openai_base_url` |
 | Hermes | `model`, `provider`, `providers`, `custom_providers`, `terminal` |
+| opencode | `provider`, `enabled_providers`, `disabled_providers`, `model`, `small_model` |
 
 Nested values in these sections are retained in full. Codex provider definitions
 therefore keep their endpoints and authentication options; Hermes keeps

@@ -213,8 +213,8 @@ mapping keyed by server name, and it applies whether or not the spec declares
 any skill.
 
 Each server's tools appear in the transcript as a namespaced call that an
-`expect:` judge can verify: `mcp__<server>__<tool>` on `claude-code` and
-`codex`, `mcp_<server>_<tool>` on `hermes` and `antigravity`. If the spec should run on more than
+`expect:` judge can verify: `mcp__<server>__<tool>` on `claude-code`, `codex`
+and `opencode`, `mcp_<server>_<tool>` on `hermes` and `antigravity`. If the spec should run on more than
 one engine, word `expect:` around the tool's behavior, not one backend's
 spelling.
 

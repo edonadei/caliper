@@ -298,8 +298,8 @@ The footer of the results table, then the notes under it:
   output**. The **unusable** slice (timeout, infra error, judge error) is broken
   out separately, so wasted spend stays visible without distorting the
   per-attempt average.
-- **Support:** `claude-code`, `codex`, `pi`, `hermes` and `antigravity` all
-  report usage. A
+- **Support:** `claude-code`, `codex`, `pi`, `hermes`, `antigravity` and
+  `opencode` all report usage. A
   backend that can't leaves the fields `null` and renders `—`. `codex` includes
   cache in its `input_tokens`, so it's normalized to the non-cached contract
   below.

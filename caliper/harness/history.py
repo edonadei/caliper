@@ -95,9 +95,17 @@ class SessionFormat(ABC):
     def path(self, session: Session) -> Path:
         """Where the CLI looks for this session in the isolated home."""
 
+    def session_id(self, now: datetime) -> str:
+        """A fresh id for a session planted at ``now``, as the CLI spells one."""
+        return str(uuid.uuid4())
+
     def header(self, session: Session) -> dict | None:
         """The session's first line, before any message, if the CLI wants one."""
         return None
+
+    def render(self, lines: list[dict]) -> str:
+        """The file's text: one JSON line each, header first, unless the CLI wants otherwise."""
+        return "".join(json.dumps(line) + "\n" for line in lines)
 
     @abstractmethod
     def user(self, text: str) -> list[dict]:
@@ -131,11 +139,12 @@ class SessionFormat(ABC):
         included (:func:`~caliper.skills.declared_slash_command`); an ablated
         one isn't installed, so it stays as typed, as the CLI would leave it.
         """
+        now = datetime.now(timezone.utc)
         session = Session(
-            id=str(uuid.uuid4()),
+            id=self.session_id(now),
             cwd=os.path.realpath(ctx.workdir),
             config_dir=config_home,
-            now=datetime.now(timezone.utc),
+            now=now,
         )
         messages: list[dict] = []
         for index, turn in enumerate(ctx.history or []):
@@ -159,5 +168,5 @@ class SessionFormat(ABC):
             lines.insert(0, header)
         path = self.path(session)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+        path.write_text(self.render(lines))
         return PlantedSession(session.id, path)
