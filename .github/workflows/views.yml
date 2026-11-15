@@ -1,0 +1,38 @@
+name: views
+
+# A reporter or comparison change shows its terminal views to the reviewer as
+# images in the job summary, before and after, instead of as SVG source.
+on:
+  pull_request:
+    paths:
+      - caliper/reporter.py
+      - caliper/compare.py
+      - docs/render_readme_samples.py
+      - docs/assets/**
+      - scripts/view_summary.py
+      - .github/workflows/views.yml
+
+permissions:
+  contents: read
+
+jobs:
+  views:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The "before" images come from where the PR branched off.
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Check the committed views are the real renders
+        run: pytest -q tests/test_readme_renders.py
+      - name: Show the views in the job summary
+        run: >
+          python scripts/view_summary.py
+          "${{ github.repository }}" "${{ github.event.pull_request.base.sha }}"
+          "${{ github.event.pull_request.head.repo.full_name }}" "${{ github.event.pull_request.head.sha }}"
+          >> "$GITHUB_STEP_SUMMARY"
