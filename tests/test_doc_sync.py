@@ -628,6 +628,57 @@ def test_python_versions_in_lockstep() -> None:
     )
 
 
+# Where a command written in prose or a shell line ends: a closing backtick, a
+# pipe, a redirect (not the `>` closing a `<spec>` placeholder), or the next
+# command.
+_COMMAND_END = re.compile(r"`|\||(?<![\w-])>|;|&&|$", re.MULTILINE)
+
+
+def _command_spellings(words: list[str]) -> tuple[str, set[str]] | None:
+    """The command `caliper <words…>` names, and every flag spelling it takes."""
+    command = get_command(app)
+    path: list[str] = []
+    for word in words:
+        subcommands = getattr(command, "commands", {})
+        if word not in subcommands:
+            break
+        command = subcommands[word]
+        path.append(word)
+    if not path:
+        return None
+    spellings = {"--help"}
+    for param in command.params:
+        spellings |= set(param.opts) | set(param.secondary_opts)
+    return " ".join(path), spellings
+
+
+def test_skill_docs_use_only_flags_their_commands_have() -> None:
+    stale: list[str] = []
+    checked = 0
+    for doc in sorted(ROOT.glob("skills/*/*.md")):
+        text = doc.read_text(encoding="utf-8")
+        for match in re.finditer(r"\bcaliper((?:\s+[a-z][\w-]*)+)", text):
+            named = _command_spellings(match.group(1).split())
+            if named is None:
+                continue
+            command, spellings = named
+            rest = text[match.end() :]
+            end = _COMMAND_END.search(rest)
+            line = rest[: end.start() if end else len(rest)]
+            checked += 1
+            line_no = text.count("\n", 0, match.start()) + 1
+            stale += [
+                f"{doc.relative_to(ROOT).as_posix()}:{line_no}: caliper {command} {flag}"
+                for flag in re.findall(r"(?<![\w-])--[a-z][\w-]*", line)
+                if flag not in spellings
+            ]
+    assert checked, "found no `caliper <command>` in skills/*/*.md"
+    assert stale == [], (
+        "these skill docs pass a flag their caliper command does not take; "
+        "fix the doc, or the command's name for it:\n" + "\n".join(stale)
+    )
+
+
 def test_valid_backends_are_documented() -> None:
     assert VALID_BACKENDS, "VALID_BACKENDS is empty"
     required_docs = {

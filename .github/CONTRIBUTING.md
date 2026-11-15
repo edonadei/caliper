@@ -80,6 +80,7 @@ For those, update every one of these files that covers the change:
 4. `docs/results.md`: scoring, `caliper compare`, and the results JSON schema
 5. `skills/evaluate-skill/REFERENCE.md`
 6. `skills/grill-skill/REFERENCE.md`
+7. `skills/hillclimb-skill/`: the commands it runs, and the JSON `climb.py` reads
 
 ## Formatting and linting
 

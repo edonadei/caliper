@@ -21,8 +21,10 @@ When any of the following change, update every location below that covers it bef
 4. `docs/results.md` — scoring, `caliper compare`, and the results JSON schema
 5. `skills/evaluate-skill/REFERENCE.md` — the source skill reference
 6. `skills/grill-skill/REFERENCE.md` — the grill-skill reference
+7. `skills/hillclimb-skill/` — the commands its `REFERENCE.md` and `SKILL.md`
+   run, and the results and `compare` JSON that `climb.py` reads
 
-`tests/test_doc_sync.py` locks CLI subcommands, `caliper run` flags, exit codes,
+`tests/test_doc_sync.py` locks CLI subcommands, `caliper` flags, exit codes,
 registered backends, `.eval.yaml` keys, `Outcome` values, and `RunResults`
 schema fields across those files; keep the surrounding prose and judging rules
 aligned when behavior changes. Run
