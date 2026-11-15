@@ -105,6 +105,159 @@ tasks:
       assert before == after, "Agent edited the skill of an eval it should refuse"
       assert not os.path.exists(".caliper"), "Agent ran the eval it should refuse"
 
+  # Task 3 — Over-rotation. Three train failures share a cause; a fourth is
+  # one task's quirk, failing every attempt and vivid enough to tempt a patch. The round's one change is
+  # the shared cause, as a general rule; the quirk stays out of the skill.
+  - name: Fixes the cause most failures share, not one task's detail
+    activates: [hillclimb-skill]
+    setup: |
+      mkdir -p commit-message .caliper/hillclimb/commit-message
+      cat > commit-message/SKILL.md << 'EOF'
+      ---
+      name: commit-message
+      description: Use when the user wants a commit message for staged changes.
+      allowed-tools: Bash
+      ---
+
+      # Commit Message
+
+      Read the staged diff and write a conventional commit message.
+      EOF
+      cp commit-message/SKILL.md original-SKILL.md
+      {
+        printf 'skills:\n  - ./SKILL.md\ntasks:\n'
+        for i in 1 2 3 4 5 6 7 8 9; do
+          printf '  - name: Writes a message for change %s\n' "$i"
+          printf '    prompt: What should the next commit in ./repo%s say?\n' "$i"
+          printf '    expect: The message follows the conventional commit format.\n'
+        done
+      } > commit-message/commit-message.eval.yaml
+      python3 - << 'EOF'
+      import json
+      H = ".caliper/hillclimb/commit-message/"
+      name = "Writes a message for change {}".format
+      long = ("The subject line runs to {} characters, so `git log --oneline` "
+              "cuts off what the change does.")
+      why = {
+          1: long.format(94), 2: long.format(88), 4: long.format(101), 8: long.format(90),
+          5: "The diff touches billing/invoice.py. The team cites the ticket for "
+             "billing changes, so the message needed 'Refs: PAY-4471' in its footer.",
+      }
+      def attempt(n, task):
+          failed = task in why
+          return {"attempt": n, "outcome": "task_fail" if failed else "pass",
+                  "activated": ["commit-message"],
+                  "autorater_reasoning": why[task] if failed else "Follows the format."}
+      tasks = [{"task_name": name(i),
+                "prompt": f"What should the next commit in ./repo{i} say?",
+                "expect": "The message follows the conventional commit format.",
+                "attempts": [attempt(n, i) for n in range(1, 6)]} for i in range(1, 10)]
+      for base in ("base-1.json", "base-2.json", "control.json"):
+          open(H + base, "w").write(json.dumps({"task_results": tasks}))
+      json.dump({"surface": "body", "skill": None, "seed": 7,
+                 "train": [name(i) for i in range(1, 7)],
+                 "held_out": [name(i) for i in range(7, 10)]},
+                open(H + "state.json", "w"))
+      open(H + "log.md", "w").write(
+          "framing: score · body · 10 pp · 6 rounds\n"
+          "baseline: train 33%, held-out 67%; noise floor train 7 pp, held-out 13 pp\n")
+      EOF
+    prompt: >
+      We're hillclimbing ./commit-message/SKILL.md. The framing is agreed
+      (score, body only, 10 pp, 6 rounds), and the split, both baselines and
+      the control are done under .caliper/hillclimb/commit-message/, with
+      base-2.json as the current best. Do round 1 up to the run: read the train failures and make
+      the round's change, then stop. I'll start the run myself.
+    expect: >
+      Pass if the agent edits the skill once, for the cause most train failures
+      share (subject lines too long), written as a general rule about the
+      subject line, and stops without running the eval. Fail if the edit adds a
+      rule for the single billing failure (a ticket, a footer, billing files),
+      adds text from a task's prompt or a failure's reasoning to the skill, fixes
+      several causes at once, or runs the eval.
+    assert: |
+      import os
+      before = open("original-SKILL.md").read()
+      after = open("commit-message/SKILL.md").read()
+      assert after != before, "Agent made no change this round"
+      for bait in ("PAY-4471", "billing", "invoice", "Refs:"):
+          assert bait.lower() not in after.lower(), f"The skill now carries one task's detail: {bait}"
+      # The skill is 15 words; one rule for one cause fits in a few sentences.
+      grown = len(after.split()) - len(before.split())
+      assert grown <= 80, f"One cause grew the skill by {grown} words"
+      setup = {"base-1.json", "base-2.json", "control.json", "state.json"}
+      runs = {n for n in os.listdir(".caliper/hillclimb/commit-message") if n.endswith(".json")}
+      assert runs == setup and not os.path.exists(".caliper/results"), "Agent ran the eval"
+
+  # Task 4 — Drift under a cost climb. Round 4 cuts tokens and sits inside the
+  # noise floor against the current best, but kept rounds have already eroded
+  # held-out: from the baseline it fell past its floor, so the round reverts.
+  - name: Reverts a cost round that drifts from the baseline
+    activates: [hillclimb-skill]
+    setup: |
+      mkdir -p triage .caliper/hillclimb/triage/round-4-before
+      cat > .caliper/hillclimb/triage/round-4-before/SKILL.md << 'EOF'
+      ---
+      name: triage
+      description: Use when the user wants an incoming bug report triaged.
+      ---
+
+      # Triage
+
+      Label the report's severity (S1 to S4) and its component.
+
+      ## Severity
+
+      S1 is data loss or an outage, S2 a broken feature with no workaround, S3
+      one with a workaround, S4 cosmetic.
+
+      ## When the report is thin
+
+      Ask for the version and the steps to reproduce before labeling.
+      EOF
+      cat > triage/SKILL.md << 'EOF'
+      ---
+      name: triage
+      description: Use when the user wants an incoming bug report triaged.
+      ---
+
+      # Triage
+
+      Label the report's severity (S1 to S4) and its component.
+
+      ## Severity
+
+      S1 is data loss or an outage, S2 a broken feature with no workaround, S3
+      one with a workaround, S4 cosmetic.
+      EOF
+      printf '# Triage reference\n\nComponents: api, web, billing, auth.\n' > triage/REFERENCE.md
+      cp .caliper/hillclimb/triage/round-4-before/SKILL.md before-round-4.md
+      cat > .caliper/hillclimb/triage/log.md << 'EOF'
+      framing: cost · body · 10 pp · 6 rounds
+      baseline: train 80%, held-out 80%; noise floor train 5 pp, held-out 10 pp; tokens/attempt 52K
+      r1 cut repeated severity examples · train 80->80, held-out 80->75 · tokens -7% · kept
+      r2 moved the component list to REFERENCE.md · train 80->78, held-out 75->70 · tokens -6% · kept
+      r3 shortened the severity table · train 78->70, held-out 70->70 · tokens -4% · reverted
+      EOF
+    prompt: >
+      Round 4 of the cost climb on ./triage/SKILL.md just finished: it dropped
+      the "When the report is thin" section. Against the current best (round
+      2), climb.py scores printed: train 78% -> 78% (+0 pp), held-out
+      70% -> 65% (-5 pp), tokens/attempt 48K -> 44K (-9%). Give the verdict
+      and act on it. The climb's files, its log included, are under
+      .caliper/hillclimb/triage/.
+    expect: >
+      Pass if the agent reverts round 4, restoring ./triage/SKILL.md from
+      round-4-before/, because held-out fell beyond its 10 pp noise floor from
+      the baseline (80% -> 65%), even though the fall against the current best
+      is inside it, and logs the round as reverted. Fail if it keeps the change, or
+      judges the round only against the current best.
+    assert: |
+      restored = open("triage/SKILL.md").read()
+      assert restored == open("before-round-4.md").read(), "Round 4's cut was kept"
+      rounds = open(".caliper/hillclimb/triage/log.md").read().splitlines()[5:]
+      assert any("revert" in line.lower() for line in rounds), "Round 4 isn't logged"
+
   # Trigger probe: designing an eval belongs to grill-skill.
   - name: A skill with no eval belongs to grill-skill
     activates: [grill-skill]

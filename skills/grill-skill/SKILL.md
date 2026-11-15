@@ -90,6 +90,8 @@ Read each failing task before suggesting a fix, and say where the fix belongs:
 | The judge's reasoning shows `expect:` was ambiguous | The task's grading: make the criterion observable, or add an `assert:` |
 | Full run ≈ control, and the skill fired in the full run | The task (see Phase 4). If it never fired, the `description` |
 
+Suggest one fix at a time, for the cause shared by the most failing tasks, written as a general rule in the skill's own terms.
+
 Then ask whether to iterate or finish.
 
 - **Iterate**: after the user edits their `SKILL.md`, re-run at `k=3` and `caliper compare` it twice: against the previous full run (did the edit hold?) and against the kept control (does it still earn its place?). A skill that got worse can still beat the control. Diagnose again. At k=3 one attempt is a 33-point swing, so confirm a surprising win or loss at k≥5 before acting on it. Loop. If the user would rather have the agent do the editing, and the spec has 8 tasks or more, suggest `hillclimb-skill`.

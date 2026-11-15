@@ -135,7 +135,11 @@ def test_the_server_found_always_prefixes_the_name(backend, servers, data, tool)
     )
 
 
-keys = st.from_regex(r"[a-z]{1,6}", fullmatch=True)
+# Strings YAML reads as strings: `no` is the boolean False, and its duplicate
+# is reported as `False`.
+keys = st.from_regex(r"[a-z]{1,6}", fullmatch=True).filter(
+    lambda k: yaml.safe_load(k) == k
+)
 
 
 @given(st.lists(keys, min_size=1, max_size=6, unique=True), st.data(), st.booleans())
