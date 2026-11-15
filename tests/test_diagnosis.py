@@ -21,6 +21,7 @@ from caliper.retry import SpendingCapReached
 from caliper.runner import RunAborted
 from caliper.runstore import UnreadableRun
 from caliper.schema.results import AggregateScore, RunMeta, RunResults
+from caliper.schema.spec import UnreadableSpec
 from caliper.skills import AblationError, SkillResolutionError
 
 
@@ -79,6 +80,13 @@ def test_an_invalid_spec_is_bad_input() -> None:
 def test_an_unreadable_run_is_bad_input() -> None:
     exc = UnreadableRun(Path("demo/2026-01-01.json"), ValueError("not json"))
     assert diagnose(exc).code is ExitCode.BAD_INPUT
+
+
+def test_an_unreadable_spec_is_bad_input() -> None:
+    diagnosis = diagnose(UnreadableSpec("the spec is empty"))
+    assert diagnosis.code is ExitCode.BAD_INPUT
+    assert diagnosis.body == "Invalid spec: the spec is empty"
+    assert diagnosis.title is None
 
 
 def test_a_misconfigured_backend_cannot_run() -> None:

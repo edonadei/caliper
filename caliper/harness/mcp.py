@@ -331,7 +331,7 @@ def _bounded(work, deadline: float, timeout_message: str):
     def run() -> None:
         try:
             outcome.put((True, work()))
-        except BaseException as exc:  # re-raised on the calling thread
+        except BaseException as exc:  # noqa: BLE001 — re-raised on the calling thread
             outcome.put((False, exc))
 
     threading.Thread(target=run, daemon=True).start()

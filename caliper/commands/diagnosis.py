@@ -35,6 +35,7 @@ from caliper.harness.base import HarnessConfigurationError, LoginRequired
 from caliper.retry import SpendingCapReached
 from caliper.runner import RunAborted
 from caliper.runstore import UnreadableRun, UnusableResultsRoot
+from caliper.schema.spec import UnreadableSpec
 from caliper.skills import SkillResolutionError
 
 console = Console()
@@ -126,6 +127,8 @@ def diagnose(exc: Exception) -> Diagnosis:
         return Diagnosis(str(exc), ExitCode.CANNOT_RUN, title="Cannot save runs")
     if isinstance(exc, UnreadableRun):
         return Diagnosis(f"Error parsing results: {exc}", ExitCode.BAD_INPUT)
+    if isinstance(exc, UnreadableSpec):
+        return Diagnosis(f"Invalid spec: {exc}", ExitCode.BAD_INPUT)
     if isinstance(exc, SpendingCapReached):
         return Diagnosis(str(exc), ExitCode.CANNOT_RUN, title="Spending cap reached")
     if isinstance(exc, LoginRequired):

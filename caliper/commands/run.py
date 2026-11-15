@@ -34,7 +34,7 @@ from caliper.reporter import (
 from caliper.runner import AttemptEvent, RunAborted, run
 from caliper.runstore import RunStore, UnusableResultsRoot
 from caliper.schema.results import Outcome, RunResults, TaskResult
-from caliper.schema.spec import load_spec, spec_name
+from caliper.schema.spec import UnreadableSpec, load_spec, spec_name
 from caliper.skillfetch import SkillFetcher
 from caliper.skills import SkillResolutionError
 
@@ -155,14 +155,10 @@ def run_cmd(
 
     try:
         spec = load_spec(spec_file)
-    except ValidationError as exc:
-        # A schema failure gets the table's panel — the same verdict `validate`
-        # reaches, rather than a second opinion in a different shape.
+    except (ValidationError, UnreadableSpec) as exc:
+        # Schema errors render the diagnosis table's panel; an unreadable file,
+        # broken YAML, or retired key (ADR 0004) renders its one-line diagnosis.
         fail(exc)
-    except Exception as exc:
-        # A YAML syntax error, or a retired key (ADR 0004). Not a schema
-        # verdict, so it stays a one-line statement of what is wrong.
-        fail(BadInput(f"Invalid spec: {exc}"))
 
     # Before the banner and before any attempt, so a misspelt backend is a
     # diagnosis rather than a traceback or a judge_error per paid attempt.

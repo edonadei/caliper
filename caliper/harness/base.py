@@ -285,7 +285,7 @@ def _best_effort(read: Callable[[], _Fact | None] | None) -> _Fact | None:
         return None
     try:
         return read()
-    except Exception:
+    except Exception:  # noqa: BLE001 — optional provenance must not fail attempt
         return None
 
 
