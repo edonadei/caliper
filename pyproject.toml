@@ -41,6 +41,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "pytest-cov",
     "hypothesis",
     "ruff==0.15.20",
     "pre-commit",
@@ -91,11 +92,30 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 "caliper/judge/__init__.py" = ["TID251"]
 "tests/**" = ["TID251"]
 "docs/**" = ["T20"]
+"scripts/**" = ["T20"]
 "skills/**" = ["T20"]
 
 [tool.ty.src]
-include = ["caliper", "docs", "skills"]
+include = ["caliper", "docs", "scripts", "skills"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = [".*", "*.egg", "build", "dist", "node_modules", "venv", "worktrees"]
+
+[tool.coverage.run]
+branch = true
+source = ["caliper"]
+
+# The pure domain tiers (tests/test_architecture.py), each held to the floor on
+# its own by scripts/coverage_floor.py.
+[tool.coverage.report]
+include = [
+    "caliper/schema/*.py",
+    "caliper/compare.py",
+    "caliper/activation.py",
+    "caliper/attempt.py",
+    "caliper/sandbox.py",
+    "caliper/retry.py",
+]
+fail_under = 95
+show_missing = true

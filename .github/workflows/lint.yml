@@ -44,7 +44,13 @@ jobs:
         # No network and no agent CLIs on the runner: every backend is faked at
         # the subprocess boundary (tests/conftest.py), so the suite is
         # self-contained.
-        run: pytest -q
+        run: pytest -q --cov
+      - name: Coverage floor
+        # Per module, so a big module at 100% can't hide a small one below the
+        # floor; the modules and the floor are in pyproject.toml.
+        run: |
+          coverage json -q -o coverage.json
+          python scripts/coverage_floor.py coverage.json
 
   platform-test:
     name: platform-test (${{ matrix.os }})

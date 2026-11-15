@@ -190,9 +190,9 @@ def invoke_through_throttles(
             )
         if refusal is None or refusal.kind is not RefusalKind.THROTTLE:
             break
-        if retry_index == policy.max_retries:
-            break
-        if cancel.sleep_unless_stopped(policy.delay_for(retry_index)):
+        if retry_index < policy.max_retries and cancel.sleep_unless_stopped(
+            policy.delay_for(retry_index)
+        ):
             break
 
     return invocations
