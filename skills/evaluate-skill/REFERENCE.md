@@ -152,6 +152,7 @@ caliper run spec.eval.yaml --model codex                   # backend, its defaul
 caliper run spec.eval.yaml --model claude-sonnet-4-6       # model, backend stays claude-code
 caliper run spec.eval.yaml --model pi:claude-sonnet-4-6 --judge-model pi
 caliper run spec.eval.yaml --model hermes:anthropic/claude-sonnet-4.6 --judge-model hermes
+caliper run spec.eval.yaml --model opencode:openai/gpt-6.1-terra   # opencode models are provider/model
 caliper run spec.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001
 ```
 
@@ -161,11 +162,12 @@ caliper run spec.eval.yaml --judge-model claude-code:claude-haiku-4-5-20251001
 | `codex` | Codex CLI | stdio and remote with header auth |
 | `pi` | pi CLI, authenticated | none by design: expose the capability as a CLI tool or pi extension |
 | `hermes` | Hermes Agent CLI, authenticated | stdio and remote with header auth |
+| `opencode` | opencode CLI, then `opencode auth login` | stdio and remote with header auth |
 
 Every backend is a CLI agent using its own auth; for API billing, configure the
 CLI with an API key. To run `codex` on a ChatGPT plan, run `caliper login
 chatgpt` once: attempts and the judge then get a short-lived token instead of a
-copy of `~/.codex/auth.json`, which parallel attempts can break by refreshing. Remote OAuth MCP isn't supported on `codex` or `hermes`. An
+copy of `~/.codex/auth.json`, which parallel attempts can break by refreshing. Remote OAuth MCP isn't supported on `codex`, `hermes` or `opencode`. An
 `mcp:` spec on a backend that can't honour it is a hard error.
 
 `hermes` is stateful, so Caliper strips it to a neutral agent per attempt:
@@ -174,8 +176,13 @@ declared skills installed. On Windows that home is a temporary standalone
 profile under `%LOCALAPPDATA%\hermes`, and Git for Windows' `sh` must be on
 `PATH`.
 
+`opencode` attempts copy its stored logins (`opencode auth login`), not an API
+key it reads only from the shell environment. Its free `opencode/*` models
+retry their usage limit until the attempt times out, so use a provider you're
+logged in to.
+
 An MCP tool call appears in the transcript as `mcp__<server>__<tool>` on
-`claude-code` and `codex`, and `mcp_<server>_<tool>` on `hermes`. If the spec
+`claude-code`, `codex` and `opencode`, and `mcp_<server>_<tool>` on `hermes`. If the spec
 runs on more than one engine, word `expect:` around the behaviour rather than
 one backend's spelling.
 
@@ -203,9 +210,11 @@ itself, merged with what the spec declares:
 | `codex` | `~/.codex/skills`, `AGENTS.md` / `AGENTS.override.md`, plugins, settings, `~/.codex/config.toml` MCP servers and ChatGPT apps (its top-level model pin is stripped) |
 | `hermes` | `~/.hermes/skills`, settings, `~/.hermes/config.yaml` MCP servers (`%LOCALAPPDATA%\hermes` on Windows; still `--ignore-rules`, no persona or memory) |
 | `pi` | nothing |
+| `opencode` | `~/.config/opencode/skills`, `AGENTS.md`, `opencode.json` settings and MCP servers, and its agents, commands, modes, plugins and tools directories |
 
 The paths are the defaults. When the CLI's own config-home variable is set
-(`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `PI_CODING_AGENT_DIR`, `HERMES_HOME`),
+(`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `PI_CODING_AGENT_DIR`, `HERMES_HOME`, and
+opencode's `XDG_CONFIG_HOME` and `XDG_DATA_HOME`),
 attempts read the user layer and the login from there, as the judge does.
 
 A declared skill or server wins a name clash, even when ablated, and `--ablate`

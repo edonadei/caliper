@@ -3,6 +3,7 @@
 #   caliper run tests/history-smoke.eval.yaml --model claude-code
 #   caliper run tests/history-smoke.eval.yaml --model codex
 #   caliper run tests/history-smoke.eval.yaml --model pi
+#   caliper run tests/history-smoke.eval.yaml --model opencode:openai/gpt-6.1-terra
 # Pinned isolated: see test_every_smoke_eval_pins_isolation.
 user_customizations: false
 

@@ -121,8 +121,8 @@ class HermesHarness(CliHarness):
     history_unsupported_hint = (
         "Hermes cannot resume planted turns faithfully: its session import "
         "drops tool calls and their output. Run tasks with history: on "
-        "--model claude-code, --model codex or --model pi, or remove history: "
-        "to run on hermes."
+        "--model claude-code, --model codex, --model pi or --model opencode, "
+        "or remove history: to run on hermes."
     )
     cli_config = HERMES_CONFIG
     config_home_env = "HERMES_HOME"

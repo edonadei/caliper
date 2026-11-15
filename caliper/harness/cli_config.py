@@ -1,7 +1,8 @@
 """The CLI config file an attempt runs with, rewritten from the user's own.
 
 Some agents keep their MCP servers in the same file as their login and model
-settings (codex's ``config.toml``, hermes' ``config.yaml``), so the file cannot
+settings (codex's ``config.toml``, hermes' ``config.yaml``, opencode's
+``opencode.json``), so the file cannot
 be copied verbatim like a ``seed_files`` entry (docs/adr/0012). A backend
 declares that file as a :class:`CliConfig` and this module rewrites it into the
 attempt's config home (docs/CONTEXT.md → Config home):
@@ -18,6 +19,8 @@ attempt's config home (docs/CONTEXT.md → Config home):
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,6 +57,27 @@ YAML = Codec(
     yaml.safe_load,
     lambda config: yaml.safe_dump(config, sort_keys=False),
     yaml.YAMLError,
+)
+
+# A string, a comment, or a comma before a closing bracket: what JSONC adds to
+# JSON, matched string-first so a ``//`` inside a URL is left alone.
+_JSONC_TOKEN = re.compile(
+    r'"(?:\\.|[^"\\])*"|//[^\n]*|/\*.*?\*/|,(?=\s*[}\]])', re.DOTALL
+)
+
+
+def _loads_jsonc(text: str) -> object:
+    """JSON with the comments and trailing commas opencode itself accepts."""
+    return json.loads(
+        _JSONC_TOKEN.sub(lambda m: m[0] if m[0].startswith('"') else "", text)
+    )
+
+
+JSON = Codec(
+    "JSON",
+    _loads_jsonc,
+    lambda config: json.dumps(config, indent=2),
+    json.JSONDecodeError,
 )
 
 

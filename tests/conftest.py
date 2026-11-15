@@ -272,6 +272,8 @@ def _cli_override_env_vars() -> set[str]:
         module, _, cls = entry.harness.partition(":")
         harness = getattr(importlib.import_module(module), cls)
         names.update((harness.cli_path_env_var, harness.config_home_env))
+    # opencode reads its config and logins from the XDG homes.
+    names.update(("XDG_CONFIG_HOME", "XDG_DATA_HOME"))
     return names - {None}
 
 

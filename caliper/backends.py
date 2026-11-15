@@ -44,6 +44,10 @@ BACKENDS: dict[str, Backend] = {
             "pi",
             "caliper.harness.pi:PiHarness",
         ),
+        Backend(
+            "opencode",
+            "caliper.harness.opencode:OpenCodeHarness",
+        ),
     )
 }
 

@@ -18,7 +18,7 @@ After the next model update? When another skill competes for the same prompt?
   <a href="https://pypi.org/project/caliper-eval/"><img src="https://img.shields.io/pypi/pyversions/caliper-eval.svg" alt="Python"></a>
   <a href="https://skills.sh/edonadei/caliper"><img src="https://skills.sh/b/edonadei/caliper" alt="Skills"></a>
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT">
-  <img src="https://img.shields.io/badge/agents-Claude%20Code%20·%20Codex%20·%20Pi%20·%20Hermes-black" alt="Agents: Claude Code, Codex, Pi, Hermes">
+  <img src="https://img.shields.io/badge/agents-Claude%20Code%20·%20Codex%20·%20Pi%20·%20Hermes%20·%20OpenCode-black" alt="Agents: Claude Code, Codex, Pi, Hermes, OpenCode">
 </p>
 
 <p align="center">
@@ -51,7 +51,7 @@ answers the questions a single try can't:
 | Does the agent even pick it? | **Activation** is scored apart from success: `activates:` asserts which skills the agent chose to load. |
 | Does it lose prompts to a neighbour? | Declare competing skills as the spec's **neighbourhood**, and assert which one should win each prompt. |
 | Is it earning its context? | `--ablate` re-runs without the skill. Same score? The skill isn't doing the work. |
-| Does it hold on another agent? | One spec runs on Claude Code, Codex, Pi or Hermes. You pick the engine at run time. |
+| Does it hold on another agent? | One spec runs on Claude Code, Codex, Pi, Hermes or OpenCode. You pick the engine at run time. |
 
 ## Quick start
 
@@ -182,7 +182,7 @@ at your own skill by editing a few commented lines.
         ▼
  ┌─ Harness ──────────────────────────────────────┐
  │ runs each task k times in the agent            │
- │ (Claude Code · Codex · Pi · Hermes)            │
+ │ (Claude Code · Codex · Pi · Hermes · OpenCode) │
  │ every attempt: fresh home, empty workdir       │
  └────────────────────────────────────────────────┘
         │  one transcript per attempt
@@ -270,6 +270,7 @@ caliper run my-skill.eval.yaml --model pi --judge-model claude-code
 | `codex` | Codex CLI (`npm install -g @openai/codex`), then `codex login`. For a ChatGPT plan, also run `caliper login chatgpt` ([why](docs/backends.md#running-on-your-chatgpt-plan)) |
 | `pi` | pi CLI (`npm install -g @earendil-works/pi-coding-agent`), authenticated |
 | `hermes` | Hermes Agent CLI (Nous Research), authenticated, with a default model set |
+| `opencode` | opencode CLI (`npm install -g opencode-ai`), then `opencode auth login` |
 
 The judge uses the backend of the model being evaluated (`--model`), on that
 CLI's default model, unless

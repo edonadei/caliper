@@ -2,7 +2,7 @@
 
 These are the chores :class:`CliHarness` owns — seeding the isolated home,
 locating the CLI, building the environment, and reading the stream's tail. Each
-claim is made once here and parameterized over the four backends, so a fifth
+claim is made once here and parameterized over every backend, so a new one
 inherits the suite by existing rather than by copying assertions.
 
 The adapters' own test files still carry claims of their own that overlap these
@@ -33,13 +33,20 @@ from caliper.harness.base import (
 from caliper.harness.claude_code import ClaudeCodeHarness
 from caliper.harness.codex import CodexHarness
 from caliper.harness.hermes import HermesHarness
+from caliper.harness.opencode import OpenCodeHarness
 from caliper.harness.pi import PiHarness
 from caliper.harness.refusal import RefusalKind
 from caliper.runner import run
 from caliper.schema.results import Outcome
 from caliper.schema.spec import EvalSpec, TaskSpec
 
-ALL_BACKENDS = [ClaudeCodeHarness, CodexHarness, HermesHarness, PiHarness]
+ALL_BACKENDS = [
+    ClaudeCodeHarness,
+    CodexHarness,
+    HermesHarness,
+    PiHarness,
+    OpenCodeHarness,
+]
 SEED_INVENTORIES = [
     (
         ClaudeCodeHarness,
@@ -61,12 +68,14 @@ SEED_INVENTORIES = [
             ".pi/agent/models.json": "pi models",
         },
     ),
+    (OpenCodeHarness, {".local/share/opencode/auth.json": "opencode auth"}),
 ]
 
 # Where each seed file comes from when the operator points the CLI at another
 # config home: the CLI's own variable, and each file's path inside that home.
 # claude-code keeps .claude.json beside ~/.claude by default, but inside
-# CLAUDE_CONFIG_DIR when it is set.
+# CLAUDE_CONFIG_DIR when it is set. opencode keeps its logins in the XDG data
+# home, under its own directory.
 CONFIG_HOME_SOURCES = [
     (
         ClaudeCodeHarness,
@@ -91,13 +100,18 @@ CONFIG_HOME_SOURCES = [
             ".pi/agent/models.json": "models.json",
         },
     ),
+    (
+        OpenCodeHarness,
+        "XDG_DATA_HOME",
+        {".local/share/opencode/auth.json": "opencode/auth.json"},
+    ),
 ]
 
 # The three backends that spawn the binary ``cli_path`` finds. claude-code is
 # absent on purpose: it spawns a bare ``claude`` and leaves the lookup to the
 # attempt's PATH, so it resolves its binary there rather than through
 # ``cli_path``.
-DISCOVERING_BACKENDS = [CodexHarness, HermesHarness, PiHarness]
+DISCOVERING_BACKENDS = [CodexHarness, HermesHarness, PiHarness, OpenCodeHarness]
 
 
 def _prepared(harness: CliHarness, tmp_path: Path):
@@ -192,6 +206,7 @@ def test_seeds_from_the_config_home_the_operator_points_the_cli_at(
     selected.mkdir()
     monkeypatch.setenv(variable, str(selected))
     for relative, inside in sources.items():
+        (selected / inside).parent.mkdir(parents=True, exist_ok=True)
         (selected / inside).write_text(f"selected {inside}")
         # The default home holds another account, which must not be seeded.
         monkeypatch.delenv(variable)
@@ -228,6 +243,7 @@ ATTEMPT_CONFIG_HOMES = [
     (CodexHarness, "CODEX_HOME", ".codex"),
     (HermesHarness, "HERMES_HOME", ".hermes"),
     (PiHarness, "PI_CODING_AGENT_DIR", ".pi/agent"),
+    (OpenCodeHarness, "XDG_CONFIG_HOME", None),
 ]
 
 
@@ -252,6 +268,7 @@ CONFIG_HOMES = [
     (CodexHarness, ".codex"),
     (HermesHarness, ".hermes"),
     (PiHarness, ".pi/agent"),
+    (OpenCodeHarness, ".config/opencode"),
 ]
 
 
@@ -616,6 +633,8 @@ def _answer_stream(backend: type[CliHarness]) -> str:
                 },
             }
         ]
+    elif backend is OpenCodeHarness:
+        events = [{"type": "text", "part": {"type": "text", "text": _ANSWER}}]
     else:
         return json.dumps(
             {
