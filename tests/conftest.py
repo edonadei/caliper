@@ -31,6 +31,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from hypothesis import settings
 
 from caliper import cancel
 from caliper.backends import BACKENDS
@@ -42,6 +43,11 @@ from caliper.harness.base import (
 )
 from caliper.judge.base import JudgeResult
 from caliper.schema.results import AttemptRecord, Outcome, TaskResult
+
+# Property tests run on every CI runner, Windows included, where a slow first
+# example would otherwise trip Hypothesis' per-example deadline.
+settings.register_profile("caliper", deadline=None)
+settings.load_profile("caliper")
 
 
 def agent_result(**overrides) -> AttemptResult:

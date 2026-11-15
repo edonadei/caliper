@@ -285,6 +285,25 @@ def test_per_attempt_cost_is_none_without_a_usable_attempt() -> None:
     assert totals.wall_per_attempt is None
 
 
+def test_per_attempt_tokens_are_none_when_only_noise_reported_them() -> None:
+    # The pass reported nothing; the timeout's 9000 tokens are its own line, so
+    # there is no usable figure to divide, not a usable figure of 0.
+    tasks = [
+        TaskResult(
+            task_id="task-001",
+            task_name="alpha",
+            attempts=[
+                _att(Outcome.PASS, 10.0, None),
+                _att(Outcome.TIMEOUT, 60.0, TokenUsage(input_tokens=9000)),
+            ],
+        )
+    ]
+    totals = UsageTotals.from_task_results(tasks)
+    assert totals.tokens_reported is True
+    assert totals.tokens_per_attempt is None
+    assert totals.wall_per_attempt == 10.0
+
+
 def test_judge_time_is_averaged_over_the_graded_attempts() -> None:
     graded = _att(Outcome.PASS, 10.0, None)
     graded.judge_seconds = 3.0

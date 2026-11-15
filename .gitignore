@@ -11,3 +11,4 @@ venv/
 !examples/*.json
 .env
 skills/*/evals/results/
+.hypothesis/
