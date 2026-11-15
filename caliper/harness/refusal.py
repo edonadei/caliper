@@ -13,7 +13,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 
-# Provider signals that mean the skill was never fairly run. Matched even on a
+# CLI refusals that mean the skill was never fairly run. Matched even on a
 # zero exit, because these typically let the CLI exit 0 with the message as its
 # only "output" — but only over what the CLI wrote (see ``classify``).
 #

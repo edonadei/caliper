@@ -143,7 +143,7 @@ class RunContext:
     isolated_home: str
     # The agent's cwd — the attempt workdir that ``setup:``, ``cleanup:`` and
     # ``assert:`` also run in. Kept apart from ``isolated_home`` so the agent's
-    # working tree is not its config home. See
+    # working tree is not its isolated home. See
     # docs/adr/0046-an-attempt-runs-in-one-fresh-workdir.md.
     workdir: str
     extra_path: list[str]

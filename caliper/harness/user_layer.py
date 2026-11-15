@@ -232,7 +232,7 @@ def _collect_skills(
             continue
         visited.add(resolved)
         if is_root or harness.recursive_user_skills:
-            # Hidden directories hold the CLI's own state and system skills
+            # Hidden directories hold the CLI's own state and built-in skills
             # (codex's `.system`), which it installs for itself.
             directories[:] = sorted(d for d in directories if not d.startswith("."))
         else:

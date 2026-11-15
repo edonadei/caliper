@@ -49,10 +49,9 @@ _PROVIDER_DIAGNOSIS = (
 class PiHarness(CliHarness):
     """CLI-subprocess backend for the `pi` coding agent.
 
-    Drives the locally installed `pi` CLI in non-interactive JSON mode and
-    loads the skill-under-test natively via pi's `--skill` flag (the
-    agentskills.io standard), unlike codex which injects the skill into the
-    prompt.
+    Drives the locally installed `pi` CLI in non-interactive JSON mode. The
+    skill neighbourhood is installed where pi discovers it, never preloaded
+    with `--skill` (docs/adr/0013).
     """
 
     def __init__(self, model: str | None = None, effort: str | None = None) -> None:

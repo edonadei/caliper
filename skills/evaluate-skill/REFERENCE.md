@@ -381,7 +381,7 @@ Avoid:
 - writing tasks so easy the agent passes them without the skill (the control
   catches this, and it is a finding about the *task*, not the skill)
 - writing tasks so broad that failures are impossible to diagnose
-- changing regression tasks every time the skill changes
+- changing regression tasks every time you edit the skill
 
 ### Trigger probes
 

@@ -169,7 +169,7 @@ at your own skill by editing a few commented lines.
    `--ablate mcp:<server>`) at `--k 3` and `caliper compare` it against a full
    run. A task that passes without the skill doesn't need it: sharpen it
    first. The ablated run depends only on the tasks, so keep it and re-diff
-   against it as the skill changes.
+   against it each time you change the skill.
 5. Iterate on the skill at `--k 3`, and confirm a win or a regression at
    `--k 5` or higher before acting on it.
 6. Commit the spec alongside the skill so contributors can run the same eval.
