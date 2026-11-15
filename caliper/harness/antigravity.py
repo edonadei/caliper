@@ -60,8 +60,8 @@ class AntigravityHarness(CliHarness):
     history_unsupported_hint = (
         "Antigravity cannot resume planted turns: agy stores conversations "
         "only in its own SQLite format, with no import. Run tasks with "
-        "history: on --model claude-code, --model codex or --model pi, or "
-        "remove history: to run on antigravity."
+        "history: on --model claude-code, --model codex, --model pi or "
+        "--model opencode, or remove history: to run on antigravity."
     )
 
     cli_name = "agy"

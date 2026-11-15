@@ -107,7 +107,7 @@ CONFIG_HOME_SOURCES = [
     ),
 ]
 
-# The three backends that spawn the binary ``cli_path`` finds. claude-code is
+# The backends that spawn the binary ``cli_path`` finds. claude-code is
 # absent on purpose: it spawns a bare ``claude`` and leaves the lookup to the
 # attempt's PATH, so it resolves its binary there rather than through
 # ``cli_path``.

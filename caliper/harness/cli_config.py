@@ -67,18 +67,19 @@ YAML = Codec(
     yaml.YAMLError,
 )
 
-# A string, a comment, or a comma before a closing bracket: what JSONC adds to
-# JSON, matched string-first so a ``//`` inside a URL is left alone.
-_JSONC_TOKEN = re.compile(
-    r'"(?:\\.|[^"\\])*"|//[^\n]*|/\*.*?\*/|,(?=\s*[}\]])', re.DOTALL
-)
+# What JSONC adds to JSON, each matched after a string so that a ``//`` inside
+# a URL is left alone: comments, then a comma before a closing bracket. Two
+# passes, so a comma with a comment before its bracket goes too.
+_JSON_STRING = r'"(?:\\.|[^"\\])*"'
+_JSONC_COMMENT = re.compile(_JSON_STRING + r"|//[^\n]*|/\*.*?\*/", re.DOTALL)
+_JSONC_COMMA = re.compile(_JSON_STRING + r"|,(?=\s*[}\]])")
 
 
 def _loads_jsonc(text: str) -> object:
     """JSON with the comments and trailing commas opencode itself accepts."""
-    return json.loads(
-        _JSONC_TOKEN.sub(lambda m: m[0] if m[0].startswith('"') else "", text)
-    )
+    for token in (_JSONC_COMMENT, _JSONC_COMMA):
+        text = token.sub(lambda m: m[0] if m[0].startswith('"') else "", text)
+    return json.loads(text)
 
 
 JSONC = Codec(

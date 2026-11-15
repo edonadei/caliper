@@ -200,7 +200,7 @@ def test_an_isolated_attempt_keeps_only_the_users_providers_and_model(
           "model": "openai/gpt-6.1-terra",
           "provider": {"local": {"options": {"baseURL": "http://localhost:1234/v1"}}},
           "plugin": ["opencode-notifier"],
-          "mcp": {"mine": {"type": "local", "command": ["mine"]}},
+          "mcp": {"mine": {"type": "local", "command": ["mine"]}}, // a comma, then a note
         }"""
     )
 
