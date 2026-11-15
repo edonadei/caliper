@@ -63,7 +63,7 @@ def _rmtree(path: Path) -> None:
 
     def _clear_readonly(func, target, _exc) -> None:
         with contextlib.suppress(OSError):
-            os.chmod(target, stat.S_IWRITE)
+            Path(target).chmod(stat.S_IWRITE)
             func(target)
 
     shutil.rmtree(path, onerror=_clear_readonly)
@@ -169,7 +169,7 @@ class SkillFetcher:
         # The schema refuses a path that leaves the repo; this checks where the
         # join landed on this OS. Lexically: a symlink out of the clone gets its
         # own refusal in `resolve_skills` (docs/adr/0027).
-        if not Path(os.path.abspath(skill_md)).is_relative_to(checkout.absolute()):
+        if not Path(os.path.abspath(skill_md)).is_relative_to(checkout.absolute()):  # noqa: PTH100 - lexical check; symlinks are diagnosed in resolve_skills (docs/adr/0027)
             raise SkillFetchError(
                 f"{self._label(src)}: path '{src.path}' must stay inside the repo."
             )

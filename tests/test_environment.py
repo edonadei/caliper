@@ -33,12 +33,12 @@ def _spec(tmp_path, **fields):
 
 
 def _resolve(spec, spec_path, **overrides):
-    kwargs = dict(
-        harness=ScriptedHarness(supports_mcp=True),
-        ablate=[],
-        user_customizations=None,
-        timeout=30,
-    )
+    kwargs = {
+        "harness": ScriptedHarness(supports_mcp=True),
+        "ablate": [],
+        "user_customizations": None,
+        "timeout": 30,
+    }
     kwargs.update(overrides)
     return resolve_environment(spec, spec_path, **kwargs)
 

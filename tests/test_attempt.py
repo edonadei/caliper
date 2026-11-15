@@ -63,27 +63,27 @@ def _read_turn(path: str) -> ConversationTurn:
 
 
 def _result(**overrides) -> AttemptResult:
-    fields = dict(
-        transcript=[ConversationTurn(role="assistant", content="done")],
-        final_output="done",
-        exit_code=0,
-        duration_seconds=1.5,
-    )
+    fields = {
+        "transcript": [ConversationTurn(role="assistant", content="done")],
+        "final_output": "done",
+        "exit_code": 0,
+        "duration_seconds": 1.5,
+    }
     fields.update(overrides)
     return AttemptResult(**fields)
 
 
 def _assemble(result: AttemptResult, **overrides):
-    kwargs = dict(
-        attempt=1,
-        task=_task(),
+    kwargs = {
+        "attempt": 1,
+        "task": _task(),
         # Never entered: the recording judge does not run anything in it.
-        workdir=AttemptWorkdir("/tmp"),
-        expected_activation=None,
-        activation=ActivationDetector([], frozenset()),
-        sandbox=StubSandbox(),
-        judge=RecordingJudge(),
-    )
+        "workdir": AttemptWorkdir("/tmp"),
+        "expected_activation": None,
+        "activation": ActivationDetector([], frozenset()),
+        "sandbox": StubSandbox(),
+        "judge": RecordingJudge(),
+    }
     kwargs.update(overrides)
     return assemble_attempt(result, **kwargs)
 

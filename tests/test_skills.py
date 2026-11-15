@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pytest
@@ -138,7 +139,7 @@ def test_names_differing_only_in_case_are_rejected(tmp_path):
     validates on Linux runs the same neighbourhood on a Mac."""
     write_skill(tmp_path / "one", "foo")
     write_skill(tmp_path / "two", "FOO")
-    with pytest.raises(SkillResolutionError, match="'foo'.*'FOO'|'FOO'.*'foo'"):
+    with pytest.raises(SkillResolutionError, match=r"'foo'.*'FOO'|'FOO'.*'foo'"):
         resolve_skills(["./one/SKILL.md", "./two/SKILL.md"], tmp_path)
 
 
@@ -293,14 +294,18 @@ def test_install_skips_oversized_files(tmp_path):
 def test_a_skill_whose_skill_md_is_forbidden_is_refused(tmp_path):
     """Declared but never installed: the agent could not discover it."""
     write_skill(tmp_path / "a", "alpha")
-    with pytest.raises(SkillResolutionError, match="SKILL.md would not be installed"):
+    with pytest.raises(
+        SkillResolutionError, match=re.escape("SKILL.md would not be installed")
+    ):
         resolve_skills(["./a/SKILL.md"], tmp_path, forbidden_files=[r"SKILL\.md$"])
 
 
 def test_a_skill_whose_skill_md_is_oversized_is_refused(tmp_path, monkeypatch):
     monkeypatch.setattr("caliper.skills._MAX_FILE_BYTES", 10)
     write_skill(tmp_path / "a", "alpha")
-    with pytest.raises(SkillResolutionError, match="SKILL.md would not be installed"):
+    with pytest.raises(
+        SkillResolutionError, match=re.escape("SKILL.md would not be installed")
+    ):
         resolve_skills(["./a/SKILL.md"], tmp_path)
 
 

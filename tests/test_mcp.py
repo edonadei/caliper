@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -1292,7 +1293,9 @@ def test_preflight_waits_for_a_slow_server_within_its_timeout(tmp_path) -> None:
     )
     server = {"echo": McpServer(command=sys.executable, args=[str(script)])}
 
-    with pytest.raises(HarnessConfigurationError, match="within 0.2 seconds"):
+    with pytest.raises(
+        HarnessConfigurationError, match=re.escape("within 0.2 seconds")
+    ):
         preflight_stdio_servers(server, timeout=0.2)
     preflight_stdio_servers(server, timeout=5)
 

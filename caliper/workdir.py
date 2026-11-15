@@ -84,11 +84,11 @@ class AttemptWorkdir:
         # Absolute, because every step runs in the workdir: a relative spec dir
         # would name a path under it.
         self.spec_dir = str(Path(spec_dir).resolve())
-        self._root: str | None = None
+        self._root: Path | None = None
 
     def __enter__(self) -> AttemptWorkdir:
-        self._root = tempfile.mkdtemp(prefix="caliper-")
-        os.mkdir(self.path)
+        self._root = Path(tempfile.mkdtemp(prefix="caliper-"))
+        (self._root / "work").mkdir()
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -98,14 +98,14 @@ class AttemptWorkdir:
     @property
     def path(self) -> str:
         """The workdir itself, where every step and the agent run."""
-        return os.path.join(self._require_root(), "work")
+        return str(self._require_root() / "work")
 
     @property
     def home(self) -> str:
         """The agent's isolated home: the temp dir, beside the workdir."""
-        return self._require_root()
+        return str(self._require_root())
 
-    def _require_root(self) -> str:
+    def _require_root(self) -> Path:
         if self._root is None:
             raise RuntimeError("AttemptWorkdir used outside its `with` block")
         return self._root

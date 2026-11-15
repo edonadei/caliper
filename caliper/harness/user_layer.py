@@ -183,8 +183,8 @@ def copy_user_tree(source: Path, copy: Path) -> None:
             link = Path(directory) / name
             if not link.is_symlink():
                 continue
-            target = os.readlink(link)
-            if os.path.isabs(target):
+            target = link.readlink()
+            if target.is_absolute():
                 continue
             original = source / link.parent.relative_to(copy)
             resolved = Path(os.path.normpath(original / target))

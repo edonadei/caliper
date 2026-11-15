@@ -28,6 +28,7 @@ import subprocess
 import threading
 from collections.abc import Callable
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -49,19 +50,19 @@ def agent_result(**overrides) -> AttemptResult:
     A test overrides only the fields it is about (``exit_code``,
     ``resolved_model``, ``cancelled``, …).
     """
-    fields = dict(
-        transcript=[ConversationTurn(role="assistant", content="done")],
-        final_output="done",
-        exit_code=0,
-        duration_seconds=0.1,
-    )
+    fields = {
+        "transcript": [ConversationTurn(role="assistant", content="done")],
+        "final_output": "done",
+        "exit_code": 0,
+        "duration_seconds": 0.1,
+    }
     fields.update(overrides)
     return AttemptResult(**fields)
 
 
 def failed_result(error: str = "agent failed", **overrides) -> AttemptResult:
     """An attempt whose agent exited nonzero with nothing to judge."""
-    fields = dict(transcript=[], final_output="", exit_code=1, error=error)
+    fields = {"transcript": [], "final_output": "", "exit_code": 1, "error": error}
     fields.update(overrides)
     return agent_result(**fields)
 
@@ -236,7 +237,7 @@ class _FakePopen:
     def __exit__(self, *exc_info: object) -> None:
         return None
 
-    def communicate(self, input=None, timeout=None):  # noqa: A002 - Popen's name
+    def communicate(self, input=None, timeout=None):
         source = self._kwargs.get("stdin")
         if input is None and hasattr(source, "read"):
             source.seek(0)
@@ -304,14 +305,14 @@ def _isolate_home(monkeypatch, tmp_path_factory):
     home = str(tmp_path_factory.mktemp("home"))
     monkeypatch.setenv("HOME", home)
     monkeypatch.setenv("USERPROFILE", home)
-    monkeypatch.setenv("APPDATA", os.path.join(home, "AppData", "Roaming"))
+    monkeypatch.setenv("APPDATA", str(Path(home) / "AppData" / "Roaming"))
     real_setenv = monkeypatch.setenv
 
     def setenv(name: str, value: str, prepend: str | None = None) -> None:
         real_setenv(name, value, prepend=prepend)
         if os.name == "nt" and name == "HOME":
             real_setenv("USERPROFILE", value)
-            real_setenv("APPDATA", os.path.join(value, "AppData", "Roaming"))
+            real_setenv("APPDATA", str(Path(value) / "AppData" / "Roaming"))
 
     monkeypatch.setenv = setenv
 

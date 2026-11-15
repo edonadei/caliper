@@ -65,7 +65,9 @@ target-version = "py310"
 
 [tool.ruff.lint]
 # E501 stays off: the formatter owns line length (docs/adr/0002).
-select = ["E4", "E7", "E9", "F", "B", "BLE", "I", "UP", "SIM", "PT", "T20", "TID"]
+select = ["E4", "E7", "E9", "F", "B", "BLE", "C4", "FURB", "I", "PIE", "PTH", "PT", "RUF", "SIM", "T20", "TID", "UP"]
+# Typographic glyphs (×, –, —) are intentionally used in terminal UI, comments, and docstrings.
+ignore = ["RUF001", "RUF002", "RUF003"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["typer.Argument", "typer.Option"]

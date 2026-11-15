@@ -71,7 +71,7 @@ class UnusableResultsRoot(Exception):
 class RunStore:
     """The saved runs under one root directory."""
 
-    root: Path = Path(".")
+    root: Path = Path()
 
     @classmethod
     def discover(cls, start: Path | None = None) -> RunStore:

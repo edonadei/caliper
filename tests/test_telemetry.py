@@ -71,7 +71,7 @@ def test_failed_first_run_save_repeats_notice_and_never_sends(monkeypatch, deliv
     def unavailable(*args):
         raise PermissionError("private config path")
 
-    monkeypatch.setattr(telemetry.os, "replace", unavailable)
+    monkeypatch.setattr(telemetry.Path, "replace", unavailable)
     for _ in range(2):
         result = runner.invoke(app, ["validate", "missing.eval.yaml"])
         assert result.exit_code == 1
@@ -423,7 +423,7 @@ def test_failed_consent_save_preserves_previous_preference(monkeypatch, deliveri
         raise PermissionError("private config path")
 
     telemetry.set_enabled(True)
-    monkeypatch.setattr(telemetry.os, "replace", unavailable)
+    monkeypatch.setattr(telemetry.Path, "replace", unavailable)
     result = runner.invoke(app, ["telemetry", "disable"])
     assert result.exit_code == 2
     assert "CALIPER_TELEMETRY_DISABLED=1" in result.output

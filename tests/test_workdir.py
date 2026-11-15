@@ -26,10 +26,10 @@ def test_entering_makes_an_empty_workdir_beside_the_home_and_leaving_removes_bot
     tmp_path,
 ) -> None:
     with AttemptWorkdir(tmp_path) as workdir:
-        assert os.listdir(workdir.path) == []
+        assert list(Path(workdir.path).iterdir()) == []
         assert Path(workdir.path).parent == Path(workdir.home)
         root = workdir.home
-    assert not os.path.exists(root)
+    assert not Path(root).exists()
 
 
 def test_steps_run_in_the_workdir_with_both_dirs_in_their_environment(

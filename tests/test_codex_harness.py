@@ -760,7 +760,7 @@ def test_codex_plugin_links_keep_their_targets(monkeypatch, tmp_path) -> None:
     )
     copied = seeded.parent / "plugins" / "cache" / "cua"
     # A link within the tree stays relative, so it follows the copy.
-    assert os.readlink(copied / "inside") == "local.txt"
+    assert (copied / "inside").readlink() == Path("local.txt")
     # A link out of the tree is repointed at the user's original target.
     assert (copied / "outside").read_text() == "shared"
     # A dangling link is copied as is rather than aborting the attempt.

@@ -382,7 +382,7 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         if customizations_warning
         else _ablation_labels(a_run, a_neighbourhood, b_run, b_neighbourhood)
     )
-    a_label, b_label = labels if labels else (None, None)
+    a_label, b_label = labels or (None, None)
     neighbourhood_mismatch = labels is None and a_neighbourhood != b_neighbourhood
     if neighbourhood_mismatch:
         warnings.append(

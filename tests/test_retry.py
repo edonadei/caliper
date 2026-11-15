@@ -65,22 +65,22 @@ def _result(
 
 
 # A throttled CLI exits non-zero with the refusal on stderr and nothing parsed.
-THROTTLED = dict(
-    output="",
-    error="Error 429: rate limit exceeded",
-    exit_code=1,
-    salvaged=True,
-    refusal=CliRefusal(RefusalKind.THROTTLE, "Error 429: rate limit exceeded"),
-)
+THROTTLED = {
+    "output": "",
+    "error": "Error 429: rate limit exceeded",
+    "exit_code": 1,
+    "salvaged": True,
+    "refusal": CliRefusal(RefusalKind.THROTTLE, "Error 429: rate limit exceeded"),
+}
 # A capped CLI exits *zero* with the cap message as its only output — the case
 # that forces signals to be matched on a clean exit at all.
-CAPPED = dict(
-    output="You have reached your usage limit for this month.",
-    salvaged=True,
-    refusal=CliRefusal(
+CAPPED = {
+    "output": "You have reached your usage limit for this month.",
+    "salvaged": True,
+    "refusal": CliRefusal(
         RefusalKind.SPENDING_CAP, "You have reached your usage limit for this month."
     ),
-)
+}
 
 
 def _queue(*results: AttemptResult):

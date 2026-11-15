@@ -660,7 +660,7 @@ def test_prompt_is_staged_in_the_workdir_unless_it_is_full(
     real = tempfile.TemporaryFile
     staged_in: list[str | None] = []
 
-    def temporary_file(dir=None):  # noqa: A002 - tempfile's name
+    def temporary_file(dir=None):
         staged_in.append(dir)
         if workdir_full and dir == str(tmp_path):
             raise OSError(errno.ENOSPC, "No space left on device")
@@ -698,7 +698,7 @@ def test_timeout_keeps_partial_output_when_a_pipe_holder_survives(
 
     with _running_attempt(
         tmp_path, [sys.executable, "-c", agent, str(pid_file)], pid_file, 1
-    ) as (pids, finished, box):
+    ) as (_pids, finished, box):
         assert finished.wait(4), "the inherited pipe held the attempt open"
         assert box["result"].timed_out
         assert box["result"].stdout == "partial transcript"

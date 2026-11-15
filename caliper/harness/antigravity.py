@@ -94,7 +94,8 @@ class AntigravityHarness(CliHarness):
     # The login lives in the OS keyring, which the isolated ``HOME`` does not
     # move on Linux (Secret Service, over the session bus) or Windows. An API
     # key or ADC login is read from the environment instead.
-    env_passthrough = CliHarness.env_passthrough + (
+    env_passthrough = (
+        *CliHarness.env_passthrough,
         "DBUS_SESSION_BUS_ADDRESS",
         "XDG_RUNTIME_DIR",
         "GEMINI_API_KEY",
