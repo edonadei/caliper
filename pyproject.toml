@@ -86,7 +86,7 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 
 [tool.ruff.lint.per-file-ignores]
 "caliper/harness/**" = ["TID251"]
-"caliper/judge/**" = ["TID251"]
+"caliper/judge/__init__.py" = ["TID251"]
 "tests/**" = ["TID251"]
 "docs/**" = ["T20"]
 "skills/**" = ["T20"]
