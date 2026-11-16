@@ -367,7 +367,7 @@ run Caliper, inside the git repository. See
 | Code | Meaning |
 |---|---|
 | `0` | Ran, and nothing asked for a verdict said no |
-| `1` | Bad input: spec not found, invalid spec, unresolvable skills, two references naming one run |
+| `1` | Bad input: spec not found, invalid spec, unresolvable skills, two references naming one run, an unknown command, flag or value |
 | `2` | Could not run cleanly: backend misconfiguration, an unavailable model or effort level, a failed setup/cleanup hook, or every attempt `infra_error`/`timeout`/`judge_error` |
 | `3` | Reserved: ran cleanly, but a declared bar was not met |
 | `130` | Interrupted with Ctrl-C; the partial run was saved |

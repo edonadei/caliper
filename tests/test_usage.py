@@ -238,6 +238,19 @@ def test_usage_totals_sum_all_attempts_and_break_out_unusable() -> None:
     assert totals.usable_wall_seconds == 10.0
 
 
+def test_usage_totals_read_back_from_their_json_keep_the_per_attempt_cost() -> None:
+    tasks = [
+        TaskResult(
+            task_id="task-001",
+            task_name="alpha",
+            attempts=[_att(Outcome.PASS, 5.0, TokenUsage(input_tokens=400))],
+        )
+    ]
+    totals = UsageTotals.from_task_results(tasks)
+    reloaded = UsageTotals.model_validate_json(totals.model_dump_json())
+    assert (totals.tokens_per_attempt, reloaded.tokens_per_attempt) == (400, 400)
+
+
 def test_usage_totals_tokens_unreported_when_no_backend_data() -> None:
     tasks = [
         TaskResult(

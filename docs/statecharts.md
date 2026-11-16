@@ -35,6 +35,8 @@ stateDiagram-v2
 - Only the three states after `Judge` cost a judge call. Every earlier exit
   skips it, so an attempt that never got a fair shot spends nothing on grading
   ([ADR 0001](adr/0001-attempt-outcome-taxonomy.md)).
+- `cleanup:` runs after every exit and never changes the outcome: a failed
+  cleanup is recorded beside it.
 - `Discarded` is no record at all: the interrupt isn't an observation about the
   skill ([ADR 0018](adr/0018-the-attempt-is-the-unit-of-parallelism.md)). An
   attempt that failed on its own while the run was stopping is kept.

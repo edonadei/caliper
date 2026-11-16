@@ -53,9 +53,11 @@ tasks:
       and then stops to wait. Fail if it edits SKILL.md, starts an eval run, or
       proposes skill changes in this turn.
     assert: |
+      import os
       before = open("original-SKILL.md").read()
       after = open("commit-message/SKILL.md").read()
       assert before == after, "Agent edited the skill before framing the climb"
+      assert not os.path.exists(".caliper"), "Agent ran the eval before framing the climb"
 
   # Task 2 — Too few tasks to hold any out. The prompt answers the framing
   # questions up front, so a single shot reaches the refusal.
@@ -253,10 +255,11 @@ tasks:
       is inside it, and logs the round as reverted. Fail if it keeps the change, or
       judges the round only against the current best.
     assert: |
-      restored = open("triage/SKILL.md").read()
-      assert restored == open("before-round-4.md").read(), "Round 4's cut was kept"
-      rounds = open(".caliper/hillclimb/triage/log.md").read().splitlines()[5:]
-      assert any("revert" in line.lower() for line in rounds), "Round 4 isn't logged"
+      restored = open("triage/SKILL.md").read().strip()
+      assert restored == open("before-round-4.md").read().strip(), "Round 4's cut was kept"
+      # r3 was already logged as reverted; round 4 adds a second.
+      log = open(".caliper/hillclimb/triage/log.md").read().lower()
+      assert log.count("revert") >= 2, "Round 4 isn't logged as reverted"
 
   # Trigger probe: designing an eval belongs to grill-skill.
   - name: A skill with no eval belongs to grill-skill

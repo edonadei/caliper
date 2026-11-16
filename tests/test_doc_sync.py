@@ -631,8 +631,8 @@ def test_python_versions_in_lockstep() -> None:
 
 # Where a command written in prose or a shell line ends: a closing backtick, a
 # pipe, a redirect (not the `>` closing a `<spec>` placeholder), or the next
-# command.
-_COMMAND_END = re.compile(r"`|\||(?<![\w-])>|;|&&|$", re.MULTILINE)
+# command. A line ending in `\` continues the command.
+_COMMAND_END = re.compile(r"`|\||(?<![\w-])>|;|&&|(?<!\\)$", re.MULTILINE)
 
 
 def _command_spellings(words: list[str]) -> tuple[str, set[str]] | None:
@@ -651,6 +651,13 @@ def _command_spellings(words: list[str]) -> tuple[str, set[str]] | None:
     for param in command.params:
         spellings |= set(param.opts) | set(param.secondary_opts)
     return " ".join(path), spellings
+
+
+def test_a_command_continued_with_a_backslash_ends_on_its_last_line() -> None:
+    command = "run demo.eval.yaml \\\n  --k 3\nnext line --other"
+    end = _COMMAND_END.search(command)
+    assert end is not None
+    assert command[: end.start()] == "run demo.eval.yaml \\\n  --k 3"
 
 
 def test_skill_docs_use_only_flags_their_commands_have() -> None:
@@ -861,16 +868,21 @@ def test_markdown_relative_links_and_anchors_resolve() -> None:
     texts = {rel: (ROOT / rel).read_text(encoding="utf-8") for rel in files}
     file_anchors = {rel: _extract_heading_anchors(text) for rel, text in texts.items()}
 
-    # Link text may wrap across lines; the target never does.
-    link_pattern = re.compile(r"!?\[([^\]]*)\]\(([^)\n]+)\)")
+    # Link text may wrap across lines; the target never does. The README's
+    # images and nav are HTML, and a reference link's target is its definition.
+    link_patterns = (
+        re.compile(r"!?\[[^\]]*\]\(([^)\n]+)\)"),
+        re.compile(r'<(?:a|img|source)\b[^>]*?\b(?:href|src|srcset)="([^"]+)"'),
+        re.compile(r"^\s{0,3}\[[^\]]+\]:\s*(\S+)", re.MULTILINE),
+    )
     failures: list[str] = []
 
     for rel, text in texts.items():
         source_path = ROOT / rel
         prose = _prose_only(text)
-        for lm in link_pattern.finditer(prose):
+        for lm in (m for pattern in link_patterns for m in pattern.finditer(prose)):
             lineno = prose.count("\n", 0, lm.start()) + 1
-            raw_target = lm.group(2).strip()
+            raw_target = lm.group(1).strip()
             target = raw_target.split()[0] if raw_target else ""
             if not target or target.startswith(("http://", "https://", "mailto:")):
                 continue

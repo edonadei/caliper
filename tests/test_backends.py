@@ -44,5 +44,5 @@ def test_caliper_does_not_manage_agent_cli_installs() -> None:
     """Each CLI updates itself; a run records which build it used instead."""
     result = runner.invoke(app, ["update-cli", "--check"])
 
-    assert result.exit_code == 2
+    assert result.exit_code == 1
     assert "No such command" in result.output

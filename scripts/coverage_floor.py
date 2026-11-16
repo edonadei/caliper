@@ -1,7 +1,7 @@
 """Fail when any module in ``[tool.coverage.report] include`` is below the floor.
 
-Lines and branches are each held to it, per module: ``--fail-under`` checks one
-combined total, where a big module hides a small one and lines hide branches.
+Lines and branches are each held to it, per module, and an unmeasured module
+fails: ``--fail-under`` checks one total, where a big module hides a small one.
 Run after ``pytest --cov``: ``python scripts/coverage_floor.py coverage.json``.
 """
 
@@ -25,8 +25,10 @@ def below_floor(report: dict, floor: float) -> list[str]:
     for path, data in sorted(report["files"].items()):
         summary = data["summary"]
         covered = summary["percent_statements_covered"]
-        branched = summary["percent_branches_covered"]
-        if covered < floor or branched < floor:
+        branched = summary.get("percent_branches_covered")
+        if branched is None:
+            lines.append(f"{path}: no branch data; measure with `branch = true`")
+        elif covered < floor or branched < floor:
             branches = [f"{a}->{b}" for a, b in data["missing_branches"]]
             lines.append(
                 f"{path}: lines {covered:.1f}%, branches {branched:.1f}% "
@@ -36,17 +38,29 @@ def below_floor(report: dict, floor: float) -> list[str]:
     return lines
 
 
+def unmeasured(report: dict, include: list[str], root: Path) -> list[str]:
+    """One line per module the floor covers that the report has no entry for."""
+    measured = {Path(path).as_posix() for path in report["files"]}
+    modules = {p.relative_to(root).as_posix() for g in include for p in root.glob(g)}
+    return [
+        f"{module}: not in the coverage report; run the whole suite with `--cov`"
+        for module in sorted(modules - measured)
+    ]
+
+
 def main(argv: list[str], root: Path = ROOT) -> int:
     with (root / "pyproject.toml").open("rb") as f:
-        floor = tomllib.load(f)["tool"]["coverage"]["report"]["fail_under"]
+        config = tomllib.load(f)["tool"]["coverage"]["report"]
     report = json.loads(Path(argv[0]).read_text(encoding="utf-8"))
-    failures = below_floor(report, floor)
+    failures = unmeasured(report, config["include"], root) + below_floor(
+        report, config["fail_under"]
+    )
     for line in failures:
         print(line, file=sys.stderr)
     if failures:
         print(
-            "Each pure domain module needs its own branch-coverage floor: add tests "
-            "for the lines and branches above.",
+            "Each pure domain module is held to the floor on its own: measure every "
+            "one, and add tests for the lines and branches above.",
             file=sys.stderr,
         )
     return 1 if failures else 0

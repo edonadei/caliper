@@ -7,6 +7,7 @@ test in tests/test_readme_renders.py makes the committed SVGs the real renders.
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -73,3 +74,41 @@ def test_the_views_are_the_ones_the_readme_scripts_render():
         "hero-light.svg",
         "run-output.svg",
     ]
+
+
+def _commit(repo: Path, views: dict[str, str], assets: dict[str, str]) -> str:
+    """Commit README renderers that render ``views``, and exactly ``assets``."""
+    docs = repo / "docs"
+    (docs / "assets").mkdir(parents=True, exist_ok=True)
+    for rel in view_summary.RENDERERS:
+        (repo / rel).write_text("def render_all():\n    return {}\n", encoding="utf-8")
+    (repo / view_summary.RENDERERS[0]).write_text(
+        f"def render_all():\n    return {views!r}\n", encoding="utf-8"
+    )
+    for old in (docs / "assets").iterdir():
+        old.unlink()
+    for name, svg in assets.items():
+        (docs / "assets" / name).write_text(svg, encoding="utf-8")
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run([*git, "add", "-A"], check=True)
+    subprocess.run([*git, "commit", "-qm", "c"], check=True)
+    return subprocess.run(
+        [*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def test_a_deleted_asset_is_a_removed_view_only_if_it_was_rendered(tmp_path, capsys):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    before = _commit(
+        tmp_path,
+        {"kept.svg": "k", "dropped.svg": "d"},
+        {"kept.svg": "k", "dropped.svg": "d", "icon.svg": "i"},
+    )
+    after = _commit(tmp_path, {"kept.svg": "k"}, {"kept.svg": "k"})
+
+    view_summary.main(["o/caliper", before, "o/caliper", after], root=tmp_path)
+    out = capsys.readouterr().out
+
+    assert "### `dropped.svg`" in out
+    assert "icon.svg" not in out
+    assert "<summary>Unchanged: 1 view</summary>" in out

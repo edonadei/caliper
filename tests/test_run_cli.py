@@ -561,7 +561,7 @@ def test_baseline_is_no_longer_an_option(tmp_path) -> None:
         "tasks:\n  - name: One\n    prompt: Do it\n    assert: assert True\n"
     )
     result = runner.invoke(app, ["run", str(spec_file), "--baseline"])
-    assert result.exit_code == 2
+    assert result.exit_code == 1
     assert "No such option" in result.output
 
 

@@ -167,14 +167,20 @@ def test_an_unreadable_side_is_diagnosed_not_swallowed(monkeypatch, tmp_path) ->
 
 
 @pytest.mark.parametrize(
-    "argv", [["report", "demo", "--format", "xml"], ["compare", "a", "b", "-f", "yaml"]]
+    "argv",
+    [
+        ["report", "demo", "--format", "xml"],
+        ["compare", "a", "b", "-f", "yaml"],
+        ["list", "demo", "--format", "bogus"],
+    ],
 )
-def test_an_unknown_format_is_refused(argv) -> None:
+def test_an_unknown_format_is_refused_as_bad_input(argv) -> None:
     result = runner.invoke(app, argv)
 
     # CI forces color, so typer's error panel arrives with ANSI codes in it.
     output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
-    assert result.exit_code == 2
+    # Exit 1, not click's 2: to CI, 2 means the eval could not run.
+    assert result.exit_code == 1
     assert "Invalid value for '--format'" in output
 
 

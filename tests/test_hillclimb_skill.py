@@ -131,3 +131,18 @@ def test_scores_reads_each_split_from_compare_json(climbing, capsys, monkeypatch
 
     assert "train     50% -> 100%  (+50 pp)  6/6 tasks measured" in out
     assert "held-out  50% -> 100%  (+50 pp)  3/3 tasks measured" in out
+
+
+def test_scores_shows_a_cost_cut_to_zero_tokens(climbing, capsys, monkeypatch):
+    _, state = climbing
+    comparison = {
+        "matched": [],
+        "a_usage": {"tokens_per_attempt": 500},
+        "b_usage": {"tokens_per_attempt": 0},
+    }
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(comparison)))
+    capsys.readouterr()
+
+    climb.main(["scores", str(state)])
+
+    assert "tokens/attempt  500 -> 0  (-100%)" in capsys.readouterr().out

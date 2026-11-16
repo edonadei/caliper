@@ -61,18 +61,40 @@ def test_full_line_coverage_does_not_carry_missed_branches():
     ]
 
 
-def test_the_script_reads_the_floor_from_pyproject_and_fails_below_it(tmp_path):
+def _project(tmp_path: Path, *modules: str) -> Path:
+    """A project whose floor covers ``caliper/*.py``, holding ``modules``."""
     (tmp_path / "pyproject.toml").write_text(
-        "[tool.coverage.report]\nfail_under = 95\n", encoding="utf-8"
-    )
-    report = tmp_path / "coverage.json"
-    report.write_text(
-        json.dumps({"files": {"caliper/small.py": _file(90.0, missing=[7])}}),
+        '[tool.coverage.report]\ninclude = ["caliper/*.py"]\nfail_under = 95\n',
         encoding="utf-8",
     )
-    assert coverage_floor.main([str(report)], root=tmp_path) == 1
-    report.write_text(
-        json.dumps({"files": {"caliper/small.py": _file(95.0, 95.0)}}),
-        encoding="utf-8",
-    )
-    assert coverage_floor.main([str(report)], root=tmp_path) == 0
+    (tmp_path / "caliper").mkdir()
+    for module in modules:
+        (tmp_path / module).write_text("", encoding="utf-8")
+    return tmp_path
+
+
+def _main(root: Path, files: dict) -> int:
+    report = root / "coverage.json"
+    report.write_text(json.dumps({"files": files}), encoding="utf-8")
+    return coverage_floor.main([str(report)], root=root)
+
+
+def test_the_script_reads_the_floor_from_pyproject_and_fails_below_it(tmp_path):
+    root = _project(tmp_path, "caliper/small.py")
+    assert _main(root, {"caliper/small.py": _file(90.0, missing=[7])}) == 1
+    assert _main(root, {"caliper/small.py": _file(95.0, 95.0)}) == 0
+
+
+def test_a_module_the_report_never_measured_fails(tmp_path, capsys):
+    # `pytest --cov=caliper.compare` writes a report of compare.py alone.
+    root = _project(tmp_path, "caliper/compare.py", "caliper/retry.py")
+    assert _main(root, {"caliper/compare.py": _file()}) == 1
+    assert "caliper/retry.py: not in the coverage report" in capsys.readouterr().err
+
+
+def test_a_report_without_branch_data_fails_saying_so(tmp_path, capsys):
+    root = _project(tmp_path, "caliper/retry.py")
+    lines_only = _file()
+    del lines_only["summary"]["percent_branches_covered"]
+    assert _main(root, {"caliper/retry.py": lines_only}) == 1
+    assert "no branch data" in capsys.readouterr().err

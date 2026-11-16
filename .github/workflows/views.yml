@@ -34,8 +34,12 @@ jobs:
       - name: Check the committed views are the real renders
         run: pytest -q tests/test_readme_renders.py
       - name: Show the views in the job summary
+        env:
+          BASE_REPO: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          # A deleted fork has no head repo; its commits stay in the base's network.
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: >
-          python scripts/view_summary.py
-          "${{ github.repository }}" "${{ github.event.pull_request.base.sha }}"
-          "${{ github.event.pull_request.head.repo.full_name }}" "${{ github.event.pull_request.head.sha }}"
+          python scripts/view_summary.py "$BASE_REPO" "$BASE_SHA" "$HEAD_REPO" "$HEAD_SHA"
           >> "$GITHUB_STEP_SUMMARY"
