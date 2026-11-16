@@ -46,3 +46,10 @@ def test_caliper_does_not_manage_agent_cli_installs() -> None:
 
     assert result.exit_code == 1
     assert "No such command" in result.output
+
+
+def test_a_bare_caliper_shows_the_help_with_clicks_own_exit_code() -> None:
+    result = runner.invoke(app, [])
+
+    assert result.exit_code == 2
+    assert "Usage:" in result.output

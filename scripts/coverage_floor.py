@@ -41,8 +41,13 @@ def below_floor(report: dict, floor: float) -> list[str]:
 def unmeasured(report: dict, include: list[str], root: Path) -> list[str]:
     """One line per module the floor covers that the report has no entry for."""
     measured = {Path(path).as_posix() for path in report["files"]}
-    modules = {p.relative_to(root).as_posix() for g in include for p in root.glob(g)}
+    matches = {pattern: list(root.glob(pattern)) for pattern in include}
+    modules = {
+        path.relative_to(root).as_posix() for m in matches.values() for path in m
+    }
     return [
+        f"{pattern}: matches no module" for pattern, m in matches.items() if not m
+    ] + [
         f"{module}: not in the coverage report; run the whole suite with `--cov`"
         for module in sorted(modules - measured)
     ]

@@ -237,7 +237,7 @@ def test_spec_and_k_mismatch_raise_warnings() -> None:
     (k_warning,) = [w for w in comp.warnings if "k=5" in w and "k=3" in w]
     # The success rate is k-invariant (docs/adr/0007); only the k-dependent
     # views and the depth of each estimate differ.
-    assert "success rates compare" in k_warning
+    assert "success rates still compare" in k_warning
     assert "pass@k" in k_warning
 
 

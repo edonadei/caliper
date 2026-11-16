@@ -186,7 +186,10 @@ def _long_blocks(comments: list[_Comment]) -> list[tuple[int, int]]:
 
 
 def _docstrings(path: Path) -> list[tuple[int, int]]:
-    """(first line, text lines) of each docstring over the ceiling."""
+    """(first line, text lines) of each docstring over the ceiling.
+
+    The quote lines carry no text, as a comment block's lines are all comment.
+    """
     tree = ast.parse(path.read_text(encoding="utf-8"))
     found = []
     for node in ast.walk(tree):

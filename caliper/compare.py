@@ -356,9 +356,9 @@ def diff_runs(a: RunResults, b: RunResults) -> RunComparison:
         )
     if k_mismatch:
         warnings.append(
-            f"A ran k={a_run.k}, B ran k={b_run.k} — success rates compare, but "
-            f"the k={min(a_run.k, b_run.k)} side's are noisier, and pass@k and "
-            f"pass^k do not"
+            f"A ran k={a_run.k}, B ran k={b_run.k} — success rates still compare, "
+            f"though the k={min(a_run.k, b_run.k)} side's are noisier; pass@k "
+            f"and pass^k don't compare across k"
         )
     # Fired on the *marker*, never on a depth threshold: "this run stopped early"
     # is a provenance fact, and a threshold here would be a worse rewrite of the

@@ -64,4 +64,5 @@ A comment in `caliper/` says what the code cannot: why, a quirk and its
 reproducer test, or a link to the record holding the reasoning. Aim for three
 lines; five is the ceiling, for docstrings too. A `TODO` cites its issue (`# TODO(#123): ...`), and a `# noqa` names
 its rule and why it does not apply. `tests/test_comment_policy.py` checks the
-ceiling, the `TODO`s and the `noqa`s, allowing the longer blocks that predate it.
+ceiling, the `TODO`s and the `noqa`s, allowing the longer blocks that predate it,
+and fails on any `# type: ignore` or `# ty: ignore`.

@@ -43,8 +43,10 @@ def _usage_errors_are_bad_input() -> Generator[None, None, None]:
     try:
         yield
     except _USAGE_ERROR as error:
-        usage: Any = error  # click types exit_code as a class constant
-        usage.exit_code = ExitCode.BAD_INPUT
+        # A bare `caliper` only shows the help, which is not bad input.
+        if type(error).__name__ != "NoArgsIsHelpError":
+            usage: Any = error  # click types exit_code as a class constant
+            usage.exit_code = ExitCode.BAD_INPUT
         raise
 
 

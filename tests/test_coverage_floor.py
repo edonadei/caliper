@@ -92,6 +92,12 @@ def test_a_module_the_report_never_measured_fails(tmp_path, capsys):
     assert "caliper/retry.py: not in the coverage report" in capsys.readouterr().err
 
 
+def test_an_include_pattern_that_matches_nothing_fails(tmp_path, capsys):
+    root = _project(tmp_path)
+    assert _main(root, {}) == 1
+    assert "caliper/*.py: matches no module" in capsys.readouterr().err
+
+
 def test_a_report_without_branch_data_fails_saying_so(tmp_path, capsys):
     root = _project(tmp_path, "caliper/retry.py")
     lines_only = _file()

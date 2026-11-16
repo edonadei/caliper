@@ -565,6 +565,12 @@ def test_seam_modules_lend_out_only_their_named_contracts() -> None:
                     for alias in node.names
                     if alias.name not in allowed
                 ]
+            elif isinstance(node, ast.ImportFrom):
+                leaks += [
+                    f"{mod.rel_path}:{node.lineno}: {alias.name} from {node.module}"
+                    for alias in node.names
+                    if f"{node.module}.{alias.name}" in SEAM_PUBLIC_NAMES
+                ]
             elif isinstance(node, ast.Import):
                 leaks += [
                     f"{mod.rel_path}:{node.lineno}: import {alias.name}"

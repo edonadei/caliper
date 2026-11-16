@@ -3,6 +3,7 @@
 Images load from the two commits' raw files, which the README freshness test
 keeps equal to what the scripts render. Usage:
 ``python scripts/view_summary.py <base-repo> <base-sha> <head-repo> <head-sha>``.
+It reruns itself as ``view_summary.py --views <tree>`` to list a commit's views.
 """
 
 from __future__ import annotations
