@@ -317,7 +317,7 @@ stopped task `aborted`. Both are scored over the attempts they have: read them
 as a smaller sample, not a worse skill.
 
 **Exit codes.** `0` clean. `1` bad input (missing or invalid spec, unresolvable
-skills). `2` could not run cleanly (backend misconfiguration, unavailable model, failed
+skills, an unknown flag or value). `2` could not run cleanly (backend misconfiguration, unavailable model, failed
 hook or MCP server, or every attempt unusable).
 `3` reserved for "ran cleanly, a declared bar was not met". `130` interrupted.
 `compare` never gates: at small k its any-drop rule fires on noise.

@@ -234,7 +234,11 @@ def test_spec_and_k_mismatch_raise_warnings() -> None:
     assert comp.spec_mismatch
     assert comp.k_mismatch
     assert any("different specs" in w for w in comp.warnings)
-    assert any("k=5" in w and "k=3" in w for w in comp.warnings)
+    (k_warning,) = [w for w in comp.warnings if "k=5" in w and "k=3" in w]
+    # The success rate is k-invariant (docs/adr/0007); only the k-dependent
+    # views and the depth of each estimate differ.
+    assert "success rates still compare" in k_warning
+    assert "pass@k" in k_warning
 
 
 def test_matching_specs_and_k_produce_no_warnings() -> None:

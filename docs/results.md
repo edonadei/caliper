@@ -442,7 +442,7 @@ recorded. Only the version is saved, never the binary's path.
   usable attempts only (unusable spend is its own line), and
   `judge_per_attempt`, over the attempts a judge graded. Each is `null` when
   there is nothing to divide by: no usable attempt, no tokens reported by a
-  usable attempt, or no judge.
+  usable attempt (`usable_tokens_reported` is `false`), or no judge.
 
 ### Activation fields
 

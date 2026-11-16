@@ -6,13 +6,15 @@
 > of static type checker, the scope checked, and the enforcement boundary.
 
 We adopt **Astral's static type checker `ty`, pinned to `ty==0.0.104`**, to type-check
-`caliper/`, `docs/`, and `skills/` against the `requires-python = ">=3.10"` floor.
+`caliper/`, `docs/`, `scripts/` and `skills/` against the `requires-python = ">=3.10"`
+floor.
 Type checking is enforced by a required CI step in `.github/workflows/lint.yml`
 running `ty check`.
 
 ## Scope
 
-`[tool.ty.src]` in `pyproject.toml` sets `include = ["caliper", "docs", "skills"]`.
+`[tool.ty.src]` in `pyproject.toml` sets `include = ["caliper", "docs", "scripts", "skills"]`.
+(`scripts/`, the CI helpers, joined with the coverage floor in #369.)
 `tests/` is intentionally excluded: test fixtures use dynamic monkeypatching, mock
 subprocesses, and synthetic harness doubles (`tests/conftest.py`) that rely on
 runtime dynamism. Requiring full static typing on `tests/` creates maintenance churn
@@ -38,8 +40,10 @@ without improving runtime guarantees in the shipped package.
 - **Bumping `ty` moves in lockstep.** Just like `ruff`, updating `ty` requires
   updating `pyproject.toml`, `.github/CONTRIBUTING.md`, and `AGENTS.md` together,
   tested by `tests/test_doc_sync.py`.
-- **Zero diagnostics policy.** Code under `caliper/`, `docs/`, and `skills/` must
-  pass `ty check` with zero errors and zero warnings, resolving root type mismatches
-  rather than scattering `# type: ignore` suppressions.
+- **Zero diagnostics policy.** Code under `caliper/`, `docs/`, `scripts/` and
+  `skills/` must pass `ty check` with zero errors and zero warnings, resolving root
+  type mismatches rather than scattering `# type: ignore` suppressions.
+  `tests/test_comment_policy.py` fails on any `# type: ignore` or `# ty: ignore`
+  there.
 - **Pre-PR workflow.** Contributors and agents run `ty check` alongside `ruff` and
   `pytest` before submitting pull requests.

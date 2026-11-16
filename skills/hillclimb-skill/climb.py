@@ -108,7 +108,8 @@ def scores(args: argparse.Namespace) -> None:
 
     a_tok = comp["a_usage"].get("tokens_per_attempt")
     b_tok = comp["b_usage"].get("tokens_per_attempt")
-    if a_tok and b_tok:
+    # A's figure is the divisor; B's may fall to zero.
+    if a_tok and b_tok is not None:
         print(f"tokens/attempt  {a_tok} -> {b_tok}  ({(b_tok - a_tok) / a_tok:+.0%})")
     for warning in comp.get("warnings", []):
         print(f"warning: {warning}")

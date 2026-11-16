@@ -59,9 +59,10 @@ instructions live in `AGENTS.md` (`CLAUDE.md` is a symlink to it).
 
 Both ship with the repo, so link them from code comments and docs (for example
 `see docs/adr/0001-attempt-outcome-taxonomy.md`) instead of re-explaining the
-decision inline. A comment block in `caliper/` is five lines at most, a `TODO`
-cites its issue (`# TODO(#123): ...`), and a `# noqa` gives its rule and the
-reason. `tests/test_comment_policy.py` checks all three.
+decision inline. A comment block or docstring in `caliper/` is five lines at
+most, a `TODO` cites its issue (`# TODO(#123): ...`), a `# noqa` gives its rule
+and the reason, and nothing silences ty with `# type: ignore` or `# ty: ignore`.
+`tests/test_comment_policy.py` checks all four.
 
 ## Updating docs after API changes
 

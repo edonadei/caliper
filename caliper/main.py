@@ -1,6 +1,12 @@
+import contextlib
+from collections.abc import Generator
+from typing import Any
+
 import typer
+from typer.core import TyperGroup
 
 from caliper.commands.compare import compare_cmd
+from caliper.commands.diagnosis import ExitCode
 from caliper.commands.list_cmd import list_cmd_fn
 from caliper.commands.login import login_cmd, logout_cmd
 from caliper.commands.report import report_cmd
@@ -9,8 +15,44 @@ from caliper.commands.telemetry import app as telemetry_app
 from caliper.commands.validate import validate_cmd
 from caliper.telemetry import TelemetryCommand
 
+# Whichever click typer raises from: its own vendored copy from 0.26, else click.
+_USAGE_ERROR = next(
+    c
+    for c in typer.BadParameter.__mro__
+    if issubclass(c, Exception) and c.__name__ == "UsageError"
+)
+
+
+class _CaliperGroup(TyperGroup):
+    """Exits a usage error, such as an unknown flag or value, as bad input.
+
+    Click exits it 2, which the README's exit codes reserve for "could not run".
+    """
+
+    def parse_args(self, ctx, args):
+        with _usage_errors_are_bad_input():
+            return super().parse_args(ctx, args)
+
+    def invoke(self, ctx):
+        with _usage_errors_are_bad_input():
+            return super().invoke(ctx)
+
+
+@contextlib.contextmanager
+def _usage_errors_are_bad_input() -> Generator[None, None, None]:
+    try:
+        yield
+    except _USAGE_ERROR as error:
+        # A bare `caliper` only shows the help, which is not bad input.
+        if type(error).__name__ != "NoArgsIsHelpError":
+            usage: Any = error  # click types exit_code as a class constant
+            usage.exit_code = ExitCode.BAD_INPUT
+        raise
+
+
 app = typer.Typer(
     name="caliper",
+    cls=_CaliperGroup,
     help="[bold cyan]caliper[/bold cyan] — evaluate AI skills with confidence",
     rich_markup_mode="rich",
     no_args_is_help=True,

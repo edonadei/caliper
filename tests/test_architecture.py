@@ -54,6 +54,12 @@ SEAM_PUBLIC_MODULES = {
     ),
     "caliper.judge": ("caliper.judge", "caliper.judge.base"),
 }
+# A public module that is mostly harness internals: outside caliper.harness,
+# only these names may be imported from it.
+SEAM_PUBLIC_NAMES = {
+    "caliper.harness.mcp": {"McpPreflightInterrupted", "resolve_declared_paths"},
+    "caliper.harness.refusal": {"CliRefusal", "RefusalKind"},
+}
 EXPECTED_INTERNAL_BAN_MSG = {
     "caliper.harness": (
         "Internal to caliper.harness; expose shared contracts through "
@@ -543,6 +549,38 @@ def test_seam_internal_modules_are_banned_outside_their_package(package: str) ->
         internal,
         boundary_label=f"Code outside {package}",
         remedy=f"import from {package} (or {package}.base) instead.",
+    )
+
+
+def test_seam_modules_lend_out_only_their_named_contracts() -> None:
+    leaks: list[str] = []
+    for mod in _caliper_modules().values():
+        if _matches_prefix(mod.name, "caliper.harness"):
+            continue
+        for node in ast.walk(mod.tree):
+            if isinstance(node, ast.ImportFrom) and node.module in SEAM_PUBLIC_NAMES:
+                allowed = SEAM_PUBLIC_NAMES[node.module]
+                leaks += [
+                    f"{mod.rel_path}:{node.lineno}: {alias.name} from {node.module}"
+                    for alias in node.names
+                    if alias.name not in allowed
+                ]
+            elif isinstance(node, ast.ImportFrom):
+                leaks += [
+                    f"{mod.rel_path}:{node.lineno}: {alias.name} from {node.module}"
+                    for alias in node.names
+                    if f"{node.module}.{alias.name}" in SEAM_PUBLIC_NAMES
+                ]
+            elif isinstance(node, ast.Import):
+                leaks += [
+                    f"{mod.rel_path}:{node.lineno}: import {alias.name}"
+                    for alias in node.names
+                    if alias.name in SEAM_PUBLIC_NAMES
+                ]
+    assert leaks == [], (
+        "these reach past a harness module's named contracts "
+        "(SEAM_PUBLIC_NAMES in tests/test_architecture.py). Import the contract "
+        "by name, or move what you need into caliper.harness.base:\n" + "\n".join(leaks)
     )
 
 

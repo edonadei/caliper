@@ -178,6 +178,7 @@ def test_run_totals_are_the_attempts_spend(attempts) -> None:
         tokens for outcome, tokens in spent if outcome.is_execution_noise
     )
     assert totals.unusable_attempts == sum(o.is_execution_noise for o, _, _ in attempts)
+    assert totals.usable_attempts + totals.unusable_attempts == totals.attempts
 
 
 @given(
