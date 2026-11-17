@@ -243,14 +243,17 @@ class AntigravityHarness(CliHarness):
             ),
             "Antigravity CLI cannot run with the current authentication.\n\n"
             "Caliper drives the local agy CLI and reuses its sign-in (your OS "
-            "keyring, or `GEMINI_API_KEY` / ADC from the environment). The agy "
-            "CLI returned:\n"
+            "keyring, or `GEMINI_API_KEY` / ADC from the environment). "
+            "Caliper ran {cli}, which returned:\n"
             "  {text}\n\n"
-            "Run `agy` once to sign in, verify `agy -p 'Reply OK'` works in "
-            "your normal shell, then rerun caliper.",
+            "Run that `agy` once with no arguments to sign in, verify "
+            "`agy -p 'Reply OK'` works in your normal shell, then rerun caliper.",
             login=True,
         ),
     )
+    # No login_command(): bare `agy` opens its chat TUI instead of signing in
+    # and exiting, so caliper prints the guidance above and never runs it
+    # (tests/test_antigravity_harness.py::test_antigravity_without_a_login_asks_to_sign_in).
 
     def _diagnose(
         self, proc: ProcessResult, report: AgentReport, cli_text: str

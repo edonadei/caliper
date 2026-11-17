@@ -542,9 +542,10 @@ unless a lifecycle hook failed and its diagnostic needs saving. Exits `2` and
 `130` can therefore leave nothing on disk.
 
 A run that stops because the agent's or the judge's CLI is not logged in exits
-`2` with a `Not logged in` error naming the backend's login command. In an
-interactive terminal, `caliper run` first offers to run that command, and reruns
-the eval if the login succeeds. Elsewhere (CI, an agent), nothing waits for
+`2` with a `Not logged in` error that says how to log in. In an interactive
+terminal, `caliper run` first offers to run the backend's login command, and
+reruns the eval if the login succeeds; pi and agy have none to offer. Elsewhere
+(CI, or a coding agent's shell even though it has a terminal), nothing waits for
 input.
 
 `caliper compare` deliberately never fails on a regression. It flags any drop

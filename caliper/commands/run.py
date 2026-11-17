@@ -375,11 +375,10 @@ _AGENT_ENV_VARS = (
 
 
 def _interactive() -> bool:
-    # Coding agents allocate a foreground PTY for tool commands; never block
-    # them on a [y/N] login prompt (see docs/results.md).
+    # Coding agents run tool commands in a foreground PTY, so isatty() can't
+    # tell them from a human; each marks its children with one of these vars.
     if (
         "CI" in os.environ
-        or os.environ.get("TERM") == "dumb"
         or any(var in os.environ for var in _AGENT_ENV_VARS)
         or not (sys.stdin.isatty() and sys.stdout.isatty())
     ):

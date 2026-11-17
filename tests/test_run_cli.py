@@ -912,12 +912,16 @@ class _Tty:
         return 0
 
 
-def _clear_non_interactive_env(monkeypatch) -> None:
+def _human_terminal(monkeypatch, terminal_group: int = 4242) -> None:
+    # A terminal on both ends, outside CI and any coding agent.
     import caliper.commands.run as run_module
 
     for var in ("CI", *run_module._AGENT_ENV_VARS):
         monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setattr("sys.stdin", _Tty())
+    monkeypatch.setattr("sys.stdout", _Tty())
+    monkeypatch.setattr("os.getpgrp", lambda: 4242, raising=False)
+    monkeypatch.setattr("os.tcgetpgrp", lambda _fd: terminal_group, raising=False)
 
 
 @pytest.mark.parametrize(("terminal_group", "asks"), [(4242, True), (999, False)])
@@ -925,11 +929,7 @@ def test_only_the_foreground_job_is_asked(monkeypatch, terminal_group, asks) -> 
     # A run started with `&` keeps the terminal but would stop on reading it.
     import caliper.commands.run as run_module
 
-    _clear_non_interactive_env(monkeypatch)
-    monkeypatch.setattr("sys.stdin", _Tty())
-    monkeypatch.setattr("sys.stdout", _Tty())
-    monkeypatch.setattr("os.getpgrp", lambda: 4242, raising=False)
-    monkeypatch.setattr("os.tcgetpgrp", lambda _fd: terminal_group, raising=False)
+    _human_terminal(monkeypatch, terminal_group)
 
     assert run_module._interactive() is asks
 
@@ -937,7 +937,6 @@ def test_only_the_foreground_job_is_asked(monkeypatch, terminal_group, asks) -> 
 @pytest.mark.parametrize(
     ("env_var", "value"),
     [
-        ("TERM", "dumb"),
         ("ANTIGRAVITY_AGENT", "1"),
         ("CLAUDECODE", "1"),
         ("CODEX_CI", "1"),
@@ -945,19 +944,24 @@ def test_only_the_foreground_job_is_asked(monkeypatch, terminal_group, asks) -> 
         ("OPENCODE", "1"),
     ],
 )
-def test_agent_ptys_and_dumb_terminals_are_never_asked(
-    monkeypatch, env_var, value
-) -> None:
+def test_agent_ptys_are_never_asked(monkeypatch, env_var, value) -> None:
     import caliper.commands.run as run_module
 
-    _clear_non_interactive_env(monkeypatch)
+    _human_terminal(monkeypatch)
     monkeypatch.setenv(env_var, value)
-    monkeypatch.setattr("sys.stdin", _Tty())
-    monkeypatch.setattr("sys.stdout", _Tty())
-    monkeypatch.setattr("os.getpgrp", lambda: 4242, raising=False)
-    monkeypatch.setattr("os.tcgetpgrp", lambda _fd: 4242, raising=False)
 
     assert run_module._interactive() is False
+
+
+def test_a_dumb_terminal_with_a_human_is_still_asked(monkeypatch) -> None:
+    # Emacs `M-x shell` sets TERM=dumb on a real foreground PTY, and the
+    # [y/N] prompt works there.
+    import caliper.commands.run as run_module
+
+    _human_terminal(monkeypatch)
+    monkeypatch.setenv("TERM", "dumb")
+
+    assert run_module._interactive() is True
 
 
 def _results_root_is_a_file(tmp_path, monkeypatch) -> None:

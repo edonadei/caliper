@@ -81,12 +81,14 @@ of these CLIs with an API key (for example `ANTHROPIC_API_KEY` or
 When a run stops because the agent's or the judge's CLI is not logged in, it
 exits `2` with a `Not logged in` error that says how to log in. In an
 interactive terminal, `caliper run` also offers to run that backend's login
-command (`claude auth login`, `codex login`, `hermes model`, `agy` or
+command (`claude auth login`, `codex login`, `hermes model` or
 `opencode auth login`, or
 `caliper login chatgpt` when you [signed Caliper in to
 ChatGPT](#running-on-your-chatgpt-plan)) and reruns the
-eval once the login succeeds. pi logs in only from its own terminal UI, so it
-gets no offer.
+eval once the login succeeds. pi and agy log in only from their own terminal
+UIs, so they get no offer: the error says to run the CLI once yourself. Inside a
+coding agent's shell (Claude Code, Codex, opencode or Antigravity), nothing
+waits for input either.
 
 ### Which account attempts use
 
