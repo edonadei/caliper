@@ -459,8 +459,9 @@ expect: |
 
 **`Not logged in`**
 The agent's or the judge's CLI login lapsed, so the run stopped with exit `2`.
-The error names the backend's login command. Ask the user before running it,
-then rerun.
+The error says how to log in, usually by naming the backend's login command.
+Ask the user before running it, then rerun. For agy or pi, ask the user to run
+the CLI once in their own terminal: it opens a chat UI rather than exiting.
 
 **`The <backend> judge cannot run` / `The <backend> judge was rate limited`**
 The judge CLI reached the provider and the call was refused. Pass

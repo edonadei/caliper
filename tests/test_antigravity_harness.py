@@ -235,11 +235,19 @@ def test_antigravity_missing_cli_raises_configuration_error(
 
 def test_antigravity_without_a_login_asks_to_sign_in(monkeypatch, tmp_path) -> None:
     _fake_agy(monkeypatch, stderr=_AUTH_REQUIRED_STDERR, returncode=1)
+    installed = tmp_path / "bin" / "agy"
+    installed.parent.mkdir()
+    installed.write_text("")
+    monkeypatch.setenv("AGY_CLI_PATH", str(installed))
 
     with pytest.raises(LoginRequired, match="Authentication required") as exc:
         _run(tmp_path)
 
-    assert exc.value.command == ["agy"]
+    # Bare `agy` opens its TUI, so there is no command to offer; the message
+    # names the binary caliper resolved, which may not be the one on PATH.
+    assert exc.value.command is None
+    assert f"Caliper ran {installed}" in str(exc.value)
+    assert "once with no arguments to sign in" in str(exc.value)
 
 
 def test_antigravity_unknown_model_stops_the_run(monkeypatch, tmp_path) -> None:
