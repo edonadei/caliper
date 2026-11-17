@@ -223,9 +223,6 @@ class AntigravityHarness(CliHarness):
     def _read_prompt(self, proc: ProcessResult) -> AgentReport:
         return _read_stream(proc.stdout)
 
-    def login_command(self) -> list[str]:
-        return [self.cli_path() or "agy"]
-
     config_signals = (
         ConfigSignal(
             ("gemini_api_key environment variable is not set",),
@@ -249,7 +246,7 @@ class AntigravityHarness(CliHarness):
             "keyring, or `GEMINI_API_KEY` / ADC from the environment). The agy "
             "CLI returned:\n"
             "  {text}\n\n"
-            "Run `{login}` once to sign in, verify `agy -p 'Reply OK'` works in "
+            "Run `agy` once to sign in, verify `agy -p 'Reply OK'` works in "
             "your normal shell, then rerun caliper.",
             login=True,
         ),

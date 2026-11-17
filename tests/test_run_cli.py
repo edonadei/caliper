@@ -912,18 +912,52 @@ class _Tty:
         return 0
 
 
+def _clear_non_interactive_env(monkeypatch) -> None:
+    import caliper.commands.run as run_module
+
+    for var in ("CI", *run_module._AGENT_ENV_VARS):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+
+
 @pytest.mark.parametrize(("terminal_group", "asks"), [(4242, True), (999, False)])
 def test_only_the_foreground_job_is_asked(monkeypatch, terminal_group, asks) -> None:
     # A run started with `&` keeps the terminal but would stop on reading it.
     import caliper.commands.run as run_module
 
-    monkeypatch.delenv("CI", raising=False)
+    _clear_non_interactive_env(monkeypatch)
     monkeypatch.setattr("sys.stdin", _Tty())
     monkeypatch.setattr("sys.stdout", _Tty())
     monkeypatch.setattr("os.getpgrp", lambda: 4242, raising=False)
     monkeypatch.setattr("os.tcgetpgrp", lambda _fd: terminal_group, raising=False)
 
     assert run_module._interactive() is asks
+
+
+@pytest.mark.parametrize(
+    ("env_var", "value"),
+    [
+        ("TERM", "dumb"),
+        ("ANTIGRAVITY_AGENT", "1"),
+        ("CLAUDECODE", "1"),
+        ("CODEX_CI", "1"),
+        ("CODEX_SANDBOX", "seatbelt"),
+        ("OPENCODE", "1"),
+    ],
+)
+def test_agent_ptys_and_dumb_terminals_are_never_asked(
+    monkeypatch, env_var, value
+) -> None:
+    import caliper.commands.run as run_module
+
+    _clear_non_interactive_env(monkeypatch)
+    monkeypatch.setenv(env_var, value)
+    monkeypatch.setattr("sys.stdin", _Tty())
+    monkeypatch.setattr("sys.stdout", _Tty())
+    monkeypatch.setattr("os.getpgrp", lambda: 4242, raising=False)
+    monkeypatch.setattr("os.tcgetpgrp", lambda _fd: 4242, raising=False)
+
+    assert run_module._interactive() is False
 
 
 def _results_root_is_a_file(tmp_path, monkeypatch) -> None:

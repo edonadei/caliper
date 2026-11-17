@@ -239,7 +239,10 @@ def test_antigravity_without_a_login_asks_to_sign_in(monkeypatch, tmp_path) -> N
     with pytest.raises(LoginRequired, match="Authentication required") as exc:
         _run(tmp_path)
 
-    assert exc.value.command == ["agy"]
+    # agy has no standalone login subcommand (bare `agy` opens its TUI), so
+    # LoginRequired names the CLI in the message and offers no auto-run command.
+    assert exc.value.command is None
+    assert "Run `agy` once to sign in" in str(exc.value)
 
 
 def test_antigravity_unknown_model_stops_the_run(monkeypatch, tmp_path) -> None:

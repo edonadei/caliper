@@ -365,8 +365,24 @@ def _logged_in(command: list[str]) -> bool:
     return returncode == 0
 
 
+_AGENT_ENV_VARS = (
+    "ANTIGRAVITY_AGENT",
+    "CLAUDECODE",
+    "CODEX_CI",
+    "CODEX_SANDBOX",
+    "OPENCODE",
+)
+
+
 def _interactive() -> bool:
-    if "CI" in os.environ or not (sys.stdin.isatty() and sys.stdout.isatty()):
+    # Coding agents allocate a foreground PTY for tool commands; never block
+    # them on a [y/N] login prompt (see docs/results.md).
+    if (
+        "CI" in os.environ
+        or os.environ.get("TERM") == "dumb"
+        or any(var in os.environ for var in _AGENT_ENV_VARS)
+        or not (sys.stdin.isatty() and sys.stdout.isatty())
+    ):
         return False
     try:
         # A job sent to the background with `&` still has the terminal, but
